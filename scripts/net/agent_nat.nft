@@ -5,6 +5,9 @@
 define agent_if = "vmbr1"
 define wan_if = "vmbr0"
 define agent_subnet = 10.77.0.0/16
+define tailscale_if = "tailscale0"
+define tailnet_v4 = 100.64.0.0/10
+define tailnet_v6 = fd7a:115c:a1e0::/48
 
 table inet agentlab {
   chain forward {
@@ -12,6 +15,13 @@ table inet agentlab {
     policy accept;
 
     ct state established,related return
+
+    # Allow tailnet → sandbox connections.
+    iifname $tailscale_if oifname $agent_if accept
+
+    # Block sandbox-initiated connections into the tailnet.
+    iifname $agent_if ip saddr $agent_subnet ip daddr $tailnet_v4 drop
+    iifname $agent_if ip6 daddr $tailnet_v6 drop
 
     iifname $agent_if ip saddr $agent_subnet ip daddr {10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16, 169.254.0.0/16} drop
     iifname $agent_if ip6 daddr {fc00::/7, fe80::/10} drop

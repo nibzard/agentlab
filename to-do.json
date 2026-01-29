@@ -85,11 +85,19 @@
       "id": "T005",
       "title": "Set up Tailscale subnet routing with asymmetric firewall policy",
       "priority": 1,
-      "status": "todo",
+      "status": "done",
       "details": "Advertise 10.77.0.0/16 and allow tailnet→sandbox connections while blocking sandbox→tailnet new connections.",
       "depends_on": [
         "T003",
         "T004"
+      ],
+      "updated_at": "2026-01-29T22:40:09Z",
+      "files": [
+        "scripts/net/agent_nat.nft",
+        "scripts/net/apply.sh",
+        "scripts/net/setup_tailscale_router.sh",
+        "scripts/README.md",
+        "to-do.json"
       ]
     },
     {

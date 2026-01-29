@@ -13,11 +13,15 @@ die() {
 usage() {
   cat <<'USAGE'
 Usage: scripts/net/apply.sh [--bridge vmbr1] [--wan vmbr0] [--subnet 10.77.0.0/16] [--apply] [--force]
+                          [--tailscale-if tailscale0] [--tailnet-v4 100.64.0.0/10] [--tailnet-v6 fd7a:115c:a1e0::/48]
 
 Options:
   --bridge   Agent bridge/interface name (default: vmbr1)
   --wan      WAN/LAN interface for NAT egress (default: vmbr0)
   --subnet   Agent subnet CIDR (default: 10.77.0.0/16)
+  --tailscale-if  Tailscale interface name (default: tailscale0)
+  --tailnet-v4    Tailnet IPv4 CIDR to block from sandbox (default: 100.64.0.0/10)
+  --tailnet-v6    Tailnet IPv6 CIDR to block from sandbox (default: fd7a:115c:a1e0::/48)
   --apply    Enable and start the agentlab-nftables.service
   --force    Overwrite managed files if they already exist with different content
 USAGE
@@ -26,6 +30,9 @@ USAGE
 BRIDGE="vmbr1"
 WAN="vmbr0"
 SUBNET="10.77.0.0/16"
+TAILSCALE_IF="tailscale0"
+TAILNET_V4="100.64.0.0/10"
+TAILNET_V6="fd7a:115c:a1e0::/48"
 APPLY=0
 FORCE=0
 
@@ -44,6 +51,21 @@ while [[ $# -gt 0 ]]; do
     --subnet)
       [[ $# -lt 2 ]] && die "--subnet requires a value"
       SUBNET="$2"
+      shift 2
+      ;;
+    --tailscale-if)
+      [[ $# -lt 2 ]] && die "--tailscale-if requires a value"
+      TAILSCALE_IF="$2"
+      shift 2
+      ;;
+    --tailnet-v4)
+      [[ $# -lt 2 ]] && die "--tailnet-v4 requires a value"
+      TAILNET_V4="$2"
+      shift 2
+      ;;
+    --tailnet-v6)
+      [[ $# -lt 2 ]] && die "--tailnet-v6 requires a value"
+      TAILNET_V6="$2"
       shift 2
       ;;
     --apply)
@@ -84,6 +106,9 @@ render_rules() {
     -e "s|^define agent_if = .*|define agent_if = \"${BRIDGE}\"|" \
     -e "s|^define wan_if = .*|define wan_if = \"${WAN}\"|" \
     -e "s|^define agent_subnet = .*|define agent_subnet = ${SUBNET}|" \
+    -e "s|^define tailscale_if = .*|define tailscale_if = \"${TAILSCALE_IF}\"|" \
+    -e "s|^define tailnet_v4 = .*|define tailnet_v4 = ${TAILNET_V4}|" \
+    -e "s|^define tailnet_v6 = .*|define tailnet_v6 = ${TAILNET_V6}|" \
     "$TEMPLATE"
 }
 
@@ -117,7 +142,7 @@ rm -f "$rules_tmp"
 unit_tmp="$(mktemp)"
 cat <<EOF_UNIT > "$unit_tmp"
 [Unit]
-Description=AgentLab nftables rules (agent NAT + egress blocks)
+Description=AgentLab nftables rules (agent NAT + egress/tailnet blocks)
 After=network.target
 Wants=network.target
 
