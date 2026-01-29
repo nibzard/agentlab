@@ -1,0 +1,24 @@
+[Unit]
+Description=AgentLab daemon
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=root
+Group=agentlab
+UMask=0007
+ExecStart=/usr/local/bin/agentlabd --config /etc/agentlab/config.yaml
+Restart=on-failure
+RestartSec=2
+RuntimeDirectory=agentlab
+RuntimeDirectoryMode=0750
+StateDirectory=agentlab
+StateDirectoryMode=0750
+LogsDirectory=agentlab
+LogsDirectoryMode=0750
+StandardOutput=append:/var/log/agentlab/agentlabd.log
+StandardError=append:/var/log/agentlab/agentlabd.log
+
+[Install]
+WantedBy=multi-user.target

@@ -16,30 +16,38 @@
       "priority": 1,
       "status": "done",
       "details": "Set up repo layout, shared config/models/proxmox libs, and Makefile targets (build, lint, test) with CI-ready outputs.",
-      "updated_at": "2026-01-29T22:17:54Z",
+      "updated_at": "2026-01-29T22:19:07Z",
       "files": [
-        "Makefile",
-        "go.mod",
         ".github/workflows/ci.yml",
         ".gitignore",
+        "Makefile",
         "cmd/agentlab/main.go",
         "cmd/agentlabd/main.go",
+        "go.mod",
         "internal/buildinfo/buildinfo.go",
         "internal/config/config.go",
         "internal/db/db.go",
         "internal/models/models.go",
         "internal/proxmox/proxmox.go",
-        "scripts/README.md"
+        "scripts/README.md",
+        "to-do.json",
+        "to-do.schema.json"
       ]
     },
     {
       "id": "T002",
       "title": "Implement host install script and systemd unit for agentlabd",
       "priority": 1,
-      "status": "todo",
+      "status": "done",
       "details": "Install binaries, create /etc/agentlab + /var/lib/agentlab + /var/log/agentlab + /run/agentlab, enable agentlabd.service, and verify socket permissions.",
       "depends_on": [
         "T001"
+      ],
+      "updated_at": "2026-01-29T22:24:21Z",
+      "files": [
+        "scripts/install_host.sh",
+        "scripts/systemd/agentlabd.service",
+        "scripts/README.md"
       ]
     },
     {
