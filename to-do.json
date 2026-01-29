@@ -115,10 +115,17 @@
       "id": "T007",
       "title": "Implement Proxmox backend interface with shell-based qm/pvesh backend",
       "priority": 1,
-      "status": "todo",
+      "status": "done",
       "details": "Support clone, configure, start/stop/destroy, status query, and IP discovery hooks with unit tests.",
       "depends_on": [
         "T001"
+      ],
+      "updated_at": "2026-01-29T22:48:41Z",
+      "files": [
+        "internal/proxmox/proxmox.go",
+        "internal/proxmox/shell_backend.go",
+        "internal/proxmox/shell_backend_test.go",
+        "to-do.json"
       ]
     },
     {
