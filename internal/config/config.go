@@ -12,6 +12,8 @@ type Config struct {
 	SocketPath      string
 	DBPath          string
 	BootstrapListen string
+	SnippetsDir     string
+	SnippetStorage  string
 }
 
 func DefaultConfig() Config {
@@ -26,5 +28,7 @@ func DefaultConfig() Config {
 		SocketPath:      filepath.Join(runDir, "agentlabd.sock"),
 		DBPath:          filepath.Join(dataDir, "agentlab.db"),
 		BootstrapListen: "10.77.0.1:8844",
+		SnippetsDir:     "/var/lib/vz/snippets",
+		SnippetStorage:  "local",
 	}
 }

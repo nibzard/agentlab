@@ -73,11 +73,11 @@
       "depends_on": [
         "T003"
       ],
-      "updated_at": "2026-01-29T22:34:28Z",
+      "updated_at": "2026-01-29T22:35:10Z",
       "files": [
+        "scripts/README.md",
         "scripts/net/agent_nat.nft",
         "scripts/net/apply.sh",
-        "scripts/README.md",
         "to-do.json"
       ]
     },
@@ -91,12 +91,12 @@
         "T003",
         "T004"
       ],
-      "updated_at": "2026-01-29T22:40:09Z",
+      "updated_at": "2026-01-29T22:43:25Z",
       "files": [
+        "scripts/README.md",
         "scripts/net/agent_nat.nft",
         "scripts/net/apply.sh",
         "scripts/net/setup_tailscale_router.sh",
-        "scripts/README.md",
         "to-do.json"
       ]
     },
@@ -120,7 +120,7 @@
       "depends_on": [
         "T001"
       ],
-      "updated_at": "2026-01-29T22:48:41Z",
+      "updated_at": "2026-01-29T22:50:58Z",
       "files": [
         "internal/proxmox/proxmox.go",
         "internal/proxmox/shell_backend.go",
@@ -132,10 +132,17 @@
       "id": "T008",
       "title": "Manage cloud-init snippet lifecycle for sandboxes",
       "priority": 1,
-      "status": "todo",
+      "status": "done",
       "details": "Generate minimal user-data snippets (hostname, SSH key, bootstrap token), store in snippets storage, and delete on teardown.",
       "depends_on": [
         "T007"
+      ],
+      "updated_at": "2026-01-29T22:55:14Z",
+      "files": [
+        "internal/proxmox/cloudinit_snippets.go",
+        "internal/proxmox/cloudinit_snippets_test.go",
+        "internal/config/config.go",
+        "to-do.json"
       ]
     },
     {
