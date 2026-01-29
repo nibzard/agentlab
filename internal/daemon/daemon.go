@@ -14,6 +14,7 @@ import (
 	"github.com/agentlab/agentlab/internal/config"
 	"github.com/agentlab/agentlab/internal/db"
 	"github.com/agentlab/agentlab/internal/models"
+	"github.com/agentlab/agentlab/internal/proxmox"
 )
 
 const (
@@ -31,6 +32,7 @@ type Service struct {
 	bootstrapListener net.Listener
 	unixServer        *http.Server
 	bootstrapServer   *http.Server
+	sandboxManager    *SandboxManager
 }
 
 // Run loads profiles, binds listeners, and serves until ctx is canceled.
@@ -88,6 +90,8 @@ func NewService(cfg config.Config, profiles map[string]models.Profile, store *db
 		IdleTimeout:       2 * time.Minute,
 	}
 
+	sandboxManager := NewSandboxManager(store, &proxmox.ShellBackend{}, log.Default())
+
 	return &Service{
 		cfg:               cfg,
 		profiles:          profiles,
@@ -96,6 +100,7 @@ func NewService(cfg config.Config, profiles map[string]models.Profile, store *db
 		bootstrapListener: bootstrapListener,
 		unixServer:        unixServer,
 		bootstrapServer:   bootstrapServer,
+		sandboxManager:    sandboxManager,
 	}, nil
 }
 
@@ -103,6 +108,9 @@ func NewService(cfg config.Config, profiles map[string]models.Profile, store *db
 func (s *Service) Serve(ctx context.Context) error {
 	log.Printf("agentlabd: listening on unix=%s", s.cfg.SocketPath)
 	log.Printf("agentlabd: listening on bootstrap=%s", s.cfg.BootstrapListen)
+	if s.sandboxManager != nil {
+		s.sandboxManager.StartLeaseGC(ctx)
+	}
 
 	errCh := make(chan error, 2)
 	go func() { errCh <- s.unixServer.Serve(s.unixListener) }()

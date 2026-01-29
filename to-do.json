@@ -191,25 +191,33 @@
       "depends_on": [
         "T010"
       ],
-      "updated_at": "2026-01-29T23:17:07Z",
+      "updated_at": "2026-01-29T23:18:12Z",
       "files": [
+        "go.mod",
+        "go.sum",
+        "internal/daemon/daemon.go",
+        "internal/db/README.md",
         "internal/db/db.go",
         "internal/db/migrations.go",
-        "internal/db/README.md",
-        "internal/daemon/daemon.go",
-        "go.mod",
-        "go.sum"
+        "to-do.json"
       ]
     },
     {
       "id": "T012",
       "title": "Build sandbox state machine and lease/TTL engine",
       "priority": 1,
-      "status": "todo",
+      "status": "done",
       "details": "Persist deterministic transitions and background GC for expired sandboxes, including keepalive renewals.",
       "depends_on": [
         "T011",
         "T007"
+      ],
+      "updated_at": "2026-01-29T23:24:50Z",
+      "files": [
+        "internal/db/sandboxes.go",
+        "internal/daemon/sandbox_manager.go",
+        "internal/daemon/sandbox_manager_test.go",
+        "internal/daemon/daemon.go"
       ]
     },
     {
