@@ -177,6 +177,26 @@ func (s *Store) UpdateSandboxLease(ctx context.Context, vmid int, leaseExpiresAt
 	return nil
 }
 
+// UpdateSandboxIP updates the IP address for a sandbox.
+func (s *Store) UpdateSandboxIP(ctx context.Context, vmid int, ip string) error {
+	if s == nil || s.DB == nil {
+		return errors.New("db store is nil")
+	}
+	if vmid <= 0 {
+		return errors.New("vmid must be positive")
+	}
+	updatedAt := formatTime(time.Now().UTC())
+	_, err := s.DB.ExecContext(ctx, `UPDATE sandboxes SET ip = ?, updated_at = ? WHERE vmid = ?`,
+		nullIfEmpty(ip),
+		updatedAt,
+		vmid,
+	)
+	if err != nil {
+		return fmt.Errorf("update sandbox %d ip: %w", vmid, err)
+	}
+	return nil
+}
+
 // RecordEvent inserts an event row.
 func (s *Store) RecordEvent(ctx context.Context, kind string, sandboxVMID *int, jobID *string, msg string, jsonPayload string) error {
 	if s == nil || s.DB == nil {

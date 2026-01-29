@@ -47,6 +47,10 @@ func (s *Store) CreateJob(ctx context.Context, job models.Job) error {
 	if job.TTLMinutes > 0 {
 		ttl = job.TTLMinutes
 	}
+	var result interface{}
+	if job.ResultJSON != "" {
+		result = job.ResultJSON
+	}
 	_, err := s.DB.ExecContext(ctx, `INSERT INTO jobs (
 		id, repo_url, ref, profile, status, sandbox_vmid, task, mode, ttl_minutes, keepalive, created_at, updated_at, result_json
 	) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
@@ -62,7 +66,7 @@ func (s *Store) CreateJob(ctx context.Context, job models.Job) error {
 		job.Keepalive,
 		formatTime(createdAt),
 		formatTime(updatedAt),
-		nil,
+		result,
 	)
 	if err != nil {
 		return fmt.Errorf("insert job %s: %w", job.ID, err)
@@ -75,7 +79,7 @@ func (s *Store) GetJob(ctx context.Context, id string) (models.Job, error) {
 	if s == nil || s.DB == nil {
 		return models.Job{}, errors.New("db store is nil")
 	}
-	row := s.DB.QueryRowContext(ctx, `SELECT id, repo_url, ref, profile, task, mode, ttl_minutes, keepalive, status, sandbox_vmid, created_at, updated_at
+	row := s.DB.QueryRowContext(ctx, `SELECT id, repo_url, ref, profile, task, mode, ttl_minutes, keepalive, status, sandbox_vmid, created_at, updated_at, result_json
 		FROM jobs WHERE id = ?`, id)
 	return scanJobRow(row)
 }
@@ -103,6 +107,62 @@ func (s *Store) UpdateJobSandbox(ctx context.Context, id string, vmid int) (bool
 	return affected > 0, nil
 }
 
+// UpdateJobStatus updates the status of a job.
+func (s *Store) UpdateJobStatus(ctx context.Context, id string, status models.JobStatus) error {
+	if s == nil || s.DB == nil {
+		return errors.New("db store is nil")
+	}
+	if id == "" {
+		return errors.New("job id is required")
+	}
+	if status == "" {
+		return errors.New("job status is required")
+	}
+	updatedAt := formatTime(time.Now().UTC())
+	res, err := s.DB.ExecContext(ctx, `UPDATE jobs SET status = ?, updated_at = ? WHERE id = ?`, status, updatedAt, id)
+	if err != nil {
+		return fmt.Errorf("update job %s status: %w", id, err)
+	}
+	affected, err := res.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("rows affected job %s: %w", id, err)
+	}
+	if affected == 0 {
+		return sql.ErrNoRows
+	}
+	return nil
+}
+
+// UpdateJobResult updates status and result_json for a job.
+func (s *Store) UpdateJobResult(ctx context.Context, id string, status models.JobStatus, resultJSON string) error {
+	if s == nil || s.DB == nil {
+		return errors.New("db store is nil")
+	}
+	if id == "" {
+		return errors.New("job id is required")
+	}
+	if status == "" {
+		return errors.New("job status is required")
+	}
+	var result interface{}
+	if resultJSON != "" {
+		result = resultJSON
+	}
+	updatedAt := formatTime(time.Now().UTC())
+	res, err := s.DB.ExecContext(ctx, `UPDATE jobs SET status = ?, result_json = ?, updated_at = ? WHERE id = ?`, status, result, updatedAt, id)
+	if err != nil {
+		return fmt.Errorf("update job %s result: %w", id, err)
+	}
+	affected, err := res.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("rows affected job %s: %w", id, err)
+	}
+	if affected == 0 {
+		return sql.ErrNoRows
+	}
+	return nil
+}
+
 func scanJobRow(scanner interface{ Scan(dest ...any) error }) (models.Job, error) {
 	var job models.Job
 	var task sql.NullString
@@ -113,6 +173,7 @@ func scanJobRow(scanner interface{ Scan(dest ...any) error }) (models.Job, error
 	var sandbox sql.NullInt64
 	var createdAt string
 	var updatedAt string
+	var result sql.NullString
 	if err := scanner.Scan(
 		&job.ID,
 		&job.RepoURL,
@@ -126,6 +187,7 @@ func scanJobRow(scanner interface{ Scan(dest ...any) error }) (models.Job, error
 		&sandbox,
 		&createdAt,
 		&updatedAt,
+		&result,
 	); err != nil {
 		return models.Job{}, err
 	}
@@ -161,6 +223,9 @@ func scanJobRow(scanner interface{ Scan(dest ...any) error }) (models.Job, error
 		if err != nil {
 			return models.Job{}, fmt.Errorf("parse updated_at: %w", err)
 		}
+	}
+	if result.Valid {
+		job.ResultJSON = result.String
 	}
 	return job, nil
 }

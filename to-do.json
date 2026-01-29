@@ -232,17 +232,17 @@
         "T011",
         "T012"
       ],
-      "updated_at": "2026-01-29T23:34:01Z",
+      "updated_at": "2026-01-29T23:34:52Z",
       "files": [
+        "docs/api.md",
         "internal/daemon/api.go",
         "internal/daemon/api_types.go",
+        "internal/daemon/daemon.go",
+        "internal/daemon/sandbox_manager.go",
         "internal/db/jobs.go",
         "internal/db/migrations.go",
         "internal/db/sandboxes.go",
-        "internal/daemon/daemon.go",
-        "internal/daemon/sandbox_manager.go",
         "internal/models/models.go",
-        "docs/api.md",
         "to-do.json"
       ]
     },
@@ -250,12 +250,27 @@
       "id": "T014",
       "title": "Implement job orchestration flow (create → run → report → destroy)",
       "priority": 1,
-      "status": "todo",
+      "status": "done",
       "details": "Create sandbox with bootstrap token, wait for runner updates, persist results/artifacts metadata, and destroy if ephemeral.",
       "depends_on": [
         "T013",
         "T017",
         "T020"
+      ],
+      "updated_at": "2026-01-29T23:55:16Z",
+      "files": [
+        "internal/daemon/job_orchestrator.go",
+        "internal/daemon/runner_api.go",
+        "internal/daemon/daemon.go",
+        "internal/daemon/api.go",
+        "internal/daemon/api_types.go",
+        "internal/daemon/sandbox_alloc.go",
+        "internal/daemon/job_orchestrator_test.go",
+        "internal/db/jobs.go",
+        "internal/db/bootstrap_tokens.go",
+        "internal/db/sandboxes.go",
+        "internal/models/models.go",
+        "internal/config/config.go"
       ]
     },
     {

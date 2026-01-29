@@ -5,35 +5,40 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"gopkg.in/yaml.v3"
 )
 
 // Config holds daemon configuration paths and listener settings.
 type Config struct {
-	ConfigPath      string
-	ProfilesDir     string
-	DataDir         string
-	LogDir          string
-	RunDir          string
-	SocketPath      string
-	DBPath          string
-	BootstrapListen string
-	SnippetsDir     string
-	SnippetStorage  string
+	ConfigPath       string
+	ProfilesDir      string
+	DataDir          string
+	LogDir           string
+	RunDir           string
+	SocketPath       string
+	DBPath           string
+	BootstrapListen  string
+	SnippetsDir      string
+	SnippetStorage   string
+	SSHPublicKey     string
+	SSHPublicKeyPath string
 }
 
 // FileConfig represents supported YAML config overrides.
 type FileConfig struct {
-	ProfilesDir     string `yaml:"profiles_dir"`
-	DataDir         string `yaml:"data_dir"`
-	LogDir          string `yaml:"log_dir"`
-	RunDir          string `yaml:"run_dir"`
-	SocketPath      string `yaml:"socket_path"`
-	DBPath          string `yaml:"db_path"`
-	BootstrapListen string `yaml:"bootstrap_listen"`
-	SnippetsDir     string `yaml:"snippets_dir"`
-	SnippetStorage  string `yaml:"snippet_storage"`
+	ProfilesDir      string `yaml:"profiles_dir"`
+	DataDir          string `yaml:"data_dir"`
+	LogDir           string `yaml:"log_dir"`
+	RunDir           string `yaml:"run_dir"`
+	SocketPath       string `yaml:"socket_path"`
+	DBPath           string `yaml:"db_path"`
+	BootstrapListen  string `yaml:"bootstrap_listen"`
+	SnippetsDir      string `yaml:"snippets_dir"`
+	SnippetStorage   string `yaml:"snippet_storage"`
+	SSHPublicKey     string `yaml:"ssh_public_key"`
+	SSHPublicKeyPath string `yaml:"ssh_public_key_path"`
 }
 
 func DefaultConfig() Config {
@@ -74,6 +79,13 @@ func Load(path string) (Config, error) {
 	if fileCfg.RunDir != "" && fileCfg.SocketPath == "" {
 		cfg.SocketPath = filepath.Join(cfg.RunDir, "agentlabd.sock")
 	}
+	if cfg.SSHPublicKey == "" && cfg.SSHPublicKeyPath != "" {
+		keyData, err := os.ReadFile(cfg.SSHPublicKeyPath)
+		if err != nil {
+			return cfg, fmt.Errorf("read ssh public key %s: %w", cfg.SSHPublicKeyPath, err)
+		}
+		cfg.SSHPublicKey = strings.TrimSpace(string(keyData))
+	}
 	if err := cfg.Validate(); err != nil {
 		return cfg, err
 	}
@@ -108,6 +120,12 @@ func applyFileConfig(cfg *Config, fileCfg FileConfig) {
 	if fileCfg.SnippetStorage != "" {
 		cfg.SnippetStorage = fileCfg.SnippetStorage
 	}
+	if fileCfg.SSHPublicKey != "" {
+		cfg.SSHPublicKey = fileCfg.SSHPublicKey
+	}
+	if fileCfg.SSHPublicKeyPath != "" {
+		cfg.SSHPublicKeyPath = fileCfg.SSHPublicKeyPath
+	}
 }
 
 // Validate performs basic validation without exposing secrets.
@@ -129,6 +147,9 @@ func (c Config) Validate() error {
 	}
 	if _, _, err := net.SplitHostPort(c.BootstrapListen); err != nil {
 		return fmt.Errorf("bootstrap_listen must be host:port: %w", err)
+	}
+	if c.SSHPublicKeyPath != "" && c.SSHPublicKey == "" {
+		return fmt.Errorf("ssh_public_key_path is set but empty or unreadable")
 	}
 	return nil
 }

@@ -1,7 +1,6 @@
 package daemon
 
 import (
-	"context"
 	"crypto/rand"
 	"database/sql"
 	"encoding/hex"
@@ -28,18 +27,20 @@ const (
 
 // ControlAPI handles local control plane HTTP requests over the Unix socket.
 type ControlAPI struct {
-	store          *db.Store
-	profiles       map[string]models.Profile
-	sandboxManager *SandboxManager
-	now            func() time.Time
+	store           *db.Store
+	profiles        map[string]models.Profile
+	sandboxManager  *SandboxManager
+	jobOrchestrator *JobOrchestrator
+	now             func() time.Time
 }
 
-func NewControlAPI(store *db.Store, profiles map[string]models.Profile, manager *SandboxManager) *ControlAPI {
+func NewControlAPI(store *db.Store, profiles map[string]models.Profile, manager *SandboxManager, orchestrator *JobOrchestrator) *ControlAPI {
 	return &ControlAPI{
-		store:          store,
-		profiles:       profiles,
-		sandboxManager: manager,
-		now:            time.Now,
+		store:           store,
+		profiles:        profiles,
+		sandboxManager:  manager,
+		jobOrchestrator: orchestrator,
+		now:             time.Now,
 	}
 }
 
@@ -159,6 +160,12 @@ func (api *ControlAPI) handleJobCreate(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "failed to create job")
 		return
 	}
+	if api.jobOrchestrator == nil {
+		_ = api.store.UpdateJobStatus(ctx, job.ID, models.JobFailed)
+		writeError(w, http.StatusInternalServerError, "job orchestration unavailable")
+		return
+	}
+	api.jobOrchestrator.Start(job.ID)
 	writeJSON(w, http.StatusCreated, jobToV1(job))
 }
 
@@ -286,7 +293,7 @@ func (api *ControlAPI) handleSandboxCreate(w http.ResponseWriter, r *http.Reques
 		vmid = *req.VMID
 	}
 	if vmid == 0 {
-		next, err := api.nextSandboxVMID(ctx)
+		next, err := nextSandboxVMID(ctx, api.store)
 		if err != nil {
 			writeError(w, http.StatusInternalServerError, "failed to allocate vmid")
 			return
@@ -318,7 +325,7 @@ func (api *ControlAPI) handleSandboxCreate(w http.ResponseWriter, r *http.Reques
 		sandbox.WorkspaceID = &workspace
 	}
 
-	createdSandbox, err := api.createSandboxWithRetry(ctx, sandbox)
+	createdSandbox, err := createSandboxWithRetry(ctx, api.store, sandbox)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to create sandbox")
 		return
@@ -406,35 +413,6 @@ func (api *ControlAPI) profileExists(name string) bool {
 	return ok
 }
 
-func (api *ControlAPI) nextSandboxVMID(ctx context.Context) (int, error) {
-	maxVMID, err := api.store.MaxSandboxVMID(ctx)
-	if err != nil {
-		return 0, err
-	}
-	if maxVMID < defaultSandboxVMIDStart {
-		return defaultSandboxVMIDStart, nil
-	}
-	return maxVMID + 1, nil
-}
-
-func (api *ControlAPI) createSandboxWithRetry(ctx context.Context, sandbox models.Sandbox) (models.Sandbox, error) {
-	attempt := sandbox
-	for i := 0; i < 5; i++ {
-		err := api.store.CreateSandbox(ctx, attempt)
-		if err == nil {
-			return attempt, nil
-		}
-		if !isUniqueConstraint(err) {
-			return models.Sandbox{}, err
-		}
-		attempt.VMID++
-		if attempt.Name == sandbox.Name {
-			attempt.Name = fmt.Sprintf("sandbox-%d", attempt.VMID)
-		}
-	}
-	return models.Sandbox{}, errors.New("vmid allocation failed")
-}
-
 func jobToV1(job models.Job) V1JobResponse {
 	resp := V1JobResponse{
 		ID:        job.ID,
@@ -454,6 +432,9 @@ func jobToV1(job models.Job) V1JobResponse {
 	}
 	if job.SandboxVMID != nil && *job.SandboxVMID > 0 {
 		resp.SandboxVMID = job.SandboxVMID
+	}
+	if job.ResultJSON != "" {
+		resp.Result = json.RawMessage(job.ResultJSON)
 	}
 	return resp
 }

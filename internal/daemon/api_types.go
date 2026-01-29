@@ -1,5 +1,7 @@
 package daemon
 
+import "encoding/json"
+
 type V1ErrorResponse struct {
 	Error string `json:"error"`
 }
@@ -15,18 +17,19 @@ type V1JobCreateRequest struct {
 }
 
 type V1JobResponse struct {
-	ID          string `json:"id"`
-	RepoURL     string `json:"repo_url"`
-	Ref         string `json:"ref"`
-	Profile     string `json:"profile"`
-	Task        string `json:"task,omitempty"`
-	Mode        string `json:"mode,omitempty"`
-	TTLMinutes  *int   `json:"ttl_minutes,omitempty"`
-	Keepalive   bool   `json:"keepalive"`
-	Status      string `json:"status"`
-	SandboxVMID *int   `json:"sandbox_vmid,omitempty"`
-	CreatedAt   string `json:"created_at"`
-	UpdatedAt   string `json:"updated_at"`
+	ID          string          `json:"id"`
+	RepoURL     string          `json:"repo_url"`
+	Ref         string          `json:"ref"`
+	Profile     string          `json:"profile"`
+	Task        string          `json:"task,omitempty"`
+	Mode        string          `json:"mode,omitempty"`
+	TTLMinutes  *int            `json:"ttl_minutes,omitempty"`
+	Keepalive   bool            `json:"keepalive"`
+	Status      string          `json:"status"`
+	SandboxVMID *int            `json:"sandbox_vmid,omitempty"`
+	Result      json.RawMessage `json:"result,omitempty"`
+	CreatedAt   string          `json:"created_at"`
+	UpdatedAt   string          `json:"updated_at"`
 }
 
 type V1SandboxCreateRequest struct {
@@ -63,4 +66,26 @@ type V1LeaseRenewRequest struct {
 type V1LeaseRenewResponse struct {
 	VMID         int    `json:"vmid"`
 	LeaseExpires string `json:"lease_expires_at"`
+}
+
+type V1ArtifactMetadata struct {
+	Name      string `json:"name"`
+	Path      string `json:"path,omitempty"`
+	SizeBytes int64  `json:"size_bytes,omitempty"`
+	Sha256    string `json:"sha256,omitempty"`
+	MIME      string `json:"mime,omitempty"`
+}
+
+type V1RunnerReportRequest struct {
+	JobID     string               `json:"job_id"`
+	VMID      int                  `json:"vmid"`
+	Status    string               `json:"status"`
+	Message   string               `json:"message,omitempty"`
+	Artifacts []V1ArtifactMetadata `json:"artifacts,omitempty"`
+	Result    json.RawMessage      `json:"result,omitempty"`
+}
+
+type V1RunnerReportResponse struct {
+	JobStatus     string `json:"job_status"`
+	SandboxStatus string `json:"sandbox_status,omitempty"`
 }

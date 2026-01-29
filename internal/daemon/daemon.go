@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/agentlab/agentlab/internal/config"
@@ -72,15 +73,28 @@ func NewService(cfg config.Config, profiles map[string]models.Profile, store *db
 		return nil, fmt.Errorf("listen bootstrap %s: %w", cfg.BootstrapListen, err)
 	}
 
-	sandboxManager := NewSandboxManager(store, &proxmox.ShellBackend{}, log.Default())
+	backend := &proxmox.ShellBackend{}
+	sandboxManager := NewSandboxManager(store, backend, log.Default())
+	snippetStore := proxmox.SnippetStore{
+		Storage: cfg.SnippetStorage,
+		Dir:     cfg.SnippetsDir,
+	}
+	controllerURL := buildControllerURL(cfg.BootstrapListen)
+	var jobOrchestrator *JobOrchestrator
+	if strings.TrimSpace(cfg.SSHPublicKey) != "" {
+		jobOrchestrator = NewJobOrchestrator(store, profiles, backend, sandboxManager, snippetStore, cfg.SSHPublicKey, controllerURL, log.Default())
+	} else {
+		log.Printf("agentlabd: ssh public key missing; job orchestration disabled")
+	}
 
 	localMux := http.NewServeMux()
 	localMux.HandleFunc("/healthz", healthHandler)
-	NewControlAPI(store, profiles, sandboxManager).Register(localMux)
+	NewControlAPI(store, profiles, sandboxManager, jobOrchestrator).Register(localMux)
 
 	bootstrapMux := http.NewServeMux()
 	bootstrapMux.HandleFunc("/healthz", healthHandler)
 	bootstrapMux.HandleFunc("/v1/bootstrap/fetch", bootstrapNotImplementedHandler)
+	NewRunnerAPI(jobOrchestrator).Register(bootstrapMux)
 
 	unixServer := &http.Server{
 		Handler:           localMux,
@@ -192,4 +206,15 @@ func bootstrapNotImplementedHandler(w http.ResponseWriter, _ *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusNotImplemented)
 	_, _ = w.Write([]byte(`{"error":"bootstrap endpoint not implemented"}`))
+}
+
+func buildControllerURL(listen string) string {
+	host, port, err := net.SplitHostPort(listen)
+	if err != nil {
+		return "http://" + listen
+	}
+	if strings.Contains(host, ":") {
+		host = "[" + host + "]"
+	}
+	return "http://" + host + ":" + port
 }

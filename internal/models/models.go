@@ -53,6 +53,7 @@ type Job struct {
 	SandboxVMID *int
 	CreatedAt   time.Time
 	UpdatedAt   time.Time
+	ResultJSON  string
 }
 
 type Profile struct {
