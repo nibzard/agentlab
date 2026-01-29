@@ -171,14 +171,14 @@
       "depends_on": [
         "T001"
       ],
-      "updated_at": "2026-01-29T23:08:24Z",
+      "updated_at": "2026-01-29T23:09:02Z",
       "files": [
         "cmd/agentlabd/main.go",
+        "go.mod",
+        "go.sum",
         "internal/config/config.go",
         "internal/daemon/daemon.go",
         "internal/daemon/profiles.go",
-        "go.mod",
-        "go.sum",
         "to-do.json"
       ]
     },
@@ -186,10 +186,19 @@
       "id": "T011",
       "title": "Implement SQLite schema and migrations for core tables",
       "priority": 1,
-      "status": "todo",
+      "status": "done",
       "details": "Create sandboxes, jobs, profiles, workspaces, bootstrap_tokens, and events tables with migration runner.",
       "depends_on": [
         "T010"
+      ],
+      "updated_at": "2026-01-29T23:17:07Z",
+      "files": [
+        "internal/db/db.go",
+        "internal/db/migrations.go",
+        "internal/db/README.md",
+        "internal/daemon/daemon.go",
+        "go.mod",
+        "go.sum"
       ]
     },
     {

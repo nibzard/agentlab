@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/agentlab/agentlab/internal/config"
+	"github.com/agentlab/agentlab/internal/db"
 	"github.com/agentlab/agentlab/internal/models"
 )
 
@@ -25,6 +26,7 @@ const (
 type Service struct {
 	cfg               config.Config
 	profiles          map[string]models.Profile
+	store             *db.Store
 	unixListener      net.Listener
 	bootstrapListener net.Listener
 	unixServer        *http.Server
@@ -40,8 +42,13 @@ func Run(ctx context.Context, cfg config.Config) error {
 	if err != nil {
 		return err
 	}
-	service, err := NewService(cfg, profiles)
+	store, err := db.Open(cfg.DBPath)
 	if err != nil {
+		return err
+	}
+	service, err := NewService(cfg, profiles, store)
+	if err != nil {
+		_ = store.Close()
 		return err
 	}
 	log.Printf("agentlabd: loaded %d profiles from %s", len(profiles), cfg.ProfilesDir)
@@ -49,7 +56,7 @@ func Run(ctx context.Context, cfg config.Config) error {
 }
 
 // NewService constructs a service with bound listeners.
-func NewService(cfg config.Config, profiles map[string]models.Profile) (*Service, error) {
+func NewService(cfg config.Config, profiles map[string]models.Profile, store *db.Store) (*Service, error) {
 	if err := ensureDir(cfg.RunDir, runDirPerms); err != nil {
 		return nil, err
 	}
@@ -84,6 +91,7 @@ func NewService(cfg config.Config, profiles map[string]models.Profile) (*Service
 	return &Service{
 		cfg:               cfg,
 		profiles:          profiles,
+		store:             store,
 		unixListener:      unixListener,
 		bootstrapListener: bootstrapListener,
 		unixServer:        unixServer,
@@ -130,6 +138,9 @@ func (s *Service) shutdown() {
 	defer cancel()
 	_ = s.unixServer.Shutdown(ctx)
 	_ = s.bootstrapServer.Shutdown(ctx)
+	if s.store != nil {
+		_ = s.store.Close()
+	}
 }
 
 func ensureDir(path string, perms os.FileMode) error {

@@ -1,0 +1,217 @@
+package db
+
+import (
+	"database/sql"
+	"errors"
+	"fmt"
+	"strings"
+	"time"
+)
+
+type migration struct {
+	version    int
+	name       string
+	statements []string
+}
+
+var migrations = []migration{
+	{
+		version: 1,
+		name:    "init_core_tables",
+		statements: []string{
+			`CREATE TABLE IF NOT EXISTS sandboxes (
+				vmid INTEGER PRIMARY KEY,
+				name TEXT NOT NULL,
+				profile TEXT NOT NULL,
+				state TEXT NOT NULL,
+				ip TEXT,
+				workspace_id TEXT,
+				keepalive INTEGER NOT NULL DEFAULT 0,
+				lease_expires_at TEXT,
+				created_at TEXT NOT NULL,
+				updated_at TEXT NOT NULL,
+				meta_json TEXT
+			)`,
+			`CREATE TABLE IF NOT EXISTS jobs (
+				id TEXT PRIMARY KEY,
+				repo_url TEXT NOT NULL,
+				ref TEXT NOT NULL,
+				profile TEXT NOT NULL,
+				status TEXT NOT NULL,
+				sandbox_vmid INTEGER,
+				created_at TEXT NOT NULL,
+				updated_at TEXT NOT NULL,
+				result_json TEXT
+			)`,
+			`CREATE TABLE IF NOT EXISTS profiles (
+				name TEXT PRIMARY KEY,
+				template_vmid INTEGER NOT NULL,
+				yaml TEXT NOT NULL,
+				updated_at TEXT NOT NULL
+			)`,
+			`CREATE TABLE IF NOT EXISTS workspaces (
+				id TEXT PRIMARY KEY,
+				name TEXT NOT NULL UNIQUE,
+				storage TEXT NOT NULL,
+				volid TEXT NOT NULL,
+				size_gb INTEGER NOT NULL,
+				attached_vmid INTEGER,
+				created_at TEXT NOT NULL,
+				updated_at TEXT NOT NULL,
+				meta_json TEXT
+			)`,
+			`CREATE TABLE IF NOT EXISTS bootstrap_tokens (
+				token TEXT PRIMARY KEY,
+				vmid INTEGER NOT NULL,
+				expires_at TEXT NOT NULL,
+				consumed_at TEXT,
+				created_at TEXT NOT NULL
+			)`,
+			`CREATE TABLE IF NOT EXISTS events (
+				id INTEGER PRIMARY KEY AUTOINCREMENT,
+				ts TEXT NOT NULL,
+				kind TEXT NOT NULL,
+				sandbox_vmid INTEGER,
+				job_id TEXT,
+				msg TEXT,
+				json TEXT
+			)`,
+			`CREATE INDEX IF NOT EXISTS idx_sandboxes_state ON sandboxes(state)`,
+			`CREATE INDEX IF NOT EXISTS idx_sandboxes_profile ON sandboxes(profile)`,
+			`CREATE INDEX IF NOT EXISTS idx_jobs_status ON jobs(status)`,
+			`CREATE INDEX IF NOT EXISTS idx_jobs_sandbox ON jobs(sandbox_vmid)`,
+			`CREATE INDEX IF NOT EXISTS idx_workspaces_attached ON workspaces(attached_vmid)`,
+			`CREATE INDEX IF NOT EXISTS idx_bootstrap_tokens_vmid ON bootstrap_tokens(vmid)`,
+			`CREATE INDEX IF NOT EXISTS idx_events_sandbox ON events(sandbox_vmid)`,
+			`CREATE INDEX IF NOT EXISTS idx_events_job ON events(job_id)`,
+		},
+	},
+}
+
+// Migrate runs any pending migrations against the provided database.
+func Migrate(db *sql.DB) error {
+	if db == nil {
+		return errors.New("db is nil")
+	}
+	if err := validateMigrations(); err != nil {
+		return err
+	}
+	if err := ensureSchemaMigrations(db); err != nil {
+		return err
+	}
+	applied, err := loadAppliedVersions(db)
+	if err != nil {
+		return err
+	}
+	if err := verifyKnownMigrations(applied); err != nil {
+		return err
+	}
+	for _, m := range migrations {
+		if _, ok := applied[m.version]; ok {
+			continue
+		}
+		if err := applyMigration(db, m); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func ensureSchemaMigrations(db *sql.DB) error {
+	_, err := db.Exec(`CREATE TABLE IF NOT EXISTS schema_migrations (
+		version INTEGER PRIMARY KEY,
+		name TEXT NOT NULL,
+		applied_at TEXT NOT NULL
+	)`)
+	if err != nil {
+		return fmt.Errorf("create schema_migrations: %w", err)
+	}
+	return nil
+}
+
+func loadAppliedVersions(db *sql.DB) (map[int]struct{}, error) {
+	rows, err := db.Query(`SELECT version FROM schema_migrations ORDER BY version`)
+	if err != nil {
+		return nil, fmt.Errorf("list schema_migrations: %w", err)
+	}
+	defer rows.Close()
+	applied := make(map[int]struct{})
+	for rows.Next() {
+		var version int
+		if err := rows.Scan(&version); err != nil {
+			return nil, fmt.Errorf("scan schema_migrations: %w", err)
+		}
+		applied[version] = struct{}{}
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate schema_migrations: %w", err)
+	}
+	return applied, nil
+}
+
+func verifyKnownMigrations(applied map[int]struct{}) error {
+	known := make(map[int]struct{}, len(migrations))
+	for _, m := range migrations {
+		known[m.version] = struct{}{}
+	}
+	for version := range applied {
+		if _, ok := known[version]; !ok {
+			return fmt.Errorf("unknown schema migration version %d", version)
+		}
+	}
+	return nil
+}
+
+func applyMigration(db *sql.DB, m migration) error {
+	if len(m.statements) == 0 {
+		return fmt.Errorf("migration %d has no statements", m.version)
+	}
+	tx, err := db.Begin()
+	if err != nil {
+		return fmt.Errorf("begin migration %d: %w", m.version, err)
+	}
+	for _, stmt := range m.statements {
+		trimmed := strings.TrimSpace(stmt)
+		if trimmed == "" {
+			continue
+		}
+		if _, err := tx.Exec(trimmed); err != nil {
+			_ = tx.Rollback()
+			return fmt.Errorf("exec migration %d: %w", m.version, err)
+		}
+	}
+	appliedAt := time.Now().UTC().Format(time.RFC3339Nano)
+	if _, err := tx.Exec(`INSERT INTO schema_migrations (version, name, applied_at) VALUES (?, ?, ?)`, m.version, m.name, appliedAt); err != nil {
+		_ = tx.Rollback()
+		return fmt.Errorf("record migration %d: %w", m.version, err)
+	}
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("commit migration %d: %w", m.version, err)
+	}
+	return nil
+}
+
+func validateMigrations() error {
+	if len(migrations) == 0 {
+		return errors.New("no migrations defined")
+	}
+	seen := make(map[int]struct{}, len(migrations))
+	prev := 0
+	for _, m := range migrations {
+		if m.version <= 0 {
+			return fmt.Errorf("migration version must be positive: %d", m.version)
+		}
+		if _, ok := seen[m.version]; ok {
+			return fmt.Errorf("duplicate migration version %d", m.version)
+		}
+		if m.version < prev {
+			return fmt.Errorf("migration version %d is out of order", m.version)
+		}
+		if strings.TrimSpace(m.name) == "" {
+			return fmt.Errorf("migration %d missing name", m.version)
+		}
+		seen[m.version] = struct{}{}
+		prev = m.version
+	}
+	return nil
+}
