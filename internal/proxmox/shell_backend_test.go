@@ -3,8 +3,11 @@ package proxmox
 import (
 	"context"
 	"errors"
+	"os"
+	"path/filepath"
 	"reflect"
 	"testing"
+	"time"
 )
 
 type runnerCall struct {
@@ -104,7 +107,7 @@ func TestShellBackendGuestIPWithNodeDiscovery(t *testing.T) {
 	agentJSON := `{"result":[{"name":"lo","ip-addresses":[{"ip-address":"127.0.0.1","ip-address-type":"ipv4"}]},{"name":"eth0","ip-addresses":[{"ip-address":"10.77.0.5","ip-address-type":"ipv4"}]}]}`
 	responses := []runnerResponse{{stdout: nodeJSON}, {stdout: agentJSON}}
 	runner := &fakeRunner{responses: responses}
-	backend := &ShellBackend{Runner: runner, AgentCIDR: "10.77.0.0/16"}
+	backend := &ShellBackend{Runner: runner, AgentCIDR: "10.77.0.0/16", GuestIPAttempts: 1}
 
 	ip, err := backend.GuestIP(context.Background(), 101)
 	if err != nil {
@@ -126,7 +129,7 @@ func TestShellBackendGuestIPWithNodeDiscovery(t *testing.T) {
 func TestShellBackendGuestIPPrefersCIDR(t *testing.T) {
 	agentJSON := `{"result":[{"name":"eth0","ip-addresses":[{"ip-address":"192.168.1.10","ip-address-type":"ipv4"},{"ip-address":"10.77.0.9","ip-address-type":"ipv4"}]}]}`
 	runner := &fakeRunner{responses: []runnerResponse{{stdout: agentJSON}}}
-	backend := &ShellBackend{Runner: runner, Node: "pve", AgentCIDR: "10.77.0.0/16"}
+	backend := &ShellBackend{Runner: runner, Node: "pve", AgentCIDR: "10.77.0.0/16", GuestIPAttempts: 1}
 
 	ip, err := backend.GuestIP(context.Background(), 222)
 	if err != nil {
@@ -134,5 +137,84 @@ func TestShellBackendGuestIPPrefersCIDR(t *testing.T) {
 	}
 	if ip != "10.77.0.9" {
 		t.Fatalf("GuestIP() = %q, want %q", ip, "10.77.0.9")
+	}
+}
+
+func TestShellBackendGuestIPPollsAgent(t *testing.T) {
+	nodeJSON := `{"data":[{"node":"pve"}]}`
+	agentNoIP := `{"result":[{"name":"lo","ip-addresses":[{"ip-address":"127.0.0.1","ip-address-type":"ipv4"}]}]}`
+	agentIP := `{"result":[{"name":"eth0","ip-addresses":[{"ip-address":"10.77.0.42","ip-address-type":"ipv4"}]}]}`
+	responses := []runnerResponse{
+		{stdout: nodeJSON},
+		{stdout: agentNoIP},
+		{stdout: agentNoIP},
+		{stdout: agentIP},
+	}
+	runner := &fakeRunner{responses: responses}
+	backend := &ShellBackend{
+		Runner:             runner,
+		AgentCIDR:          "10.77.0.0/16",
+		GuestIPAttempts:    3,
+		GuestIPInitialWait: 10 * time.Millisecond,
+		GuestIPMaxWait:     10 * time.Millisecond,
+		Sleep: func(_ context.Context, _ time.Duration) error {
+			return nil
+		},
+	}
+
+	ip, err := backend.GuestIP(context.Background(), 101)
+	if err != nil {
+		t.Fatalf("GuestIP() error = %v", err)
+	}
+	if ip != "10.77.0.42" {
+		t.Fatalf("GuestIP() = %q, want %q", ip, "10.77.0.42")
+	}
+
+	wantCalls := []runnerCall{
+		{name: "pvesh", args: []string{"get", "/nodes", "--output-format", "json"}},
+		{name: "pvesh", args: []string{"get", "/nodes/pve/qemu/101/agent/network-get-interfaces", "--output-format", "json"}},
+		{name: "pvesh", args: []string{"get", "/nodes/pve/qemu/101/agent/network-get-interfaces", "--output-format", "json"}},
+		{name: "pvesh", args: []string{"get", "/nodes/pve/qemu/101/agent/network-get-interfaces", "--output-format", "json"}},
+	}
+	if !reflect.DeepEqual(runner.calls, wantCalls) {
+		t.Fatalf("GuestIP() calls = %#v, want %#v", runner.calls, wantCalls)
+	}
+}
+
+func TestShellBackendGuestIPDHCPFallback(t *testing.T) {
+	leaseDir := t.TempDir()
+	leasePath := filepath.Join(leaseDir, "dnsmasq.leases")
+	leaseContent := "1738159200 52:54:00:aa:bb:cc 10.77.0.55 sandbox *\n"
+	if err := os.WriteFile(leasePath, []byte(leaseContent), 0o600); err != nil {
+		t.Fatalf("write lease: %v", err)
+	}
+
+	responses := []runnerResponse{
+		{err: errors.New("guest agent unavailable")},
+		{stdout: "net0: virtio=52:54:00:aa:bb:cc,bridge=vmbr1\n"},
+	}
+	runner := &fakeRunner{responses: responses}
+	backend := &ShellBackend{
+		Runner:          runner,
+		Node:            "pve",
+		AgentCIDR:       "10.77.0.0/16",
+		GuestIPAttempts: 1,
+		DHCPLeasePaths:  []string{leasePath},
+	}
+
+	ip, err := backend.GuestIP(context.Background(), 101)
+	if err != nil {
+		t.Fatalf("GuestIP() error = %v", err)
+	}
+	if ip != "10.77.0.55" {
+		t.Fatalf("GuestIP() = %q, want %q", ip, "10.77.0.55")
+	}
+
+	wantCalls := []runnerCall{
+		{name: "pvesh", args: []string{"get", "/nodes/pve/qemu/101/agent/network-get-interfaces", "--output-format", "json"}},
+		{name: "qm", args: []string{"config", "101"}},
+	}
+	if !reflect.DeepEqual(runner.calls, wantCalls) {
+		t.Fatalf("GuestIP() calls = %#v, want %#v", runner.calls, wantCalls)
 	}
 }

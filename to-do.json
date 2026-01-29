@@ -149,11 +149,17 @@
       "id": "T009",
       "title": "Implement IP discovery via qemu-guest-agent with DHCP fallback",
       "priority": 1,
-      "status": "todo",
+      "status": "done",
       "details": "Poll qga with backoff for vmbr1 address and fallback to DHCP lease parsing.",
       "depends_on": [
         "T007",
         "T018"
+      ],
+      "updated_at": "2026-01-29T23:02:14Z",
+      "files": [
+        "internal/proxmox/shell_backend.go",
+        "internal/proxmox/shell_backend_test.go",
+        "to-do.json"
       ]
     },
     {

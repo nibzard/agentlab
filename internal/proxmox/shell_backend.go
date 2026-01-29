@@ -7,9 +7,13 @@ import (
 	"errors"
 	"fmt"
 	"net"
+	"os"
 	"os/exec"
+	"path/filepath"
+	"sort"
 	"strconv"
 	"strings"
+	"time"
 )
 
 var ErrGuestIPNotFound = errors.New("guest IP not found")
@@ -40,11 +44,16 @@ func (ExecRunner) Run(ctx context.Context, name string, args ...string) (string,
 
 // ShellBackend implements Backend using qm and pvesh commands.
 type ShellBackend struct {
-	Node      string
-	AgentCIDR string
-	QmPath    string
-	PveShPath string
-	Runner    CommandRunner
+	Node               string
+	AgentCIDR          string
+	QmPath             string
+	PveShPath          string
+	Runner             CommandRunner
+	GuestIPAttempts    int
+	GuestIPInitialWait time.Duration
+	GuestIPMaxWait     time.Duration
+	DHCPLeasePaths     []string
+	Sleep              func(ctx context.Context, d time.Duration) error
 }
 
 var _ Backend = (*ShellBackend)(nil)
@@ -118,28 +127,22 @@ func (b *ShellBackend) GuestIP(ctx context.Context, vmid VMID) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	path := fmt.Sprintf("/nodes/%s/qemu/%d/agent/network-get-interfaces", node, vmid)
-	out, err := b.runner().Run(ctx, b.pveshPath(), "get", path, "--output-format", "json")
-	if err != nil {
-		return "", err
+	ip, err := b.pollGuestAgentIP(ctx, node, vmid)
+	if err == nil {
+		return ip, nil
 	}
-	ips, err := parseAgentIPs(out)
-	if err != nil {
-		return "", err
+	if ctx.Err() != nil {
+		return "", ctx.Err()
 	}
-	if len(ips) == 0 {
-		return "", ErrGuestIPNotFound
+	qgaErr := err
+	ip, dhcpErr := b.dhcpLeaseIP(ctx, vmid)
+	if dhcpErr == nil {
+		return ip, nil
 	}
-	if b.AgentCIDR != "" {
-		ip, err := selectIPByCIDR(ips, b.AgentCIDR)
-		if err != nil {
-			return "", err
-		}
-		if ip != "" {
-			return ip, nil
-		}
+	if errors.Is(dhcpErr, ErrGuestIPNotFound) {
+		return "", fmt.Errorf("%w: qemu-guest-agent=%v dhcp=%v", ErrGuestIPNotFound, qgaErr, dhcpErr)
 	}
-	return ips[0].String(), nil
+	return "", dhcpErr
 }
 
 func (b *ShellBackend) runner() CommandRunner {
@@ -161,6 +164,352 @@ func (b *ShellBackend) pveshPath() string {
 		return b.PveShPath
 	}
 	return "pvesh"
+}
+
+func (b *ShellBackend) pollGuestAgentIP(ctx context.Context, node string, vmid VMID) (string, error) {
+	attempts := b.guestIPAttempts()
+	wait := b.guestIPInitialWait()
+	maxWait := b.guestIPMaxWait()
+	var lastErr error
+	for i := 0; i < attempts; i++ {
+		ip, err := b.guestAgentIP(ctx, node, vmid)
+		if err == nil && ip != "" {
+			return ip, nil
+		}
+		if err != nil {
+			lastErr = err
+		} else {
+			lastErr = ErrGuestIPNotFound
+		}
+		if i == attempts-1 {
+			break
+		}
+		if err := b.sleep(ctx, wait); err != nil {
+			return "", err
+		}
+		wait = nextBackoff(wait, maxWait)
+	}
+	if lastErr == nil {
+		lastErr = ErrGuestIPNotFound
+	}
+	return "", lastErr
+}
+
+func (b *ShellBackend) guestAgentIP(ctx context.Context, node string, vmid VMID) (string, error) {
+	path := fmt.Sprintf("/nodes/%s/qemu/%d/agent/network-get-interfaces", node, vmid)
+	out, err := b.runner().Run(ctx, b.pveshPath(), "get", path, "--output-format", "json")
+	if err != nil {
+		return "", err
+	}
+	ips, err := parseAgentIPs(out)
+	if err != nil {
+		return "", err
+	}
+	return b.selectIP(ips)
+}
+
+func (b *ShellBackend) selectIP(ips []net.IP) (string, error) {
+	if len(ips) == 0 {
+		return "", ErrGuestIPNotFound
+	}
+	if b.AgentCIDR != "" {
+		ip, err := selectIPByCIDR(ips, b.AgentCIDR)
+		if err != nil {
+			return "", err
+		}
+		if ip == "" {
+			return "", ErrGuestIPNotFound
+		}
+		return ip, nil
+	}
+	return ips[0].String(), nil
+}
+
+func (b *ShellBackend) dhcpLeaseIP(ctx context.Context, vmid VMID) (string, error) {
+	var netblock *net.IPNet
+	if b.AgentCIDR != "" {
+		_, parsed, err := net.ParseCIDR(b.AgentCIDR)
+		if err != nil {
+			return "", fmt.Errorf("invalid agent CIDR %q: %w", b.AgentCIDR, err)
+		}
+		netblock = parsed
+	}
+	out, err := b.runner().Run(ctx, b.qmPath(), "config", strconv.Itoa(int(vmid)))
+	if err != nil {
+		return "", err
+	}
+	macs := parseNetMACs(out)
+	if len(macs) == 0 {
+		return "", fmt.Errorf("%w: no MAC addresses found", ErrGuestIPNotFound)
+	}
+	leaseFiles := b.leasePaths()
+	if len(leaseFiles) == 0 {
+		return "", fmt.Errorf("%w: no DHCP lease files configured", ErrGuestIPNotFound)
+	}
+	var readErr error
+	for _, path := range leaseFiles {
+		content, err := os.ReadFile(path)
+		if err != nil {
+			if os.IsNotExist(err) {
+				continue
+			}
+			readErr = err
+			continue
+		}
+		if ip := findLeaseIP(content, macs, netblock); ip != "" {
+			return ip, nil
+		}
+	}
+	if readErr != nil {
+		return "", readErr
+	}
+	return "", ErrGuestIPNotFound
+}
+
+func (b *ShellBackend) guestIPAttempts() int {
+	if b.GuestIPAttempts > 0 {
+		return b.GuestIPAttempts
+	}
+	return 6
+}
+
+func (b *ShellBackend) guestIPInitialWait() time.Duration {
+	if b.GuestIPInitialWait > 0 {
+		return b.GuestIPInitialWait
+	}
+	return 500 * time.Millisecond
+}
+
+func (b *ShellBackend) guestIPMaxWait() time.Duration {
+	if b.GuestIPMaxWait > 0 {
+		return b.GuestIPMaxWait
+	}
+	return 5 * time.Second
+}
+
+func (b *ShellBackend) sleep(ctx context.Context, d time.Duration) error {
+	if b.Sleep != nil {
+		return b.Sleep(ctx, d)
+	}
+	if d <= 0 {
+		return ctx.Err()
+	}
+	timer := time.NewTimer(d)
+	defer timer.Stop()
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-timer.C:
+		return nil
+	}
+}
+
+func nextBackoff(current, max time.Duration) time.Duration {
+	if current <= 0 {
+		return max
+	}
+	next := current * 2
+	if next > max {
+		return max
+	}
+	return next
+}
+
+func (b *ShellBackend) leasePaths() []string {
+	paths := b.DHCPLeasePaths
+	if len(paths) == 0 {
+		paths = []string{
+			"/var/lib/misc/dnsmasq.leases",
+			"/var/lib/dnsmasq/dnsmasq.leases",
+			"/var/lib/misc/dnsmasq.*.leases",
+			"/var/lib/misc/dnsmasq*.leases",
+			"/var/lib/dhcp/dhcpd.leases",
+			"/var/lib/dhcp/dhcpd.leases~",
+			"/var/lib/dhcp3/dhcpd.leases",
+			"/var/lib/pve-firewall/dhcpd.leases",
+		}
+	}
+	expanded := make([]string, 0, len(paths))
+	seen := map[string]struct{}{}
+	for _, path := range paths {
+		if hasGlob(path) {
+			matches, err := filepath.Glob(path)
+			if err != nil {
+				continue
+			}
+			for _, match := range matches {
+				if _, ok := seen[match]; ok {
+					continue
+				}
+				seen[match] = struct{}{}
+				expanded = append(expanded, match)
+			}
+			continue
+		}
+		if _, ok := seen[path]; ok {
+			continue
+		}
+		seen[path] = struct{}{}
+		expanded = append(expanded, path)
+	}
+	sort.Strings(expanded)
+	return expanded
+}
+
+func hasGlob(path string) bool {
+	return strings.ContainsAny(path, "*?[")
+}
+
+func parseNetMACs(config string) []string {
+	var macs []string
+	for _, line := range strings.Split(config, "\n") {
+		line = strings.TrimSpace(line)
+		if !strings.HasPrefix(line, "net") {
+			continue
+		}
+		parts := strings.SplitN(line, ":", 2)
+		if len(parts) != 2 {
+			continue
+		}
+		fields := strings.Split(strings.TrimSpace(parts[1]), ",")
+		for _, field := range fields {
+			kv := strings.SplitN(strings.TrimSpace(field), "=", 2)
+			if len(kv) != 2 {
+				continue
+			}
+			mac := strings.TrimSpace(kv[1])
+			if isMAC(mac) {
+				macs = append(macs, normalizeMAC(mac))
+			}
+		}
+	}
+	return uniqueStrings(macs)
+}
+
+func findLeaseIP(content []byte, macs []string, netblock *net.IPNet) string {
+	if len(macs) == 0 || len(content) == 0 {
+		return ""
+	}
+	macset := make(map[string]struct{}, len(macs))
+	for _, mac := range macs {
+		macset[normalizeMAC(mac)] = struct{}{}
+	}
+	if ip := findDNSMasqLease(content, macset, netblock); ip != "" {
+		return ip
+	}
+	if ip := findDHCPDLease(content, macset, netblock); ip != "" {
+		return ip
+	}
+	return ""
+}
+
+func findDNSMasqLease(content []byte, macset map[string]struct{}, netblock *net.IPNet) string {
+	var found string
+	for _, line := range strings.Split(string(content), "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+		fields := strings.Fields(line)
+		if len(fields) < 3 {
+			continue
+		}
+		mac := normalizeMAC(fields[1])
+		if _, ok := macset[mac]; !ok {
+			continue
+		}
+		ip := net.ParseIP(fields[2])
+		if ip == nil {
+			continue
+		}
+		ip = ip.To4()
+		if ip == nil {
+			continue
+		}
+		if netblock != nil && !netblock.Contains(ip) {
+			continue
+		}
+		found = ip.String()
+	}
+	return found
+}
+
+func findDHCPDLease(content []byte, macset map[string]struct{}, netblock *net.IPNet) string {
+	var found string
+	var currentIP string
+	var currentMAC string
+	inLease := false
+	active := true
+	bindingSeen := false
+	for _, raw := range strings.Split(string(content), "\n") {
+		line := strings.TrimSpace(raw)
+		if strings.HasPrefix(line, "lease ") && strings.Contains(line, "{") {
+			fields := strings.Fields(line)
+			if len(fields) >= 2 {
+				currentIP = fields[1]
+				currentMAC = ""
+				active = true
+				bindingSeen = false
+				inLease = true
+			}
+			continue
+		}
+		if !inLease {
+			continue
+		}
+		if strings.HasPrefix(line, "hardware ethernet ") {
+			fields := strings.Fields(line)
+			if len(fields) >= 3 {
+				currentMAC = normalizeMAC(strings.TrimSuffix(fields[2], ";"))
+			}
+			continue
+		}
+		if strings.HasPrefix(line, "binding state ") {
+			bindingSeen = true
+			active = strings.Contains(line, "active")
+			continue
+		}
+		if line == "}" {
+			if currentIP != "" && currentMAC != "" {
+				if _, ok := macset[currentMAC]; ok && (!bindingSeen || active) {
+					ip := net.ParseIP(currentIP)
+					if ip != nil {
+						ip = ip.To4()
+						if ip != nil && (netblock == nil || netblock.Contains(ip)) {
+							found = ip.String()
+						}
+					}
+				}
+			}
+			inLease = false
+		}
+	}
+	return found
+}
+
+func normalizeMAC(mac string) string {
+	return strings.ToLower(strings.TrimSpace(mac))
+}
+
+func isMAC(value string) bool {
+	_, err := net.ParseMAC(value)
+	return err == nil
+}
+
+func uniqueStrings(values []string) []string {
+	if len(values) == 0 {
+		return nil
+	}
+	seen := map[string]struct{}{}
+	out := make([]string, 0, len(values))
+	for _, value := range values {
+		if _, ok := seen[value]; ok {
+			continue
+		}
+		seen[value] = struct{}{}
+		out = append(out, value)
+	}
+	return out
 }
 
 func (b *ShellBackend) ensureNode(ctx context.Context) (string, error) {
