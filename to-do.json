@@ -155,7 +155,7 @@
         "T007",
         "T018"
       ],
-      "updated_at": "2026-01-29T23:02:14Z",
+      "updated_at": "2026-01-29T23:03:14Z",
       "files": [
         "internal/proxmox/shell_backend.go",
         "internal/proxmox/shell_backend_test.go",
@@ -166,10 +166,20 @@
       "id": "T010",
       "title": "Build agentlabd core service and config/profile loader",
       "priority": 1,
-      "status": "todo",
+      "status": "done",
       "details": "Load /etc/agentlab/config.yaml and /etc/agentlab/profiles/*.yaml; bind Unix socket and guest bootstrap listener.",
       "depends_on": [
         "T001"
+      ],
+      "updated_at": "2026-01-29T23:08:24Z",
+      "files": [
+        "cmd/agentlabd/main.go",
+        "internal/config/config.go",
+        "internal/daemon/daemon.go",
+        "internal/daemon/profiles.go",
+        "go.mod",
+        "go.sum",
+        "to-do.json"
       ]
     },
     {

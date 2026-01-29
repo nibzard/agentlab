@@ -1,11 +1,17 @@
 package main
 
 import (
+	"context"
 	"flag"
 	"fmt"
+	"log"
+	"os"
+	"os/signal"
+	"syscall"
 
 	"github.com/agentlab/agentlab/internal/buildinfo"
 	"github.com/agentlab/agentlab/internal/config"
+	"github.com/agentlab/agentlab/internal/daemon"
 )
 
 func main() {
@@ -21,10 +27,16 @@ func main() {
 		return
 	}
 
-	cfg := config.DefaultConfig()
-	if configPath != "" {
-		cfg.ConfigPath = configPath
+	cfg, err := config.Load(configPath)
+	if err != nil {
+		log.Fatalf("config error: %v", err)
 	}
 
-	fmt.Printf("agentlabd skeleton (config=%s)\n", cfg.ConfigPath)
+	log.Printf("agentlabd starting (%s)", buildinfo.String())
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+
+	if err := daemon.Run(ctx, cfg); err != nil {
+		log.Fatalf("agentlabd error: %v", err)
+	}
 }
