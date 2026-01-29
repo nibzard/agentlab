@@ -43,19 +43,25 @@
       "depends_on": [
         "T001"
       ],
-      "updated_at": "2026-01-29T22:24:21Z",
+      "updated_at": "2026-01-29T22:24:47Z",
       "files": [
+        "scripts/README.md",
         "scripts/install_host.sh",
         "scripts/systemd/agentlabd.service",
-        "scripts/README.md"
+        "to-do.json"
       ]
     },
     {
       "id": "T003",
       "title": "Create agent-only bridge (vmbr1) and enable IP forwarding",
       "priority": 1,
-      "status": "todo",
-      "details": "Provision 10.77.0.0/16 with host IP 10.77.0.1 and persist sysctl forwarding."
+      "status": "done",
+      "details": "Provision 10.77.0.0/16 with host IP 10.77.0.1 and persist sysctl forwarding.",
+      "updated_at": "2026-01-29T22:27:34Z",
+      "files": [
+        "scripts/net/setup_vmbr1.sh",
+        "scripts/README.md"
+      ]
     },
     {
       "id": "T004",
