@@ -1,0 +1,30 @@
+#!/usr/sbin/nft -f
+# AgentLab NAT + egress block rules for the agent subnet.
+# Managed by scripts/net/apply.sh.
+
+define agent_if = "vmbr1"
+define wan_if = "vmbr0"
+define agent_subnet = 10.77.0.0/16
+
+table inet agentlab {
+  chain forward {
+    type filter hook forward priority -100;
+    policy accept;
+
+    ct state established,related return
+
+    iifname $agent_if ip saddr $agent_subnet ip daddr {10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16, 169.254.0.0/16} drop
+    iifname $agent_if ip6 daddr {fc00::/7, fe80::/10} drop
+
+    return
+  }
+}
+
+table ip agentlab_nat {
+  chain postrouting {
+    type nat hook postrouting priority 100;
+    policy accept;
+
+    ip saddr $agent_subnet oifname $wan_if masquerade
+  }
+}

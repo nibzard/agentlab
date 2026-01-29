@@ -57,20 +57,28 @@
       "priority": 1,
       "status": "done",
       "details": "Provision 10.77.0.0/16 with host IP 10.77.0.1 and persist sysctl forwarding.",
-      "updated_at": "2026-01-29T22:27:34Z",
+      "updated_at": "2026-01-29T22:28:01Z",
       "files": [
+        "scripts/README.md",
         "scripts/net/setup_vmbr1.sh",
-        "scripts/README.md"
+        "to-do.json"
       ]
     },
     {
       "id": "T004",
       "title": "Configure nftables NAT and LAN/ULA egress blocks for agent subnet",
       "priority": 1,
-      "status": "todo",
+      "status": "done",
       "details": "Masquerade 10.77.0.0/16 to vmbr0, allow established/related, and block RFC1918/link-local/ULA ranges with persistent rules.",
       "depends_on": [
         "T003"
+      ],
+      "updated_at": "2026-01-29T22:34:28Z",
+      "files": [
+        "scripts/net/agent_nat.nft",
+        "scripts/net/apply.sh",
+        "scripts/README.md",
+        "to-do.json"
       ]
     },
     {
