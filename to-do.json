@@ -1,0 +1,459 @@
+{
+  "schema_version": 1,
+  "project": {
+    "name": "agentlab",
+    "root": "."
+  },
+  "source_files": [
+    "AGENTLAB_DEV_SPECIFICATION.md",
+    "PROXMOX_SPECS.md",
+    "README.md"
+  ],
+  "tasks": [
+    {
+      "id": "T001",
+      "title": "Create project skeleton, shared libs, and build pipeline for agentlabd/agentlab",
+      "priority": 1,
+      "status": "done",
+      "details": "Set up repo layout, shared config/models/proxmox libs, and Makefile targets (build, lint, test) with CI-ready outputs.",
+      "updated_at": "2026-01-29T22:17:54Z",
+      "files": [
+        "Makefile",
+        "go.mod",
+        ".github/workflows/ci.yml",
+        ".gitignore",
+        "cmd/agentlab/main.go",
+        "cmd/agentlabd/main.go",
+        "internal/buildinfo/buildinfo.go",
+        "internal/config/config.go",
+        "internal/db/db.go",
+        "internal/models/models.go",
+        "internal/proxmox/proxmox.go",
+        "scripts/README.md"
+      ]
+    },
+    {
+      "id": "T002",
+      "title": "Implement host install script and systemd unit for agentlabd",
+      "priority": 1,
+      "status": "todo",
+      "details": "Install binaries, create /etc/agentlab + /var/lib/agentlab + /var/log/agentlab + /run/agentlab, enable agentlabd.service, and verify socket permissions.",
+      "depends_on": [
+        "T001"
+      ]
+    },
+    {
+      "id": "T003",
+      "title": "Create agent-only bridge (vmbr1) and enable IP forwarding",
+      "priority": 1,
+      "status": "todo",
+      "details": "Provision 10.77.0.0/16 with host IP 10.77.0.1 and persist sysctl forwarding."
+    },
+    {
+      "id": "T004",
+      "title": "Configure nftables NAT and LAN/ULA egress blocks for agent subnet",
+      "priority": 1,
+      "status": "todo",
+      "details": "Masquerade 10.77.0.0/16 to vmbr0, allow established/related, and block RFC1918/link-local/ULA ranges with persistent rules.",
+      "depends_on": [
+        "T003"
+      ]
+    },
+    {
+      "id": "T005",
+      "title": "Set up Tailscale subnet routing with asymmetric firewall policy",
+      "priority": 1,
+      "status": "todo",
+      "details": "Advertise 10.77.0.0/16 and allow tailnet→sandbox connections while blocking sandbox→tailnet new connections.",
+      "depends_on": [
+        "T003",
+        "T004"
+      ]
+    },
+    {
+      "id": "T006",
+      "title": "Create connectivity smoke test script for sandbox networking",
+      "priority": 2,
+      "status": "todo",
+      "details": "Validate Internet egress, LAN/tailnet blocks, and DNS resolution from a sandbox.",
+      "depends_on": [
+        "T004",
+        "T005"
+      ]
+    },
+    {
+      "id": "T007",
+      "title": "Implement Proxmox backend interface with shell-based qm/pvesh backend",
+      "priority": 1,
+      "status": "todo",
+      "details": "Support clone, configure, start/stop/destroy, status query, and IP discovery hooks with unit tests.",
+      "depends_on": [
+        "T001"
+      ]
+    },
+    {
+      "id": "T008",
+      "title": "Manage cloud-init snippet lifecycle for sandboxes",
+      "priority": 1,
+      "status": "todo",
+      "details": "Generate minimal user-data snippets (hostname, SSH key, bootstrap token), store in snippets storage, and delete on teardown.",
+      "depends_on": [
+        "T007"
+      ]
+    },
+    {
+      "id": "T009",
+      "title": "Implement IP discovery via qemu-guest-agent with DHCP fallback",
+      "priority": 1,
+      "status": "todo",
+      "details": "Poll qga with backoff for vmbr1 address and fallback to DHCP lease parsing.",
+      "depends_on": [
+        "T007",
+        "T018"
+      ]
+    },
+    {
+      "id": "T010",
+      "title": "Build agentlabd core service and config/profile loader",
+      "priority": 1,
+      "status": "todo",
+      "details": "Load /etc/agentlab/config.yaml and /etc/agentlab/profiles/*.yaml; bind Unix socket and guest bootstrap listener.",
+      "depends_on": [
+        "T001"
+      ]
+    },
+    {
+      "id": "T011",
+      "title": "Implement SQLite schema and migrations for core tables",
+      "priority": 1,
+      "status": "todo",
+      "details": "Create sandboxes, jobs, profiles, workspaces, bootstrap_tokens, and events tables with migration runner.",
+      "depends_on": [
+        "T010"
+      ]
+    },
+    {
+      "id": "T012",
+      "title": "Build sandbox state machine and lease/TTL engine",
+      "priority": 1,
+      "status": "todo",
+      "details": "Persist deterministic transitions and background GC for expired sandboxes, including keepalive renewals.",
+      "depends_on": [
+        "T011",
+        "T007"
+      ]
+    },
+    {
+      "id": "T013",
+      "title": "Implement local control API over Unix socket",
+      "priority": 1,
+      "status": "todo",
+      "details": "Expose job/sandbox CRUD endpoints, lease renewals, and document in docs/api.md with versioned request/response types.",
+      "depends_on": [
+        "T010",
+        "T011",
+        "T012"
+      ]
+    },
+    {
+      "id": "T014",
+      "title": "Implement job orchestration flow (create → run → report → destroy)",
+      "priority": 1,
+      "status": "todo",
+      "details": "Create sandbox with bootstrap token, wait for runner updates, persist results/artifacts metadata, and destroy if ephemeral.",
+      "depends_on": [
+        "T013",
+        "T017",
+        "T020"
+      ]
+    },
+    {
+      "id": "T015",
+      "title": "Implement secrets-at-rest bundle format with encryption",
+      "priority": 1,
+      "status": "todo",
+      "details": "Support age/sops-encrypted bundles for git/LLM credentials and artifact tokens with rotation docs.",
+      "depends_on": [
+        "T010"
+      ]
+    },
+    {
+      "id": "T016",
+      "title": "Implement one-time bootstrap token issuance and validation",
+      "priority": 1,
+      "status": "todo",
+      "details": "Mint short-lived tokens, store hash+expiry, and mark consumed on first successful fetch.",
+      "depends_on": [
+        "T011"
+      ]
+    },
+    {
+      "id": "T017",
+      "title": "Build guest bootstrap API (/v1/bootstrap/fetch) bound to vmbr1",
+      "priority": 1,
+      "status": "todo",
+      "details": "Return minimal secrets/job payloads, authenticate by token+vmid, and enforce agent-subnet-only access.",
+      "depends_on": [
+        "T016",
+        "T010"
+      ]
+    },
+    {
+      "id": "T018",
+      "title": "Create Ubuntu template build script with cloud-init + qemu-guest-agent",
+      "priority": 1,
+      "status": "todo",
+      "details": "Download cloud image, create VM, enable qga, install base packages, and convert to template."
+    },
+    {
+      "id": "T019",
+      "title": "Package agent CLIs into the template with a dispatcher wrapper",
+      "priority": 1,
+      "status": "todo",
+      "details": "Install and pin Claude Code CLI, OpenAI Codex CLI, and OpenCode CLI; provide /usr/local/bin/agentlab-agent.",
+      "depends_on": [
+        "T018"
+      ]
+    },
+    {
+      "id": "T020",
+      "title": "Implement agent-runner service for guest bootstrap and execution",
+      "priority": 1,
+      "status": "todo",
+      "details": "Fetch bootstrap payload, store secrets in tmpfs, clone repo, run agent loop, stream logs/status, and upload artifacts.",
+      "depends_on": [
+        "T017",
+        "T019"
+      ]
+    },
+    {
+      "id": "T021",
+      "title": "Add secrets cleanup on guest stop",
+      "priority": 2,
+      "status": "todo",
+      "details": "Wipe /run/secrets and temporary repo directories via ExecStopPost or dedicated cleanup unit.",
+      "depends_on": [
+        "T020"
+      ]
+    },
+    {
+      "id": "T022",
+      "title": "Implement agentlab CLI commands for jobs and sandbox management",
+      "priority": 1,
+      "status": "todo",
+      "details": "Provide job run, sandbox new/list/show/destroy, lease renew, and logs --follow with --json output.",
+      "depends_on": [
+        "T013"
+      ]
+    },
+    {
+      "id": "T023",
+      "title": "Implement CLI SSH helper with Tailscale-aware messaging",
+      "priority": 2,
+      "status": "todo",
+      "details": "Resolve IP, print/exec ssh command, and warn when tailnet route is not reachable.",
+      "depends_on": [
+        "T009",
+        "T005"
+      ]
+    },
+    {
+      "id": "T024",
+      "title": "Implement workspace volume management on local-zfs",
+      "priority": 2,
+      "status": "todo",
+      "details": "Create/attach/detach ZFS volumes, track attachment in DB, and prevent multi-attach.",
+      "depends_on": [
+        "T011",
+        "T007"
+      ]
+    },
+    {
+      "id": "T025",
+      "title": "Implement guest auto-mount for /work",
+      "priority": 2,
+      "status": "todo",
+      "details": "Detect workspace disk by label/UUID, format on first attach, and mount via systemd.",
+      "depends_on": [
+        "T024",
+        "T018"
+      ]
+    },
+    {
+      "id": "T026",
+      "title": "Implement workspace rebind workflow",
+      "priority": 2,
+      "status": "todo",
+      "details": "Create new sandbox, attach workspace, and safely detach/destroy old sandbox as requested.",
+      "depends_on": [
+        "T024",
+        "T025",
+        "T012"
+      ]
+    },
+    {
+      "id": "T027",
+      "title": "Implement embedded artifact upload service in agentlabd",
+      "priority": 1,
+      "status": "todo",
+      "details": "Expose 10.77.0.1:8846 upload endpoint with scoped tokens, size limits, path sanitization, and DB metadata.",
+      "depends_on": [
+        "T010",
+        "T017"
+      ]
+    },
+    {
+      "id": "T028",
+      "title": "Implement CLI artifact listing and download",
+      "priority": 2,
+      "status": "todo",
+      "details": "Provide job artifacts list and download commands, including latest bundle shortcut.",
+      "depends_on": [
+        "T027",
+        "T022"
+      ]
+    },
+    {
+      "id": "T029",
+      "title": "Implement artifact retention and garbage collection",
+      "priority": 2,
+      "status": "todo",
+      "details": "Apply per-profile TTLs, delete expired artifacts, and report deletions safely.",
+      "depends_on": [
+        "T027",
+        "T012"
+      ]
+    },
+    {
+      "id": "T030",
+      "title": "Ship agentlab Skills file for Claude Code CLI",
+      "priority": 1,
+      "status": "todo",
+      "details": "Create skills/agentlab/skill.md mapping high-level commands to agentlab CLI with guardrails.",
+      "depends_on": [
+        "T022"
+      ]
+    },
+    {
+      "id": "T031",
+      "title": "Package Skills with Claude Code configuration",
+      "priority": 2,
+      "status": "todo",
+      "details": "Document placement and ensure install_host or template build makes Skills discoverable.",
+      "depends_on": [
+        "T030",
+        "T019"
+      ]
+    },
+    {
+      "id": "T032",
+      "title": "Enforce no-host-mount policy in provisioning",
+      "priority": 1,
+      "status": "todo",
+      "details": "Add guardrails to refuse profiles requesting host bind mounts and document rationale.",
+      "depends_on": [
+        "T007"
+      ]
+    },
+    {
+      "id": "T033",
+      "title": "Implement secret redaction and log safety",
+      "priority": 1,
+      "status": "todo",
+      "details": "Scrub bootstrap tokens and sensitive env keys from logs with automated tests.",
+      "depends_on": [
+        "T015",
+        "T017",
+        "T020"
+      ]
+    },
+    {
+      "id": "T034",
+      "title": "Harden agentlabd systemd service",
+      "priority": 2,
+      "status": "todo",
+      "details": "Apply ProtectSystem, PrivateTmp, NoNewPrivileges, and capability restrictions while keeping provisioning functional.",
+      "depends_on": [
+        "T002"
+      ]
+    },
+    {
+      "id": "T035",
+      "title": "Evaluate optional inner sandboxing for agent process (bubblewrap)",
+      "priority": 3,
+      "status": "todo",
+      "details": "Prototype bubblewrap execution and document tradeoffs behind a profile flag.",
+      "depends_on": [
+        "T020"
+      ]
+    },
+    {
+      "id": "T036",
+      "title": "Implement event stream storage and per-job log surfaces",
+      "priority": 2,
+      "status": "todo",
+      "details": "Persist events in DB and surface recent events in job show responses.",
+      "depends_on": [
+        "T011",
+        "T020"
+      ]
+    },
+    {
+      "id": "T037",
+      "title": "Write operator runbook documentation",
+      "priority": 2,
+      "status": "todo",
+      "details": "Cover template build, secrets rotation, debugging stuck sandboxes, daemon recovery, and Tailscale routing.",
+      "depends_on": [
+        "T003",
+        "T005",
+        "T018",
+        "T002"
+      ]
+    },
+    {
+      "id": "T038",
+      "title": "Add optional Prometheus metrics endpoint",
+      "priority": 3,
+      "status": "todo",
+      "details": "Expose /metrics behind localhost-only flag with sandbox/job counters and timing distributions.",
+      "depends_on": [
+        "T010"
+      ]
+    },
+    {
+      "id": "T039",
+      "title": "Create end-to-end golden path integration test",
+      "priority": 1,
+      "status": "todo",
+      "details": "Automate sandbox create → run trivial repo task → upload artifact → teardown validation.",
+      "depends_on": [
+        "T002",
+        "T004",
+        "T014",
+        "T020"
+      ]
+    },
+    {
+      "id": "T040",
+      "title": "Add network isolation regression tests",
+      "priority": 2,
+      "status": "todo",
+      "details": "Verify LAN/tailnet blocks and Internet egress from sandbox with repeatable checks.",
+      "depends_on": [
+        "T004",
+        "T005"
+      ]
+    },
+    {
+      "id": "T041",
+      "title": "Ship default profile YAMLs for yolo-ephemeral, yolo-workspace, and interactive-dev",
+      "priority": 2,
+      "status": "todo",
+      "details": "Provide baseline resource/network/secrets bundle configs in scripts/profiles/defaults.yaml compatible with agentlabd loader.",
+      "depends_on": [
+        "T010"
+      ]
+    }
+  ]
+}
