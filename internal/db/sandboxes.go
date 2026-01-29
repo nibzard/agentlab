@@ -77,6 +77,44 @@ func (s *Store) GetSandbox(ctx context.Context, vmid int) (models.Sandbox, error
 	return scanSandboxRow(row)
 }
 
+// ListSandboxes returns all sandboxes ordered by created_at descending.
+func (s *Store) ListSandboxes(ctx context.Context) ([]models.Sandbox, error) {
+	if s == nil || s.DB == nil {
+		return nil, errors.New("db store is nil")
+	}
+	rows, err := s.DB.QueryContext(ctx, `SELECT vmid, name, profile, state, ip, workspace_id, keepalive, lease_expires_at, created_at, updated_at
+		FROM sandboxes ORDER BY created_at DESC`)
+	if err != nil {
+		return nil, fmt.Errorf("list sandboxes: %w", err)
+	}
+	defer rows.Close()
+	var out []models.Sandbox
+	for rows.Next() {
+		sb, err := scanSandboxRow(rows)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, sb)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate sandboxes: %w", err)
+	}
+	return out, nil
+}
+
+// MaxSandboxVMID returns the highest vmid stored, or 0 if none.
+func (s *Store) MaxSandboxVMID(ctx context.Context) (int, error) {
+	if s == nil || s.DB == nil {
+		return 0, errors.New("db store is nil")
+	}
+	row := s.DB.QueryRowContext(ctx, `SELECT COALESCE(MAX(vmid), 0) FROM sandboxes`)
+	var max int
+	if err := row.Scan(&max); err != nil {
+		return 0, fmt.Errorf("scan max vmid: %w", err)
+	}
+	return max, nil
+}
+
 // ListExpiredSandboxes returns sandboxes with leases expired at or before now.
 func (s *Store) ListExpiredSandboxes(ctx context.Context, now time.Time) ([]models.Sandbox, error) {
 	if s == nil || s.DB == nil {

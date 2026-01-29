@@ -86,6 +86,16 @@ var migrations = []migration{
 			`CREATE INDEX IF NOT EXISTS idx_events_job ON events(job_id)`,
 		},
 	},
+	{
+		version: 2,
+		name:    "add_job_spec_fields",
+		statements: []string{
+			`ALTER TABLE jobs ADD COLUMN task TEXT`,
+			`ALTER TABLE jobs ADD COLUMN mode TEXT`,
+			`ALTER TABLE jobs ADD COLUMN ttl_minutes INTEGER`,
+			`ALTER TABLE jobs ADD COLUMN keepalive INTEGER NOT NULL DEFAULT 0`,
+		},
+	},
 }
 
 // Migrate runs any pending migrations against the provided database.

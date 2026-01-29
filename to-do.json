@@ -212,24 +212,38 @@
         "T011",
         "T007"
       ],
-      "updated_at": "2026-01-29T23:24:50Z",
+      "updated_at": "2026-01-29T23:25:38Z",
       "files": [
-        "internal/db/sandboxes.go",
+        "internal/daemon/daemon.go",
         "internal/daemon/sandbox_manager.go",
         "internal/daemon/sandbox_manager_test.go",
-        "internal/daemon/daemon.go"
+        "internal/db/sandboxes.go",
+        "to-do.json"
       ]
     },
     {
       "id": "T013",
       "title": "Implement local control API over Unix socket",
       "priority": 1,
-      "status": "todo",
+      "status": "done",
       "details": "Expose job/sandbox CRUD endpoints, lease renewals, and document in docs/api.md with versioned request/response types.",
       "depends_on": [
         "T010",
         "T011",
         "T012"
+      ],
+      "updated_at": "2026-01-29T23:34:01Z",
+      "files": [
+        "internal/daemon/api.go",
+        "internal/daemon/api_types.go",
+        "internal/db/jobs.go",
+        "internal/db/migrations.go",
+        "internal/db/sandboxes.go",
+        "internal/daemon/daemon.go",
+        "internal/daemon/sandbox_manager.go",
+        "internal/models/models.go",
+        "docs/api.md",
+        "to-do.json"
       ]
     },
     {

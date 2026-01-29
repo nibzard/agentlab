@@ -2,6 +2,7 @@ package daemon
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"fmt"
 	"log"
@@ -119,6 +120,30 @@ func (m *SandboxManager) RenewLease(ctx context.Context, vmid int, ttl time.Dura
 	}
 	m.recordLeaseEvent(ctx, vmid, expiresAt)
 	return expiresAt, nil
+}
+
+// Destroy transitions a sandbox to destroyed after issuing a backend destroy.
+func (m *SandboxManager) Destroy(ctx context.Context, vmid int) error {
+	if m == nil || m.store == nil {
+		return errors.New("sandbox manager not configured")
+	}
+	sandbox, err := m.store.GetSandbox(ctx, vmid)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return ErrSandboxNotFound
+		}
+		return fmt.Errorf("load sandbox %d: %w", vmid, err)
+	}
+	if sandbox.State == models.SandboxDestroyed {
+		return nil
+	}
+	if err := m.destroySandbox(ctx, vmid); err != nil {
+		return err
+	}
+	if err := m.Transition(ctx, vmid, models.SandboxDestroyed); err != nil {
+		return err
+	}
+	return nil
 }
 
 func (m *SandboxManager) runLeaseGC(ctx context.Context) {

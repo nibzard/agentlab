@@ -1,0 +1,166 @@
+package db
+
+import (
+	"context"
+	"database/sql"
+	"errors"
+	"fmt"
+	"time"
+
+	"github.com/agentlab/agentlab/internal/models"
+)
+
+// CreateJob inserts a new job row.
+func (s *Store) CreateJob(ctx context.Context, job models.Job) error {
+	if s == nil || s.DB == nil {
+		return errors.New("db store is nil")
+	}
+	if job.ID == "" {
+		return errors.New("job id is required")
+	}
+	if job.RepoURL == "" {
+		return errors.New("job repo_url is required")
+	}
+	if job.Ref == "" {
+		return errors.New("job ref is required")
+	}
+	if job.Profile == "" {
+		return errors.New("job profile is required")
+	}
+	if job.Status == "" {
+		return errors.New("job status is required")
+	}
+	now := time.Now().UTC()
+	createdAt := job.CreatedAt
+	if createdAt.IsZero() {
+		createdAt = now
+	}
+	updatedAt := job.UpdatedAt
+	if updatedAt.IsZero() {
+		updatedAt = createdAt
+	}
+	var sandbox interface{}
+	if job.SandboxVMID != nil && *job.SandboxVMID > 0 {
+		sandbox = *job.SandboxVMID
+	}
+	var ttl interface{}
+	if job.TTLMinutes > 0 {
+		ttl = job.TTLMinutes
+	}
+	_, err := s.DB.ExecContext(ctx, `INSERT INTO jobs (
+		id, repo_url, ref, profile, status, sandbox_vmid, task, mode, ttl_minutes, keepalive, created_at, updated_at, result_json
+	) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		job.ID,
+		job.RepoURL,
+		job.Ref,
+		job.Profile,
+		job.Status,
+		sandbox,
+		nullIfEmpty(job.Task),
+		nullIfEmpty(job.Mode),
+		ttl,
+		job.Keepalive,
+		formatTime(createdAt),
+		formatTime(updatedAt),
+		nil,
+	)
+	if err != nil {
+		return fmt.Errorf("insert job %s: %w", job.ID, err)
+	}
+	return nil
+}
+
+// GetJob loads a job by id.
+func (s *Store) GetJob(ctx context.Context, id string) (models.Job, error) {
+	if s == nil || s.DB == nil {
+		return models.Job{}, errors.New("db store is nil")
+	}
+	row := s.DB.QueryRowContext(ctx, `SELECT id, repo_url, ref, profile, task, mode, ttl_minutes, keepalive, status, sandbox_vmid, created_at, updated_at
+		FROM jobs WHERE id = ?`, id)
+	return scanJobRow(row)
+}
+
+// UpdateJobSandbox updates a job with the attached sandbox vmid.
+func (s *Store) UpdateJobSandbox(ctx context.Context, id string, vmid int) (bool, error) {
+	if s == nil || s.DB == nil {
+		return false, errors.New("db store is nil")
+	}
+	if id == "" {
+		return false, errors.New("job id is required")
+	}
+	if vmid <= 0 {
+		return false, errors.New("vmid must be positive")
+	}
+	updatedAt := formatTime(time.Now().UTC())
+	res, err := s.DB.ExecContext(ctx, `UPDATE jobs SET sandbox_vmid = ?, updated_at = ? WHERE id = ?`, vmid, updatedAt, id)
+	if err != nil {
+		return false, fmt.Errorf("update job %s sandbox: %w", id, err)
+	}
+	affected, err := res.RowsAffected()
+	if err != nil {
+		return false, fmt.Errorf("rows affected job %s: %w", id, err)
+	}
+	return affected > 0, nil
+}
+
+func scanJobRow(scanner interface{ Scan(dest ...any) error }) (models.Job, error) {
+	var job models.Job
+	var task sql.NullString
+	var mode sql.NullString
+	var ttl sql.NullInt64
+	var keepalive sql.NullBool
+	var status string
+	var sandbox sql.NullInt64
+	var createdAt string
+	var updatedAt string
+	if err := scanner.Scan(
+		&job.ID,
+		&job.RepoURL,
+		&job.Ref,
+		&job.Profile,
+		&task,
+		&mode,
+		&ttl,
+		&keepalive,
+		&status,
+		&sandbox,
+		&createdAt,
+		&updatedAt,
+	); err != nil {
+		return models.Job{}, err
+	}
+	if task.Valid {
+		job.Task = task.String
+	}
+	if mode.Valid {
+		job.Mode = mode.String
+	}
+	if ttl.Valid {
+		job.TTLMinutes = int(ttl.Int64)
+	}
+	if keepalive.Valid {
+		job.Keepalive = keepalive.Bool
+	}
+	if status == "" {
+		return models.Job{}, errors.New("job status missing")
+	}
+	job.Status = models.JobStatus(status)
+	if sandbox.Valid {
+		value := int(sandbox.Int64)
+		job.SandboxVMID = &value
+	}
+	var err error
+	if createdAt != "" {
+		job.CreatedAt, err = parseTime(createdAt)
+		if err != nil {
+			return models.Job{}, fmt.Errorf("parse created_at: %w", err)
+		}
+	}
+	if updatedAt != "" {
+		job.UpdatedAt, err = parseTime(updatedAt)
+		if err != nil {
+			return models.Job{}, fmt.Errorf("parse updated_at: %w", err)
+		}
+	}
+	return job, nil
+}

@@ -45,8 +45,12 @@ type Job struct {
 	RepoURL     string
 	Ref         string
 	Profile     string
+	Task        string
+	Mode        string
+	TTLMinutes  int
+	Keepalive   bool
 	Status      JobStatus
-	SandboxVMID int
+	SandboxVMID *int
 	CreatedAt   time.Time
 	UpdatedAt   time.Time
 }

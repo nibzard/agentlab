@@ -72,8 +72,11 @@ func NewService(cfg config.Config, profiles map[string]models.Profile, store *db
 		return nil, fmt.Errorf("listen bootstrap %s: %w", cfg.BootstrapListen, err)
 	}
 
+	sandboxManager := NewSandboxManager(store, &proxmox.ShellBackend{}, log.Default())
+
 	localMux := http.NewServeMux()
 	localMux.HandleFunc("/healthz", healthHandler)
+	NewControlAPI(store, profiles, sandboxManager).Register(localMux)
 
 	bootstrapMux := http.NewServeMux()
 	bootstrapMux.HandleFunc("/healthz", healthHandler)
@@ -89,8 +92,6 @@ func NewService(cfg config.Config, profiles map[string]models.Profile, store *db
 		ReadHeaderTimeout: 5 * time.Second,
 		IdleTimeout:       2 * time.Minute,
 	}
-
-	sandboxManager := NewSandboxManager(store, &proxmox.ShellBackend{}, log.Default())
 
 	return &Service{
 		cfg:               cfg,
