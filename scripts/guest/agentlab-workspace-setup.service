@@ -1,0 +1,11 @@
+[Unit]
+Description=AgentLab workspace setup
+After=systemd-udev-settle.service
+Wants=systemd-udev-settle.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/agentlab-workspace-setup
+
+[Install]
+WantedBy=multi-user.target

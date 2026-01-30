@@ -1,7 +1,7 @@
 [Unit]
 Description=Agent Runner
-After=network-online.target
-Wants=network-online.target
+After=network-online.target agentlab-workspace-setup.service
+Wants=network-online.target agentlab-workspace-setup.service
 
 [Service]
 Type=simple

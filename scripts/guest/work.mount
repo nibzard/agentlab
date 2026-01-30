@@ -1,0 +1,12 @@
+[Unit]
+Description=AgentLab workspace mount
+ConditionPathExists=/dev/disk/by-label/AGENTLAB_WORK
+
+[Mount]
+What=LABEL=AGENTLAB_WORK
+Where=/work
+Type=ext4
+Options=defaults,noatime
+
+[Install]
+WantedBy=multi-user.target

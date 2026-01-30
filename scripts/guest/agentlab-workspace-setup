@@ -1,0 +1,134 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+umask 022
+
+LABEL="AGENTLAB_WORK"
+MOUNT_POINT="/work"
+FS_TYPE="ext4"
+MOUNT_UNIT="work.mount"
+
+log() {
+  printf "[agentlab-workspace-setup] %s\n" "$*" >&2
+}
+
+need_cmd() {
+  local cmd="$1"
+  if ! command -v "$cmd" >/dev/null 2>&1; then
+    log "missing dependency: $cmd"
+    return 1
+  fi
+  return 0
+}
+
+for dep in lsblk blkid findmnt; do
+  need_cmd "$dep" || exit 1
+done
+
+mkdir -p "$MOUNT_POINT"
+
+start_mount() {
+  if ! command -v systemctl >/dev/null 2>&1; then
+    log "systemctl not available; cannot start $MOUNT_UNIT"
+    return 1
+  fi
+  if systemctl start "$MOUNT_UNIT" >/dev/null 2>&1; then
+    if id -u agent >/dev/null 2>&1; then
+      chown agent:agent "$MOUNT_POINT" || true
+      chmod 0775 "$MOUNT_POINT" || true
+    fi
+    log "workspace mounted on $MOUNT_POINT"
+    return 0
+  fi
+  log "failed to start $MOUNT_UNIT"
+  return 1
+}
+
+if blkid -L "$LABEL" >/dev/null 2>&1; then
+  log "workspace label $LABEL already present"
+  start_mount || true
+  exit 0
+fi
+
+root_src="$(findmnt -n -o SOURCE / 2>/dev/null || true)"
+root_disk=""
+if [[ "$root_src" == /dev/* ]]; then
+  root_disk="$(lsblk -no PKNAME "$root_src" 2>/dev/null | head -n1)"
+  if [[ -z "$root_disk" ]]; then
+    root_disk="$(basename "$root_src")"
+  fi
+fi
+
+candidates=()
+while read -r name type; do
+  [[ "$type" == "disk" ]] || continue
+  if [[ -n "$root_disk" && "$name" == "$root_disk" ]]; then
+    continue
+  fi
+  dev="/dev/$name"
+
+  if [[ "$(lsblk -nro NAME "$dev" | wc -l | tr -d ' ')" -gt 1 ]]; then
+    continue
+  fi
+
+  if lsblk -nro MOUNTPOINT "$dev" | grep -q '/'; then
+    continue
+  fi
+
+  fs_type="$(blkid -o value -s TYPE "$dev" 2>/dev/null || true)"
+  fs_label="$(blkid -o value -s LABEL "$dev" 2>/dev/null || true)"
+
+  if [[ -z "$fs_type" ]]; then
+    candidates+=("$dev|format")
+  elif [[ "$fs_type" == "$FS_TYPE" && -z "$fs_label" ]]; then
+    candidates+=("$dev|label")
+  fi
+done < <(lsblk -dn -o NAME,TYPE)
+
+if [[ ${#candidates[@]} -eq 0 ]]; then
+  log "no workspace disk detected"
+  exit 0
+fi
+
+if [[ ${#candidates[@]} -gt 1 ]]; then
+  log "multiple workspace candidates found; skipping format"
+  for entry in "${candidates[@]}"; do
+    log "candidate: ${entry%%|*}"
+  done
+  exit 0
+fi
+
+candidate="${candidates[0]}"
+device="${candidate%%|*}"
+action="${candidate##*|}"
+
+if [[ "$action" == "label" ]]; then
+  if command -v e2label >/dev/null 2>&1; then
+    log "applying label $LABEL to $device"
+    e2label "$device" "$LABEL"
+  elif command -v tune2fs >/dev/null 2>&1; then
+    log "applying label $LABEL to $device"
+    tune2fs -L "$LABEL" "$device" >/dev/null
+  else
+    log "missing e2label/tune2fs; cannot label workspace disk"
+    exit 1
+  fi
+else
+  if ! command -v mkfs.ext4 >/dev/null 2>&1; then
+    log "mkfs.ext4 not available; cannot format $device"
+    exit 1
+  fi
+  log "formatting workspace disk $device as $FS_TYPE"
+  mkfs.ext4 -F -L "$LABEL" "$device" >/dev/null
+fi
+
+for _ in $(seq 1 5); do
+  if blkid -L "$LABEL" >/dev/null 2>&1; then
+    break
+  fi
+  sleep 1
+done
+
+start_mount || true
+
+exit 0

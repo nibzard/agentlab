@@ -477,11 +477,21 @@
       "id": "T025",
       "title": "Implement guest auto-mount for /work",
       "priority": 2,
-      "status": "todo",
+      "status": "done",
       "details": "Detect workspace disk by label/UUID, format on first attach, and mount via systemd.",
       "depends_on": [
         "T024",
         "T018"
+      ],
+      "updated_at": "2026-01-30T02:50:27Z",
+      "files": [
+        "scripts/create_template.sh",
+        "scripts/README.md",
+        "scripts/guest/agent-runner.service",
+        "scripts/guest/agentlab-workspace-setup",
+        "scripts/guest/agentlab-workspace-setup.service",
+        "scripts/guest/work.mount",
+        "to-do.json"
       ]
     },
     {

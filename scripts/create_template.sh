@@ -54,7 +54,7 @@ DISK_SIZE="40G"
 IMAGE_URL="https://cloud-images.ubuntu.com/noble/current/noble-server-cloudimg-amd64.img"
 IMAGE_FILE=""
 CACHE_DIR="/var/lib/agentlab/images"
-PACKAGES="qemu-guest-agent,git,curl,ca-certificates,jq"
+PACKAGES="qemu-guest-agent,git,curl,ca-certificates,jq,e2fsprogs"
 CLAUDE_CODE_VERSION="1.0.100"
 CODEX_VERSION="0.28.0"
 OPENCODE_VERSION="0.6.4"
@@ -67,6 +67,9 @@ AGENTLAB_RUNNER_SCRIPT="${SCRIPT_DIR}/guest/agent-runner"
 AGENTLAB_RUNNER_SERVICE="${SCRIPT_DIR}/guest/agent-runner.service"
 AGENTLAB_RUNNER_ENV="${SCRIPT_DIR}/guest/agent-runner.env"
 AGENTLAB_SECRETS_CLEANUP_SCRIPT="${SCRIPT_DIR}/guest/agent-secrets-cleanup"
+AGENTLAB_WORKSPACE_SETUP_SCRIPT="${SCRIPT_DIR}/guest/agentlab-workspace-setup"
+AGENTLAB_WORKSPACE_SETUP_SERVICE="${SCRIPT_DIR}/guest/agentlab-workspace-setup.service"
+AGENTLAB_WORK_MOUNT_UNIT="${SCRIPT_DIR}/guest/work.mount"
 AGENT_TOOLS_ENV=""
 
 ensure_package() {
@@ -222,6 +225,9 @@ if [[ "$SKIP_CUSTOMIZE" == "0" ]]; then
   [[ -f "$AGENTLAB_RUNNER_SERVICE" ]] || die "agent-runner service not found at $AGENTLAB_RUNNER_SERVICE"
   [[ -f "$AGENTLAB_RUNNER_ENV" ]] || die "agent-runner env not found at $AGENTLAB_RUNNER_ENV"
   [[ -f "$AGENTLAB_SECRETS_CLEANUP_SCRIPT" ]] || die "agent secrets cleanup script not found at $AGENTLAB_SECRETS_CLEANUP_SCRIPT"
+  [[ -f "$AGENTLAB_WORKSPACE_SETUP_SCRIPT" ]] || die "workspace setup script not found at $AGENTLAB_WORKSPACE_SETUP_SCRIPT"
+  [[ -f "$AGENTLAB_WORKSPACE_SETUP_SERVICE" ]] || die "workspace setup service not found at $AGENTLAB_WORKSPACE_SETUP_SERVICE"
+  [[ -f "$AGENTLAB_WORK_MOUNT_UNIT" ]] || die "workspace mount unit not found at $AGENTLAB_WORK_MOUNT_UNIT"
 fi
 
 download_image() {
@@ -281,10 +287,18 @@ if [[ "$SKIP_CUSTOMIZE" == "0" ]]; then
     --upload "${AGENTLAB_RUNNER_SERVICE}:/etc/systemd/system/agent-runner.service"
     --upload "${AGENTLAB_RUNNER_ENV}:/etc/agentlab/agent-runner.env"
     --upload "${AGENTLAB_SECRETS_CLEANUP_SCRIPT}:/usr/local/bin/agent-secrets-cleanup"
+    --upload "${AGENTLAB_WORKSPACE_SETUP_SCRIPT}:/usr/local/bin/agentlab-workspace-setup"
+    --upload "${AGENTLAB_WORKSPACE_SETUP_SERVICE}:/etc/systemd/system/agentlab-workspace-setup.service"
+    --upload "${AGENTLAB_WORK_MOUNT_UNIT}:/etc/systemd/system/work.mount"
     --run-command "chmod 0755 /usr/local/bin/agent-runner"
     --run-command "chmod 0755 /usr/local/bin/agent-secrets-cleanup"
+    --run-command "chmod 0755 /usr/local/bin/agentlab-workspace-setup"
     --run-command "chmod 0644 /etc/agentlab/agent-runner.env"
+    --run-command "chmod 0644 /etc/systemd/system/agentlab-workspace-setup.service"
+    --run-command "chmod 0644 /etc/systemd/system/work.mount"
     --run-command "systemctl enable agent-runner.service"
+    --run-command "systemctl enable agentlab-workspace-setup.service"
+    --run-command "systemctl enable work.mount"
   )
 
   if [[ "$SKIP_AGENT_TOOLS" == "0" ]]; then
