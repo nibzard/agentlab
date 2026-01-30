@@ -22,6 +22,8 @@ Environment overrides:
   BIN_DIR             Override bin dir (default $PREFIX/bin)
   SYSTEMD_DIR         Override systemd unit dir (default /etc/systemd/system)
   SKIP_SOCKET_CHECK   Set to 1 to skip socket permission verification
+  INSTALL_SKILLS      Set to 0 to skip Claude Code skill installation
+  CLAUDE_SKILLS_DIR   Override Claude Code skills directory
 USAGE
 }
 
@@ -32,6 +34,8 @@ fi
 
 PREFIX="${PREFIX:-/usr/local}"
 SKIP_SOCKET_CHECK="${SKIP_SOCKET_CHECK:-0}"
+INSTALL_SKILLS="${INSTALL_SKILLS:-1}"
+CLAUDE_SKILLS_DIR="${CLAUDE_SKILLS_DIR:-}"
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -68,6 +72,7 @@ ROOT_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)"
 BIN_DIR="${BIN_DIR:-${PREFIX}/bin}"
 SYSTEMD_DIR="${SYSTEMD_DIR:-/etc/systemd/system}"
 UNIT_SRC="${UNIT_SRC:-${ROOT_DIR}/scripts/systemd/agentlabd.service}"
+SKILL_SRC_DIR="${ROOT_DIR}/skills/agentlab"
 
 AGENTLABD_SRC="${AGENTLABD_SRC:-}"
 AGENTLAB_SRC="${AGENTLAB_SRC:-}"
@@ -94,6 +99,47 @@ fi
 [[ -n "$AGENTLAB_SRC" ]] || die "agentlab binary not found; run 'make build' or set AGENTLAB_SRC"
 [[ -f "$UNIT_SRC" ]] || die "agentlabd.service not found at $UNIT_SRC"
 
+install_claude_skill() {
+  if [[ "$INSTALL_SKILLS" != "1" ]]; then
+    log "Skipping Claude Code skill install (INSTALL_SKILLS=$INSTALL_SKILLS)"
+    return
+  fi
+
+  local skill_src=""
+  if [[ -f "${SKILL_SRC_DIR}/SKILL.md" ]]; then
+    skill_src="${SKILL_SRC_DIR}/SKILL.md"
+  elif [[ -f "${SKILL_SRC_DIR}/skill.md" ]]; then
+    skill_src="${SKILL_SRC_DIR}/skill.md"
+  else
+    die "Claude Code skill not found in ${SKILL_SRC_DIR}"
+  fi
+
+  local target_dir="${CLAUDE_SKILLS_DIR}"
+  local owner=""
+  local group=""
+  if [[ -z "$target_dir" ]]; then
+    if [[ -n "${SUDO_USER:-}" && "${SUDO_USER}" != "root" ]]; then
+      local user_home
+      user_home="$(getent passwd "$SUDO_USER" | cut -d: -f6)"
+      if [[ -z "$user_home" ]]; then
+        user_home="/home/${SUDO_USER}"
+      fi
+      target_dir="${user_home}/.claude/skills"
+      owner="$SUDO_USER"
+      group="$(id -gn "$SUDO_USER")"
+    else
+      target_dir="/root/.claude/skills"
+    fi
+  fi
+
+  log "Installing Claude Code skill to ${target_dir}/agentlab"
+  install -d -m 0755 "${target_dir}/agentlab"
+  install -m 0644 "$skill_src" "${target_dir}/agentlab/SKILL.md"
+  if [[ -n "$owner" && -n "$group" ]]; then
+    chown -R "$owner":"$group" "${target_dir}/agentlab"
+  fi
+}
+
 if ! getent group agentlab >/dev/null 2>&1; then
   log "Creating system group agentlab"
   groupadd --system agentlab
@@ -114,6 +160,8 @@ log "Installing binaries to $BIN_DIR"
 install -d -m 0755 "$BIN_DIR"
 install -m 0755 "$AGENTLABD_SRC" "$BIN_DIR/agentlabd"
 install -m 0755 "$AGENTLAB_SRC" "$BIN_DIR/agentlab"
+
+install_claude_skill
 
 log "Installing systemd unit"
 install -d -m 0755 "$SYSTEMD_DIR"

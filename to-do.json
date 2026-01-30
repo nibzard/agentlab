@@ -579,13 +579,14 @@
         "T027",
         "T012"
       ],
-      "updated_at": "2026-01-30T03:36:39Z",
+      "updated_at": "2026-01-30T03:37:18Z",
       "files": [
-        "internal/db/artifacts.go",
+        "internal/daemon/artifact_api_test.go",
         "internal/daemon/artifact_gc.go",
         "internal/daemon/artifact_gc_test.go",
         "internal/daemon/daemon.go",
-        "internal/daemon/artifact_api_test.go"
+        "internal/db/artifacts.go",
+        "to-do.json"
       ]
     },
     {
@@ -593,13 +594,13 @@
       "title": "Ship agentlab Skills file for Claude Code CLI",
       "priority": 1,
       "status": "done",
-      "details": "Create skills/agentlab/skill.md mapping high-level commands to agentlab CLI with guardrails.",
+      "details": "Create skills/agentlab/SKILL.md mapping high-level commands to agentlab CLI with guardrails.",
       "depends_on": [
         "T022"
       ],
       "updated_at": "2026-01-30T01:30:10Z",
       "files": [
-        "skills/agentlab/skill.md",
+        "skills/agentlab/SKILL.md",
         "to-do.json"
       ]
     },
@@ -607,11 +608,19 @@
       "id": "T031",
       "title": "Package Skills with Claude Code configuration",
       "priority": 2,
-      "status": "todo",
+      "status": "done",
       "details": "Document placement and ensure install_host or template build makes Skills discoverable.",
       "depends_on": [
         "T030",
         "T019"
+      ],
+      "updated_at": "2026-01-30T03:42:10Z",
+      "files": [
+        "scripts/install_host.sh",
+        "scripts/README.md",
+        "skills/agentlab/SKILL.md",
+        "AGENTLAB_DEV_SPECIFICATION.md",
+        "to-do.json"
       ]
     },
     {

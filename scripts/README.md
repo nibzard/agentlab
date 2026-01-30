@@ -17,3 +17,9 @@
 - `net/setup_vmbr1.sh`: configure the vmbr1 bridge and enable IP forwarding on the host.
 - `net/setup_tailscale_router.sh`: advertise the agent subnet via Tailscale for tailnet access.
 - `tests/golden_path.sh`: end-to-end golden path integration test for jobs + artifacts.
+
+## Claude Code skills
+
+- Source: `skills/agentlab/SKILL.md`.
+- `install_host.sh` installs the skill to `~/.claude/skills/agentlab/SKILL.md` for the invoking user.
+- Override the install target with `CLAUDE_SKILLS_DIR=/path/to/skills` (set `INSTALL_SKILLS=0` to skip).

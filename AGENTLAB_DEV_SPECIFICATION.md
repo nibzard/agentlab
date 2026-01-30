@@ -17,7 +17,7 @@ These are the defaults we will implement first; make them configurable later if 
   1) **Claude Code CLI** (primary “DevOps agent”, used with Skills),  
   2) **OpenAI Codex** CLI,  
   3) **OpenCode** CLI.
-- **No MCP server:** we will ship **Skills (`skill.md`) only** (Skills call the unprivileged `agentlab` CLI; the CLI talks to `agentlabd` over a Unix socket).
+- **No MCP server:** we will ship **Skills (`SKILL.md`) only** (Skills call the unprivileged `agentlab` CLI; the CLI talks to `agentlabd` over a Unix socket).
 - **Artifact upload:** implement an **embedded artifact upload service in `agentlabd`** backed by a dedicated ZFS dataset + strict token scoping (S3/MinIO backend can be added later).
 
 ---
@@ -515,7 +515,7 @@ This preserves “remote access for humans” without giving sandboxes a free pa
 
 ### Workstream J — Skills for Claude Code CLI
 
-#### J1. Ship `skills/agentlab/skill.md`
+#### J1. Ship `skills/agentlab/SKILL.md`
 - **Priority:** P0  
 - **Owner:** DevEx  
 - **Dependencies:** G1  
@@ -672,7 +672,7 @@ This preserves “remote access for humans” without giving sandboxes a free pa
 - [ ] One-time bootstrap secret delivery works; secrets live only in tmpfs.
 - [ ] Artifact upload works and artifacts can be downloaded via CLI.
 - [ ] Tailscale subnet routing allows developers to SSH into sandboxes remotely.
-- [ ] `skills/agentlab/skill.md` exists and can drive `agentlab` operations from Claude Code.
+- [ ] `skills/agentlab/SKILL.md` exists and can drive `agentlab` operations from Claude Code.
 
 ---
 
