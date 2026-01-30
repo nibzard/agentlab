@@ -133,6 +133,7 @@ func (s *Store) AttachWorkspace(ctx context.Context, id string, vmid int) (bool,
 		return false, errors.New("vmid must be positive")
 	}
 	updatedAt := formatTime(time.Now().UTC())
+	id = strings.TrimSpace(id)
 	res, err := s.DB.ExecContext(ctx, `UPDATE workspaces SET attached_vmid = ?, updated_at = ?
 		WHERE id = ? AND attached_vmid IS NULL`, vmid, updatedAt, id)
 	if err != nil {
@@ -157,6 +158,7 @@ func (s *Store) DetachWorkspace(ctx context.Context, id string, vmid int) (bool,
 		return false, errors.New("vmid must be positive")
 	}
 	updatedAt := formatTime(time.Now().UTC())
+	id = strings.TrimSpace(id)
 	res, err := s.DB.ExecContext(ctx, `UPDATE workspaces SET attached_vmid = NULL, updated_at = ?
 		WHERE id = ? AND attached_vmid = ?`, updatedAt, id, vmid)
 	if err != nil {

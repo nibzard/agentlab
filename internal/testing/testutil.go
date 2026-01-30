@@ -2,6 +2,7 @@
 package testing
 
 import (
+	"database/sql"
 	"encoding/json"
 	"os"
 	"path/filepath"
@@ -10,6 +11,21 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/agentlab/agentlab/internal/models"
+)
+
+// Fixed time for deterministic tests.
+var FixedTime = time.Date(2024, 1, 1, 12, 0, 0, 0, time.UTC)
+
+// Common test constants.
+const (
+	TestRepoURL     = "https://github.com/example/repo"
+	TestProfile     = "default"
+	TestRef         = "main"
+	TestVMID        = 100
+	TestVMIDAlt     = 200
+	TestWorkspaceID = "ws-test-1"
 )
 
 // AssertJSONEqual asserts that two JSON values are semantically equal.
@@ -68,4 +84,228 @@ func RequireNoError(t *testing.T, err error, msgAndArgs ...interface{}) {
 func RequireEqual(t *testing.T, expected, actual any, msgAndArgs ...interface{}) {
 	t.Helper()
 	require.Equal(t, expected, actual, msgAndArgs...)
+}
+
+// ============================================================================
+// Model Factory Functions
+// ============================================================================
+
+// JobOpts holds optional parameters for creating test jobs.
+type JobOpts struct {
+	ID          string
+	RepoURL     string
+	Ref         string
+	Profile     string
+	Task        string
+	Mode        string
+	TTLMinutes  int
+	Keepalive   bool
+	Status      models.JobStatus
+	SandboxVMID *int
+	ResultJSON  string
+	CreatedAt   time.Time
+	UpdatedAt   time.Time
+}
+
+// NewTestJob creates a test job with default values, applying optional overrides.
+func NewTestJob(opts JobOpts) models.Job {
+	if opts.ID == "" {
+		opts.ID = "job-test-1"
+	}
+	if opts.RepoURL == "" {
+		opts.RepoURL = TestRepoURL
+	}
+	if opts.Ref == "" {
+		opts.Ref = TestRef
+	}
+	if opts.Profile == "" {
+		opts.Profile = TestProfile
+	}
+	if opts.Status == "" {
+		opts.Status = models.JobQueued
+	}
+	if opts.CreatedAt.IsZero() {
+		opts.CreatedAt = FixedTime
+	}
+	if opts.UpdatedAt.IsZero() {
+		opts.UpdatedAt = FixedTime
+	}
+
+	return models.Job{
+		ID:          opts.ID,
+		RepoURL:     opts.RepoURL,
+		Ref:         opts.Ref,
+		Profile:     opts.Profile,
+		Task:        opts.Task,
+		Mode:        opts.Mode,
+		TTLMinutes:  opts.TTLMinutes,
+		Keepalive:   opts.Keepalive,
+		Status:      opts.Status,
+		SandboxVMID: opts.SandboxVMID,
+		ResultJSON:  opts.ResultJSON,
+		CreatedAt:   opts.CreatedAt,
+		UpdatedAt:   opts.UpdatedAt,
+	}
+}
+
+// SandboxOpts holds optional parameters for creating test sandboxes.
+type SandboxOpts struct {
+	VMID         int
+	Name         string
+	Profile      string
+	WorkspaceID  *string
+	State        models.SandboxState
+	IP           string
+	Keepalive    bool
+	LeaseExpires time.Time
+	CreatedAt    time.Time
+	LastUpdatedAt time.Time
+}
+
+// NewTestSandbox creates a test sandbox with default values, applying optional overrides.
+func NewTestSandbox(opts SandboxOpts) models.Sandbox {
+	if opts.VMID == 0 {
+		opts.VMID = TestVMID
+	}
+	if opts.Name == "" {
+		opts.Name = "sandbox-test-1"
+	}
+	if opts.Profile == "" {
+		opts.Profile = TestProfile
+	}
+	if opts.State == "" {
+		opts.State = models.SandboxRequested
+	}
+	if opts.CreatedAt.IsZero() {
+		opts.CreatedAt = FixedTime
+	}
+	if opts.LastUpdatedAt.IsZero() {
+		opts.LastUpdatedAt = FixedTime
+	}
+
+	return models.Sandbox{
+		VMID:          opts.VMID,
+		Name:          opts.Name,
+		Profile:       opts.Profile,
+		WorkspaceID:   opts.WorkspaceID,
+		State:         opts.State,
+		IP:            opts.IP,
+		Keepalive:     opts.Keepalive,
+		LeaseExpires:  opts.LeaseExpires,
+		CreatedAt:     opts.CreatedAt,
+		LastUpdatedAt: opts.LastUpdatedAt,
+	}
+}
+
+// WorkspaceOpts holds optional parameters for creating test workspaces.
+type WorkspaceOpts struct {
+	ID          string
+	Name        string
+	SizeGB      int
+	Storage     string
+	VolumeID    string
+	AttachedVM  *int
+	CreatedAt   time.Time
+	LastUpdated time.Time
+}
+
+// NewTestWorkspace creates a test workspace with default values, applying optional overrides.
+func NewTestWorkspace(opts WorkspaceOpts) models.Workspace {
+	if opts.ID == "" {
+		opts.ID = TestWorkspaceID
+	}
+	if opts.Name == "" {
+		opts.Name = "workspace-test-1"
+	}
+	if opts.SizeGB == 0 {
+		opts.SizeGB = 50
+	}
+	if opts.Storage == "" {
+		opts.Storage = "local-zfs"
+	}
+	if opts.VolumeID == "" {
+		opts.VolumeID = "local-zfs:vm-100-disk-1"
+	}
+	if opts.CreatedAt.IsZero() {
+		opts.CreatedAt = FixedTime
+	}
+	if opts.LastUpdated.IsZero() {
+		opts.LastUpdated = FixedTime
+	}
+
+	return models.Workspace{
+		ID:          opts.ID,
+		Name:        opts.Name,
+		SizeGB:      opts.SizeGB,
+		Storage:     opts.Storage,
+		VolumeID:    opts.VolumeID,
+		AttachedVM:  opts.AttachedVM,
+		CreatedAt:   opts.CreatedAt,
+		LastUpdated: opts.LastUpdated,
+	}
+}
+
+// ProfileOpts holds optional parameters for creating test profiles.
+type ProfileOpts struct {
+	Name        string
+	TemplateVM  int
+	RawYAML     string
+	UpdatedAt   time.Time
+}
+
+// NewTestProfile creates a test profile with default values, applying optional overrides.
+func NewTestProfile(opts ProfileOpts) models.Profile {
+	if opts.Name == "" {
+		opts.Name = TestProfile
+	}
+	if opts.TemplateVM == 0 {
+		opts.TemplateVM = 100
+	}
+	if opts.RawYAML == "" {
+		opts.RawYAML = "name: default\nresources:\n  cpu: 2\n  memory: 2048\n"
+	}
+	if opts.UpdatedAt.IsZero() {
+		opts.UpdatedAt = FixedTime
+	}
+
+	return models.Profile{
+		Name:       opts.Name,
+		TemplateVM: opts.TemplateVM,
+		RawYAML:    opts.RawYAML,
+		UpdatedAt:  opts.UpdatedAt,
+	}
+}
+
+// ============================================================================
+// Database Test Helpers
+// ============================================================================
+
+// OpenTestDB opens a test SQLite database in a temporary directory.
+// The database is automatically closed and removed when the test completes.
+func OpenTestDB(t *testing.T) *sql.DB {
+	t.Helper()
+	path := filepath.Join(t.TempDir(), "test.db")
+	db, err := sql.Open("sqlite", path)
+	require.NoError(t, err, "failed to open test database")
+	t.Cleanup(func() {
+		db.Close()
+	})
+	return db
+}
+
+// RequireRowsAffected asserts that the expected number of rows were affected.
+func RequireRowsAffected(t *testing.T, res sql.Result, expected int64) {
+	t.Helper()
+	n, err := res.RowsAffected()
+	require.NoError(t, err, "failed to get rows affected")
+	require.Equal(t, expected, n, "rows affected mismatch")
+}
+
+// RequireNoRows asserts that no rows exist in the table for the given query.
+func RequireNoRows(t *testing.T, db *sql.DB, query string, args ...any) {
+	t.Helper()
+	var count int
+	err := db.QueryRow(query, args...).Scan(&count)
+	require.NoError(t, err, "failed to query rows")
+	require.Equal(t, 0, count, "expected no rows")
 }

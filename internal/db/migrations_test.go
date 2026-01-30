@@ -229,6 +229,13 @@ func TestMigrationVersion2(t *testing.T) {
 		// Run only first migration
 		for _, m := range migrations {
 			if m.version == 1 {
+				// Create schema_migrations table first
+				_, err = conn.Exec(`CREATE TABLE IF NOT EXISTS schema_migrations (
+					version INTEGER PRIMARY KEY,
+					name TEXT NOT NULL,
+					applied_at TEXT NOT NULL
+				)`)
+				require.NoError(t, err)
 				for _, stmt := range m.statements {
 					_, err = conn.Exec(stmt)
 					require.NoError(t, err)
@@ -336,6 +343,13 @@ func TestPartialMigration(t *testing.T) {
 		// Manually apply only first migration
 		for _, m := range migrations {
 			if m.version == 1 {
+				// Create schema_migrations table first
+				_, err = conn.Exec(`CREATE TABLE IF NOT EXISTS schema_migrations (
+					version INTEGER PRIMARY KEY,
+					name TEXT NOT NULL,
+					applied_at TEXT NOT NULL
+				)`)
+				require.NoError(t, err)
 				for _, stmt := range m.statements {
 					_, err = conn.Exec(stmt)
 					require.NoError(t, err)

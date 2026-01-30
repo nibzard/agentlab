@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/agentlab/agentlab/internal/models"
+	testutil "github.com/agentlab/agentlab/internal/testing"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -16,32 +17,29 @@ func TestCreateSandbox(t *testing.T) {
 
 	t.Run("success", func(t *testing.T) {
 		store := openTestStore(t)
-		sb := models.Sandbox{
-			VMID:        100,
-			Name:        "test-sandbox",
-			Profile:     "default",
-			State:       models.SandboxProvisioning,
-			CreatedAt:   time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC),
-			LastUpdatedAt: time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC),
-		}
+		sb := testutil.NewTestSandbox(testutil.SandboxOpts{
+			VMID:  testutil.TestVMID,
+			Name:  "test-sandbox",
+			State: models.SandboxProvisioning,
+		})
 		err := store.CreateSandbox(ctx, sb)
 		require.NoError(t, err)
 
-		got, err := store.GetSandbox(ctx, 100)
+		got, err := store.GetSandbox(ctx, testutil.TestVMID)
 		require.NoError(t, err)
-		assert.Equal(t, 100, got.VMID)
+		assert.Equal(t, testutil.TestVMID, got.VMID)
 		assert.Equal(t, "test-sandbox", got.Name)
-		assert.Equal(t, "default", got.Profile)
+		assert.Equal(t, testutil.TestProfile, got.Profile)
 		assert.Equal(t, models.SandboxProvisioning, got.State)
 	})
 
 	t.Run("nil store", func(t *testing.T) {
-		err := (*Store)(nil).CreateSandbox(ctx, models.Sandbox{VMID: 1, Name: "x", Profile: "p", State: models.SandboxRequested})
+		err := (*Store)(nil).CreateSandbox(ctx, testutil.NewTestSandbox(testutil.SandboxOpts{VMID: 1}))
 		assert.EqualError(t, err, "db store is nil")
 	})
 
 	t.Run("nil db", func(t *testing.T) {
-		err := (&Store{}).CreateSandbox(ctx, models.Sandbox{VMID: 1, Name: "x", Profile: "p", State: models.SandboxRequested})
+		err := (&Store{}).CreateSandbox(ctx, testutil.NewTestSandbox(testutil.SandboxOpts{VMID: 1}))
 		assert.EqualError(t, err, "db store is nil")
 	})
 
@@ -49,7 +47,7 @@ func TestCreateSandbox(t *testing.T) {
 		store := openTestStore(t)
 		sb := models.Sandbox{
 			Name:    "test-sandbox",
-			Profile: "default",
+			Profile: testutil.TestProfile,
 			State:   models.SandboxProvisioning,
 		}
 		err := store.CreateSandbox(ctx, sb)
@@ -61,7 +59,7 @@ func TestCreateSandbox(t *testing.T) {
 		sb := models.Sandbox{
 			VMID:    0,
 			Name:    "test-sandbox",
-			Profile: "default",
+			Profile: testutil.TestProfile,
 			State:   models.SandboxProvisioning,
 		}
 		err := store.CreateSandbox(ctx, sb)
@@ -73,7 +71,7 @@ func TestCreateSandbox(t *testing.T) {
 		sb := models.Sandbox{
 			VMID:    -1,
 			Name:    "test-sandbox",
-			Profile: "default",
+			Profile: testutil.TestProfile,
 			State:   models.SandboxProvisioning,
 		}
 		err := store.CreateSandbox(ctx, sb)
@@ -83,8 +81,8 @@ func TestCreateSandbox(t *testing.T) {
 	t.Run("missing name", func(t *testing.T) {
 		store := openTestStore(t)
 		sb := models.Sandbox{
-			VMID:    100,
-			Profile: "default",
+			VMID:    testutil.TestVMID,
+			Profile: testutil.TestProfile,
 			State:   models.SandboxProvisioning,
 		}
 		err := store.CreateSandbox(ctx, sb)
@@ -94,7 +92,7 @@ func TestCreateSandbox(t *testing.T) {
 	t.Run("missing profile", func(t *testing.T) {
 		store := openTestStore(t)
 		sb := models.Sandbox{
-			VMID:  100,
+			VMID:  testutil.TestVMID,
 			Name:  "test-sandbox",
 			State: models.SandboxProvisioning,
 		}
@@ -105,9 +103,9 @@ func TestCreateSandbox(t *testing.T) {
 	t.Run("missing state", func(t *testing.T) {
 		store := openTestStore(t)
 		sb := models.Sandbox{
-			VMID:    100,
+			VMID:    testutil.TestVMID,
 			Name:    "test-sandbox",
-			Profile: "default",
+			Profile: testutil.TestProfile,
 		}
 		err := store.CreateSandbox(ctx, sb)
 		assert.EqualError(t, err, "sandbox state is required")
@@ -115,14 +113,7 @@ func TestCreateSandbox(t *testing.T) {
 
 	t.Run("duplicate vmid", func(t *testing.T) {
 		store := openTestStore(t)
-		sb := models.Sandbox{
-			VMID:        100,
-			Name:        "test-sandbox",
-			Profile:     "default",
-			State:       models.SandboxProvisioning,
-			CreatedAt:   time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC),
-			LastUpdatedAt: time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC),
-		}
+		sb := testutil.NewTestSandbox(testutil.SandboxOpts{VMID: testutil.TestVMID})
 		err := store.CreateSandbox(ctx, sb)
 		require.NoError(t, err)
 
@@ -133,23 +124,20 @@ func TestCreateSandbox(t *testing.T) {
 	t.Run("with optional fields", func(t *testing.T) {
 		store := openTestStore(t)
 		wsID := "ws-1"
-		lease := time.Date(2024, 1, 2, 0, 0, 0, 0, time.UTC)
-		sb := models.Sandbox{
-			VMID:         100,
-			Name:         "test-sandbox",
-			Profile:      "default",
-			State:        models.SandboxRunning,
-			IP:           "10.77.0.10",
-			WorkspaceID:  &wsID,
-			Keepalive:    true,
-			LeaseExpires: lease,
-			CreatedAt:    time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC),
-			LastUpdatedAt: time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC),
-		}
+		lease := testutil.FixedTime.Add(time.Hour * 24)
+		sb := testutil.NewTestSandbox(testutil.SandboxOpts{
+			VMID:        testutil.TestVMID,
+			Name:        "test-sandbox",
+			State:       models.SandboxRunning,
+			WorkspaceID: &wsID,
+		})
+		sb.IP = "10.77.0.10"
+		sb.Keepalive = true
+		sb.LeaseExpires = lease
 		err := store.CreateSandbox(ctx, sb)
 		require.NoError(t, err)
 
-		got, err := store.GetSandbox(ctx, 100)
+		got, err := store.GetSandbox(ctx, testutil.TestVMID)
 		require.NoError(t, err)
 		assert.Equal(t, "10.77.0.10", got.IP)
 		assert.Equal(t, "ws-1", *got.WorkspaceID)
@@ -161,16 +149,16 @@ func TestCreateSandbox(t *testing.T) {
 		store := openTestStore(t)
 		before := time.Now().UTC()
 		sb := models.Sandbox{
-			VMID:         100,
-			Name:         "test-sandbox",
-			Profile:      "default",
-			State:        models.SandboxProvisioning,
+			VMID:          testutil.TestVMID,
+			Name:          "test-sandbox",
+			Profile:       testutil.TestProfile,
+			State:         models.SandboxProvisioning,
 			LastUpdatedAt: before,
 		}
 		err := store.CreateSandbox(ctx, sb)
 		require.NoError(t, err)
 
-		got, err := store.GetSandbox(ctx, 100)
+		got, err := store.GetSandbox(ctx, testutil.TestVMID)
 		require.NoError(t, err)
 		assert.WithinDuration(t, time.Now().UTC(), got.CreatedAt, time.Second)
 		assert.Equal(t, before, got.LastUpdatedAt)
@@ -182,20 +170,13 @@ func TestGetSandbox(t *testing.T) {
 
 	t.Run("exists", func(t *testing.T) {
 		store := openTestStore(t)
-		sb := models.Sandbox{
-			VMID:        100,
-			Name:        "test-sandbox",
-			Profile:     "default",
-			State:       models.SandboxProvisioning,
-			CreatedAt:   time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC),
-			LastUpdatedAt: time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC),
-		}
+		sb := testutil.NewTestSandbox(testutil.SandboxOpts{VMID: testutil.TestVMID})
 		err := store.CreateSandbox(ctx, sb)
 		require.NoError(t, err)
 
-		got, err := store.GetSandbox(ctx, 100)
+		got, err := store.GetSandbox(ctx, testutil.TestVMID)
 		require.NoError(t, err)
-		assert.Equal(t, 100, got.VMID)
+		assert.Equal(t, testutil.TestVMID, got.VMID)
 	})
 
 	t.Run("not found", func(t *testing.T) {
@@ -227,22 +208,18 @@ func TestListSandboxes(t *testing.T) {
 
 	t.Run("multiple sandboxes ordered by created_at desc", func(t *testing.T) {
 		store := openTestStore(t)
-		sb1 := models.Sandbox{
-			VMID:        100,
-			Name:        "sandbox-1",
-			Profile:     "default",
-			State:       models.SandboxRunning,
-			CreatedAt:   time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC),
-			LastUpdatedAt: time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC),
-		}
-		sb2 := models.Sandbox{
-			VMID:        101,
-			Name:        "sandbox-2",
-			Profile:     "default",
-			State:       models.SandboxProvisioning,
-			CreatedAt:   time.Date(2024, 1, 2, 0, 0, 0, 0, time.UTC),
-			LastUpdatedAt: time.Date(2024, 1, 2, 0, 0, 0, 0, time.UTC),
-		}
+		sb1 := testutil.NewTestSandbox(testutil.SandboxOpts{
+			VMID:  testutil.TestVMID,
+			Name:  "sandbox-1",
+			State: models.SandboxRunning,
+		})
+		sb2 := testutil.NewTestSandbox(testutil.SandboxOpts{
+			VMID:  testutil.TestVMID + 1,
+			Name:  "sandbox-2",
+			State: models.SandboxProvisioning,
+			CreatedAt: testutil.FixedTime.Add(time.Hour * 24),
+			LastUpdatedAt: testutil.FixedTime.Add(time.Hour * 24),
+		})
 		err := store.CreateSandbox(ctx, sb1)
 		require.NoError(t, err)
 		err = store.CreateSandbox(ctx, sb2)
@@ -251,8 +228,8 @@ func TestListSandboxes(t *testing.T) {
 		list, err := store.ListSandboxes(ctx)
 		require.NoError(t, err)
 		assert.Len(t, list, 2)
-		assert.Equal(t, 101, list[0].VMID)
-		assert.Equal(t, 100, list[1].VMID)
+		assert.Equal(t, testutil.TestVMID+1, list[0].VMID)
+		assert.Equal(t, testutil.TestVMID, list[1].VMID)
 	})
 
 	t.Run("nil store", func(t *testing.T) {
@@ -278,33 +255,27 @@ func TestMaxSandboxVMID(t *testing.T) {
 
 	t.Run("single sandbox", func(t *testing.T) {
 		store := openTestStore(t)
-		sb := models.Sandbox{
-			VMID:        100,
-			Name:        "sandbox-1",
-			Profile:     "default",
-			State:       models.SandboxRunning,
-			CreatedAt:   time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC),
-			LastUpdatedAt: time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC),
-		}
+		sb := testutil.NewTestSandbox(testutil.SandboxOpts{
+			VMID:  testutil.TestVMID,
+			Name:  "sandbox-1",
+			State: models.SandboxRunning,
+		})
 		err := store.CreateSandbox(ctx, sb)
 		require.NoError(t, err)
 
 		max, err := store.MaxSandboxVMID(ctx)
 		require.NoError(t, err)
-		assert.Equal(t, 100, max)
+		assert.Equal(t, testutil.TestVMID, max)
 	})
 
 	t.Run("multiple sandboxes", func(t *testing.T) {
 		store := openTestStore(t)
-		for _, vmid := range []int{100, 250, 150} {
-			sb := models.Sandbox{
-				VMID:        vmid,
-				Name:        "sandbox",
-				Profile:     "default",
-				State:       models.SandboxRunning,
-				CreatedAt:   time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC),
-				LastUpdatedAt: time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC),
-			}
+		for _, vmid := range []int{testutil.TestVMID, 250, 150} {
+			sb := testutil.NewTestSandbox(testutil.SandboxOpts{
+				VMID:  vmid,
+				Name:  "sandbox",
+				State: models.SandboxRunning,
+			})
 			err := store.CreateSandbox(ctx, sb)
 			require.NoError(t, err)
 		}
@@ -329,7 +300,7 @@ func TestMaxSandboxVMID(t *testing.T) {
 
 func TestListExpiredSandboxes(t *testing.T) {
 	ctx := context.Background()
-	now := time.Date(2024, 1, 10, 12, 0, 0, 0, time.UTC)
+	now := testutil.FixedTime.Add(time.Hour * 24 * 9)
 
 	t.Run("empty list", func(t *testing.T) {
 		store := openTestStore(t)
@@ -340,57 +311,45 @@ func TestListExpiredSandboxes(t *testing.T) {
 
 	t.Run("expired sandboxes returned", func(t *testing.T) {
 		store := openTestStore(t)
-		sbExpired := models.Sandbox{
-			VMID:         100,
+		sbExpired := testutil.NewTestSandbox(testutil.SandboxOpts{
+			VMID:         testutil.TestVMID,
 			Name:         "expired-sandbox",
-			Profile:      "default",
 			State:        models.SandboxRunning,
-			LeaseExpires: time.Date(2024, 1, 10, 11, 0, 0, 0, time.UTC),
-			CreatedAt:    time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC),
-			LastUpdatedAt: time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC),
-		}
+			LeaseExpires: now.Add(-time.Hour),
+		})
 		err := store.CreateSandbox(ctx, sbExpired)
 		require.NoError(t, err)
 
-		sbActive := models.Sandbox{
-			VMID:         101,
+		sbActive := testutil.NewTestSandbox(testutil.SandboxOpts{
+			VMID:         testutil.TestVMID + 1,
 			Name:         "active-sandbox",
-			Profile:      "default",
 			State:        models.SandboxRunning,
-			LeaseExpires: time.Date(2024, 1, 10, 13, 0, 0, 0, time.UTC),
-			CreatedAt:    time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC),
-			LastUpdatedAt: time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC),
-		}
+			LeaseExpires: now.Add(time.Hour),
+		})
 		err = store.CreateSandbox(ctx, sbActive)
 		require.NoError(t, err)
 
-		sbNoLease := models.Sandbox{
-			VMID:        102,
-			Name:        "no-lease-sandbox",
-			Profile:     "default",
-			State:       models.SandboxRunning,
-			CreatedAt:   time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC),
-			LastUpdatedAt: time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC),
-		}
+		sbNoLease := testutil.NewTestSandbox(testutil.SandboxOpts{
+			VMID:  testutil.TestVMID + 2,
+			Name:  "no-lease-sandbox",
+			State: models.SandboxRunning,
+		})
 		err = store.CreateSandbox(ctx, sbNoLease)
 		require.NoError(t, err)
 
-		sbDestroyed := models.Sandbox{
-			VMID:         103,
+		sbDestroyed := testutil.NewTestSandbox(testutil.SandboxOpts{
+			VMID:         testutil.TestVMID + 3,
 			Name:         "destroyed-sandbox",
-			Profile:      "default",
 			State:        models.SandboxDestroyed,
-			LeaseExpires: time.Date(2024, 1, 10, 11, 0, 0, 0, time.UTC),
-			CreatedAt:    time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC),
-			LastUpdatedAt: time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC),
-		}
+			LeaseExpires: now.Add(-time.Hour),
+		})
 		err = store.CreateSandbox(ctx, sbDestroyed)
 		require.NoError(t, err)
 
 		list, err := store.ListExpiredSandboxes(ctx, now)
 		require.NoError(t, err)
 		assert.Len(t, list, 1)
-		assert.Equal(t, 100, list[0].VMID)
+		assert.Equal(t, testutil.TestVMID, list[0].VMID)
 	})
 
 	t.Run("nil store", func(t *testing.T) {
@@ -404,46 +363,38 @@ func TestUpdateSandboxState(t *testing.T) {
 
 	t.Run("success - valid transition", func(t *testing.T) {
 		store := openTestStore(t)
-		sb := models.Sandbox{
-			VMID:        100,
-			Name:        "test-sandbox",
-			Profile:     "default",
-			State:       models.SandboxProvisioning,
-			CreatedAt:   time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC),
-			LastUpdatedAt: time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC),
-		}
+		sb := testutil.NewTestSandbox(testutil.SandboxOpts{
+			VMID:  testutil.TestVMID,
+			State: models.SandboxProvisioning,
+		})
 		err := store.CreateSandbox(ctx, sb)
 		require.NoError(t, err)
 
-		updated, err := store.UpdateSandboxState(ctx, 100, models.SandboxProvisioning, models.SandboxBooting)
+		updated, err := store.UpdateSandboxState(ctx, testutil.TestVMID, models.SandboxProvisioning, models.SandboxBooting)
 		require.NoError(t, err)
 		assert.True(t, updated)
 
-		got, err := store.GetSandbox(ctx, 100)
+		got, err := store.GetSandbox(ctx, testutil.TestVMID)
 		require.NoError(t, err)
 		assert.Equal(t, models.SandboxBooting, got.State)
 	})
 
 	t.Run("failed - wrong current state", func(t *testing.T) {
 		store := openTestStore(t)
-		sb := models.Sandbox{
-			VMID:        100,
-			Name:        "test-sandbox",
-			Profile:     "default",
-			State:       models.SandboxProvisioning,
-			CreatedAt:   time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC),
-			LastUpdatedAt: time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC),
-		}
+		sb := testutil.NewTestSandbox(testutil.SandboxOpts{
+			VMID:  testutil.TestVMID,
+			State: models.SandboxProvisioning,
+		})
 		err := store.CreateSandbox(ctx, sb)
 		require.NoError(t, err)
 
 		// Try to transition from wrong state
-		updated, err := store.UpdateSandboxState(ctx, 100, models.SandboxRunning, models.SandboxCompleted)
+		updated, err := store.UpdateSandboxState(ctx, testutil.TestVMID, models.SandboxRunning, models.SandboxCompleted)
 		require.NoError(t, err)
 		assert.False(t, updated)
 
 		// State should not have changed
-		got, err := store.GetSandbox(ctx, 100)
+		got, err := store.GetSandbox(ctx, testutil.TestVMID)
 		require.NoError(t, err)
 		assert.Equal(t, models.SandboxProvisioning, got.State)
 	})
@@ -467,45 +418,37 @@ func TestUpdateSandboxLease(t *testing.T) {
 
 	t.Run("success - set lease", func(t *testing.T) {
 		store := openTestStore(t)
-		sb := models.Sandbox{
-			VMID:        100,
-			Name:        "test-sandbox",
-			Profile:     "default",
-			State:       models.SandboxRunning,
-			CreatedAt:   time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC),
-			LastUpdatedAt: time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC),
-		}
+		sb := testutil.NewTestSandbox(testutil.SandboxOpts{
+			VMID:  testutil.TestVMID,
+			State: models.SandboxRunning,
+		})
 		err := store.CreateSandbox(ctx, sb)
 		require.NoError(t, err)
 
-		newLease := time.Date(2024, 1, 2, 0, 0, 0, 0, time.UTC)
-		err = store.UpdateSandboxLease(ctx, 100, newLease)
+		newLease := testutil.FixedTime.Add(time.Hour * 24)
+		err = store.UpdateSandboxLease(ctx, testutil.TestVMID, newLease)
 		require.NoError(t, err)
 
-		got, err := store.GetSandbox(ctx, 100)
+		got, err := store.GetSandbox(ctx, testutil.TestVMID)
 		require.NoError(t, err)
 		assert.Equal(t, newLease, got.LeaseExpires)
 	})
 
 	t.Run("success - clear lease", func(t *testing.T) {
 		store := openTestStore(t)
-		lease := time.Date(2024, 1, 2, 0, 0, 0, 0, time.UTC)
-		sb := models.Sandbox{
-			VMID:         100,
-			Name:         "test-sandbox",
-			Profile:      "default",
+		lease := testutil.FixedTime.Add(time.Hour * 24)
+		sb := testutil.NewTestSandbox(testutil.SandboxOpts{
+			VMID:         testutil.TestVMID,
 			State:        models.SandboxRunning,
 			LeaseExpires: lease,
-			CreatedAt:    time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC),
-			LastUpdatedAt: time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC),
-		}
+		})
 		err := store.CreateSandbox(ctx, sb)
 		require.NoError(t, err)
 
-		err = store.UpdateSandboxLease(ctx, 100, time.Time{})
+		err = store.UpdateSandboxLease(ctx, testutil.TestVMID, time.Time{})
 		require.NoError(t, err)
 
-		got, err := store.GetSandbox(ctx, 100)
+		got, err := store.GetSandbox(ctx, testutil.TestVMID)
 		require.NoError(t, err)
 		assert.True(t, got.LeaseExpires.IsZero())
 	})
@@ -521,43 +464,35 @@ func TestUpdateSandboxIP(t *testing.T) {
 
 	t.Run("success", func(t *testing.T) {
 		store := openTestStore(t)
-		sb := models.Sandbox{
-			VMID:        100,
-			Name:        "test-sandbox",
-			Profile:     "default",
-			State:       models.SandboxRunning,
-			CreatedAt:   time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC),
-			LastUpdatedAt: time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC),
-		}
+		sb := testutil.NewTestSandbox(testutil.SandboxOpts{
+			VMID:  testutil.TestVMID,
+			State: models.SandboxRunning,
+		})
 		err := store.CreateSandbox(ctx, sb)
 		require.NoError(t, err)
 
-		err = store.UpdateSandboxIP(ctx, 100, "10.77.0.50")
+		err = store.UpdateSandboxIP(ctx, testutil.TestVMID, "10.77.0.50")
 		require.NoError(t, err)
 
-		got, err := store.GetSandbox(ctx, 100)
+		got, err := store.GetSandbox(ctx, testutil.TestVMID)
 		require.NoError(t, err)
 		assert.Equal(t, "10.77.0.50", got.IP)
 	})
 
 	t.Run("clear IP", func(t *testing.T) {
 		store := openTestStore(t)
-		sb := models.Sandbox{
-			VMID:        100,
-			Name:        "test-sandbox",
-			Profile:     "default",
-			State:       models.SandboxRunning,
-			IP:          "10.77.0.50",
-			CreatedAt:   time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC),
-			LastUpdatedAt: time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC),
-		}
+		sb := testutil.NewTestSandbox(testutil.SandboxOpts{
+			VMID:  testutil.TestVMID,
+			State: models.SandboxRunning,
+		})
+		sb.IP = "10.77.0.50"
 		err := store.CreateSandbox(ctx, sb)
 		require.NoError(t, err)
 
-		err = store.UpdateSandboxIP(ctx, 100, "")
+		err = store.UpdateSandboxIP(ctx, testutil.TestVMID, "")
 		require.NoError(t, err)
 
-		got, err := store.GetSandbox(ctx, 100)
+		got, err := store.GetSandbox(ctx, testutil.TestVMID)
 		require.NoError(t, err)
 		assert.Equal(t, "", got.IP)
 	})
@@ -585,22 +520,18 @@ func TestUpdateSandboxWorkspace(t *testing.T) {
 
 	t.Run("success - set workspace", func(t *testing.T) {
 		store := openTestStore(t)
-		sb := models.Sandbox{
-			VMID:        100,
-			Name:        "test-sandbox",
-			Profile:     "default",
-			State:       models.SandboxRunning,
-			CreatedAt:   time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC),
-			LastUpdatedAt: time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC),
-		}
+		sb := testutil.NewTestSandbox(testutil.SandboxOpts{
+			VMID:  testutil.TestVMID,
+			State: models.SandboxRunning,
+		})
 		err := store.CreateSandbox(ctx, sb)
 		require.NoError(t, err)
 
 		wsID := "ws-123"
-		err = store.UpdateSandboxWorkspace(ctx, 100, &wsID)
+		err = store.UpdateSandboxWorkspace(ctx, testutil.TestVMID, &wsID)
 		require.NoError(t, err)
 
-		got, err := store.GetSandbox(ctx, 100)
+		got, err := store.GetSandbox(ctx, testutil.TestVMID)
 		require.NoError(t, err)
 		assert.Equal(t, "ws-123", *got.WorkspaceID)
 	})
@@ -608,22 +539,18 @@ func TestUpdateSandboxWorkspace(t *testing.T) {
 	t.Run("success - clear workspace", func(t *testing.T) {
 		store := openTestStore(t)
 		wsID := "ws-123"
-		sb := models.Sandbox{
-			VMID:        100,
-			Name:        "test-sandbox",
-			Profile:     "default",
+		sb := testutil.NewTestSandbox(testutil.SandboxOpts{
+			VMID:        testutil.TestVMID,
 			State:       models.SandboxRunning,
 			WorkspaceID: &wsID,
-			CreatedAt:   time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC),
-			LastUpdatedAt: time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC),
-		}
+		})
 		err := store.CreateSandbox(ctx, sb)
 		require.NoError(t, err)
 
-		err = store.UpdateSandboxWorkspace(ctx, 100, nil)
+		err = store.UpdateSandboxWorkspace(ctx, testutil.TestVMID, nil)
 		require.NoError(t, err)
 
-		got, err := store.GetSandbox(ctx, 100)
+		got, err := store.GetSandbox(ctx, testutil.TestVMID)
 		require.NoError(t, err)
 		assert.Nil(t, got.WorkspaceID)
 	})
@@ -654,7 +581,7 @@ func TestRecordEvent(t *testing.T) {
 
 	t.Run("success with all fields", func(t *testing.T) {
 		store := openTestStore(t)
-		vmid := 100
+		vmid := testutil.TestVMID
 		jobID := "job-1"
 
 		err := store.RecordEvent(ctx, "sandbox_created", &vmid, &jobID, "sandbox created", `{"foo": "bar"}`)
@@ -669,7 +596,7 @@ func TestRecordEvent(t *testing.T) {
 
 	t.Run("success with only vmid", func(t *testing.T) {
 		store := openTestStore(t)
-		vmid := 100
+		vmid := testutil.TestVMID
 		err := store.RecordEvent(ctx, "sandbox_event", &vmid, nil, "test", "")
 		require.NoError(t, err)
 	})

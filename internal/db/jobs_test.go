@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/agentlab/agentlab/internal/models"
+	testutil "github.com/agentlab/agentlab/internal/testing"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -16,15 +17,7 @@ func TestCreateJob(t *testing.T) {
 
 	t.Run("success", func(t *testing.T) {
 		store := openTestStore(t)
-		job := models.Job{
-			ID:        "job-1",
-			RepoURL:   "https://github.com/example/repo",
-			Ref:       "main",
-			Profile:   "default",
-			Status:    models.JobQueued,
-			CreatedAt: time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC),
-			UpdatedAt: time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC),
-		}
+		job := testutil.NewTestJob(testutil.JobOpts{ID: "job-1"})
 		err := store.CreateJob(ctx, job)
 		require.NoError(t, err)
 
@@ -32,29 +25,29 @@ func TestCreateJob(t *testing.T) {
 		got, err := store.GetJob(ctx, "job-1")
 		require.NoError(t, err)
 		assert.Equal(t, "job-1", got.ID)
-		assert.Equal(t, "https://github.com/example/repo", got.RepoURL)
-		assert.Equal(t, "main", got.Ref)
-		assert.Equal(t, "default", got.Profile)
+		assert.Equal(t, testutil.TestRepoURL, got.RepoURL)
+		assert.Equal(t, testutil.TestRef, got.Ref)
+		assert.Equal(t, testutil.TestProfile, got.Profile)
 		assert.Equal(t, models.JobQueued, got.Status)
 	})
 
 	t.Run("nil store", func(t *testing.T) {
-		err := (*Store)(nil).CreateJob(ctx, models.Job{ID: "x", RepoURL: "y", Ref: "z", Profile: "p", Status: models.JobQueued})
+		err := (*Store)(nil).CreateJob(ctx, testutil.NewTestJob(testutil.JobOpts{ID: "x", Ref: "z"}))
 		assert.EqualError(t, err, "db store is nil")
 	})
 
 	t.Run("nil db", func(t *testing.T) {
-		err := (&Store{}).CreateJob(ctx, models.Job{ID: "x", RepoURL: "y", Ref: "z", Profile: "p", Status: models.JobQueued})
+		err := (&Store{}).CreateJob(ctx, testutil.NewTestJob(testutil.JobOpts{ID: "x"}))
 		assert.EqualError(t, err, "db store is nil")
 	})
 
 	t.Run("missing id", func(t *testing.T) {
 		store := openTestStore(t)
 		job := models.Job{
-			RepoURL: "https://github.com/example/repo",
-			Ref:     "main",
-			Profile: "default",
-			Status:  models.JobQueued,
+			RepoURL:  testutil.TestRepoURL,
+			Ref:      testutil.TestRef,
+			Profile:  testutil.TestProfile,
+			Status:   models.JobQueued,
 		}
 		err := store.CreateJob(ctx, job)
 		assert.EqualError(t, err, "job id is required")
@@ -64,8 +57,8 @@ func TestCreateJob(t *testing.T) {
 		store := openTestStore(t)
 		job := models.Job{
 			ID:      "job-1",
-			Ref:     "main",
-			Profile: "default",
+			Ref:     testutil.TestRef,
+			Profile: testutil.TestProfile,
 			Status:  models.JobQueued,
 		}
 		err := store.CreateJob(ctx, job)
@@ -76,8 +69,8 @@ func TestCreateJob(t *testing.T) {
 		store := openTestStore(t)
 		job := models.Job{
 			ID:      "job-1",
-			RepoURL: "https://github.com/example/repo",
-			Profile: "default",
+			RepoURL: testutil.TestRepoURL,
+			Profile: testutil.TestProfile,
 			Status:  models.JobQueued,
 		}
 		err := store.CreateJob(ctx, job)
@@ -88,8 +81,8 @@ func TestCreateJob(t *testing.T) {
 		store := openTestStore(t)
 		job := models.Job{
 			ID:      "job-1",
-			RepoURL: "https://github.com/example/repo",
-			Ref:     "main",
+			RepoURL: testutil.TestRepoURL,
+			Ref:     testutil.TestRef,
 			Status:  models.JobQueued,
 		}
 		err := store.CreateJob(ctx, job)
@@ -100,9 +93,9 @@ func TestCreateJob(t *testing.T) {
 		store := openTestStore(t)
 		job := models.Job{
 			ID:      "job-1",
-			RepoURL: "https://github.com/example/repo",
-			Ref:     "main",
-			Profile: "default",
+			RepoURL: testutil.TestRepoURL,
+			Ref:     testutil.TestRef,
+			Profile: testutil.TestProfile,
 		}
 		err := store.CreateJob(ctx, job)
 		assert.EqualError(t, err, "job status is required")
@@ -110,15 +103,7 @@ func TestCreateJob(t *testing.T) {
 
 	t.Run("duplicate id", func(t *testing.T) {
 		store := openTestStore(t)
-		job := models.Job{
-			ID:        "job-1",
-			RepoURL:   "https://github.com/example/repo",
-			Ref:       "main",
-			Profile:   "default",
-			Status:    models.JobQueued,
-			CreatedAt: time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC),
-			UpdatedAt: time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC),
-		}
+		job := testutil.NewTestJob(testutil.JobOpts{ID: "job-1"})
 		err := store.CreateJob(ctx, job)
 		require.NoError(t, err)
 
@@ -129,21 +114,23 @@ func TestCreateJob(t *testing.T) {
 	t.Run("with optional fields", func(t *testing.T) {
 		store := openTestStore(t)
 		vmid := 123
-		job := models.Job{
+		job := testutil.NewTestJob(testutil.JobOpts{
 			ID:          "job-1",
-			RepoURL:     "https://github.com/example/repo",
-			Ref:         "main",
-			Profile:     "default",
 			Task:        "test-task",
 			Mode:        "test-mode",
 			TTLMinutes:  60,
 			Keepalive:   true,
-			Status:      models.JobQueued,
 			SandboxVMID: &vmid,
 			ResultJSON:  `{"output": "test"}`,
-			CreatedAt:   time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC),
-			UpdatedAt:   time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC),
-		}
+		})
+		// Set optional fields that NewTestJob doesn't handle
+		job.Task = "test-task"
+		job.Mode = "test-mode"
+		job.TTLMinutes = 60
+		job.Keepalive = true
+		job.SandboxVMID = &vmid
+		job.ResultJSON = `{"output": "test"}`
+
 		err := store.CreateJob(ctx, job)
 		require.NoError(t, err)
 
@@ -162,11 +149,11 @@ func TestCreateJob(t *testing.T) {
 		before := time.Now().UTC()
 		job := models.Job{
 			ID:        "job-1",
-			RepoURL:   "https://github.com/example/repo",
-			Ref:       "main",
-			Profile:   "default",
+			RepoURL:   testutil.TestRepoURL,
+			Ref:       testutil.TestRef,
+			Profile:   testutil.TestProfile,
 			Status:    models.JobQueued,
-			UpdatedAt: before, // Should use this for updated_at if set
+			UpdatedAt: before,
 		}
 		err := store.CreateJob(ctx, job)
 		require.NoError(t, err)
@@ -183,15 +170,7 @@ func TestGetJob(t *testing.T) {
 
 	t.Run("exists", func(t *testing.T) {
 		store := openTestStore(t)
-		job := models.Job{
-			ID:        "job-1",
-			RepoURL:   "https://github.com/example/repo",
-			Ref:       "main",
-			Profile:   "default",
-			Status:    models.JobQueued,
-			CreatedAt: time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC),
-			UpdatedAt: time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC),
-		}
+		job := testutil.NewTestJob(testutil.JobOpts{ID: "job-1"})
 		err := store.CreateJob(ctx, job)
 		require.NoError(t, err)
 
@@ -223,16 +202,10 @@ func TestGetJobBySandboxVMID(t *testing.T) {
 	t.Run("exists", func(t *testing.T) {
 		store := openTestStore(t)
 		vmid := 123
-		job := models.Job{
+		job := testutil.NewTestJob(testutil.JobOpts{
 			ID:        "job-1",
-			RepoURL:   "https://github.com/example/repo",
-			Ref:       "main",
-			Profile:   "default",
-			Status:    models.JobQueued,
 			SandboxVMID: &vmid,
-			CreatedAt: time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC),
-			UpdatedAt: time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC),
-		}
+		})
 		err := store.CreateJob(ctx, job)
 		require.NoError(t, err)
 
@@ -265,30 +238,24 @@ func TestGetJobBySandboxVMID(t *testing.T) {
 		vmid := 123
 
 		// Create older job
-		oldJob := models.Job{
+		oldJob := testutil.NewTestJob(testutil.JobOpts{
 			ID:        "job-old",
-			RepoURL:   "https://github.com/example/repo",
 			Ref:       "old",
-			Profile:   "default",
 			Status:    models.JobCompleted,
 			SandboxVMID: &vmid,
-			CreatedAt: time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC),
-			UpdatedAt: time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC),
-		}
+		})
 		err := store.CreateJob(ctx, oldJob)
 		require.NoError(t, err)
 
 		// Create newer job
-		newJob := models.Job{
+		newJob := testutil.NewTestJob(testutil.JobOpts{
 			ID:        "job-new",
-			RepoURL:   "https://github.com/example/repo",
 			Ref:       "new",
-			Profile:   "default",
 			Status:    models.JobRunning,
 			SandboxVMID: &vmid,
-			CreatedAt: time.Date(2024, 1, 2, 0, 0, 0, 0, time.UTC),
-			UpdatedAt: time.Date(2024, 1, 2, 0, 0, 0, 0, time.UTC),
-		}
+			CreatedAt: testutil.FixedTime.Add(time.Hour * 24),
+			UpdatedAt: testutil.FixedTime.Add(time.Hour * 24),
+		})
 		err = store.CreateJob(ctx, newJob)
 		require.NoError(t, err)
 
@@ -303,15 +270,7 @@ func TestUpdateJobSandbox(t *testing.T) {
 
 	t.Run("success", func(t *testing.T) {
 		store := openTestStore(t)
-		job := models.Job{
-			ID:        "job-1",
-			RepoURL:   "https://github.com/example/repo",
-			Ref:       "main",
-			Profile:   "default",
-			Status:    models.JobQueued,
-			CreatedAt: time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC),
-			UpdatedAt: time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC),
-		}
+		job := testutil.NewTestJob(testutil.JobOpts{ID: "job-1"})
 		err := store.CreateJob(ctx, job)
 		require.NoError(t, err)
 
@@ -346,15 +305,7 @@ func TestUpdateJobSandbox(t *testing.T) {
 
 	t.Run("invalid vmid", func(t *testing.T) {
 		store := openTestStore(t)
-		job := models.Job{
-			ID:        "job-1",
-			RepoURL:   "https://github.com/example/repo",
-			Ref:       "main",
-			Profile:   "default",
-			Status:    models.JobQueued,
-			CreatedAt: time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC),
-			UpdatedAt: time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC),
-		}
+		job := testutil.NewTestJob(testutil.JobOpts{ID: "job-1"})
 		err := store.CreateJob(ctx, job)
 		require.NoError(t, err)
 
@@ -368,15 +319,7 @@ func TestUpdateJobStatus(t *testing.T) {
 
 	t.Run("success", func(t *testing.T) {
 		store := openTestStore(t)
-		job := models.Job{
-			ID:        "job-1",
-			RepoURL:   "https://github.com/example/repo",
-			Ref:       "main",
-			Profile:   "default",
-			Status:    models.JobQueued,
-			CreatedAt: time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC),
-			UpdatedAt: time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC),
-		}
+		job := testutil.NewTestJob(testutil.JobOpts{ID: "job-1"})
 		err := store.CreateJob(ctx, job)
 		require.NoError(t, err)
 
@@ -408,15 +351,7 @@ func TestUpdateJobStatus(t *testing.T) {
 
 	t.Run("missing status", func(t *testing.T) {
 		store := openTestStore(t)
-		job := models.Job{
-			ID:        "job-1",
-			RepoURL:   "https://github.com/example/repo",
-			Ref:       "main",
-			Profile:   "default",
-			Status:    models.JobQueued,
-			CreatedAt: time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC),
-			UpdatedAt: time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC),
-		}
+		job := testutil.NewTestJob(testutil.JobOpts{ID: "job-1"})
 		err := store.CreateJob(ctx, job)
 		require.NoError(t, err)
 
@@ -430,15 +365,10 @@ func TestUpdateJobResult(t *testing.T) {
 
 	t.Run("success with result", func(t *testing.T) {
 		store := openTestStore(t)
-		job := models.Job{
-			ID:        "job-1",
-			RepoURL:   "https://github.com/example/repo",
-			Ref:       "main",
-			Profile:   "default",
-			Status:    models.JobRunning,
-			CreatedAt: time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC),
-			UpdatedAt: time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC),
-		}
+		job := testutil.NewTestJob(testutil.JobOpts{
+			ID:     "job-1",
+			Status: models.JobRunning,
+		})
 		err := store.CreateJob(ctx, job)
 		require.NoError(t, err)
 
@@ -454,15 +384,10 @@ func TestUpdateJobResult(t *testing.T) {
 
 	t.Run("success without result", func(t *testing.T) {
 		store := openTestStore(t)
-		job := models.Job{
-			ID:        "job-1",
-			RepoURL:   "https://github.com/example/repo",
-			Ref:       "main",
-			Profile:   "default",
-			Status:    models.JobRunning,
-			CreatedAt: time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC),
-			UpdatedAt: time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC),
-		}
+		job := testutil.NewTestJob(testutil.JobOpts{
+			ID:     "job-1",
+			Status: models.JobRunning,
+		})
 		err := store.CreateJob(ctx, job)
 		require.NoError(t, err)
 
@@ -494,15 +419,10 @@ func TestUpdateJobResult(t *testing.T) {
 
 	t.Run("missing status", func(t *testing.T) {
 		store := openTestStore(t)
-		job := models.Job{
-			ID:        "job-1",
-			RepoURL:   "https://github.com/example/repo",
-			Ref:       "main",
-			Profile:   "default",
-			Status:    models.JobRunning,
-			CreatedAt: time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC),
-			UpdatedAt: time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC),
-		}
+		job := testutil.NewTestJob(testutil.JobOpts{
+			ID:     "job-1",
+			Status: models.JobRunning,
+		})
 		err := store.CreateJob(ctx, job)
 		require.NoError(t, err)
 

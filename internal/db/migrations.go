@@ -134,6 +134,10 @@ func Migrate(db *sql.DB) error {
 	if db == nil {
 		return errors.New("db is nil")
 	}
+	// Enable foreign key constraints in SQLite
+	if _, err := db.Exec("PRAGMA foreign_keys = ON"); err != nil {
+		return fmt.Errorf("enable foreign keys: %w", err)
+	}
 	if err := validateMigrations(); err != nil {
 		return err
 	}
