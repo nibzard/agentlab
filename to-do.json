@@ -104,11 +104,17 @@
       "id": "T006",
       "title": "Create connectivity smoke test script for sandbox networking",
       "priority": 2,
-      "status": "todo",
+      "status": "done",
       "details": "Validate Internet egress, LAN/tailnet blocks, and DNS resolution from a sandbox.",
       "depends_on": [
         "T004",
         "T005"
+      ],
+      "updated_at": "2026-01-30T02:07:26Z",
+      "files": [
+        "scripts/net/smoke_test.sh",
+        "scripts/README.md",
+        "to-do.json"
       ]
     },
     {
@@ -641,10 +647,10 @@
         "T014",
         "T020"
       ],
-      "updated_at": "2026-01-30T01:59:21Z",
+      "updated_at": "2026-01-30T01:59:57Z",
       "files": [
-        "scripts/tests/golden_path.sh",
         "scripts/README.md",
+        "scripts/tests/golden_path.sh",
         "to-do.json"
       ]
     },

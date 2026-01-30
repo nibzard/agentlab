@@ -9,6 +9,7 @@
 - `systemd/agentlabd.service`: systemd unit for the agentlabd daemon.
 - `net/agent_nat.nft`: nftables rules template for agent subnet NAT + egress/tailnet blocks.
 - `net/apply.sh`: install and optionally enable the agentlab nftables rules.
+- `net/smoke_test.sh`: SSH-based connectivity smoke test for sandbox egress and blocks.
 - `net/setup_vmbr1.sh`: configure the vmbr1 bridge and enable IP forwarding on the host.
 - `net/setup_tailscale_router.sh`: advertise the agent subnet via Tailscale for tailnet access.
 - `tests/golden_path.sh`: end-to-end golden path integration test for jobs + artifacts.
