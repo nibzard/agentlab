@@ -931,14 +931,15 @@
       "status": "done",
       "details": "Use an agentlab-specific secrets path (for example /run/agentlab/secrets) and update agent-runner, cleanup script, and systemd unit/runtime directories accordingly.",
       "files": [
-        "scripts/guest/agent-runner",
-        "scripts/guest/agent-secrets-cleanup",
-        "scripts/guest/agent-runner.service",
         "AGENTLAB_DEV_SPECIFICATION.md",
         "PROXMOX_SPECS.md",
-        "docs/runbook.md"
+        "docs/runbook.md",
+        "scripts/guest/agent-runner",
+        "scripts/guest/agent-runner.service",
+        "scripts/guest/agent-secrets-cleanup",
+        "to-do.json"
       ],
-      "updated_at": "2026-01-30T06:15:24Z"
+      "updated_at": "2026-01-30T06:16:41Z"
     },
     {
       "id": "T049",
@@ -958,20 +959,19 @@
         "internal/proxmox/shell_backend.go",
         "to-do.json"
       ],
-      "updated_at": "2026-01-30T06:29:54Z"
+      "updated_at": "2026-01-30T06:34:35Z"
     },
     {
       "id": "T050",
       "title": "Expand README with overview, prerequisites, and quickstart",
       "priority": 4,
-      "status": "todo",
+      "status": "done",
       "details": "README currently contains only the title. Add a concise overview, setup prerequisites, and links to runbook/secrets/API docs.",
       "files": [
         "README.md",
-        "docs/runbook.md",
-        "docs/secrets.md",
-        "docs/api.md"
-      ]
+        "to-do.json"
+      ],
+      "updated_at": "2026-01-30T06:36:06Z"
     }
   ]
 }
