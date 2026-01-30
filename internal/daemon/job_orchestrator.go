@@ -50,6 +50,7 @@ type JobOrchestrator struct {
 	controllerURL  string
 	logger         *log.Logger
 	redactor       *Redactor
+	metrics        *Metrics
 	now            func() time.Time
 	rand           io.Reader
 	bootstrapTTL   time.Duration
@@ -57,7 +58,7 @@ type JobOrchestrator struct {
 	snippets       map[int]proxmox.CloudInitSnippet
 }
 
-func NewJobOrchestrator(store *db.Store, profiles map[string]models.Profile, backend proxmox.Backend, manager *SandboxManager, workspaceMgr *WorkspaceManager, snippetStore proxmox.SnippetStore, sshPublicKey, controllerURL string, logger *log.Logger, redactor *Redactor) *JobOrchestrator {
+func NewJobOrchestrator(store *db.Store, profiles map[string]models.Profile, backend proxmox.Backend, manager *SandboxManager, workspaceMgr *WorkspaceManager, snippetStore proxmox.SnippetStore, sshPublicKey, controllerURL string, logger *log.Logger, redactor *Redactor, metrics *Metrics) *JobOrchestrator {
 	if logger == nil {
 		logger = log.Default()
 	}
@@ -75,6 +76,7 @@ func NewJobOrchestrator(store *db.Store, profiles map[string]models.Profile, bac
 		controllerURL:  strings.TrimSpace(controllerURL),
 		logger:         logger,
 		redactor:       redactor,
+		metrics:        metrics,
 		now:            time.Now,
 		rand:           rand.Reader,
 		bootstrapTTL:   defaultBootstrapTTL,
@@ -217,6 +219,9 @@ func (o *JobOrchestrator) Run(ctx context.Context, jobID string) error {
 	if err := o.store.UpdateJobStatus(ctx, job.ID, models.JobRunning); err != nil {
 		return o.failJob(ctx, job, sandbox.VMID, err)
 	}
+	if o.metrics != nil {
+		o.metrics.IncJobStatus(models.JobRunning)
+	}
 	_ = o.store.RecordEvent(ctx, "job.running", &sandbox.VMID, &job.ID, "sandbox running", "")
 	return nil
 }
@@ -252,6 +257,15 @@ func (o *JobOrchestrator) HandleReport(ctx context.Context, report JobReport) er
 	}
 	if job.SandboxVMID == nil || *job.SandboxVMID != report.VMID {
 		return ErrJobSandboxMismatch
+	}
+
+	if o.metrics != nil && job.Status != report.Status {
+		o.metrics.IncJobStatus(report.Status)
+		if report.Status == models.JobCompleted || report.Status == models.JobFailed || report.Status == models.JobTimeout {
+			if !job.CreatedAt.IsZero() {
+				o.metrics.ObserveJobDuration(report.Status, o.now().UTC().Sub(job.CreatedAt))
+			}
+		}
 	}
 
 	resultJSON, err := buildJobResult(report.Status, report.Message, report.Artifacts, report.Result, o.now().UTC())
@@ -355,6 +369,12 @@ func (o *JobOrchestrator) failJob(ctx context.Context, job models.Job, vmid int,
 	message := cause.Error()
 	if o.redactor != nil {
 		message = o.redactor.Redact(message)
+	}
+	if o.metrics != nil {
+		o.metrics.IncJobStatus(models.JobFailed)
+		if !job.CreatedAt.IsZero() {
+			o.metrics.ObserveJobDuration(models.JobFailed, o.now().UTC().Sub(job.CreatedAt))
+		}
 	}
 	resultJSON, _ := buildJobResult(models.JobFailed, message, nil, nil, o.now().UTC())
 	_ = o.store.UpdateJobResult(ctx, job.ID, models.JobFailed, resultJSON)

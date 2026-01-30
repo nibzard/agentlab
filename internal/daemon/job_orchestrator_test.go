@@ -80,7 +80,7 @@ func TestJobOrchestratorRun(t *testing.T) {
 	}
 	snippetDir := t.TempDir()
 	snippetStore := proxmox.SnippetStore{Storage: "local", Dir: snippetDir}
-	orchestrator := NewJobOrchestrator(store, profiles, backend, manager, nil, snippetStore, "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIBtestkey agent@test", "http://10.77.0.1:8844", log.New(io.Discard, "", 0), nil)
+	orchestrator := NewJobOrchestrator(store, profiles, backend, manager, nil, snippetStore, "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIBtestkey agent@test", "http://10.77.0.1:8844", log.New(io.Discard, "", 0), nil, nil)
 	orchestrator.rand = bytes.NewReader(bytes.Repeat([]byte{0x01}, 64))
 	now := time.Date(2026, 1, 29, 12, 0, 0, 0, time.UTC)
 	orchestrator.now = func() time.Time { return now }
@@ -157,7 +157,7 @@ host_mounts:
 `,
 		},
 	}
-	orchestrator := NewJobOrchestrator(store, profiles, backend, manager, nil, proxmox.SnippetStore{}, "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIBtestkey agent@test", "http://10.77.0.1:8844", log.New(io.Discard, "", 0), nil)
+	orchestrator := NewJobOrchestrator(store, profiles, backend, manager, nil, proxmox.SnippetStore{}, "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIBtestkey agent@test", "http://10.77.0.1:8844", log.New(io.Discard, "", 0), nil, nil)
 
 	now := time.Date(2026, 1, 29, 13, 0, 0, 0, time.UTC)
 	job := models.Job{
@@ -205,7 +205,7 @@ func TestJobOrchestratorHandleReportComplete(t *testing.T) {
 	profiles := map[string]models.Profile{
 		"yolo": {Name: "yolo", TemplateVM: 9000},
 	}
-	orchestrator := NewJobOrchestrator(store, profiles, backend, manager, nil, proxmox.SnippetStore{}, "", "http://10.77.0.1:8844", log.New(io.Discard, "", 0), nil)
+	orchestrator := NewJobOrchestrator(store, profiles, backend, manager, nil, proxmox.SnippetStore{}, "", "http://10.77.0.1:8844", log.New(io.Discard, "", 0), nil, nil)
 
 	now := time.Date(2026, 1, 29, 12, 30, 0, 0, time.UTC)
 	sandbox := models.Sandbox{

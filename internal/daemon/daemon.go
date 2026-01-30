@@ -34,12 +34,15 @@ type Service struct {
 	unixListener      net.Listener
 	bootstrapListener net.Listener
 	artifactListener  net.Listener
+	metricsListener   net.Listener
 	unixServer        *http.Server
 	bootstrapServer   *http.Server
 	artifactServer    *http.Server
+	metricsServer     *http.Server
 	sandboxManager    *SandboxManager
 	workspaceManager  *WorkspaceManager
 	artifactGC        *ArtifactGC
+	metrics           *Metrics
 }
 
 // Run loads profiles, binds listeners, and serves until ctx is canceled.
@@ -72,6 +75,10 @@ func NewService(cfg config.Config, profiles map[string]models.Profile, store *db
 	if err := ensureDir(cfg.ArtifactDir, artifactDirPerms); err != nil {
 		return nil, err
 	}
+	var metrics *Metrics
+	if strings.TrimSpace(cfg.MetricsListen) != "" {
+		metrics = NewMetrics()
+	}
 	unixListener, err := listenUnix(cfg.SocketPath)
 	if err != nil {
 		return nil, err
@@ -87,10 +94,20 @@ func NewService(cfg config.Config, profiles map[string]models.Profile, store *db
 		_ = unixListener.Close()
 		return nil, fmt.Errorf("listen artifact %s: %w", cfg.ArtifactListen, err)
 	}
+	var metricsListener net.Listener
+	if metrics != nil {
+		metricsListener, err = net.Listen("tcp", cfg.MetricsListen)
+		if err != nil {
+			_ = artifactListener.Close()
+			_ = bootstrapListener.Close()
+			_ = unixListener.Close()
+			return nil, fmt.Errorf("listen metrics %s: %w", cfg.MetricsListen, err)
+		}
+	}
 
 	backend := &proxmox.ShellBackend{}
 	workspaceManager := NewWorkspaceManager(store, backend, log.Default())
-	sandboxManager := NewSandboxManager(store, backend, log.Default()).WithWorkspaceManager(workspaceManager)
+	sandboxManager := NewSandboxManager(store, backend, log.Default()).WithWorkspaceManager(workspaceManager).WithMetrics(metrics)
 	redactor := NewRedactor(nil)
 	snippetStore := proxmox.SnippetStore{
 		Storage: cfg.SnippetStorage,
@@ -99,7 +116,7 @@ func NewService(cfg config.Config, profiles map[string]models.Profile, store *db
 	controllerURL := buildControllerURL(cfg.BootstrapListen)
 	var jobOrchestrator *JobOrchestrator
 	if strings.TrimSpace(cfg.SSHPublicKey) != "" {
-		jobOrchestrator = NewJobOrchestrator(store, profiles, backend, sandboxManager, workspaceManager, snippetStore, cfg.SSHPublicKey, controllerURL, log.Default(), redactor)
+		jobOrchestrator = NewJobOrchestrator(store, profiles, backend, sandboxManager, workspaceManager, snippetStore, cfg.SSHPublicKey, controllerURL, log.Default(), redactor, metrics)
 	} else {
 		log.Printf("agentlabd: ssh public key missing; job orchestration disabled")
 	}
@@ -143,6 +160,17 @@ func NewService(cfg config.Config, profiles map[string]models.Profile, store *db
 		ReadHeaderTimeout: 5 * time.Second,
 		IdleTimeout:       2 * time.Minute,
 	}
+	var metricsServer *http.Server
+	if metrics != nil {
+		metricsMux := http.NewServeMux()
+		metricsMux.Handle("/metrics", metrics.Handler())
+		metricsMux.HandleFunc("/healthz", healthHandler)
+		metricsServer = &http.Server{
+			Handler:           metricsMux,
+			ReadHeaderTimeout: 5 * time.Second,
+			IdleTimeout:       2 * time.Minute,
+		}
+	}
 
 	return &Service{
 		cfg:               cfg,
@@ -151,20 +179,30 @@ func NewService(cfg config.Config, profiles map[string]models.Profile, store *db
 		unixListener:      unixListener,
 		bootstrapListener: bootstrapListener,
 		artifactListener:  artifactListener,
+		metricsListener:   metricsListener,
 		unixServer:        unixServer,
 		bootstrapServer:   bootstrapServer,
 		artifactServer:    artifactServer,
+		metricsServer:     metricsServer,
 		sandboxManager:    sandboxManager,
 		workspaceManager:  workspaceManager,
 		artifactGC:        artifactGC,
+		metrics:           metrics,
 	}, nil
 }
 
 // Serve blocks until shutdown or a listener error occurs.
 func (s *Service) Serve(ctx context.Context) error {
+	serverCount := 3
+	if s.metricsServer != nil {
+		serverCount++
+	}
 	log.Printf("agentlabd: listening on unix=%s", s.cfg.SocketPath)
 	log.Printf("agentlabd: listening on bootstrap=%s", s.cfg.BootstrapListen)
 	log.Printf("agentlabd: listening on artifacts=%s", s.cfg.ArtifactListen)
+	if s.metricsServer != nil {
+		log.Printf("agentlabd: listening on metrics=%s", s.cfg.MetricsListen)
+	}
 	if s.sandboxManager != nil {
 		s.sandboxManager.StartLeaseGC(ctx)
 	}
@@ -172,19 +210,22 @@ func (s *Service) Serve(ctx context.Context) error {
 		s.artifactGC.Start(ctx)
 	}
 
-	errCh := make(chan error, 3)
+	errCh := make(chan error, serverCount)
 	go func() { errCh <- s.unixServer.Serve(s.unixListener) }()
 	go func() { errCh <- s.bootstrapServer.Serve(s.bootstrapListener) }()
 	go func() { errCh <- s.artifactServer.Serve(s.artifactListener) }()
+	if s.metricsServer != nil {
+		go func() { errCh <- s.metricsServer.Serve(s.metricsListener) }()
+	}
 
-	remaining := 3
+	remaining := serverCount
 	var serveErr error
 
 	select {
 	case <-ctx.Done():
 		// graceful shutdown
 	case err := <-errCh:
-		remaining = 2
+		remaining = serverCount - 1
 		if err != nil && !errors.Is(err, http.ErrServerClosed) {
 			serveErr = err
 		}
@@ -208,6 +249,9 @@ func (s *Service) shutdown() {
 	_ = s.unixServer.Shutdown(ctx)
 	_ = s.bootstrapServer.Shutdown(ctx)
 	_ = s.artifactServer.Shutdown(ctx)
+	if s.metricsServer != nil {
+		_ = s.metricsServer.Shutdown(ctx)
+	}
 	if s.store != nil {
 		_ = s.store.Close()
 	}

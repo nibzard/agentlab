@@ -750,10 +750,23 @@
       "id": "T038",
       "title": "Add optional Prometheus metrics endpoint",
       "priority": 3,
-      "status": "todo",
+      "status": "done",
       "details": "Expose /metrics behind localhost-only flag with sandbox/job counters and timing distributions.",
       "depends_on": [
         "T010"
+      ],
+      "updated_at": "2026-01-30T04:33:35Z",
+      "files": [
+        "docs/runbook.md",
+        "go.mod",
+        "go.sum",
+        "internal/config/config.go",
+        "internal/daemon/daemon.go",
+        "internal/daemon/job_orchestrator.go",
+        "internal/daemon/job_orchestrator_test.go",
+        "internal/daemon/metrics.go",
+        "internal/daemon/sandbox_manager.go",
+        "to-do.json"
       ]
     },
     {

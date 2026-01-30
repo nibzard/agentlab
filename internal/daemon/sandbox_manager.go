@@ -30,6 +30,7 @@ type SandboxManager struct {
 	logger     *log.Logger
 	workspace  *WorkspaceManager
 	snippetFn  func(vmid int)
+	metrics    *Metrics
 	now        func() time.Time
 	gcInterval time.Duration
 }
@@ -63,6 +64,15 @@ func (m *SandboxManager) WithSnippetCleaner(cleaner func(vmid int)) *SandboxMana
 		return m
 	}
 	m.snippetFn = cleaner
+	return m
+}
+
+// WithMetrics wires optional Prometheus metrics.
+func (m *SandboxManager) WithMetrics(metrics *Metrics) *SandboxManager {
+	if m == nil {
+		return m
+	}
+	m.metrics = metrics
 	return m
 }
 
@@ -113,6 +123,12 @@ func (m *SandboxManager) Transition(ctx context.Context, vmid int, target models
 		return fmt.Errorf("%w: %s -> %s", ErrInvalidTransition, current, target)
 	}
 	m.recordStateEvent(ctx, vmid, current, target)
+	if m.metrics != nil {
+		m.metrics.IncSandboxTransition(current, target)
+		if target == models.SandboxRunning && !sandbox.CreatedAt.IsZero() {
+			m.metrics.ObserveSandboxProvision(m.now().UTC().Sub(sandbox.CreatedAt))
+		}
+	}
 	return nil
 }
 

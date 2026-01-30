@@ -21,6 +21,7 @@ type Config struct {
 	DBPath                  string
 	BootstrapListen         string
 	ArtifactListen          string
+	MetricsListen           string
 	ArtifactDir             string
 	ArtifactMaxBytes        int64
 	ArtifactTokenTTLMinutes int
@@ -44,6 +45,7 @@ type FileConfig struct {
 	DBPath                  string `yaml:"db_path"`
 	BootstrapListen         string `yaml:"bootstrap_listen"`
 	ArtifactListen          string `yaml:"artifact_listen"`
+	MetricsListen           string `yaml:"metrics_listen"`
 	ArtifactDir             string `yaml:"artifact_dir"`
 	ArtifactMaxBytes        int64  `yaml:"artifact_max_bytes"`
 	ArtifactTokenTTLMinutes int    `yaml:"artifact_token_ttl_minutes"`
@@ -70,6 +72,7 @@ func DefaultConfig() Config {
 		DBPath:                  filepath.Join(dataDir, "agentlab.db"),
 		BootstrapListen:         "10.77.0.1:8844",
 		ArtifactListen:          "10.77.0.1:8846",
+		MetricsListen:           "",
 		ArtifactDir:             filepath.Join(dataDir, "artifacts"),
 		ArtifactMaxBytes:        256 * 1024 * 1024,
 		ArtifactTokenTTLMinutes: 1440,
@@ -144,6 +147,9 @@ func applyFileConfig(cfg *Config, fileCfg FileConfig) {
 	if fileCfg.ArtifactListen != "" {
 		cfg.ArtifactListen = fileCfg.ArtifactListen
 	}
+	if fileCfg.MetricsListen != "" {
+		cfg.MetricsListen = fileCfg.MetricsListen
+	}
 	if fileCfg.ArtifactDir != "" {
 		cfg.ArtifactDir = fileCfg.ArtifactDir
 	}
@@ -217,8 +223,28 @@ func (c Config) Validate() error {
 	if _, _, err := net.SplitHostPort(c.ArtifactListen); err != nil {
 		return fmt.Errorf("artifact_listen must be host:port: %w", err)
 	}
+	if strings.TrimSpace(c.MetricsListen) != "" {
+		host, _, err := net.SplitHostPort(c.MetricsListen)
+		if err != nil {
+			return fmt.Errorf("metrics_listen must be host:port: %w", err)
+		}
+		if !isLoopbackHost(host) {
+			return fmt.Errorf("metrics_listen must be localhost-only (got %q)", host)
+		}
+	}
 	if c.SSHPublicKeyPath != "" && c.SSHPublicKey == "" {
 		return fmt.Errorf("ssh_public_key_path is set but empty or unreadable")
 	}
 	return nil
+}
+
+func isLoopbackHost(host string) bool {
+	if strings.EqualFold(host, "localhost") {
+		return true
+	}
+	ip := net.ParseIP(host)
+	if ip == nil {
+		return false
+	}
+	return ip.IsLoopback()
 }

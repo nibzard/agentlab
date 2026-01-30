@@ -67,6 +67,8 @@ sudo scripts/net/setup_tailscale_router.sh --apply
 ```yaml
 ssh_public_key_path: /etc/agentlab/keys/agentlab_id_ed25519.pub
 secrets_bundle: default
+# Optional: Prometheus metrics on localhost only.
+metrics_listen: "127.0.0.1:8847"
 ```
 
 7) Create at least one profile in `/etc/agentlab/profiles/`. Only `name` and
