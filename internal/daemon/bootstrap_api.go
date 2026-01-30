@@ -1,7 +1,12 @@
 package daemon
 
 import (
+	"context"
+	"crypto/rand"
 	"database/sql"
+	"encoding/hex"
+	"errors"
+	"io"
 	"net"
 	"net/http"
 	"strings"
@@ -13,31 +18,43 @@ import (
 )
 
 const (
-	defaultAgentIPv4Mask = 16
-	defaultAgentIPv6Mask = 64
+	defaultAgentIPv4Mask     = 16
+	defaultAgentIPv6Mask     = 64
+	defaultArtifactTokenTTL  = 6 * time.Hour
+	artifactTokenBytes       = 16
+	maxArtifactTokenAttempts = 5
 )
 
 // BootstrapAPI serves guest bootstrap payloads on the agent subnet.
 type BootstrapAPI struct {
-	store         *db.Store
-	profiles      map[string]models.Profile
-	secretsStore  secrets.Store
-	secretsBundle string
-	now           func() time.Time
-	agentSubnet   *net.IPNet
+	store            *db.Store
+	profiles         map[string]models.Profile
+	secretsStore     secrets.Store
+	secretsBundle    string
+	artifactEndpoint string
+	artifactTokenTTL time.Duration
+	now              func() time.Time
+	rand             io.Reader
+	agentSubnet      *net.IPNet
 }
 
-func NewBootstrapAPI(store *db.Store, profiles map[string]models.Profile, secretsStore secrets.Store, secretsBundle, bootstrapListen string) *BootstrapAPI {
+func NewBootstrapAPI(store *db.Store, profiles map[string]models.Profile, secretsStore secrets.Store, secretsBundle, bootstrapListen, artifactEndpoint string, artifactTokenTTL time.Duration) *BootstrapAPI {
 	bundle := strings.TrimSpace(secretsBundle)
 	if bundle == "" {
 		bundle = "default"
 	}
+	if artifactTokenTTL <= 0 {
+		artifactTokenTTL = defaultArtifactTokenTTL
+	}
 	api := &BootstrapAPI{
-		store:         store,
-		profiles:      profiles,
-		secretsStore:  secretsStore,
-		secretsBundle: bundle,
-		now:           time.Now,
+		store:            store,
+		profiles:         profiles,
+		secretsStore:     secretsStore,
+		secretsBundle:    bundle,
+		artifactEndpoint: strings.TrimSpace(artifactEndpoint),
+		artifactTokenTTL: artifactTokenTTL,
+		now:              time.Now,
+		rand:             rand.Reader,
 	}
 	api.agentSubnet = deriveAgentSubnet(bootstrapListen)
 	return api
@@ -123,7 +140,17 @@ func (api *BootstrapAPI) handleBootstrapFetch(w http.ResponseWriter, r *http.Req
 	if claudeSettings != "" {
 		resp.ClaudeSettingsJSON = claudeSettings
 	}
-	if artifact := bootstrapArtifactFromBundle(bundle); artifact != nil {
+	if api.artifactEndpoint != "" {
+		token, err := api.issueArtifactToken(r.Context(), job.ID, req.VMID)
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, "failed to issue artifact token")
+			return
+		}
+		resp.Artifact = &V1BootstrapArtifact{
+			Endpoint: api.artifactEndpoint,
+			Token:    token,
+		}
+	} else if artifact := bootstrapArtifactFromBundle(bundle); artifact != nil {
 		resp.Artifact = artifact
 	}
 	if policy := bootstrapPolicyFromJob(job); policy != nil {
@@ -232,4 +259,52 @@ func bootstrapArtifactFromBundle(bundle secrets.Bundle) *V1BootstrapArtifact {
 		Endpoint: artifact.Endpoint,
 		Token:    artifact.Token,
 	}
+}
+
+func (api *BootstrapAPI) issueArtifactToken(ctx context.Context, jobID string, vmid int) (string, error) {
+	if api == nil || api.store == nil {
+		return "", errors.New("artifact token store unavailable")
+	}
+	jobID = strings.TrimSpace(jobID)
+	if jobID == "" {
+		return "", errors.New("job id is required")
+	}
+	if vmid <= 0 {
+		return "", errors.New("vmid must be positive")
+	}
+	for i := 0; i < maxArtifactTokenAttempts; i++ {
+		token, hash, expires, err := api.newArtifactToken()
+		if err != nil {
+			return "", err
+		}
+		if err := api.store.CreateArtifactToken(ctx, hash, jobID, vmid, expires); err != nil {
+			if isUniqueConstraint(err) {
+				continue
+			}
+			return "", err
+		}
+		return token, nil
+	}
+	return "", errors.New("failed to allocate artifact token")
+}
+
+func (api *BootstrapAPI) newArtifactToken() (string, string, time.Time, error) {
+	buf := make([]byte, artifactTokenBytes)
+	if _, err := io.ReadFull(api.randReader(), buf); err != nil {
+		return "", "", time.Time{}, err
+	}
+	token := hex.EncodeToString(buf)
+	hash, err := db.HashArtifactToken(token)
+	if err != nil {
+		return "", "", time.Time{}, err
+	}
+	expires := api.now().UTC().Add(api.artifactTokenTTL)
+	return token, hash, expires, nil
+}
+
+func (api *BootstrapAPI) randReader() io.Reader {
+	if api != nil && api.rand != nil {
+		return api.rand
+	}
+	return rand.Reader
 }

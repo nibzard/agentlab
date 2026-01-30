@@ -73,16 +73,12 @@ env:
 claude:
   settings:
     model: "claude-test"
-
-artifact:
-  endpoint: "http://10.77.0.1:8846/upload"
-  token: "artifact-token"
 `)
 	if err := os.WriteFile(bundlePath, bundle, 0o600); err != nil {
 		t.Fatalf("write bundle: %v", err)
 	}
 
-	api := NewBootstrapAPI(store, nil, secrets.Store{Dir: secretsDir, AllowPlaintext: true}, "default", "10.77.0.1:8844")
+	api := NewBootstrapAPI(store, nil, secrets.Store{Dir: secretsDir, AllowPlaintext: true}, "default", "10.77.0.1:8844", "http://10.77.0.1:8846/upload", time.Hour)
 	api.now = func() time.Time { return now }
 
 	payload := `{"token":"` + token + `","vmid":2001}`
@@ -116,6 +112,26 @@ artifact:
 	if decoded.Artifact == nil || decoded.Artifact.Endpoint == "" {
 		t.Fatalf("expected artifact endpoint")
 	}
+	if decoded.Artifact.Endpoint != "http://10.77.0.1:8846/upload" {
+		t.Fatalf("unexpected artifact endpoint %s", decoded.Artifact.Endpoint)
+	}
+	if decoded.Artifact.Token == "" {
+		t.Fatalf("expected artifact token")
+	}
+	tokenHash, err := db.HashArtifactToken(decoded.Artifact.Token)
+	if err != nil {
+		t.Fatalf("hash artifact token: %v", err)
+	}
+	tokenRecord, err := store.GetArtifactToken(ctx, tokenHash)
+	if err != nil {
+		t.Fatalf("load artifact token: %v", err)
+	}
+	if tokenRecord.JobID != job.ID {
+		t.Fatalf("expected artifact token job %s, got %s", job.ID, tokenRecord.JobID)
+	}
+	if tokenRecord.VMID == nil || *tokenRecord.VMID != sandbox.VMID {
+		t.Fatalf("expected artifact token vmid %d", sandbox.VMID)
+	}
 	if decoded.Policy == nil || decoded.Policy.Mode != "dangerous" {
 		t.Fatalf("expected policy mode dangerous")
 	}
@@ -130,7 +146,7 @@ artifact:
 }
 
 func TestBootstrapFetchRejectsNonAgentSubnet(t *testing.T) {
-	api := NewBootstrapAPI(newTestStore(t), nil, secrets.Store{}, "default", "10.77.0.1:8844")
+	api := NewBootstrapAPI(newTestStore(t), nil, secrets.Store{}, "default", "10.77.0.1:8844", "http://10.77.0.1:8846/upload", time.Hour)
 	req := httptest.NewRequest(http.MethodPost, "/v1/bootstrap/fetch", strings.NewReader(`{"token":"t","vmid":1}`))
 	req.RemoteAddr = "192.168.1.5:2222"
 	resp := httptest.NewRecorder()

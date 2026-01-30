@@ -401,7 +401,7 @@
       "depends_on": [
         "T013"
       ],
-      "updated_at": "2026-01-30T01:07:14Z",
+      "updated_at": "2026-01-30T01:07:51Z",
       "files": [
         "cmd/agentlab/api.go",
         "cmd/agentlab/commands.go",
@@ -462,11 +462,26 @@
       "id": "T027",
       "title": "Implement embedded artifact upload service in agentlabd",
       "priority": 1,
-      "status": "todo",
+      "status": "done",
       "details": "Expose 10.77.0.1:8846 upload endpoint with scoped tokens, size limits, path sanitization, and DB metadata.",
       "depends_on": [
         "T010",
         "T017"
+      ],
+      "updated_at": "2026-01-30T01:23:40Z",
+      "files": [
+        "internal/config/config.go",
+        "internal/daemon/daemon.go",
+        "internal/daemon/bootstrap_api.go",
+        "internal/daemon/api_types.go",
+        "internal/daemon/artifact_api.go",
+        "internal/daemon/artifact_api_test.go",
+        "internal/daemon/bootstrap_api_test.go",
+        "internal/db/migrations.go",
+        "internal/db/artifact_tokens.go",
+        "internal/db/artifacts.go",
+        "docs/secrets.md",
+        "to-do.json"
       ]
     },
     {

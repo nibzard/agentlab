@@ -133,6 +133,11 @@ type V1ArtifactMetadata struct {
 	MIME      string `json:"mime,omitempty"`
 }
 
+type V1ArtifactUploadResponse struct {
+	JobID    string             `json:"job_id"`
+	Artifact V1ArtifactMetadata `json:"artifact"`
+}
+
 type V1RunnerReportRequest struct {
 	JobID     string               `json:"job_id"`
 	VMID      int                  `json:"vmid"`

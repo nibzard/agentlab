@@ -39,8 +39,7 @@ claude:
     max_tokens: 8000
 
 artifact:
-  endpoint: "http://10.77.0.1:8846/upload"
-  token: "upload-token"
+  endpoint: "http://10.77.0.1:8846/upload" # optional override when embedded service is disabled
 ```
 
 ## Encrypt with age
@@ -75,6 +74,12 @@ secrets_bundle: default
 secrets_age_key_path: /etc/agentlab/keys/age.key
 secrets_sops_path: sops
 ```
+
+## Artifact tokens
+
+Artifact upload tokens are minted per job by `agentlabd` and are **not** stored in the
+secrets bundle. When the embedded artifact upload service is enabled (default), the
+`artifact` section above is ignored.
 
 ## Rotation workflow
 

@@ -96,6 +96,37 @@ var migrations = []migration{
 			`ALTER TABLE jobs ADD COLUMN keepalive INTEGER NOT NULL DEFAULT 0`,
 		},
 	},
+	{
+		version: 3,
+		name:    "add_artifacts",
+		statements: []string{
+			`CREATE TABLE IF NOT EXISTS artifact_tokens (
+				token TEXT PRIMARY KEY,
+				job_id TEXT NOT NULL,
+				vmid INTEGER,
+				expires_at TEXT NOT NULL,
+				created_at TEXT NOT NULL,
+				last_used_at TEXT,
+				FOREIGN KEY(job_id) REFERENCES jobs(id) ON DELETE CASCADE
+			)`,
+			`CREATE INDEX IF NOT EXISTS idx_artifact_tokens_job ON artifact_tokens(job_id)`,
+			`CREATE INDEX IF NOT EXISTS idx_artifact_tokens_vmid ON artifact_tokens(vmid)`,
+			`CREATE TABLE IF NOT EXISTS artifacts (
+				id INTEGER PRIMARY KEY AUTOINCREMENT,
+				job_id TEXT NOT NULL,
+				vmid INTEGER,
+				name TEXT NOT NULL,
+				path TEXT NOT NULL,
+				size_bytes INTEGER NOT NULL,
+				sha256 TEXT NOT NULL,
+				mime TEXT,
+				created_at TEXT NOT NULL,
+				FOREIGN KEY(job_id) REFERENCES jobs(id) ON DELETE CASCADE
+			)`,
+			`CREATE INDEX IF NOT EXISTS idx_artifacts_job ON artifacts(job_id)`,
+			`CREATE INDEX IF NOT EXISTS idx_artifacts_vmid ON artifacts(vmid)`,
+		},
+	},
 }
 
 // Migrate runs any pending migrations against the provided database.

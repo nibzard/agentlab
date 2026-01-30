@@ -20,9 +20,10 @@ import (
 )
 
 const (
-	shutdownTimeout = 5 * time.Second
-	socketPerms     = 0o660
-	runDirPerms     = 0o750
+	shutdownTimeout  = 5 * time.Second
+	socketPerms      = 0o660
+	runDirPerms      = 0o750
+	artifactDirPerms = 0o750
 )
 
 // Service wires listeners for the local control socket and guest bootstrap.
@@ -32,8 +33,10 @@ type Service struct {
 	store             *db.Store
 	unixListener      net.Listener
 	bootstrapListener net.Listener
+	artifactListener  net.Listener
 	unixServer        *http.Server
 	bootstrapServer   *http.Server
+	artifactServer    *http.Server
 	sandboxManager    *SandboxManager
 }
 
@@ -64,6 +67,9 @@ func NewService(cfg config.Config, profiles map[string]models.Profile, store *db
 	if err := ensureDir(cfg.RunDir, runDirPerms); err != nil {
 		return nil, err
 	}
+	if err := ensureDir(cfg.ArtifactDir, artifactDirPerms); err != nil {
+		return nil, err
+	}
 	unixListener, err := listenUnix(cfg.SocketPath)
 	if err != nil {
 		return nil, err
@@ -72,6 +78,12 @@ func NewService(cfg config.Config, profiles map[string]models.Profile, store *db
 	if err != nil {
 		_ = unixListener.Close()
 		return nil, fmt.Errorf("listen bootstrap %s: %w", cfg.BootstrapListen, err)
+	}
+	artifactListener, err := net.Listen("tcp", cfg.ArtifactListen)
+	if err != nil {
+		_ = bootstrapListener.Close()
+		_ = unixListener.Close()
+		return nil, fmt.Errorf("listen artifact %s: %w", cfg.ArtifactListen, err)
 	}
 
 	backend := &proxmox.ShellBackend{}
@@ -99,8 +111,13 @@ func NewService(cfg config.Config, profiles map[string]models.Profile, store *db
 		AgeKeyPath: cfg.SecretsAgeKeyPath,
 		SopsPath:   cfg.SecretsSopsPath,
 	}
-	NewBootstrapAPI(store, profiles, secretsStore, cfg.SecretsBundle, cfg.BootstrapListen).Register(bootstrapMux)
+	artifactEndpoint := buildArtifactUploadURL(cfg.ArtifactListen)
+	NewBootstrapAPI(store, profiles, secretsStore, cfg.SecretsBundle, cfg.BootstrapListen, artifactEndpoint, time.Duration(cfg.ArtifactTokenTTLMinutes)*time.Minute).Register(bootstrapMux)
 	NewRunnerAPI(jobOrchestrator).Register(bootstrapMux)
+
+	artifactMux := http.NewServeMux()
+	artifactMux.HandleFunc("/healthz", healthHandler)
+	NewArtifactAPI(store, cfg.ArtifactDir, cfg.ArtifactMaxBytes, cfg.ArtifactListen).Register(artifactMux)
 
 	unixServer := &http.Server{
 		Handler:           localMux,
@@ -112,6 +129,11 @@ func NewService(cfg config.Config, profiles map[string]models.Profile, store *db
 		ReadHeaderTimeout: 5 * time.Second,
 		IdleTimeout:       2 * time.Minute,
 	}
+	artifactServer := &http.Server{
+		Handler:           artifactMux,
+		ReadHeaderTimeout: 5 * time.Second,
+		IdleTimeout:       2 * time.Minute,
+	}
 
 	return &Service{
 		cfg:               cfg,
@@ -119,8 +141,10 @@ func NewService(cfg config.Config, profiles map[string]models.Profile, store *db
 		store:             store,
 		unixListener:      unixListener,
 		bootstrapListener: bootstrapListener,
+		artifactListener:  artifactListener,
 		unixServer:        unixServer,
 		bootstrapServer:   bootstrapServer,
+		artifactServer:    artifactServer,
 		sandboxManager:    sandboxManager,
 	}, nil
 }
@@ -129,22 +153,24 @@ func NewService(cfg config.Config, profiles map[string]models.Profile, store *db
 func (s *Service) Serve(ctx context.Context) error {
 	log.Printf("agentlabd: listening on unix=%s", s.cfg.SocketPath)
 	log.Printf("agentlabd: listening on bootstrap=%s", s.cfg.BootstrapListen)
+	log.Printf("agentlabd: listening on artifacts=%s", s.cfg.ArtifactListen)
 	if s.sandboxManager != nil {
 		s.sandboxManager.StartLeaseGC(ctx)
 	}
 
-	errCh := make(chan error, 2)
+	errCh := make(chan error, 3)
 	go func() { errCh <- s.unixServer.Serve(s.unixListener) }()
 	go func() { errCh <- s.bootstrapServer.Serve(s.bootstrapListener) }()
+	go func() { errCh <- s.artifactServer.Serve(s.artifactListener) }()
 
-	remaining := 2
+	remaining := 3
 	var serveErr error
 
 	select {
 	case <-ctx.Done():
 		// graceful shutdown
 	case err := <-errCh:
-		remaining = 1
+		remaining = 2
 		if err != nil && !errors.Is(err, http.ErrServerClosed) {
 			serveErr = err
 		}
@@ -167,6 +193,7 @@ func (s *Service) shutdown() {
 	defer cancel()
 	_ = s.unixServer.Shutdown(ctx)
 	_ = s.bootstrapServer.Shutdown(ctx)
+	_ = s.artifactServer.Shutdown(ctx)
 	if s.store != nil {
 		_ = s.store.Close()
 	}
@@ -217,4 +244,19 @@ func buildControllerURL(listen string) string {
 		host = "[" + host + "]"
 	}
 	return "http://" + host + ":" + port
+}
+
+func buildArtifactUploadURL(listen string) string {
+	listen = strings.TrimSpace(listen)
+	if listen == "" {
+		return ""
+	}
+	host, port, err := net.SplitHostPort(listen)
+	if err != nil {
+		return "http://" + listen + "/upload"
+	}
+	if strings.Contains(host, ":") {
+		host = "[" + host + "]"
+	}
+	return "http://" + host + ":" + port + "/upload"
 }
