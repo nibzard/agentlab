@@ -944,14 +944,21 @@
       "id": "T049",
       "title": "Add timeouts for CLI HTTP calls and provisioning steps",
       "priority": 3,
-      "status": "todo",
+      "status": "done",
       "details": "The CLI client and job provisioning path can hang indefinitely when agentlabd or Proxmox commands stall. Add configurable timeouts (HTTP client, job orchestration/provisioning) and propagate context deadlines.",
       "files": [
         "cmd/agentlab/api.go",
+        "cmd/agentlab/commands.go",
+        "cmd/agentlab/main.go",
+        "cmd/agentlab/ssh.go",
+        "internal/config/config.go",
+        "internal/daemon/daemon.go",
         "internal/daemon/job_orchestrator.go",
+        "internal/daemon/workspace_rebind.go",
         "internal/proxmox/shell_backend.go",
-        "internal/config/config.go"
-      ]
+        "to-do.json"
+      ],
+      "updated_at": "2026-01-30T06:29:54Z"
     },
     {
       "id": "T050",

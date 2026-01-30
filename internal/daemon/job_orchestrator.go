@@ -20,8 +20,9 @@ import (
 )
 
 const (
-	defaultBootstrapTTL = 10 * time.Minute
-	bootstrapTokenBytes = 16
+	defaultBootstrapTTL     = 10 * time.Minute
+	bootstrapTokenBytes     = 16
+	defaultProvisionTimeout = 10 * time.Minute
 )
 
 var (
@@ -40,22 +41,23 @@ type JobReport struct {
 }
 
 type JobOrchestrator struct {
-	store          *db.Store
-	profiles       map[string]models.Profile
-	backend        proxmox.Backend
-	sandboxManager *SandboxManager
-	workspaceMgr   *WorkspaceManager
-	snippetStore   proxmox.SnippetStore
-	sshPublicKey   string
-	controllerURL  string
-	logger         *log.Logger
-	redactor       *Redactor
-	metrics        *Metrics
-	now            func() time.Time
-	rand           io.Reader
-	bootstrapTTL   time.Duration
-	snippetsMu     sync.Mutex
-	snippets       map[int]proxmox.CloudInitSnippet
+	store            *db.Store
+	profiles         map[string]models.Profile
+	backend          proxmox.Backend
+	sandboxManager   *SandboxManager
+	workspaceMgr     *WorkspaceManager
+	snippetStore     proxmox.SnippetStore
+	sshPublicKey     string
+	controllerURL    string
+	logger           *log.Logger
+	redactor         *Redactor
+	metrics          *Metrics
+	now              func() time.Time
+	rand             io.Reader
+	bootstrapTTL     time.Duration
+	provisionTimeout time.Duration
+	snippetsMu       sync.Mutex
+	snippets         map[int]proxmox.CloudInitSnippet
 }
 
 func NewJobOrchestrator(store *db.Store, profiles map[string]models.Profile, backend proxmox.Backend, manager *SandboxManager, workspaceMgr *WorkspaceManager, snippetStore proxmox.SnippetStore, sshPublicKey, controllerURL string, logger *log.Logger, redactor *Redactor, metrics *Metrics) *JobOrchestrator {
@@ -66,21 +68,22 @@ func NewJobOrchestrator(store *db.Store, profiles map[string]models.Profile, bac
 		redactor = NewRedactor(nil)
 	}
 	return &JobOrchestrator{
-		store:          store,
-		profiles:       profiles,
-		backend:        backend,
-		sandboxManager: manager,
-		workspaceMgr:   workspaceMgr,
-		snippetStore:   snippetStore,
-		sshPublicKey:   strings.TrimSpace(sshPublicKey),
-		controllerURL:  strings.TrimSpace(controllerURL),
-		logger:         logger,
-		redactor:       redactor,
-		metrics:        metrics,
-		now:            time.Now,
-		rand:           rand.Reader,
-		bootstrapTTL:   defaultBootstrapTTL,
-		snippets:       make(map[int]proxmox.CloudInitSnippet),
+		store:            store,
+		profiles:         profiles,
+		backend:          backend,
+		sandboxManager:   manager,
+		workspaceMgr:     workspaceMgr,
+		snippetStore:     snippetStore,
+		sshPublicKey:     strings.TrimSpace(sshPublicKey),
+		controllerURL:    strings.TrimSpace(controllerURL),
+		logger:           logger,
+		redactor:         redactor,
+		metrics:          metrics,
+		now:              time.Now,
+		rand:             rand.Reader,
+		bootstrapTTL:     defaultBootstrapTTL,
+		provisionTimeout: defaultProvisionTimeout,
+		snippets:         make(map[int]proxmox.CloudInitSnippet),
 	}
 }
 
@@ -103,6 +106,8 @@ func (o *JobOrchestrator) Run(ctx context.Context, jobID string) error {
 	if o == nil || o.store == nil {
 		return errors.New("job orchestrator unavailable")
 	}
+	ctx, cancel := o.withProvisionTimeout(ctx)
+	defer cancel()
 	if jobID == "" {
 		return errors.New("job id is required")
 	}
@@ -237,6 +242,8 @@ func (o *JobOrchestrator) ProvisionSandbox(ctx context.Context, vmid int) (model
 	if o == nil || o.store == nil {
 		return models.Sandbox{}, errors.New("sandbox provisioner unavailable")
 	}
+	ctx, cancel := o.withProvisionTimeout(ctx)
+	defer cancel()
 	if vmid <= 0 {
 		return models.Sandbox{}, errors.New("vmid must be positive")
 	}
@@ -595,6 +602,22 @@ func (o *JobOrchestrator) randReader() io.Reader {
 		return o.rand
 	}
 	return rand.Reader
+}
+
+// WithProvisionTimeout overrides the default provisioning timeout.
+func (o *JobOrchestrator) WithProvisionTimeout(timeout time.Duration) *JobOrchestrator {
+	if o == nil {
+		return o
+	}
+	o.provisionTimeout = timeout
+	return o
+}
+
+func (o *JobOrchestrator) withProvisionTimeout(ctx context.Context) (context.Context, context.CancelFunc) {
+	if o == nil || o.provisionTimeout <= 0 {
+		return ctx, func() {}
+	}
+	return context.WithTimeout(ctx, o.provisionTimeout)
 }
 
 func buildJobResult(status models.JobStatus, message string, artifacts []V1ArtifactMetadata, result json.RawMessage, now time.Time) (string, error) {

@@ -10,6 +10,7 @@ import (
 	"net"
 	"net/http"
 	"strings"
+	"time"
 )
 
 const defaultSocketPath = "/run/agentlab/agentlabd.sock"
@@ -21,6 +22,7 @@ const (
 type apiClient struct {
 	socketPath string
 	httpClient *http.Client
+	timeout    time.Duration
 }
 
 type apiError struct {
@@ -156,7 +158,7 @@ type eventsResponse struct {
 	LastID int64           `json:"last_id,omitempty"`
 }
 
-func newAPIClient(socketPath string) *apiClient {
+func newAPIClient(socketPath string, timeout time.Duration) *apiClient {
 	path := socketPath
 	if path == "" {
 		path = defaultSocketPath
@@ -170,10 +172,13 @@ func newAPIClient(socketPath string) *apiClient {
 	return &apiClient{
 		socketPath: path,
 		httpClient: &http.Client{Transport: transport},
+		timeout:    timeout,
 	}
 }
 
 func (c *apiClient) doJSON(ctx context.Context, method, path string, payload any) ([]byte, error) {
+	ctx, cancel := c.withTimeout(ctx)
+	defer cancel()
 	var body io.Reader
 	if payload != nil {
 		buf := &bytes.Buffer{}
@@ -207,6 +212,8 @@ func (c *apiClient) doJSON(ctx context.Context, method, path string, payload any
 }
 
 func (c *apiClient) doRequest(ctx context.Context, method, path string, body io.Reader, headers map[string]string) (*http.Response, error) {
+	ctx, cancel := c.withTimeout(ctx)
+	defer cancel()
 	req, err := http.NewRequestWithContext(ctx, method, "http://unix"+path, body)
 	if err != nil {
 		return nil, err
@@ -240,6 +247,13 @@ func parseAPIError(status int, data []byte) error {
 		}
 	}
 	return fmt.Errorf("request failed with status %d", status)
+}
+
+func (c *apiClient) withTimeout(ctx context.Context) (context.Context, context.CancelFunc) {
+	if c == nil || c.timeout <= 0 {
+		return ctx, func() {}
+	}
+	return context.WithTimeout(ctx, c.timeout)
 }
 
 func prettyPrintJSON(w io.Writer, data []byte) error {

@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/signal"
 	"strings"
+	"time"
 
 	"github.com/agentlab/agentlab/internal/buildinfo"
 )
@@ -17,32 +18,34 @@ const usageText = `agentlab is the CLI for agentlabd.
 
 Usage:
   agentlab --version
-  agentlab [--socket PATH] [--json] job run --repo <url> --task <task> --profile <profile> [--ref <ref>] [--mode <mode>] [--ttl <ttl>] [--keepalive]
-  agentlab [--socket PATH] [--json] job show <job_id> [--events-tail <n>]
-  agentlab [--socket PATH] [--json] job artifacts <job_id>
-  agentlab [--socket PATH] [--json] job artifacts download <job_id> [--out <path>] [--path <path>] [--name <name>] [--latest] [--bundle]
-  agentlab [--socket PATH] [--json] sandbox new --profile <profile> [--name <name>] [--ttl <ttl>] [--keepalive] [--workspace <id>] [--vmid <vmid>] [--job <id>]
-  agentlab [--socket PATH] [--json] sandbox list
-  agentlab [--socket PATH] [--json] sandbox show <vmid>
-  agentlab [--socket PATH] [--json] sandbox destroy <vmid>
-  agentlab [--socket PATH] [--json] sandbox lease renew <vmid> --ttl <ttl>
-  agentlab [--socket PATH] [--json] workspace create --name <name> --size <size> [--storage <storage>]
-  agentlab [--socket PATH] [--json] workspace list
-  agentlab [--socket PATH] [--json] workspace attach <workspace> <vmid>
-  agentlab [--socket PATH] [--json] workspace detach <workspace>
-  agentlab [--socket PATH] [--json] workspace rebind <workspace> --profile <profile> [--ttl <ttl>] [--keep-old]
-  agentlab [--socket PATH] [--json] ssh <vmid> [--user <user>] [--port <port>] [--identity <path>] [--exec]
-  agentlab [--socket PATH] [--json] logs <vmid> [--follow] [--tail <n>]
+  agentlab [--socket PATH] [--json] [--timeout DURATION] job run --repo <url> --task <task> --profile <profile> [--ref <ref>] [--mode <mode>] [--ttl <ttl>] [--keepalive]
+  agentlab [--socket PATH] [--json] [--timeout DURATION] job show <job_id> [--events-tail <n>]
+  agentlab [--socket PATH] [--json] [--timeout DURATION] job artifacts <job_id>
+  agentlab [--socket PATH] [--json] [--timeout DURATION] job artifacts download <job_id> [--out <path>] [--path <path>] [--name <name>] [--latest] [--bundle]
+  agentlab [--socket PATH] [--json] [--timeout DURATION] sandbox new --profile <profile> [--name <name>] [--ttl <ttl>] [--keepalive] [--workspace <id>] [--vmid <vmid>] [--job <id>]
+  agentlab [--socket PATH] [--json] [--timeout DURATION] sandbox list
+  agentlab [--socket PATH] [--json] [--timeout DURATION] sandbox show <vmid>
+  agentlab [--socket PATH] [--json] [--timeout DURATION] sandbox destroy <vmid>
+  agentlab [--socket PATH] [--json] [--timeout DURATION] sandbox lease renew <vmid> --ttl <ttl>
+  agentlab [--socket PATH] [--json] [--timeout DURATION] workspace create --name <name> --size <size> [--storage <storage>]
+  agentlab [--socket PATH] [--json] [--timeout DURATION] workspace list
+  agentlab [--socket PATH] [--json] [--timeout DURATION] workspace attach <workspace> <vmid>
+  agentlab [--socket PATH] [--json] [--timeout DURATION] workspace detach <workspace>
+  agentlab [--socket PATH] [--json] [--timeout DURATION] workspace rebind <workspace> --profile <profile> [--ttl <ttl>] [--keep-old]
+  agentlab [--socket PATH] [--json] [--timeout DURATION] ssh <vmid> [--user <user>] [--port <port>] [--identity <path>] [--exec]
+  agentlab [--socket PATH] [--json] [--timeout DURATION] logs <vmid> [--follow] [--tail <n>]
 
 Global Flags:
   --socket PATH   Path to agentlabd socket (default /run/agentlab/agentlabd.sock)
   --json          Output json
+  --timeout       Request timeout (e.g. 30s, 2m)
 `
 
 type globalOptions struct {
 	socketPath  string
 	jsonOutput  bool
 	showVersion bool
+	timeout     time.Duration
 }
 
 func main() {
@@ -68,7 +71,7 @@ func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
 	defer stop()
 
-	base := commonFlags{socketPath: opts.socketPath, jsonOutput: opts.jsonOutput}
+	base := commonFlags{socketPath: opts.socketPath, jsonOutput: opts.jsonOutput, timeout: opts.timeout}
 	if err := dispatch(ctx, args, base); err != nil {
 		if errors.Is(err, errHelp) {
 			return
@@ -84,6 +87,7 @@ func parseGlobal(args []string) (globalOptions, []string, error) {
 	fs.SetOutput(io.Discard)
 	fs.StringVar(&opts.socketPath, "socket", defaultSocketPath, "path to agentlabd socket")
 	fs.BoolVar(&opts.jsonOutput, "json", false, jsonFlagDescription)
+	fs.DurationVar(&opts.timeout, "timeout", defaultRequestTimeout, "request timeout (e.g. 30s, 2m)")
 	fs.BoolVar(&opts.showVersion, "version", false, "print version and exit")
 	if err := fs.Parse(args); err != nil {
 		return opts, nil, err

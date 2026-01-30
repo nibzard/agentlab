@@ -23,6 +23,7 @@ const (
 	eventPollInterval         = 2 * time.Second
 	defaultEventLimit         = 200
 	maxEventLimit             = 1000
+	defaultRequestTimeout     = 10 * time.Minute
 	ttlFlagDescription        = "lease ttl in minutes or duration (e.g. 120 or 2h)"
 	jsonFlagDescription       = "output json"
 	defaultArtifactBundleName = "agentlab-artifacts.tar.gz"
@@ -33,11 +34,13 @@ var errHelp = errors.New("help requested")
 type commonFlags struct {
 	socketPath string
 	jsonOutput bool
+	timeout    time.Duration
 }
 
 func (c *commonFlags) bind(fs *flag.FlagSet) {
 	fs.StringVar(&c.socketPath, "socket", c.socketPath, "path to agentlabd socket")
 	fs.BoolVar(&c.jsonOutput, "json", c.jsonOutput, jsonFlagDescription)
+	fs.DurationVar(&c.timeout, "timeout", c.timeout, "request timeout (e.g. 30s, 2m)")
 }
 
 func newFlagSet(name string) *flag.FlagSet {
@@ -147,7 +150,7 @@ func runJobRun(ctx context.Context, args []string, base commonFlags) error {
 		return err
 	}
 
-	client := newAPIClient(opts.socketPath)
+	client := newAPIClient(opts.socketPath, opts.timeout)
 	req := jobCreateRequest{
 		RepoURL:    repo,
 		Ref:        ref,
@@ -193,7 +196,7 @@ func runJobShow(ctx context.Context, args []string, base commonFlags) error {
 		return fmt.Errorf("job_id is required")
 	}
 
-	client := newAPIClient(opts.socketPath)
+	client := newAPIClient(opts.socketPath, opts.timeout)
 	query := ""
 	if eventsTail >= 0 {
 		query = fmt.Sprintf("?events_tail=%d", eventsTail)
@@ -249,7 +252,7 @@ func runJobArtifactsList(ctx context.Context, args []string, base commonFlags) e
 		return fmt.Errorf("job_id is required")
 	}
 
-	client := newAPIClient(opts.socketPath)
+	client := newAPIClient(opts.socketPath, opts.timeout)
 	payload, err := client.doJSON(ctx, http.MethodGet, fmt.Sprintf("/v1/jobs/%s/artifacts", jobID), nil)
 	if err != nil {
 		return err
@@ -302,7 +305,7 @@ func runJobArtifactsDownload(ctx context.Context, args []string, base commonFlag
 		bundle = true
 	}
 
-	client := newAPIClient(opts.socketPath)
+	client := newAPIClient(opts.socketPath, opts.timeout)
 	payload, err := client.doJSON(ctx, http.MethodGet, fmt.Sprintf("/v1/jobs/%s/artifacts", jobID), nil)
 	if err != nil {
 		return err
@@ -458,7 +461,7 @@ func runSandboxNew(ctx context.Context, args []string, base commonFlags) error {
 		vmidPtr = &value
 	}
 
-	client := newAPIClient(opts.socketPath)
+	client := newAPIClient(opts.socketPath, opts.timeout)
 	req := sandboxCreateRequest{
 		Name:       name,
 		Profile:    profile,
@@ -494,7 +497,7 @@ func runSandboxList(ctx context.Context, args []string, base commonFlags) error 
 		return err
 	}
 
-	client := newAPIClient(opts.socketPath)
+	client := newAPIClient(opts.socketPath, opts.timeout)
 	payload, err := client.doJSON(ctx, http.MethodGet, "/v1/sandboxes", nil)
 	if err != nil {
 		return err
@@ -529,7 +532,7 @@ func runSandboxShow(ctx context.Context, args []string, base commonFlags) error 
 		return err
 	}
 
-	client := newAPIClient(opts.socketPath)
+	client := newAPIClient(opts.socketPath, opts.timeout)
 	payload, err := client.doJSON(ctx, http.MethodGet, fmt.Sprintf("/v1/sandboxes/%d", vmid), nil)
 	if err != nil {
 		return err
@@ -564,7 +567,7 @@ func runSandboxDestroy(ctx context.Context, args []string, base commonFlags) err
 		return err
 	}
 
-	client := newAPIClient(opts.socketPath)
+	client := newAPIClient(opts.socketPath, opts.timeout)
 	payload, err := client.doJSON(ctx, http.MethodPost, fmt.Sprintf("/v1/sandboxes/%d/destroy", vmid), nil)
 	if err != nil {
 		return err
@@ -623,7 +626,7 @@ func runSandboxLeaseRenew(ctx context.Context, args []string, base commonFlags) 
 		return err
 	}
 
-	client := newAPIClient(opts.socketPath)
+	client := newAPIClient(opts.socketPath, opts.timeout)
 	req := leaseRenewRequest{TTLMinutes: minutes}
 	payload, err := client.doJSON(ctx, http.MethodPost, fmt.Sprintf("/v1/sandboxes/%d/lease/renew", vmid), req)
 	if err != nil {
@@ -668,7 +671,7 @@ func runWorkspaceCreate(ctx context.Context, args []string, base commonFlags) er
 		return err
 	}
 
-	client := newAPIClient(opts.socketPath)
+	client := newAPIClient(opts.socketPath, opts.timeout)
 	req := workspaceCreateRequest{
 		Name:    name,
 		SizeGB:  sizeGB,
@@ -699,7 +702,7 @@ func runWorkspaceList(ctx context.Context, args []string, base commonFlags) erro
 	if err := parseFlags(fs, args, printWorkspaceListUsage, &help); err != nil {
 		return err
 	}
-	client := newAPIClient(opts.socketPath)
+	client := newAPIClient(opts.socketPath, opts.timeout)
 	payload, err := client.doJSON(ctx, http.MethodGet, "/v1/workspaces", nil)
 	if err != nil {
 		return err
@@ -737,7 +740,7 @@ func runWorkspaceAttach(ctx context.Context, args []string, base commonFlags) er
 	if err != nil {
 		return err
 	}
-	client := newAPIClient(opts.socketPath)
+	client := newAPIClient(opts.socketPath, opts.timeout)
 	req := workspaceAttachRequest{VMID: vmid}
 	payload, err := client.doJSON(ctx, http.MethodPost, fmt.Sprintf("/v1/workspaces/%s/attach", workspace), req)
 	if err != nil {
@@ -772,7 +775,7 @@ func runWorkspaceDetach(ctx context.Context, args []string, base commonFlags) er
 	if workspace == "" {
 		return fmt.Errorf("workspace is required")
 	}
-	client := newAPIClient(opts.socketPath)
+	client := newAPIClient(opts.socketPath, opts.timeout)
 	payload, err := client.doJSON(ctx, http.MethodPost, fmt.Sprintf("/v1/workspaces/%s/detach", workspace), nil)
 	if err != nil {
 		return err
@@ -822,7 +825,7 @@ func runWorkspaceRebind(ctx context.Context, args []string, base commonFlags) er
 		return err
 	}
 
-	client := newAPIClient(opts.socketPath)
+	client := newAPIClient(opts.socketPath, opts.timeout)
 	req := workspaceRebindRequest{
 		Profile:    profile,
 		TTLMinutes: ttlMinutes,
@@ -872,7 +875,7 @@ func runLogsCommand(ctx context.Context, args []string, base commonFlags) error 
 		tail = maxEventLimit
 	}
 
-	client := newAPIClient(opts.socketPath)
+	client := newAPIClient(opts.socketPath, opts.timeout)
 	resp, err := fetchEvents(ctx, client, vmid, tail, 0)
 	if err != nil {
 		return err

@@ -23,6 +23,8 @@ func (o *JobOrchestrator) RebindWorkspace(ctx context.Context, workspaceID, prof
 	if o == nil || o.store == nil {
 		return result, errors.New("workspace rebind unavailable")
 	}
+	ctx, cancel := o.withProvisionTimeout(ctx)
+	defer cancel()
 	if o.sandboxManager == nil {
 		return result, errors.New("sandbox manager unavailable")
 	}

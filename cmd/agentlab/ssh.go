@@ -89,7 +89,7 @@ func runSSHCommand(ctx context.Context, args []string, base commonFlags) error {
 		return fmt.Errorf("--exec requires an interactive terminal")
 	}
 
-	client := newAPIClient(opts.socketPath)
+	client := newAPIClient(opts.socketPath, opts.timeout)
 	payload, err := client.doJSON(ctx, http.MethodGet, fmt.Sprintf("/v1/sandboxes/%d", vmid), nil)
 	if err != nil {
 		return err

@@ -50,6 +50,7 @@ type ShellBackend struct {
 	PveShPath          string
 	PveSmPath          string
 	Runner             CommandRunner
+	CommandTimeout     time.Duration
 	GuestIPAttempts    int
 	GuestIPInitialWait time.Duration
 	GuestIPMaxWait     time.Duration
@@ -64,7 +65,7 @@ func (b *ShellBackend) Clone(ctx context.Context, template VMID, target VMID, na
 	if name != "" {
 		args = append(args, "--name", name)
 	}
-	_, err := b.runner().Run(ctx, b.qmPath(), args...)
+	_, err := b.run(ctx, b.qmPath(), args...)
 	return err
 }
 
@@ -92,17 +93,17 @@ func (b *ShellBackend) Configure(ctx context.Context, vmid VMID, cfg VMConfig) e
 	if len(args) == 2 {
 		return nil
 	}
-	_, err := b.runner().Run(ctx, b.qmPath(), args...)
+	_, err := b.run(ctx, b.qmPath(), args...)
 	return err
 }
 
 func (b *ShellBackend) Start(ctx context.Context, vmid VMID) error {
-	_, err := b.runner().Run(ctx, b.qmPath(), "start", strconv.Itoa(int(vmid)))
+	_, err := b.run(ctx, b.qmPath(), "start", strconv.Itoa(int(vmid)))
 	return err
 }
 
 func (b *ShellBackend) Stop(ctx context.Context, vmid VMID) error {
-	_, err := b.runner().Run(ctx, b.qmPath(), "stop", strconv.Itoa(int(vmid)))
+	_, err := b.run(ctx, b.qmPath(), "stop", strconv.Itoa(int(vmid)))
 	if err != nil {
 		if isMissingVMError(err) {
 			return fmt.Errorf("%w: %v", ErrVMNotFound, err)
@@ -113,7 +114,7 @@ func (b *ShellBackend) Stop(ctx context.Context, vmid VMID) error {
 }
 
 func (b *ShellBackend) Destroy(ctx context.Context, vmid VMID) error {
-	_, err := b.runner().Run(ctx, b.qmPath(), "destroy", strconv.Itoa(int(vmid)), "--purge", "1")
+	_, err := b.run(ctx, b.qmPath(), "destroy", strconv.Itoa(int(vmid)), "--purge", "1")
 	if err != nil {
 		if isMissingVMError(err) {
 			return fmt.Errorf("%w: %v", ErrVMNotFound, err)
@@ -124,7 +125,7 @@ func (b *ShellBackend) Destroy(ctx context.Context, vmid VMID) error {
 }
 
 func (b *ShellBackend) Status(ctx context.Context, vmid VMID) (Status, error) {
-	out, err := b.runner().Run(ctx, b.qmPath(), "status", strconv.Itoa(int(vmid)))
+	out, err := b.run(ctx, b.qmPath(), "status", strconv.Itoa(int(vmid)))
 	if err != nil {
 		return StatusUnknown, err
 	}
@@ -217,7 +218,7 @@ func (b *ShellBackend) pollGuestAgentIP(ctx context.Context, node string, vmid V
 
 func (b *ShellBackend) guestAgentIP(ctx context.Context, node string, vmid VMID) (string, error) {
 	path := fmt.Sprintf("/nodes/%s/qemu/%d/agent/network-get-interfaces", node, vmid)
-	out, err := b.runner().Run(ctx, b.pveshPath(), "get", path, "--output-format", "json")
+	out, err := b.run(ctx, b.pveshPath(), "get", path, "--output-format", "json")
 	if err != nil {
 		return "", err
 	}
@@ -254,7 +255,7 @@ func (b *ShellBackend) dhcpLeaseIP(ctx context.Context, vmid VMID) (string, erro
 		}
 		netblock = parsed
 	}
-	out, err := b.runner().Run(ctx, b.qmPath(), "config", strconv.Itoa(int(vmid)))
+	out, err := b.run(ctx, b.qmPath(), "config", strconv.Itoa(int(vmid)))
 	if err != nil {
 		return "", err
 	}
@@ -299,7 +300,7 @@ func (b *ShellBackend) CreateVolume(ctx context.Context, storage, name string, s
 		return "", errors.New("size_gb must be positive")
 	}
 	sizeArg := fmt.Sprintf("%dG", sizeGB)
-	out, err := b.runner().Run(ctx, b.pvesmPath(), "alloc", storage, "0", name, sizeArg)
+	out, err := b.run(ctx, b.pvesmPath(), "alloc", storage, "0", name, sizeArg)
 	if err != nil {
 		return "", err
 	}
@@ -319,7 +320,7 @@ func (b *ShellBackend) AttachVolume(ctx context.Context, vmid VMID, volumeID, sl
 	if slot == "" {
 		return errors.New("slot is required")
 	}
-	_, err := b.runner().Run(ctx, b.qmPath(), "set", strconv.Itoa(int(vmid)), "--"+slot, volumeID)
+	_, err := b.run(ctx, b.qmPath(), "set", strconv.Itoa(int(vmid)), "--"+slot, volumeID)
 	return err
 }
 
@@ -328,7 +329,7 @@ func (b *ShellBackend) DetachVolume(ctx context.Context, vmid VMID, slot string)
 	if slot == "" {
 		return errors.New("slot is required")
 	}
-	_, err := b.runner().Run(ctx, b.qmPath(), "set", strconv.Itoa(int(vmid)), "--delete", slot)
+	_, err := b.run(ctx, b.qmPath(), "set", strconv.Itoa(int(vmid)), "--delete", slot)
 	return err
 }
 
@@ -337,7 +338,7 @@ func (b *ShellBackend) DeleteVolume(ctx context.Context, volumeID string) error 
 	if volumeID == "" {
 		return errors.New("volume id is required")
 	}
-	_, err := b.runner().Run(ctx, b.pvesmPath(), "free", volumeID)
+	_, err := b.run(ctx, b.pvesmPath(), "free", volumeID)
 	return err
 }
 
@@ -377,6 +378,19 @@ func (b *ShellBackend) sleep(ctx context.Context, d time.Duration) error {
 	case <-timer.C:
 		return nil
 	}
+}
+
+func (b *ShellBackend) run(ctx context.Context, name string, args ...string) (string, error) {
+	ctx, cancel := b.withCommandTimeout(ctx)
+	defer cancel()
+	return b.runner().Run(ctx, name, args...)
+}
+
+func (b *ShellBackend) withCommandTimeout(ctx context.Context) (context.Context, context.CancelFunc) {
+	if b.CommandTimeout <= 0 {
+		return ctx, func() {}
+	}
+	return context.WithTimeout(ctx, b.CommandTimeout)
 }
 
 func nextBackoff(current, max time.Duration) time.Duration {
@@ -591,7 +605,7 @@ func (b *ShellBackend) ensureNode(ctx context.Context) (string, error) {
 	if b.Node != "" {
 		return b.Node, nil
 	}
-	out, err := b.runner().Run(ctx, b.pveshPath(), "get", "/nodes", "--output-format", "json")
+	out, err := b.run(ctx, b.pveshPath(), "get", "/nodes", "--output-format", "json")
 	if err != nil {
 		return "", err
 	}

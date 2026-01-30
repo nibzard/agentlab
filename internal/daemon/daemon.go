@@ -109,7 +109,9 @@ func NewService(cfg config.Config, profiles map[string]models.Profile, store *db
 		}
 	}
 
-	backend := &proxmox.ShellBackend{}
+	backend := &proxmox.ShellBackend{
+		CommandTimeout: cfg.ProxmoxCommandTimeout,
+	}
 	workspaceManager := NewWorkspaceManager(store, backend, log.Default())
 	sandboxManager := NewSandboxManager(store, backend, log.Default()).WithWorkspaceManager(workspaceManager).WithMetrics(metrics)
 	redactor := NewRedactor(nil)
@@ -123,7 +125,8 @@ func NewService(cfg config.Config, profiles map[string]models.Profile, store *db
 	}
 	var jobOrchestrator *JobOrchestrator
 	if strings.TrimSpace(cfg.SSHPublicKey) != "" {
-		jobOrchestrator = NewJobOrchestrator(store, profiles, backend, sandboxManager, workspaceManager, snippetStore, cfg.SSHPublicKey, controllerURL, log.Default(), redactor, metrics)
+		jobOrchestrator = NewJobOrchestrator(store, profiles, backend, sandboxManager, workspaceManager, snippetStore, cfg.SSHPublicKey, controllerURL, log.Default(), redactor, metrics).
+			WithProvisionTimeout(cfg.ProvisioningTimeout)
 	} else {
 		log.Printf("agentlabd: ssh public key missing; job orchestration disabled")
 	}

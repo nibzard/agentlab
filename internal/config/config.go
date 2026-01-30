@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"gopkg.in/yaml.v3"
 )
@@ -37,6 +38,8 @@ type Config struct {
 	SnippetStorage          string
 	SSHPublicKey            string
 	SSHPublicKeyPath        string
+	ProxmoxCommandTimeout   time.Duration
+	ProvisioningTimeout     time.Duration
 }
 
 // FileConfig represents supported YAML config overrides.
@@ -64,6 +67,8 @@ type FileConfig struct {
 	SnippetStorage          string `yaml:"snippet_storage"`
 	SSHPublicKey            string `yaml:"ssh_public_key"`
 	SSHPublicKeyPath        string `yaml:"ssh_public_key_path"`
+	ProxmoxCommandTimeout   string `yaml:"proxmox_command_timeout"`
+	ProvisioningTimeout     string `yaml:"provisioning_timeout"`
 }
 
 func DefaultConfig() Config {
@@ -89,6 +94,8 @@ func DefaultConfig() Config {
 		SecretsSopsPath:         "sops",
 		SnippetsDir:             "/var/lib/vz/snippets",
 		SnippetStorage:          "local",
+		ProxmoxCommandTimeout:   2 * time.Minute,
+		ProvisioningTimeout:     10 * time.Minute,
 	}
 }
 
@@ -106,7 +113,9 @@ func Load(path string) (Config, error) {
 	if err := yaml.Unmarshal(data, &fileCfg); err != nil {
 		return cfg, fmt.Errorf("parse config %s: %w", cfg.ConfigPath, err)
 	}
-	applyFileConfig(&cfg, fileCfg)
+	if err := applyFileConfig(&cfg, fileCfg); err != nil {
+		return cfg, err
+	}
 	if fileCfg.DataDir != "" && fileCfg.DBPath == "" {
 		cfg.DBPath = filepath.Join(cfg.DataDir, "agentlab.db")
 	}
@@ -129,7 +138,7 @@ func Load(path string) (Config, error) {
 	return cfg, nil
 }
 
-func applyFileConfig(cfg *Config, fileCfg FileConfig) {
+func applyFileConfig(cfg *Config, fileCfg FileConfig) error {
 	if fileCfg.ProfilesDir != "" {
 		cfg.ProfilesDir = fileCfg.ProfilesDir
 	}
@@ -199,6 +208,21 @@ func applyFileConfig(cfg *Config, fileCfg FileConfig) {
 	if fileCfg.SSHPublicKeyPath != "" {
 		cfg.SSHPublicKeyPath = fileCfg.SSHPublicKeyPath
 	}
+	if fileCfg.ProxmoxCommandTimeout != "" {
+		timeout, err := parseDurationField(fileCfg.ProxmoxCommandTimeout, "proxmox_command_timeout")
+		if err != nil {
+			return err
+		}
+		cfg.ProxmoxCommandTimeout = timeout
+	}
+	if fileCfg.ProvisioningTimeout != "" {
+		timeout, err := parseDurationField(fileCfg.ProvisioningTimeout, "provisioning_timeout")
+		if err != nil {
+			return err
+		}
+		cfg.ProvisioningTimeout = timeout
+	}
+	return nil
 }
 
 // Validate performs basic validation without exposing secrets.
@@ -280,6 +304,12 @@ func (c Config) Validate() error {
 	if c.SSHPublicKeyPath != "" && c.SSHPublicKey == "" {
 		return fmt.Errorf("ssh_public_key_path is set but empty or unreadable")
 	}
+	if c.ProxmoxCommandTimeout < 0 {
+		return fmt.Errorf("proxmox_command_timeout must be non-negative")
+	}
+	if c.ProvisioningTimeout < 0 {
+		return fmt.Errorf("provisioning_timeout must be non-negative")
+	}
 	return nil
 }
 
@@ -323,4 +353,19 @@ func validateURL(value, field string) error {
 	default:
 		return fmt.Errorf("%s must use http or https", field)
 	}
+}
+
+func parseDurationField(value, field string) (time.Duration, error) {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return 0, nil
+	}
+	dur, err := time.ParseDuration(value)
+	if err != nil {
+		return 0, fmt.Errorf("%s must be a valid duration: %w", field, err)
+	}
+	if dur < 0 {
+		return 0, fmt.Errorf("%s must be non-negative", field)
+	}
+	return dur, nil
 }
