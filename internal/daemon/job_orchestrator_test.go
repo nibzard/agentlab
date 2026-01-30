@@ -20,15 +20,25 @@ type orchestratorBackend struct {
 	startCalls     []proxmox.VMID
 	destroyCalls   []proxmox.VMID
 	guestIP        string
+	blockClone     bool
+	blockConfigure bool
 }
 
-func (b *orchestratorBackend) Clone(_ context.Context, _ proxmox.VMID, target proxmox.VMID, _ string) error {
+func (b *orchestratorBackend) Clone(ctx context.Context, _ proxmox.VMID, target proxmox.VMID, _ string) error {
 	b.cloneCalls = append(b.cloneCalls, target)
+	if b.blockClone {
+		<-ctx.Done()
+		return ctx.Err()
+	}
 	return nil
 }
 
-func (b *orchestratorBackend) Configure(_ context.Context, _ proxmox.VMID, cfg proxmox.VMConfig) error {
+func (b *orchestratorBackend) Configure(ctx context.Context, _ proxmox.VMID, cfg proxmox.VMConfig) error {
 	b.configureCalls = append(b.configureCalls, cfg)
+	if b.blockConfigure {
+		<-ctx.Done()
+		return ctx.Err()
+	}
 	return nil
 }
 
@@ -340,5 +350,103 @@ func TestJobOrchestratorHandleReportComplete(t *testing.T) {
 	}
 	if updatedSandbox.State != models.SandboxDestroyed {
 		t.Fatalf("expected sandbox DESTROYED, got %s", updatedSandbox.State)
+	}
+}
+
+func TestJobOrchestratorRunTimeoutCleanup(t *testing.T) {
+	ctx := context.Background()
+	store := newTestStore(t)
+	backend := &orchestratorBackend{blockConfigure: true}
+	manager := NewSandboxManager(store, backend, log.New(io.Discard, "", 0))
+	profiles := map[string]models.Profile{
+		"yolo": {Name: "yolo", TemplateVM: 9000},
+	}
+	snippetDir := t.TempDir()
+	snippetStore := proxmox.SnippetStore{Storage: "local", Dir: snippetDir}
+	orchestrator := NewJobOrchestrator(store, profiles, backend, manager, nil, snippetStore, "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIBtestkey agent@test", "http://10.77.0.1:8844", log.New(io.Discard, "", 0), nil, nil)
+	orchestrator.WithProvisionTimeout(25 * time.Millisecond)
+
+	now := time.Date(2026, 1, 29, 16, 0, 0, 0, time.UTC)
+	orchestrator.now = func() time.Time { return now }
+	job := models.Job{
+		ID:        "job_timeout",
+		RepoURL:   "https://example.com/repo.git",
+		Ref:       "main",
+		Profile:   "yolo",
+		Task:      "run tests",
+		Status:    models.JobQueued,
+		CreatedAt: now,
+		UpdatedAt: now,
+	}
+	if err := store.CreateJob(ctx, job); err != nil {
+		t.Fatalf("create job: %v", err)
+	}
+
+	if err := orchestrator.Run(ctx, job.ID); err == nil {
+		t.Fatalf("expected timeout error")
+	}
+
+	updatedJob, err := store.GetJob(ctx, job.ID)
+	if err != nil {
+		t.Fatalf("get job: %v", err)
+	}
+	if updatedJob.Status != models.JobFailed {
+		t.Fatalf("expected job FAILED, got %s", updatedJob.Status)
+	}
+	if updatedJob.SandboxVMID == nil || *updatedJob.SandboxVMID == 0 {
+		t.Fatalf("expected sandbox vmid set")
+	}
+	sandbox, err := store.GetSandbox(ctx, *updatedJob.SandboxVMID)
+	if err != nil {
+		t.Fatalf("get sandbox: %v", err)
+	}
+	if sandbox.State != models.SandboxDestroyed {
+		t.Fatalf("expected sandbox DESTROYED, got %s", sandbox.State)
+	}
+	if len(backend.destroyCalls) != 1 {
+		t.Fatalf("expected destroy call, got %d", len(backend.destroyCalls))
+	}
+}
+
+func TestJobOrchestratorProvisionSandboxTimeoutCleanup(t *testing.T) {
+	ctx := context.Background()
+	store := newTestStore(t)
+	backend := &orchestratorBackend{blockConfigure: true}
+	manager := NewSandboxManager(store, backend, log.New(io.Discard, "", 0))
+	profiles := map[string]models.Profile{
+		"yolo": {Name: "yolo", TemplateVM: 9000},
+	}
+	snippetDir := t.TempDir()
+	snippetStore := proxmox.SnippetStore{Storage: "local", Dir: snippetDir}
+	orchestrator := NewJobOrchestrator(store, profiles, backend, manager, nil, snippetStore, "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIBtestkey agent@test", "http://10.77.0.1:8844", log.New(io.Discard, "", 0), nil, nil)
+	orchestrator.WithProvisionTimeout(25 * time.Millisecond)
+
+	now := time.Date(2026, 1, 29, 16, 30, 0, 0, time.UTC)
+	sandbox := models.Sandbox{
+		VMID:          1300,
+		Name:          "sandbox-1300",
+		Profile:       "yolo",
+		State:         models.SandboxRequested,
+		Keepalive:     true,
+		CreatedAt:     now,
+		LastUpdatedAt: now,
+	}
+	if err := store.CreateSandbox(ctx, sandbox); err != nil {
+		t.Fatalf("create sandbox: %v", err)
+	}
+
+	if _, err := orchestrator.ProvisionSandbox(ctx, sandbox.VMID); err == nil {
+		t.Fatalf("expected timeout error")
+	}
+
+	updatedSandbox, err := store.GetSandbox(ctx, sandbox.VMID)
+	if err != nil {
+		t.Fatalf("get sandbox: %v", err)
+	}
+	if updatedSandbox.State != models.SandboxDestroyed {
+		t.Fatalf("expected sandbox DESTROYED, got %s", updatedSandbox.State)
+	}
+	if len(backend.destroyCalls) != 1 {
+		t.Fatalf("expected destroy call, got %d", len(backend.destroyCalls))
 	}
 }

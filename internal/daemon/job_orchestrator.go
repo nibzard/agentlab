@@ -23,6 +23,7 @@ const (
 	defaultBootstrapTTL     = 10 * time.Minute
 	bootstrapTokenBytes     = 16
 	defaultProvisionTimeout = 10 * time.Minute
+	defaultFailureTimeout   = 30 * time.Second
 )
 
 var (
@@ -56,6 +57,7 @@ type JobOrchestrator struct {
 	rand             io.Reader
 	bootstrapTTL     time.Duration
 	provisionTimeout time.Duration
+	failureTimeout   time.Duration
 	snippetsMu       sync.Mutex
 	snippets         map[int]proxmox.CloudInitSnippet
 }
@@ -83,6 +85,7 @@ func NewJobOrchestrator(store *db.Store, profiles map[string]models.Profile, bac
 		rand:             rand.Reader,
 		bootstrapTTL:     defaultBootstrapTTL,
 		provisionTimeout: defaultProvisionTimeout,
+		failureTimeout:   defaultFailureTimeout,
 		snippets:         make(map[int]proxmox.CloudInitSnippet),
 	}
 }
@@ -123,48 +126,48 @@ func (o *JobOrchestrator) Run(ctx context.Context, jobID string) error {
 	}
 	profile, ok := o.profile(job.Profile)
 	if !ok {
-		return o.failJob(ctx, job, 0, fmt.Errorf("unknown profile %q", job.Profile))
+		return o.failJob(job, 0, fmt.Errorf("unknown profile %q", job.Profile))
 	}
 	if err := validateProfileForProvisioning(profile); err != nil {
-		return o.failJob(ctx, job, 0, err)
+		return o.failJob(job, 0, err)
 	}
 	if o.sandboxManager == nil {
-		return o.failJob(ctx, job, 0, errors.New("sandbox manager unavailable"))
+		return o.failJob(job, 0, errors.New("sandbox manager unavailable"))
 	}
 	if o.backend == nil {
-		return o.failJob(ctx, job, 0, errors.New("proxmox backend unavailable"))
+		return o.failJob(job, 0, errors.New("proxmox backend unavailable"))
 	}
 	if o.sshPublicKey == "" {
-		return o.failJob(ctx, job, 0, errors.New("ssh public key unavailable"))
+		return o.failJob(job, 0, errors.New("ssh public key unavailable"))
 	}
 	if o.controllerURL == "" {
-		return o.failJob(ctx, job, 0, errors.New("controller URL unavailable"))
+		return o.failJob(job, 0, errors.New("controller URL unavailable"))
 	}
 
 	sandbox, created, err := o.ensureSandbox(ctx, job)
 	if err != nil {
-		return o.failJob(ctx, job, 0, err)
+		return o.failJob(job, 0, err)
 	}
 	if created {
 		if _, err := o.store.UpdateJobSandbox(ctx, job.ID, sandbox.VMID); err != nil {
-			return o.failJob(ctx, job, sandbox.VMID, err)
+			return o.failJob(job, sandbox.VMID, err)
 		}
 	}
 
 	if err := o.sandboxManager.Transition(ctx, sandbox.VMID, models.SandboxProvisioning); err != nil {
-		return o.failJob(ctx, job, sandbox.VMID, err)
+		return o.failJob(job, sandbox.VMID, err)
 	}
 
 	if err := o.backend.Clone(ctx, proxmox.VMID(profile.TemplateVM), proxmox.VMID(sandbox.VMID), sandbox.Name); err != nil {
-		return o.failJob(ctx, job, sandbox.VMID, err)
+		return o.failJob(job, sandbox.VMID, err)
 	}
 
 	token, tokenHash, expiresAt, err := o.bootstrapToken()
 	if err != nil {
-		return o.failJob(ctx, job, sandbox.VMID, err)
+		return o.failJob(job, sandbox.VMID, err)
 	}
 	if err := o.store.CreateBootstrapToken(ctx, tokenHash, sandbox.VMID, expiresAt); err != nil {
-		return o.failJob(ctx, job, sandbox.VMID, err)
+		return o.failJob(job, sandbox.VMID, err)
 	}
 
 	snippet, err := o.snippetStore.Create(proxmox.SnippetInput{
@@ -175,7 +178,7 @@ func (o *JobOrchestrator) Run(ctx context.Context, jobID string) error {
 		ControllerURL:  o.controllerURL,
 	})
 	if err != nil {
-		return o.failJob(ctx, job, sandbox.VMID, err)
+		return o.failJob(job, sandbox.VMID, err)
 	}
 	o.rememberSnippet(snippet)
 
@@ -186,49 +189,49 @@ func (o *JobOrchestrator) Run(ctx context.Context, jobID string) error {
 	cfg, err = applyProfileVMConfig(profile, cfg)
 	if err != nil {
 		o.cleanupSnippet(sandbox.VMID)
-		return o.failJob(ctx, job, sandbox.VMID, err)
+		return o.failJob(job, sandbox.VMID, err)
 	}
 	if err := o.backend.Configure(ctx, proxmox.VMID(sandbox.VMID), cfg); err != nil {
 		o.cleanupSnippet(sandbox.VMID)
-		return o.failJob(ctx, job, sandbox.VMID, err)
+		return o.failJob(job, sandbox.VMID, err)
 	}
 
 	if sandbox.WorkspaceID != nil && strings.TrimSpace(*sandbox.WorkspaceID) != "" {
 		if o.workspaceMgr == nil {
 			o.cleanupSnippet(sandbox.VMID)
-			return o.failJob(ctx, job, sandbox.VMID, errors.New("workspace manager unavailable"))
+			return o.failJob(job, sandbox.VMID, errors.New("workspace manager unavailable"))
 		}
 		if _, err := o.workspaceMgr.Attach(ctx, *sandbox.WorkspaceID, sandbox.VMID); err != nil {
 			o.cleanupSnippet(sandbox.VMID)
-			return o.failJob(ctx, job, sandbox.VMID, err)
+			return o.failJob(job, sandbox.VMID, err)
 		}
 	}
 
 	if err := o.sandboxManager.Transition(ctx, sandbox.VMID, models.SandboxBooting); err != nil {
-		return o.failJob(ctx, job, sandbox.VMID, err)
+		return o.failJob(job, sandbox.VMID, err)
 	}
 	if err := o.backend.Start(ctx, proxmox.VMID(sandbox.VMID)); err != nil {
-		return o.failJob(ctx, job, sandbox.VMID, err)
+		return o.failJob(job, sandbox.VMID, err)
 	}
 
 	ip, err := o.backend.GuestIP(ctx, proxmox.VMID(sandbox.VMID))
 	if err != nil {
-		return o.failJob(ctx, job, sandbox.VMID, err)
+		return o.failJob(job, sandbox.VMID, err)
 	}
 	if ip != "" {
 		if err := o.store.UpdateSandboxIP(ctx, sandbox.VMID, ip); err != nil {
-			return o.failJob(ctx, job, sandbox.VMID, err)
+			return o.failJob(job, sandbox.VMID, err)
 		}
 	}
 
 	if err := o.sandboxManager.Transition(ctx, sandbox.VMID, models.SandboxReady); err != nil {
-		return o.failJob(ctx, job, sandbox.VMID, err)
+		return o.failJob(job, sandbox.VMID, err)
 	}
 	if err := o.sandboxManager.Transition(ctx, sandbox.VMID, models.SandboxRunning); err != nil {
-		return o.failJob(ctx, job, sandbox.VMID, err)
+		return o.failJob(job, sandbox.VMID, err)
 	}
 	if err := o.store.UpdateJobStatus(ctx, job.ID, models.JobRunning); err != nil {
-		return o.failJob(ctx, job, sandbox.VMID, err)
+		return o.failJob(job, sandbox.VMID, err)
 	}
 	if o.metrics != nil {
 		o.metrics.IncJobStatus(models.JobRunning)
@@ -286,7 +289,9 @@ func (o *JobOrchestrator) ProvisionSandbox(ctx context.Context, vmid int) (model
 		if provisionErr == nil {
 			return
 		}
-		_ = o.sandboxManager.Destroy(ctx, vmid)
+		cleanupCtx, cancel := o.withFailureTimeout()
+		defer cancel()
+		_ = o.sandboxManager.Destroy(cleanupCtx, vmid)
 	}()
 
 	fail := func(err error) (models.Sandbox, error) {
@@ -513,7 +518,7 @@ func (o *JobOrchestrator) ensureSandbox(ctx context.Context, job models.Job) (mo
 	return created, true, nil
 }
 
-func (o *JobOrchestrator) failJob(ctx context.Context, job models.Job, vmid int, cause error) error {
+func (o *JobOrchestrator) failJob(job models.Job, vmid int, cause error) error {
 	if cause == nil {
 		return nil
 	}
@@ -528,10 +533,12 @@ func (o *JobOrchestrator) failJob(ctx context.Context, job models.Job, vmid int,
 		}
 	}
 	resultJSON, _ := buildJobResult(models.JobFailed, message, nil, nil, o.now().UTC())
-	_ = o.store.UpdateJobResult(ctx, job.ID, models.JobFailed, resultJSON)
-	_ = o.store.RecordEvent(ctx, "job.failed", nullableVMID(vmid), &job.ID, message, "")
+	failureCtx, cancel := o.withFailureTimeout()
+	defer cancel()
+	_ = o.store.UpdateJobResult(failureCtx, job.ID, models.JobFailed, resultJSON)
+	_ = o.store.RecordEvent(failureCtx, "job.failed", nullableVMID(vmid), &job.ID, message, "")
 	if vmid > 0 && !job.Keepalive && o.sandboxManager != nil {
-		_ = o.sandboxManager.Destroy(ctx, vmid)
+		_ = o.sandboxManager.Destroy(failureCtx, vmid)
 		o.cleanupSnippet(vmid)
 	}
 	return cause
@@ -618,6 +625,13 @@ func (o *JobOrchestrator) withProvisionTimeout(ctx context.Context) (context.Con
 		return ctx, func() {}
 	}
 	return context.WithTimeout(ctx, o.provisionTimeout)
+}
+
+func (o *JobOrchestrator) withFailureTimeout() (context.Context, context.CancelFunc) {
+	if o == nil || o.failureTimeout <= 0 {
+		return context.Background(), func() {}
+	}
+	return context.WithTimeout(context.Background(), o.failureTimeout)
 }
 
 func buildJobResult(status models.JobStatus, message string, artifacts []V1ArtifactMetadata, result json.RawMessage, now time.Time) (string, error) {

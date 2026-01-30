@@ -991,12 +991,13 @@
       "id": "T052",
       "title": "Ensure job failure cleanup succeeds after provisioning timeouts",
       "priority": 2,
-      "status": "todo",
+      "status": "done",
       "details": "JobOrchestrator.Run/ProvisionSandbox uses a timeout context; when it expires, failJob and deferred cleanup run with a canceled context so job status updates and sandbox/snippet cleanup can be skipped. Use a fresh background context (with a short timeout) for failure updates/cleanup and add tests for timeout paths.",
       "files": [
         "internal/daemon/job_orchestrator.go",
         "internal/daemon/job_orchestrator_test.go"
-      ]
+      ],
+      "updated_at": "2026-01-30T07:01:10Z"
     }
   ]
 }
