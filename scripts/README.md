@@ -1,6 +1,7 @@
 # Scripts
 
 - `install_host.sh`: install agentlab binaries, directories, and systemd unit on the host.
+- `create_template.sh`: build the Ubuntu cloud-init template VM on Proxmox.
 - `systemd/agentlabd.service`: systemd unit for the agentlabd daemon.
 - `net/agent_nat.nft`: nftables rules template for agent subnet NAT + egress/tailnet blocks.
 - `net/apply.sh`: install and optionally enable the agentlab nftables rules.

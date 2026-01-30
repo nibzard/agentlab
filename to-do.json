@@ -320,12 +320,12 @@
         "T016",
         "T010"
       ],
-      "updated_at": "2026-01-30T00:22:51Z",
+      "updated_at": "2026-01-30T00:25:12Z",
       "files": [
+        "internal/daemon/api_types.go",
         "internal/daemon/bootstrap_api.go",
         "internal/daemon/bootstrap_api_test.go",
         "internal/daemon/daemon.go",
-        "internal/daemon/api_types.go",
         "internal/db/jobs.go",
         "to-do.json"
       ]
@@ -334,8 +334,14 @@
       "id": "T018",
       "title": "Create Ubuntu template build script with cloud-init + qemu-guest-agent",
       "priority": 1,
-      "status": "todo",
-      "details": "Download cloud image, create VM, enable qga, install base packages, and convert to template."
+      "status": "done",
+      "details": "Download cloud image, create VM, enable qga, install base packages, and convert to template.",
+      "updated_at": "2026-01-30T00:30:24Z",
+      "files": [
+        "scripts/create_template.sh",
+        "scripts/README.md",
+        "to-do.json"
+      ]
     },
     {
       "id": "T019",
