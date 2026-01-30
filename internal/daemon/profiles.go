@@ -1,7 +1,10 @@
 package daemon
 
 import (
+	"bytes"
+	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -17,6 +20,7 @@ type profileSpec struct {
 }
 
 // LoadProfiles reads profile YAML files from dir.
+// Supports multi-document YAML files (documents separated by ---).
 func LoadProfiles(dir string) (map[string]models.Profile, error) {
 	entries, err := os.ReadDir(dir)
 	if err != nil {
@@ -36,28 +40,39 @@ func LoadProfiles(dir string) (map[string]models.Profile, error) {
 		if err != nil {
 			return nil, fmt.Errorf("read profile %s: %w", path, err)
 		}
-		var spec profileSpec
-		if err := yaml.Unmarshal(data, &spec); err != nil {
-			return nil, fmt.Errorf("parse profile %s: %w", path, err)
-		}
-		if spec.Name == "" {
-			return nil, fmt.Errorf("profile %s missing name", path)
-		}
-		if spec.TemplateVM <= 0 {
-			return nil, fmt.Errorf("profile %s missing template_vmid", path)
-		}
-		if _, exists := profiles[spec.Name]; exists {
-			return nil, fmt.Errorf("duplicate profile name %q", spec.Name)
-		}
-		modTime := time.Now().UTC()
-		if info, err := os.Stat(path); err == nil {
-			modTime = info.ModTime().UTC()
-		}
-		profiles[spec.Name] = models.Profile{
-			Name:       spec.Name,
-			TemplateVM: spec.TemplateVM,
-			UpdatedAt:  modTime,
-			RawYAML:    string(data),
+
+		// Use decoder to handle multi-document YAML files
+		decoder := yaml.NewDecoder(bytes.NewReader(data))
+		docIndex := 0
+		for {
+			var spec profileSpec
+			err := decoder.Decode(&spec)
+			if err != nil {
+				if errors.Is(err, io.EOF) {
+					break // End of documents
+				}
+				return nil, fmt.Errorf("parse profile %s (document %d): %w", path, docIndex, err)
+			}
+			if spec.Name == "" {
+				return nil, fmt.Errorf("profile %s (document %d) missing name", path, docIndex)
+			}
+			if spec.TemplateVM <= 0 {
+				return nil, fmt.Errorf("profile %s (document %d) missing template_vmid", path, docIndex)
+			}
+			if _, exists := profiles[spec.Name]; exists {
+				return nil, fmt.Errorf("duplicate profile name %q in %s", spec.Name, path)
+			}
+			modTime := time.Now().UTC()
+			if info, err := os.Stat(path); err == nil {
+				modTime = info.ModTime().UTC()
+			}
+			profiles[spec.Name] = models.Profile{
+				Name:       spec.Name,
+				TemplateVM: spec.TemplateVM,
+				UpdatedAt:  modTime,
+				RawYAML:    string(data), // Store full file for multi-doc
+			}
+			docIndex++
 		}
 	}
 	return profiles, nil

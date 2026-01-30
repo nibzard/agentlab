@@ -289,21 +289,34 @@ func (o *JobOrchestrator) ProvisionSandbox(ctx context.Context, vmid int) (model
 		if provisionErr == nil {
 			return
 		}
-		cleanupCtx, cancel := o.withFailureTimeout()
+		// Use background context instead of potentially-canceled ctx
+		cleanupCtx, cancel := context.WithTimeout(context.Background(), o.failureTimeout)
 		defer cancel()
+		if o.logger != nil {
+			o.logger.Printf("sandbox %d: cleaning up after failure: %v", vmid, provisionErr)
+		}
 		_ = o.sandboxManager.Destroy(cleanupCtx, vmid)
 	}()
 
 	fail := func(err error) (models.Sandbox, error) {
 		provisionErr = err
+		if o.logger != nil {
+			o.logger.Printf("sandbox %d provisioning failed: %v", sandbox.VMID, err)
+		}
 		return models.Sandbox{}, err
 	}
 
 	if err := o.sandboxManager.Transition(ctx, sandbox.VMID, models.SandboxProvisioning); err != nil {
 		return fail(err)
 	}
+	if o.logger != nil {
+		o.logger.Printf("sandbox %d: transitioned to PROVISIONING", sandbox.VMID)
+	}
 	if err := o.backend.Clone(ctx, proxmox.VMID(profile.TemplateVM), proxmox.VMID(sandbox.VMID), sandbox.Name); err != nil {
 		return fail(err)
+	}
+	if o.logger != nil {
+		o.logger.Printf("sandbox %d: cloned from template %d", sandbox.VMID, profile.TemplateVM)
 	}
 
 	token, tokenHash, expiresAt, err := o.bootstrapToken()
@@ -324,6 +337,9 @@ func (o *JobOrchestrator) ProvisionSandbox(ctx context.Context, vmid int) (model
 	if err != nil {
 		return fail(err)
 	}
+	if o.logger != nil {
+		o.logger.Printf("sandbox %d: cloud-init snippet created at %s", sandbox.VMID, snippet.StoragePath)
+	}
 	o.rememberSnippet(snippet)
 
 	cfg := proxmox.VMConfig{
@@ -336,6 +352,9 @@ func (o *JobOrchestrator) ProvisionSandbox(ctx context.Context, vmid int) (model
 	}
 	if err := o.backend.Configure(ctx, proxmox.VMID(sandbox.VMID), cfg); err != nil {
 		return fail(err)
+	}
+	if o.logger != nil {
+		o.logger.Printf("sandbox %d: VM configured", sandbox.VMID)
 	}
 
 	if sandbox.WorkspaceID != nil && strings.TrimSpace(*sandbox.WorkspaceID) != "" {
@@ -350,8 +369,14 @@ func (o *JobOrchestrator) ProvisionSandbox(ctx context.Context, vmid int) (model
 	if err := o.sandboxManager.Transition(ctx, sandbox.VMID, models.SandboxBooting); err != nil {
 		return fail(err)
 	}
+	if o.logger != nil {
+		o.logger.Printf("sandbox %d: transitioned to BOOTING", sandbox.VMID)
+	}
 	if err := o.backend.Start(ctx, proxmox.VMID(sandbox.VMID)); err != nil {
 		return fail(err)
+	}
+	if o.logger != nil {
+		o.logger.Printf("sandbox %d: VM started, waiting for IP...", sandbox.VMID)
 	}
 
 	ip, err := o.backend.GuestIP(ctx, proxmox.VMID(sandbox.VMID))
@@ -359,6 +384,9 @@ func (o *JobOrchestrator) ProvisionSandbox(ctx context.Context, vmid int) (model
 		return fail(err)
 	}
 	if ip != "" {
+		if o.logger != nil {
+			o.logger.Printf("sandbox %d: obtained IP %s", sandbox.VMID, ip)
+		}
 		if err := o.store.UpdateSandboxIP(ctx, sandbox.VMID, ip); err != nil {
 			return fail(err)
 		}

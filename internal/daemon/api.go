@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -38,6 +39,7 @@ type ControlAPI struct {
 	workspaceMgr    *WorkspaceManager
 	jobOrchestrator *JobOrchestrator
 	artifactRoot    string
+	logger          *log.Logger
 	now             func() time.Time
 }
 
@@ -49,6 +51,7 @@ func NewControlAPI(store *db.Store, profiles map[string]models.Profile, manager 
 		workspaceMgr:    workspaceMgr,
 		jobOrchestrator: orchestrator,
 		artifactRoot:    strings.TrimSpace(artifactRoot),
+		logger:          nil,
 		now:             time.Now,
 	}
 }
@@ -685,7 +688,11 @@ func (api *ControlAPI) handleSandboxCreate(w http.ResponseWriter, r *http.Reques
 	if provisionSandbox {
 		updated, err := api.jobOrchestrator.ProvisionSandbox(ctx, createdSandbox.VMID)
 		if err != nil {
-			writeError(w, http.StatusInternalServerError, "failed to provision sandbox")
+			// Log the actual error before writing generic response
+			if api.logger != nil {
+				api.logger.Printf("provision sandbox %d failed: %v", createdSandbox.VMID, err)
+			}
+			writeError(w, http.StatusInternalServerError, "failed to provision sandbox", err)
 			return
 		}
 		writeJSON(w, http.StatusCreated, sandboxToV1(updated))
@@ -1087,8 +1094,17 @@ func writeJSON(w http.ResponseWriter, status int, payload any) {
 	_ = json.NewEncoder(w).Encode(payload)
 }
 
-func writeError(w http.ResponseWriter, status int, msg string) {
-	writeJSON(w, status, V1ErrorResponse{Error: msg})
+func writeError(w http.ResponseWriter, status int, msg string, err ...error) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(status)
+	payload := map[string]string{"error": msg}
+	// Optionally include error details in non-production
+	if len(err) > 0 && os.Getenv("AGENTLAB_DEV") != "" {
+		details := err[0].Error()
+		payload["details"] = details
+	}
+	data, _ := json.Marshal(payload)
+	w.Write(data)
 }
 
 func writeMethodNotAllowed(w http.ResponseWriter, methods []string) {
