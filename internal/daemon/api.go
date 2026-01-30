@@ -152,11 +152,27 @@ func (api *ControlAPI) handleJobCreate(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "unknown profile")
 		return
 	}
+	var (
+		ttlMinutes int
+		keepalive  bool
+	)
+	if req.Keepalive != nil {
+		keepalive = *req.Keepalive
+	}
 	if profile, ok := api.profile(req.Profile); ok {
 		if err := validateProfileForProvisioning(profile); err != nil {
 			writeError(w, http.StatusBadRequest, err.Error())
 			return
 		}
+		appliedTTL, appliedKeepalive, err := applyProfileBehaviorDefaults(profile, req.TTLMinutes, req.Keepalive)
+		if err != nil {
+			writeError(w, http.StatusBadRequest, "invalid profile behavior defaults")
+			return
+		}
+		ttlMinutes = appliedTTL
+		keepalive = appliedKeepalive
+	} else {
+		ttlMinutes = derefInt(req.TTLMinutes)
 	}
 
 	ctx := r.Context()
@@ -176,8 +192,8 @@ func (api *ControlAPI) handleJobCreate(w http.ResponseWriter, r *http.Request) {
 			Profile:    req.Profile,
 			Task:       req.Task,
 			Mode:       req.Mode,
-			TTLMinutes: derefInt(req.TTLMinutes),
-			Keepalive:  req.Keepalive,
+			TTLMinutes: ttlMinutes,
+			Keepalive:  keepalive,
 			Status:     models.JobQueued,
 			CreatedAt:  now,
 			UpdatedAt:  now,
@@ -541,11 +557,27 @@ func (api *ControlAPI) handleSandboxCreate(w http.ResponseWriter, r *http.Reques
 		writeError(w, http.StatusBadRequest, "unknown profile")
 		return
 	}
+	var (
+		ttlMinutes int
+		keepalive  bool
+	)
+	if req.Keepalive != nil {
+		keepalive = *req.Keepalive
+	}
 	if profile, ok := api.profile(req.Profile); ok {
 		if err := validateProfileForProvisioning(profile); err != nil {
 			writeError(w, http.StatusBadRequest, err.Error())
 			return
 		}
+		appliedTTL, appliedKeepalive, err := applyProfileBehaviorDefaults(profile, req.TTLMinutes, req.Keepalive)
+		if err != nil {
+			writeError(w, http.StatusBadRequest, "invalid profile behavior defaults")
+			return
+		}
+		ttlMinutes = appliedTTL
+		keepalive = appliedKeepalive
+	} else {
+		ttlMinutes = derefInt(req.TTLMinutes)
 	}
 	if req.TTLMinutes != nil && *req.TTLMinutes <= 0 {
 		writeError(w, http.StatusBadRequest, "ttl_minutes must be positive")
@@ -613,8 +645,8 @@ func (api *ControlAPI) handleSandboxCreate(w http.ResponseWriter, r *http.Reques
 
 	now := api.now().UTC()
 	var leaseExpires time.Time
-	if req.TTLMinutes != nil && *req.TTLMinutes > 0 {
-		leaseExpires = now.Add(time.Duration(*req.TTLMinutes) * time.Minute)
+	if ttlMinutes > 0 {
+		leaseExpires = now.Add(time.Duration(ttlMinutes) * time.Minute)
 	}
 
 	sandbox := models.Sandbox{
@@ -622,7 +654,7 @@ func (api *ControlAPI) handleSandboxCreate(w http.ResponseWriter, r *http.Reques
 		Name:          req.Name,
 		Profile:       req.Profile,
 		State:         models.SandboxRequested,
-		Keepalive:     req.Keepalive,
+		Keepalive:     keepalive,
 		LeaseExpires:  leaseExpires,
 		CreatedAt:     now,
 		LastUpdatedAt: now,

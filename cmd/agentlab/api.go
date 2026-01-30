@@ -34,7 +34,7 @@ type jobCreateRequest struct {
 	Task       string `json:"task"`
 	Mode       string `json:"mode,omitempty"`
 	TTLMinutes *int   `json:"ttl_minutes,omitempty"`
-	Keepalive  bool   `json:"keepalive,omitempty"`
+	Keepalive  *bool  `json:"keepalive,omitempty"`
 }
 
 type jobResponse struct {
@@ -71,7 +71,7 @@ type artifactsResponse struct {
 type sandboxCreateRequest struct {
 	Name       string  `json:"name,omitempty"`
 	Profile    string  `json:"profile"`
-	Keepalive  bool    `json:"keepalive,omitempty"`
+	Keepalive  *bool   `json:"keepalive,omitempty"`
 	TTLMinutes *int    `json:"ttl_minutes,omitempty"`
 	Workspace  *string `json:"workspace_id,omitempty"`
 	VMID       *int    `json:"vmid,omitempty"`

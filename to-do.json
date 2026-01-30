@@ -884,23 +884,29 @@
       "details": "BootstrapAPI consumes the one-time token before issuing artifact tokens and building the response; any subsequent error burns the token and prevents retries. Reorder/transactionalize token consumption or add a validate-then-consume flow, and add a test for retry safety.",
       "files": [
         "internal/daemon/bootstrap_api.go",
-        "internal/db/bootstrap_tokens.go",
         "internal/daemon/bootstrap_api_test.go",
-        "internal/db/bootstrap_tokens_test.go"
+        "internal/db/bootstrap_tokens.go",
+        "internal/db/bootstrap_tokens_test.go",
+        "to-do.json"
       ],
-      "updated_at": "2026-01-30T05:40:52Z"
+      "updated_at": "2026-01-30T05:41:20Z"
     },
     {
       "id": "T046",
       "title": "Apply profile keepalive/TTL defaults when creating jobs/sandboxes",
       "priority": 2,
-      "status": "todo",
+      "status": "done",
       "details": "Profiles define behavior.keepalive_default and behavior.ttl_minutes_default but the API currently ignores them when TTL/keepalive are omitted. Parse these defaults and apply them for job create, sandbox new, and workspace rebind (when ttl/keepalive not explicitly set). Add tests.",
       "files": [
+        "cmd/agentlab/api.go",
+        "cmd/agentlab/commands.go",
         "internal/daemon/api.go",
-        "internal/daemon/job_orchestrator.go",
-        "internal/daemon/workspace_rebind.go"
-      ]
+        "internal/daemon/api_types.go",
+        "internal/daemon/profile_behavior.go",
+        "internal/daemon/workspace_rebind.go",
+        "internal/daemon/behavior_defaults_test.go"
+      ],
+      "updated_at": "2026-01-30T05:57:17Z"
     }
   ]
 }

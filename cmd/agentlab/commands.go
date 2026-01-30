@@ -46,6 +46,43 @@ func newFlagSet(name string) *flag.FlagSet {
 	return fs
 }
 
+type optionalBool struct {
+	value bool
+	set   bool
+}
+
+func (o *optionalBool) String() string {
+	if o == nil || !o.set {
+		return ""
+	}
+	if o.value {
+		return "true"
+	}
+	return "false"
+}
+
+func (o *optionalBool) Set(value string) error {
+	parsed, err := strconv.ParseBool(value)
+	if err != nil {
+		return err
+	}
+	o.value = parsed
+	o.set = true
+	return nil
+}
+
+func (o *optionalBool) IsBoolFlag() bool {
+	return true
+}
+
+func (o *optionalBool) Ptr() *bool {
+	if o == nil || !o.set {
+		return nil
+	}
+	value := o.value
+	return &value
+}
+
 func parseFlags(fs *flag.FlagSet, args []string, usage func(), help *bool) error {
 	fs.Usage = usage
 	if err := fs.Parse(args); err != nil {
@@ -87,7 +124,7 @@ func runJobRun(ctx context.Context, args []string, base commonFlags) error {
 	var task string
 	var mode string
 	var ttl string
-	var keepalive bool
+	var keepalive optionalBool
 	var help bool
 	fs.StringVar(&repo, "repo", "", "git repository url")
 	fs.StringVar(&ref, "ref", "", "git ref (default main)")
@@ -95,7 +132,7 @@ func runJobRun(ctx context.Context, args []string, base commonFlags) error {
 	fs.StringVar(&task, "task", "", "task description")
 	fs.StringVar(&mode, "mode", "", "mode (default dangerous)")
 	fs.StringVar(&ttl, "ttl", "", ttlFlagDescription)
-	fs.BoolVar(&keepalive, "keepalive", false, "keep sandbox after job completion")
+	fs.Var(&keepalive, "keepalive", "keep sandbox after job completion")
 	fs.BoolVar(&help, "help", false, "show help")
 	fs.BoolVar(&help, "h", false, "show help")
 	if err := parseFlags(fs, args, printJobRunUsage, &help); err != nil {
@@ -118,7 +155,7 @@ func runJobRun(ctx context.Context, args []string, base commonFlags) error {
 		Task:       task,
 		Mode:       mode,
 		TTLMinutes: ttlMinutes,
-		Keepalive:  keepalive,
+		Keepalive:  keepalive.Ptr(),
 	}
 	payload, err := client.doJSON(ctx, http.MethodPost, "/v1/jobs", req)
 	if err != nil {
@@ -388,7 +425,7 @@ func runSandboxNew(ctx context.Context, args []string, base commonFlags) error {
 	var workspace string
 	var vmid int
 	var jobID string
-	var keepalive bool
+	var keepalive optionalBool
 	var help bool
 	fs.StringVar(&name, "name", "", "sandbox name")
 	fs.StringVar(&profile, "profile", "", "profile name")
@@ -396,7 +433,7 @@ func runSandboxNew(ctx context.Context, args []string, base commonFlags) error {
 	fs.StringVar(&workspace, "workspace", "", "workspace id or name")
 	fs.IntVar(&vmid, "vmid", 0, "vmid override")
 	fs.StringVar(&jobID, "job", "", "attach to existing job id")
-	fs.BoolVar(&keepalive, "keepalive", false, "enable keepalive lease for sandbox")
+	fs.Var(&keepalive, "keepalive", "enable keepalive lease for sandbox")
 	fs.BoolVar(&help, "help", false, "show help")
 	fs.BoolVar(&help, "h", false, "show help")
 	if err := parseFlags(fs, args, printSandboxNewUsage, &help); err != nil {
@@ -425,7 +462,7 @@ func runSandboxNew(ctx context.Context, args []string, base commonFlags) error {
 	req := sandboxCreateRequest{
 		Name:       name,
 		Profile:    profile,
-		Keepalive:  keepalive,
+		Keepalive:  keepalive.Ptr(),
 		TTLMinutes: ttlMinutes,
 		Workspace:  workspaceID,
 		VMID:       vmidPtr,

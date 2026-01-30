@@ -57,7 +57,7 @@ type V1JobCreateRequest struct {
 	Task       string `json:"task"`
 	Mode       string `json:"mode"`
 	TTLMinutes *int   `json:"ttl_minutes,omitempty"`
-	Keepalive  bool   `json:"keepalive,omitempty"`
+	Keepalive  *bool  `json:"keepalive,omitempty"`
 }
 
 type V1JobResponse struct {
@@ -80,7 +80,7 @@ type V1JobResponse struct {
 type V1SandboxCreateRequest struct {
 	Name       string  `json:"name"`
 	Profile    string  `json:"profile"`
-	Keepalive  bool    `json:"keepalive,omitempty"`
+	Keepalive  *bool   `json:"keepalive,omitempty"`
 	TTLMinutes *int    `json:"ttl_minutes,omitempty"`
 	Workspace  *string `json:"workspace_id,omitempty"`
 	VMID       *int    `json:"vmid,omitempty"`

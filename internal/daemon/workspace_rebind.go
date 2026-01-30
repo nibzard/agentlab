@@ -71,7 +71,17 @@ func (o *JobOrchestrator) RebindWorkspace(ctx context.Context, workspaceID, prof
 
 	now := o.now().UTC()
 	var leaseExpires time.Time
-	if ttlMinutes != nil && *ttlMinutes > 0 {
+	keepalive := false
+	if profile.Name != "" {
+		appliedTTL, appliedKeepalive, err := applyProfileBehaviorDefaults(profile, ttlMinutes, nil)
+		if err != nil {
+			return result, err
+		}
+		if appliedTTL > 0 {
+			leaseExpires = now.Add(time.Duration(appliedTTL) * time.Minute)
+		}
+		keepalive = appliedKeepalive
+	} else if ttlMinutes != nil && *ttlMinutes > 0 {
 		leaseExpires = now.Add(time.Duration(*ttlMinutes) * time.Minute)
 	}
 
@@ -80,7 +90,7 @@ func (o *JobOrchestrator) RebindWorkspace(ctx context.Context, workspaceID, prof
 		Name:          fmt.Sprintf("sandbox-%d", newVMID),
 		Profile:       profileName,
 		State:         models.SandboxRequested,
-		Keepalive:     true,
+		Keepalive:     keepalive,
 		LeaseExpires:  leaseExpires,
 		CreatedAt:     now,
 		LastUpdatedAt: now,
