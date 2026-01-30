@@ -16,6 +16,7 @@ import (
 	"github.com/agentlab/agentlab/internal/db"
 	"github.com/agentlab/agentlab/internal/models"
 	"github.com/agentlab/agentlab/internal/proxmox"
+	"github.com/agentlab/agentlab/internal/secrets"
 )
 
 const (
@@ -93,7 +94,12 @@ func NewService(cfg config.Config, profiles map[string]models.Profile, store *db
 
 	bootstrapMux := http.NewServeMux()
 	bootstrapMux.HandleFunc("/healthz", healthHandler)
-	bootstrapMux.HandleFunc("/v1/bootstrap/fetch", bootstrapNotImplementedHandler)
+	secretsStore := secrets.Store{
+		Dir:        cfg.SecretsDir,
+		AgeKeyPath: cfg.SecretsAgeKeyPath,
+		SopsPath:   cfg.SecretsSopsPath,
+	}
+	NewBootstrapAPI(store, profiles, secretsStore, cfg.SecretsBundle, cfg.BootstrapListen).Register(bootstrapMux)
 	NewRunnerAPI(jobOrchestrator).Register(bootstrapMux)
 
 	unixServer := &http.Server{
@@ -200,12 +206,6 @@ func listenUnix(socketPath string) (net.Listener, error) {
 func healthHandler(w http.ResponseWriter, _ *http.Request) {
 	w.WriteHeader(http.StatusOK)
 	_, _ = w.Write([]byte("ok"))
-}
-
-func bootstrapNotImplementedHandler(w http.ResponseWriter, _ *http.Request) {
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusNotImplemented)
-	_, _ = w.Write([]byte(`{"error":"bootstrap endpoint not implemented"}`))
 }
 
 func buildControllerURL(listen string) string {

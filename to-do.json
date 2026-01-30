@@ -314,11 +314,20 @@
       "id": "T017",
       "title": "Build guest bootstrap API (/v1/bootstrap/fetch) bound to vmbr1",
       "priority": 1,
-      "status": "todo",
+      "status": "done",
       "details": "Return minimal secrets/job payloads, authenticate by token+vmid, and enforce agent-subnet-only access.",
       "depends_on": [
         "T016",
         "T010"
+      ],
+      "updated_at": "2026-01-30T00:22:51Z",
+      "files": [
+        "internal/daemon/bootstrap_api.go",
+        "internal/daemon/bootstrap_api_test.go",
+        "internal/daemon/daemon.go",
+        "internal/daemon/api_types.go",
+        "internal/db/jobs.go",
+        "to-do.json"
       ]
     },
     {

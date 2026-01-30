@@ -84,6 +84,20 @@ func (s *Store) GetJob(ctx context.Context, id string) (models.Job, error) {
 	return scanJobRow(row)
 }
 
+// GetJobBySandboxVMID loads the most recent job attached to a sandbox VMID.
+func (s *Store) GetJobBySandboxVMID(ctx context.Context, vmid int) (models.Job, error) {
+	if s == nil || s.DB == nil {
+		return models.Job{}, errors.New("db store is nil")
+	}
+	if vmid <= 0 {
+		return models.Job{}, errors.New("vmid must be positive")
+	}
+	row := s.DB.QueryRowContext(ctx, `SELECT id, repo_url, ref, profile, task, mode, ttl_minutes, keepalive, status, sandbox_vmid, created_at, updated_at, result_json
+		FROM jobs WHERE sandbox_vmid = ?
+		ORDER BY created_at DESC LIMIT 1`, vmid)
+	return scanJobRow(row)
+}
+
 // UpdateJobSandbox updates a job with the attached sandbox vmid.
 func (s *Store) UpdateJobSandbox(ctx context.Context, id string, vmid int) (bool, error) {
 	if s == nil || s.DB == nil {

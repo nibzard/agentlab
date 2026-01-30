@@ -6,6 +6,48 @@ type V1ErrorResponse struct {
 	Error string `json:"error"`
 }
 
+type V1BootstrapFetchRequest struct {
+	Token string `json:"token"`
+	VMID  int    `json:"vmid"`
+}
+
+type V1BootstrapGit struct {
+	Token         string `json:"token,omitempty"`
+	Username      string `json:"username,omitempty"`
+	SSHPrivateKey string `json:"ssh_private_key,omitempty"`
+	SSHPublicKey  string `json:"ssh_public_key,omitempty"`
+	KnownHosts    string `json:"known_hosts,omitempty"`
+}
+
+type V1BootstrapArtifact struct {
+	Endpoint string `json:"endpoint,omitempty"`
+	Token    string `json:"token,omitempty"`
+}
+
+type V1BootstrapJob struct {
+	ID         string `json:"id"`
+	RepoURL    string `json:"repo_url"`
+	Ref        string `json:"ref"`
+	Task       string `json:"task,omitempty"`
+	Mode       string `json:"mode,omitempty"`
+	Profile    string `json:"profile,omitempty"`
+	Keepalive  bool   `json:"keepalive,omitempty"`
+	TTLMinutes *int   `json:"ttl_minutes,omitempty"`
+}
+
+type V1BootstrapPolicy struct {
+	Mode string `json:"mode,omitempty"`
+}
+
+type V1BootstrapFetchResponse struct {
+	Job                V1BootstrapJob       `json:"job"`
+	Git                *V1BootstrapGit      `json:"git,omitempty"`
+	Env                map[string]string    `json:"env,omitempty"`
+	ClaudeSettingsJSON string               `json:"claude_settings_json,omitempty"`
+	Artifact           *V1BootstrapArtifact `json:"artifact,omitempty"`
+	Policy             *V1BootstrapPolicy   `json:"policy,omitempty"`
+}
+
 type V1JobCreateRequest struct {
 	RepoURL    string `json:"repo_url"`
 	Ref        string `json:"ref"`
