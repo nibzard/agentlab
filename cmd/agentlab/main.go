@@ -18,6 +18,7 @@ const usageText = `agentlab is the CLI for agentlabd.
 Usage:
   agentlab --version
   agentlab [--socket PATH] [--json] job run --repo <url> --task <task> --profile <profile> [--ref <ref>] [--mode <mode>] [--ttl <ttl>] [--keepalive]
+  agentlab [--socket PATH] [--json] job show <job_id> [--events-tail <n>]
   agentlab [--socket PATH] [--json] job artifacts <job_id>
   agentlab [--socket PATH] [--json] job artifacts download <job_id> [--out <path>] [--path <path>] [--name <name>] [--latest] [--bundle]
   agentlab [--socket PATH] [--json] sandbox new --profile <profile> [--name <name>] [--ttl <ttl>] [--keepalive] [--workspace <id>] [--vmid <vmid>] [--job <id>]
@@ -116,11 +117,16 @@ func printUsage() {
 }
 
 func printJobUsage() {
-	fmt.Fprintln(os.Stdout, "Usage: agentlab job <run|artifacts> [flags]")
+	fmt.Fprintln(os.Stdout, "Usage: agentlab job <run|show|artifacts> [flags]")
 }
 
 func printJobRunUsage() {
 	fmt.Fprintln(os.Stdout, "Usage: agentlab job run --repo <url> --task <task> --profile <profile> [--ref <ref>] [--mode <mode>] [--ttl <ttl>] [--keepalive]")
+}
+
+func printJobShowUsage() {
+	fmt.Fprintln(os.Stdout, "Usage: agentlab job show <job_id> [--events-tail <n>]")
+	fmt.Fprintln(os.Stdout, "Note: --events-tail=0 omits recent events from the response.")
 }
 
 func printJobArtifactsUsage() {

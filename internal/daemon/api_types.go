@@ -70,6 +70,7 @@ type V1JobResponse struct {
 	Status      string          `json:"status"`
 	SandboxVMID *int            `json:"sandbox_vmid,omitempty"`
 	Result      json.RawMessage `json:"result,omitempty"`
+	Events      []V1Event       `json:"events,omitempty"`
 	CreatedAt   string          `json:"created_at"`
 	UpdatedAt   string          `json:"updated_at"`
 }

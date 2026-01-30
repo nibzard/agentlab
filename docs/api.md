@@ -125,6 +125,21 @@ Create a job record.
 ### GET /v1/jobs/{id}
 Fetch a job by id.
 
+Query params:
+- `events_tail=<n>` returns the last N events for the job (default 50, max 1000). Use `0` to omit events.
+
+Response includes `events` when requested or by default:
+
+```json
+{
+  "id": "job_0123abcd",
+  "status": "RUNNING",
+  "events": [
+    { "id": 10, "ts": "2026-01-30T03:14:00Z", "kind": "job.report", "job_id": "job_0123abcd", "msg": "bootstrapped" }
+  ]
+}
+```
+
 ### GET /v1/jobs/{id}/artifacts
 List artifacts recorded for a job.
 

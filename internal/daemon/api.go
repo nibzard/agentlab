@@ -26,6 +26,7 @@ const (
 	defaultJobMode           = "dangerous"
 	maxCreateJobIDIterations = 5
 	defaultEventsLimit       = 200
+	defaultJobEventsTail     = 50
 	maxEventsLimit           = 1000
 )
 
@@ -217,7 +218,32 @@ func (api *ControlAPI) handleJobGet(w http.ResponseWriter, r *http.Request, jobI
 		writeError(w, http.StatusInternalServerError, "failed to load job")
 		return
 	}
-	writeJSON(w, http.StatusOK, jobToV1(job))
+	query := r.URL.Query()
+	eventsTail := defaultJobEventsTail
+	if raw := query.Get("events_tail"); strings.TrimSpace(raw) != "" {
+		parsed, err := parseQueryInt(raw)
+		if err != nil || parsed < 0 {
+			writeError(w, http.StatusBadRequest, "invalid events_tail")
+			return
+		}
+		eventsTail = parsed
+	}
+	if eventsTail > maxEventsLimit {
+		eventsTail = maxEventsLimit
+	}
+	resp := jobToV1(job)
+	if eventsTail > 0 {
+		events, err := api.store.ListEventsByJobTail(r.Context(), job.ID, eventsTail)
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, "failed to load job events")
+			return
+		}
+		resp.Events = make([]V1Event, 0, len(events))
+		for _, ev := range events {
+			resp.Events = append(resp.Events, eventToV1(ev))
+		}
+	}
+	writeJSON(w, http.StatusOK, resp)
 }
 
 func (api *ControlAPI) handleJobArtifactsList(w http.ResponseWriter, r *http.Request, jobID string) {

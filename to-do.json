@@ -675,7 +675,7 @@
       "depends_on": [
         "T002"
       ],
-      "updated_at": "2026-01-30T03:46:29Z",
+      "updated_at": "2026-01-30T03:46:56Z",
       "files": [
         "scripts/systemd/agentlabd.service",
         "to-do.json"
@@ -695,11 +695,22 @@
       "id": "T036",
       "title": "Implement event stream storage and per-job log surfaces",
       "priority": 2,
-      "status": "todo",
+      "status": "done",
       "details": "Persist events in DB and surface recent events in job show responses.",
       "depends_on": [
         "T011",
         "T020"
+      ],
+      "updated_at": "2026-01-30T03:53:43Z",
+      "files": [
+        "internal/db/events.go",
+        "internal/daemon/api.go",
+        "internal/daemon/api_types.go",
+        "cmd/agentlab/api.go",
+        "cmd/agentlab/commands.go",
+        "cmd/agentlab/main.go",
+        "docs/api.md",
+        "to-do.json"
       ]
     },
     {

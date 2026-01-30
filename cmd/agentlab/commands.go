@@ -67,6 +67,8 @@ func runJobCommand(ctx context.Context, args []string, base commonFlags) error {
 	switch args[0] {
 	case "run":
 		return runJobRun(ctx, args[1:], base)
+	case "show":
+		return runJobShow(ctx, args[1:], base)
 	case "artifacts":
 		return runJobArtifacts(ctx, args[1:], base)
 	default:
@@ -130,6 +132,51 @@ func runJobRun(ctx context.Context, args []string, base commonFlags) error {
 		return err
 	}
 	printJob(resp)
+	return nil
+}
+
+func runJobShow(ctx context.Context, args []string, base commonFlags) error {
+	fs := newFlagSet("job show")
+	opts := base
+	opts.bind(fs)
+	var eventsTail int
+	var help bool
+	fs.IntVar(&eventsTail, "events-tail", -1, "number of recent events to include (0 to omit)")
+	fs.BoolVar(&help, "help", false, "show help")
+	fs.BoolVar(&help, "h", false, "show help")
+	if err := parseFlags(fs, args, printJobShowUsage, &help); err != nil {
+		return err
+	}
+	if fs.NArg() < 1 {
+		printJobShowUsage()
+		return fmt.Errorf("job_id is required")
+	}
+	jobID := strings.TrimSpace(fs.Arg(0))
+	if jobID == "" {
+		return fmt.Errorf("job_id is required")
+	}
+
+	client := newAPIClient(opts.socketPath)
+	query := ""
+	if eventsTail >= 0 {
+		query = fmt.Sprintf("?events_tail=%d", eventsTail)
+	}
+	payload, err := client.doJSON(ctx, http.MethodGet, fmt.Sprintf("/v1/jobs/%s%s", jobID, query), nil)
+	if err != nil {
+		return err
+	}
+	if opts.jsonOutput {
+		return prettyPrintJSON(os.Stdout, payload)
+	}
+	var resp jobResponse
+	if err := json.Unmarshal(payload, &resp); err != nil {
+		return err
+	}
+	printJob(resp)
+	if len(resp.Events) > 0 {
+		fmt.Println("Events:")
+		printEvents(resp.Events, false)
+	}
 	return nil
 }
 
