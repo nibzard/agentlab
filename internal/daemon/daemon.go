@@ -39,6 +39,7 @@ type Service struct {
 	artifactServer    *http.Server
 	sandboxManager    *SandboxManager
 	workspaceManager  *WorkspaceManager
+	artifactGC        *ArtifactGC
 }
 
 // Run loads profiles, binds listeners, and serves until ctx is canceled.
@@ -125,6 +126,8 @@ func NewService(cfg config.Config, profiles map[string]models.Profile, store *db
 	artifactMux.HandleFunc("/healthz", healthHandler)
 	NewArtifactAPI(store, cfg.ArtifactDir, cfg.ArtifactMaxBytes, cfg.ArtifactListen).Register(artifactMux)
 
+	artifactGC := NewArtifactGC(store, profiles, cfg.ArtifactDir, log.Default(), redactor)
+
 	unixServer := &http.Server{
 		Handler:           localMux,
 		ReadHeaderTimeout: 5 * time.Second,
@@ -153,6 +156,7 @@ func NewService(cfg config.Config, profiles map[string]models.Profile, store *db
 		artifactServer:    artifactServer,
 		sandboxManager:    sandboxManager,
 		workspaceManager:  workspaceManager,
+		artifactGC:        artifactGC,
 	}, nil
 }
 
@@ -163,6 +167,9 @@ func (s *Service) Serve(ctx context.Context) error {
 	log.Printf("agentlabd: listening on artifacts=%s", s.cfg.ArtifactListen)
 	if s.sandboxManager != nil {
 		s.sandboxManager.StartLeaseGC(ctx)
+	}
+	if s.artifactGC != nil {
+		s.artifactGC.Start(ctx)
 	}
 
 	errCh := make(chan error, 3)

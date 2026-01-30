@@ -119,6 +119,7 @@ func TestArtifactUploadRejectsTraversal(t *testing.T) {
 	}
 
 	api := NewArtifactAPI(store, t.TempDir(), 1024, "10.77.0.1:8846")
+	api.now = func() time.Time { return now }
 	req := httptest.NewRequest(http.MethodPost, "/upload?path=../evil", strings.NewReader("data"))
 	req.Header.Set("Authorization", "Bearer "+token)
 	req.RemoteAddr = "10.77.0.55:1234"
@@ -157,6 +158,7 @@ func TestArtifactUploadEnforcesSizeLimit(t *testing.T) {
 	}
 
 	api := NewArtifactAPI(store, t.TempDir(), 4, "10.77.0.1:8846")
+	api.now = func() time.Time { return now }
 	req := httptest.NewRequest(http.MethodPost, "/upload", strings.NewReader("too-large"))
 	req.Header.Set("Authorization", "Bearer "+token)
 	req.RemoteAddr = "10.77.0.55:1234"

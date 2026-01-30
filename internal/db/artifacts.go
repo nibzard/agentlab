@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"strings"
 	"time"
+
+	"github.com/agentlab/agentlab/internal/models"
 )
 
 // Artifact stores artifact metadata.
@@ -20,6 +22,16 @@ type Artifact struct {
 	Sha256    string
 	MIME      string
 	CreatedAt time.Time
+}
+
+// ArtifactRetentionRecord combines artifact metadata with job and sandbox state.
+type ArtifactRetentionRecord struct {
+	Artifact     Artifact
+	JobProfile   string
+	JobStatus    models.JobStatus
+	JobUpdatedAt time.Time
+	SandboxVMID  *int
+	SandboxState models.SandboxState
 }
 
 // CreateArtifact inserts artifact metadata and returns the row id.
@@ -77,6 +89,117 @@ func (s *Store) CreateArtifact(ctx context.Context, artifact Artifact) (int64, e
 		return 0, fmt.Errorf("artifact id: %w", err)
 	}
 	return id, nil
+}
+
+// DeleteArtifact removes an artifact record by id.
+func (s *Store) DeleteArtifact(ctx context.Context, id int64) error {
+	if s == nil || s.DB == nil {
+		return errors.New("db store is nil")
+	}
+	if id <= 0 {
+		return errors.New("artifact id is required")
+	}
+	res, err := s.DB.ExecContext(ctx, `DELETE FROM artifacts WHERE id = ?`, id)
+	if err != nil {
+		return fmt.Errorf("delete artifact %d: %w", id, err)
+	}
+	affected, err := res.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("rows affected delete artifact %d: %w", id, err)
+	}
+	if affected == 0 {
+		return sql.ErrNoRows
+	}
+	return nil
+}
+
+// ListArtifactRetentionCandidates returns artifacts with job metadata for GC.
+func (s *Store) ListArtifactRetentionCandidates(ctx context.Context) ([]ArtifactRetentionRecord, error) {
+	if s == nil || s.DB == nil {
+		return nil, errors.New("db store is nil")
+	}
+	rows, err := s.DB.QueryContext(ctx, `SELECT a.id, a.job_id, a.vmid, a.name, a.path, a.size_bytes, a.sha256, a.mime, a.created_at,
+		j.profile, j.status, j.updated_at, j.sandbox_vmid, s.state
+		FROM artifacts a
+		INNER JOIN jobs j ON a.job_id = j.id
+		LEFT JOIN sandboxes s ON j.sandbox_vmid = s.vmid`)
+	if err != nil {
+		return nil, fmt.Errorf("list artifact retention candidates: %w", err)
+	}
+	defer rows.Close()
+
+	var out []ArtifactRetentionRecord
+	for rows.Next() {
+		var artifact Artifact
+		var vmid sql.NullInt64
+		var mime sql.NullString
+		var createdAt string
+		var profile string
+		var status string
+		var jobUpdatedAt string
+		var jobSandbox sql.NullInt64
+		var sandboxState sql.NullString
+		if err := rows.Scan(
+			&artifact.ID,
+			&artifact.JobID,
+			&vmid,
+			&artifact.Name,
+			&artifact.Path,
+			&artifact.SizeBytes,
+			&artifact.Sha256,
+			&mime,
+			&createdAt,
+			&profile,
+			&status,
+			&jobUpdatedAt,
+			&jobSandbox,
+			&sandboxState,
+		); err != nil {
+			return nil, err
+		}
+		if vmid.Valid {
+			value := int(vmid.Int64)
+			artifact.VMID = &value
+		}
+		if mime.Valid {
+			artifact.MIME = mime.String
+		}
+		if createdAt != "" {
+			parsed, err := parseTime(createdAt)
+			if err != nil {
+				return nil, fmt.Errorf("parse artifact created_at: %w", err)
+			}
+			artifact.CreatedAt = parsed
+		}
+		var updated time.Time
+		if jobUpdatedAt != "" {
+			parsed, err := parseTime(jobUpdatedAt)
+			if err != nil {
+				return nil, fmt.Errorf("parse job updated_at: %w", err)
+			}
+			updated = parsed
+		}
+		record := ArtifactRetentionRecord{
+			Artifact:     artifact,
+			JobProfile:   profile,
+			JobStatus:    models.JobStatus(status),
+			JobUpdatedAt: updated,
+		}
+		if jobSandbox.Valid {
+			value := int(jobSandbox.Int64)
+			record.SandboxVMID = &value
+		} else if artifact.VMID != nil {
+			record.SandboxVMID = artifact.VMID
+		}
+		if sandboxState.Valid {
+			record.SandboxState = models.SandboxState(sandboxState.String)
+		}
+		out = append(out, record)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate artifact retention candidates: %w", err)
+	}
+	return out, nil
 }
 
 // ListArtifactsByJob returns artifacts for a job ordered by created_at.

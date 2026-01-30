@@ -506,18 +506,18 @@
         "T025",
         "T012"
       ],
-      "updated_at": "2026-01-30T03:13:06Z",
+      "updated_at": "2026-01-30T03:14:51Z",
       "files": [
-        "internal/daemon/workspace_rebind.go",
-        "internal/daemon/job_orchestrator.go",
-        "internal/daemon/sandbox_manager.go",
-        "internal/daemon/daemon.go",
-        "internal/daemon/api.go",
-        "internal/daemon/api_types.go",
+        "cmd/agentlab/api.go",
         "cmd/agentlab/commands.go",
         "cmd/agentlab/main.go",
-        "cmd/agentlab/api.go",
         "docs/api.md",
+        "internal/daemon/api.go",
+        "internal/daemon/api_types.go",
+        "internal/daemon/daemon.go",
+        "internal/daemon/job_orchestrator.go",
+        "internal/daemon/sandbox_manager.go",
+        "internal/daemon/workspace_rebind.go",
         "to-do.json"
       ]
     },
@@ -557,7 +557,7 @@
         "T027",
         "T022"
       ],
-      "updated_at": "2026-01-30T03:25:17Z",
+      "updated_at": "2026-01-30T03:28:15Z",
       "files": [
         "cmd/agentlab/api.go",
         "cmd/agentlab/commands.go",
@@ -573,11 +573,19 @@
       "id": "T029",
       "title": "Implement artifact retention and garbage collection",
       "priority": 2,
-      "status": "todo",
+      "status": "done",
       "details": "Apply per-profile TTLs, delete expired artifacts, and report deletions safely.",
       "depends_on": [
         "T027",
         "T012"
+      ],
+      "updated_at": "2026-01-30T03:36:39Z",
+      "files": [
+        "internal/db/artifacts.go",
+        "internal/daemon/artifact_gc.go",
+        "internal/daemon/artifact_gc_test.go",
+        "internal/daemon/daemon.go",
+        "internal/daemon/artifact_api_test.go"
       ]
     },
     {
