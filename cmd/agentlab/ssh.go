@@ -60,7 +60,7 @@ func runSSHCommand(ctx context.Context, args []string, base commonFlags) error {
 	fs.BoolVar(&execFlag, "e", false, "exec ssh instead of printing the command")
 	fs.BoolVar(&help, "help", false, "show help")
 	fs.BoolVar(&help, "h", false, "show help")
-	if err := parseFlags(fs, args, printSSHUsage, &help); err != nil {
+	if err := parseFlags(fs, args, printSSHUsage, &help, opts.jsonOutput); err != nil {
 		return err
 	}
 	if fs.NArg() < 1 {

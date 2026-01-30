@@ -29,7 +29,41 @@ const (
 	defaultArtifactBundleName = "agentlab-artifacts.tar.gz"
 )
 
-var errHelp = errors.New("help requested")
+var (
+	errHelp  = errors.New("help requested")
+	errUsage = errors.New("invalid usage")
+)
+
+type usageError struct {
+	err       error
+	showUsage bool
+}
+
+func (e usageError) Error() string {
+	if e.err == nil {
+		return errUsage.Error()
+	}
+	return fmt.Sprintf("%s: %v", errUsage.Error(), e.err)
+}
+
+func (e usageError) Unwrap() error {
+	return errUsage
+}
+
+func newUsageError(err error, showUsage bool) error {
+	return usageError{err: err, showUsage: showUsage}
+}
+
+func usageErrorMessage(err error) (string, bool, bool) {
+	var ue usageError
+	if errors.As(err, &ue) {
+		if ue.err != nil {
+			return ue.err.Error(), ue.showUsage, true
+		}
+		return errUsage.Error(), ue.showUsage, true
+	}
+	return "", false, false
+}
 
 type commonFlags struct {
 	socketPath string
@@ -86,11 +120,13 @@ func (o *optionalBool) Ptr() *bool {
 	return &value
 }
 
-func parseFlags(fs *flag.FlagSet, args []string, usage func(), help *bool) error {
+func parseFlags(fs *flag.FlagSet, args []string, usage func(), help *bool, jsonOutput bool) error {
 	fs.Usage = usage
 	if err := fs.Parse(args); err != nil {
-		usage()
-		return err
+		if !jsonOutput {
+			usage()
+		}
+		return newUsageError(err, false)
 	}
 	if help != nil && *help {
 		usage()
@@ -103,6 +139,10 @@ func runJobCommand(ctx context.Context, args []string, base commonFlags) error {
 	if len(args) == 0 {
 		printJobUsage()
 		return nil
+	}
+	if isHelpToken(args[0]) {
+		printJobUsage()
+		return errHelp
 	}
 	switch args[0] {
 	case "run":
@@ -138,7 +178,7 @@ func runJobRun(ctx context.Context, args []string, base commonFlags) error {
 	fs.Var(&keepalive, "keepalive", "keep sandbox after job completion")
 	fs.BoolVar(&help, "help", false, "show help")
 	fs.BoolVar(&help, "h", false, "show help")
-	if err := parseFlags(fs, args, printJobRunUsage, &help); err != nil {
+	if err := parseFlags(fs, args, printJobRunUsage, &help, opts.jsonOutput); err != nil {
 		return err
 	}
 	if repo == "" || profile == "" || task == "" {
@@ -184,7 +224,7 @@ func runJobShow(ctx context.Context, args []string, base commonFlags) error {
 	fs.IntVar(&eventsTail, "events-tail", -1, "number of recent events to include (0 to omit)")
 	fs.BoolVar(&help, "help", false, "show help")
 	fs.BoolVar(&help, "h", false, "show help")
-	if err := parseFlags(fs, args, printJobShowUsage, &help); err != nil {
+	if err := parseFlags(fs, args, printJobShowUsage, &help, opts.jsonOutput); err != nil {
 		return err
 	}
 	if fs.NArg() < 1 {
@@ -240,7 +280,7 @@ func runJobArtifactsList(ctx context.Context, args []string, base commonFlags) e
 	var help bool
 	fs.BoolVar(&help, "help", false, "show help")
 	fs.BoolVar(&help, "h", false, "show help")
-	if err := parseFlags(fs, args, printJobArtifactsUsage, &help); err != nil {
+	if err := parseFlags(fs, args, printJobArtifactsUsage, &help, opts.jsonOutput); err != nil {
 		return err
 	}
 	if fs.NArg() < 1 {
@@ -285,7 +325,7 @@ func runJobArtifactsDownload(ctx context.Context, args []string, base commonFlag
 	fs.BoolVar(&bundle, "bundle", false, "download latest bundle (agentlab-artifacts.tar.gz)")
 	fs.BoolVar(&help, "help", false, "show help")
 	fs.BoolVar(&help, "h", false, "show help")
-	if err := parseFlags(fs, args, printJobArtifactsDownloadUsage, &help); err != nil {
+	if err := parseFlags(fs, args, printJobArtifactsDownloadUsage, &help, opts.jsonOutput); err != nil {
 		return err
 	}
 	if fs.NArg() < 1 {
@@ -379,6 +419,10 @@ func runSandboxCommand(ctx context.Context, args []string, base commonFlags) err
 		printSandboxUsage()
 		return nil
 	}
+	if isHelpToken(args[0]) {
+		printSandboxUsage()
+		return errHelp
+	}
 	switch args[0] {
 	case "new":
 		return runSandboxNew(ctx, args[1:], base)
@@ -400,6 +444,10 @@ func runWorkspaceCommand(ctx context.Context, args []string, base commonFlags) e
 	if len(args) == 0 {
 		printWorkspaceUsage()
 		return nil
+	}
+	if isHelpToken(args[0]) {
+		printWorkspaceUsage()
+		return errHelp
 	}
 	switch args[0] {
 	case "create":
@@ -439,7 +487,7 @@ func runSandboxNew(ctx context.Context, args []string, base commonFlags) error {
 	fs.Var(&keepalive, "keepalive", "enable keepalive lease for sandbox")
 	fs.BoolVar(&help, "help", false, "show help")
 	fs.BoolVar(&help, "h", false, "show help")
-	if err := parseFlags(fs, args, printSandboxNewUsage, &help); err != nil {
+	if err := parseFlags(fs, args, printSandboxNewUsage, &help, opts.jsonOutput); err != nil {
 		return err
 	}
 	if profile == "" {
@@ -493,7 +541,7 @@ func runSandboxList(ctx context.Context, args []string, base commonFlags) error 
 	var help bool
 	fs.BoolVar(&help, "help", false, "show help")
 	fs.BoolVar(&help, "h", false, "show help")
-	if err := parseFlags(fs, args, printSandboxListUsage, &help); err != nil {
+	if err := parseFlags(fs, args, printSandboxListUsage, &help, opts.jsonOutput); err != nil {
 		return err
 	}
 
@@ -520,7 +568,7 @@ func runSandboxShow(ctx context.Context, args []string, base commonFlags) error 
 	var help bool
 	fs.BoolVar(&help, "help", false, "show help")
 	fs.BoolVar(&help, "h", false, "show help")
-	if err := parseFlags(fs, args, printSandboxShowUsage, &help); err != nil {
+	if err := parseFlags(fs, args, printSandboxShowUsage, &help, opts.jsonOutput); err != nil {
 		return err
 	}
 	if fs.NArg() < 1 {
@@ -555,7 +603,7 @@ func runSandboxDestroy(ctx context.Context, args []string, base commonFlags) err
 	var help bool
 	fs.BoolVar(&help, "help", false, "show help")
 	fs.BoolVar(&help, "h", false, "show help")
-	if err := parseFlags(fs, args, printSandboxDestroyUsage, &help); err != nil {
+	if err := parseFlags(fs, args, printSandboxDestroyUsage, &help, opts.jsonOutput); err != nil {
 		return err
 	}
 	if fs.NArg() < 1 {
@@ -588,6 +636,10 @@ func runSandboxLease(ctx context.Context, args []string, base commonFlags) error
 		printSandboxLeaseUsage()
 		return nil
 	}
+	if isHelpToken(args[0]) {
+		printSandboxLeaseUsage()
+		return errHelp
+	}
 	switch args[0] {
 	case "renew":
 		return runSandboxLeaseRenew(ctx, args[1:], base)
@@ -606,7 +658,7 @@ func runSandboxLeaseRenew(ctx context.Context, args []string, base commonFlags) 
 	fs.StringVar(&ttl, "ttl", "", ttlFlagDescription)
 	fs.BoolVar(&help, "help", false, "show help")
 	fs.BoolVar(&help, "h", false, "show help")
-	if err := parseFlags(fs, args, printSandboxLeaseRenewUsage, &help); err != nil {
+	if err := parseFlags(fs, args, printSandboxLeaseRenewUsage, &help, opts.jsonOutput); err != nil {
 		return err
 	}
 	if fs.NArg() < 1 {
@@ -656,7 +708,7 @@ func runWorkspaceCreate(ctx context.Context, args []string, base commonFlags) er
 	fs.StringVar(&storage, "storage", "", "Proxmox storage (default local-zfs)")
 	fs.BoolVar(&help, "help", false, "show help")
 	fs.BoolVar(&help, "h", false, "show help")
-	if err := parseFlags(fs, args, printWorkspaceCreateUsage, &help); err != nil {
+	if err := parseFlags(fs, args, printWorkspaceCreateUsage, &help, opts.jsonOutput); err != nil {
 		return err
 	}
 	name = strings.TrimSpace(name)
@@ -699,7 +751,7 @@ func runWorkspaceList(ctx context.Context, args []string, base commonFlags) erro
 	var help bool
 	fs.BoolVar(&help, "help", false, "show help")
 	fs.BoolVar(&help, "h", false, "show help")
-	if err := parseFlags(fs, args, printWorkspaceListUsage, &help); err != nil {
+	if err := parseFlags(fs, args, printWorkspaceListUsage, &help, opts.jsonOutput); err != nil {
 		return err
 	}
 	client := newAPIClient(opts.socketPath, opts.timeout)
@@ -725,7 +777,7 @@ func runWorkspaceAttach(ctx context.Context, args []string, base commonFlags) er
 	var help bool
 	fs.BoolVar(&help, "help", false, "show help")
 	fs.BoolVar(&help, "h", false, "show help")
-	if err := parseFlags(fs, args, printWorkspaceAttachUsage, &help); err != nil {
+	if err := parseFlags(fs, args, printWorkspaceAttachUsage, &help, opts.jsonOutput); err != nil {
 		return err
 	}
 	if fs.NArg() < 2 {
@@ -764,7 +816,7 @@ func runWorkspaceDetach(ctx context.Context, args []string, base commonFlags) er
 	var help bool
 	fs.BoolVar(&help, "help", false, "show help")
 	fs.BoolVar(&help, "h", false, "show help")
-	if err := parseFlags(fs, args, printWorkspaceDetachUsage, &help); err != nil {
+	if err := parseFlags(fs, args, printWorkspaceDetachUsage, &help, opts.jsonOutput); err != nil {
 		return err
 	}
 	if fs.NArg() < 1 {
@@ -804,7 +856,7 @@ func runWorkspaceRebind(ctx context.Context, args []string, base commonFlags) er
 	fs.BoolVar(&keepOld, "keep-old", false, "keep old sandbox running")
 	fs.BoolVar(&help, "help", false, "show help")
 	fs.BoolVar(&help, "h", false, "show help")
-	if err := parseFlags(fs, args, printWorkspaceRebindUsage, &help); err != nil {
+	if err := parseFlags(fs, args, printWorkspaceRebindUsage, &help, opts.jsonOutput); err != nil {
 		return err
 	}
 	if fs.NArg() < 1 {
@@ -857,7 +909,7 @@ func runLogsCommand(ctx context.Context, args []string, base commonFlags) error 
 	fs.IntVar(&tail, "tail", defaultLogTail, "show the last N events")
 	fs.BoolVar(&help, "help", false, "show help")
 	fs.BoolVar(&help, "h", false, "show help")
-	if err := parseFlags(fs, args, printLogsUsage, &help); err != nil {
+	if err := parseFlags(fs, args, printLogsUsage, &help, opts.jsonOutput); err != nil {
 		return err
 	}
 	if fs.NArg() < 1 {

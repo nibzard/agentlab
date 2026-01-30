@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"flag"
 	"fmt"
 	"io"
@@ -85,10 +86,10 @@ func TestParseGlobal(t *testing.T) {
 			wantRemain: []string{"job"},
 		},
 		{
-			name:        "flags after positional arg are not parsed",
-			args:        []string{"job", "--socket", "/tmp/test.sock"},
-			wantOpts:    globalOptions{socketPath: defaultSocketPath, jsonOutput: false, timeout: defaultRequestTimeout},
-			wantRemain:  []string{"job", "--socket", "/tmp/test.sock"},
+			name:       "flags after positional arg are not parsed",
+			args:       []string{"job", "--socket", "/tmp/test.sock"},
+			wantOpts:   globalOptions{socketPath: defaultSocketPath, jsonOutput: false, timeout: defaultRequestTimeout},
+			wantRemain: []string{"job", "--socket", "/tmp/test.sock"},
 		},
 		{
 			name:        "unknown flag",
@@ -112,6 +113,20 @@ func TestParseGlobal(t *testing.T) {
 			assert.Equal(t, tt.wantRemain, gotRemain)
 		})
 	}
+}
+
+func TestParseGlobalHelp(t *testing.T) {
+	t.Run("long help flag", func(t *testing.T) {
+		_, _, err := parseGlobal([]string{"--help"})
+		require.Error(t, err)
+		assert.True(t, errors.Is(err, errHelp))
+	})
+
+	t.Run("short help flag", func(t *testing.T) {
+		_, _, err := parseGlobal([]string{"-h"})
+		require.Error(t, err)
+		assert.True(t, errors.Is(err, errHelp))
+	})
 }
 
 func TestDispatch(t *testing.T) {
@@ -188,6 +203,25 @@ func TestDispatch(t *testing.T) {
 	}
 }
 
+func TestDispatchHelpTokens(t *testing.T) {
+	tests := []struct {
+		name string
+		args []string
+	}{
+		{"job help", []string{"job", "--help"}},
+		{"sandbox help", []string{"sandbox", "-h"}},
+		{"workspace help", []string{"workspace", "help"}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			base := commonFlags{socketPath: "/tmp/test.sock", jsonOutput: false, timeout: 10 * time.Second}
+			err := dispatch(context.Background(), tt.args, base)
+			require.Error(t, err)
+			assert.True(t, errors.Is(err, errHelp))
+		})
+	}
+}
+
 func TestIsHelpToken(t *testing.T) {
 	tests := []struct {
 		name string
@@ -250,10 +284,10 @@ func TestParseGlobalSocketPathEdgeCases(t *testing.T) {
 
 func TestParseGlobalTimeoutVariations(t *testing.T) {
 	tests := []struct {
-		name     string
-		args     []string
+		name        string
+		args        []string
 		wantTimeout time.Duration
-		wantErr  bool
+		wantErr     bool
 	}{
 		{
 			name:        "seconds",
@@ -286,14 +320,14 @@ func TestParseGlobalTimeoutVariations(t *testing.T) {
 			wantTimeout: -1 * time.Second,
 		},
 		{
-			name:        "invalid unit",
-			args:        []string{"--timeout", "30"},
-			wantErr:     true,
+			name:    "invalid unit",
+			args:    []string{"--timeout", "30"},
+			wantErr: true,
 		},
 		{
-			name:        "invalid format",
-			args:        []string{"--timeout", "invalid"},
-			wantErr:     true,
+			name:    "invalid format",
+			args:    []string{"--timeout", "invalid"},
+			wantErr: true,
 		},
 	}
 	for _, tt := range tests {
@@ -415,7 +449,7 @@ func TestOptionalBool(t *testing.T) {
 		tests := []struct {
 			name     string
 			value    *optionalBool
-		expected string
+			expected string
 		}{
 			{"nil pointer", nil, ""},
 			{"not set", &optionalBool{set: false}, ""},

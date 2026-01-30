@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"flag"
 	"fmt"
@@ -39,6 +40,14 @@ Global Flags:
   --socket PATH   Path to agentlabd socket (default /run/agentlab/agentlabd.sock)
   --json          Output json
   --timeout       Request timeout (e.g. 30s, 2m)
+
+Errors:
+  When --json is set, errors are emitted as: {"error":"message"}
+
+Exit codes:
+  0: Success or help displayed
+  1: Command or request failed
+  2: Invalid arguments or usage
 `
 
 type globalOptions struct {
@@ -51,9 +60,25 @@ type globalOptions struct {
 func main() {
 	opts, args, err := parseGlobal(os.Args[1:])
 	if err != nil {
-		fmt.Fprintln(os.Stderr, err)
-		printUsage()
-		os.Exit(2)
+		if errors.Is(err, errHelp) {
+			printUsage()
+			return
+		}
+		msg := errorMessage(err)
+		if opts.jsonOutput {
+			writeJSONError(os.Stdout, msg)
+		} else {
+			fmt.Fprintln(os.Stderr, msg)
+		}
+		if errors.Is(err, errUsage) {
+			if !opts.jsonOutput {
+				if showUsageOnError(err) {
+					printUsage()
+				}
+			}
+			os.Exit(2)
+		}
+		os.Exit(1)
 	}
 	if opts.showVersion {
 		fmt.Println(buildinfo.String())
@@ -76,7 +101,15 @@ func main() {
 		if errors.Is(err, errHelp) {
 			return
 		}
-		fmt.Fprintln(os.Stderr, err)
+		msg := errorMessage(err)
+		if opts.jsonOutput {
+			writeJSONError(os.Stdout, msg)
+		} else {
+			fmt.Fprintln(os.Stderr, msg)
+		}
+		if errors.Is(err, errUsage) {
+			os.Exit(2)
+		}
 		os.Exit(1)
 	}
 }
@@ -85,12 +118,21 @@ func parseGlobal(args []string) (globalOptions, []string, error) {
 	opts := globalOptions{socketPath: defaultSocketPath}
 	fs := flag.NewFlagSet("agentlab", flag.ContinueOnError)
 	fs.SetOutput(io.Discard)
+	var help bool
 	fs.StringVar(&opts.socketPath, "socket", defaultSocketPath, "path to agentlabd socket")
 	fs.BoolVar(&opts.jsonOutput, "json", false, jsonFlagDescription)
 	fs.DurationVar(&opts.timeout, "timeout", defaultRequestTimeout, "request timeout (e.g. 30s, 2m)")
 	fs.BoolVar(&opts.showVersion, "version", false, "print version and exit")
+	fs.BoolVar(&help, "help", false, "show help")
+	fs.BoolVar(&help, "h", false, "show help")
 	if err := fs.Parse(args); err != nil {
-		return opts, nil, err
+		if errors.Is(err, flag.ErrHelp) {
+			return opts, nil, errHelp
+		}
+		return opts, nil, newUsageError(err, true)
+	}
+	if help {
+		return opts, nil, errHelp
 	}
 	if opts.socketPath == "" {
 		opts.socketPath = defaultSocketPath
@@ -118,6 +160,34 @@ func dispatch(ctx context.Context, args []string, base commonFlags) error {
 
 func printUsage() {
 	_, _ = fmt.Fprint(os.Stdout, usageText)
+}
+
+func errorMessage(err error) string {
+	if errors.Is(err, errUsage) {
+		if msg, _, ok := usageErrorMessage(err); ok && msg != "" {
+			return msg
+		}
+		prefix := errUsage.Error() + ": "
+		return strings.TrimPrefix(err.Error(), prefix)
+	}
+	return err.Error()
+}
+
+func showUsageOnError(err error) bool {
+	if _, show, ok := usageErrorMessage(err); ok {
+		return show
+	}
+	return false
+}
+
+func writeJSONError(w io.Writer, message string) {
+	payload := map[string]string{"error": message}
+	data, err := json.Marshal(payload)
+	if err != nil {
+		fmt.Fprintln(w, `{"error":"internal error"}`)
+		return
+	}
+	_, _ = fmt.Fprintln(w, string(data))
 }
 
 func printJobUsage() {
