@@ -229,13 +229,28 @@ fetch_bootstrap() {
   local max_attempts="${AGENTLAB_BOOTSTRAP_RETRY_MAX:-10}"
   local attempt=1
   local delay=2
+  local response_file http_code error_msg curl_rc
 
   while true; do
-    if response=$(curl -fsS --connect-timeout "$CURL_CONNECT_TIMEOUT" --max-time "$CURL_BOOTSTRAP_MAX_TIME" \
-      -X POST -H "Content-Type: application/json" -d "$payload" "$BOOTSTRAP_URL"); then
-      printf "%s" "$response"
-      return 0
+    response_file=$(mktemp)
+    http_code=$(curl -sS --connect-timeout "$CURL_CONNECT_TIMEOUT" --max-time "$CURL_BOOTSTRAP_MAX_TIME" \
+      -o "$response_file" -w "%{http_code}" -X POST -H "Content-Type: application/json" -d "$payload" "$BOOTSTRAP_URL")
+    curl_rc=$?
+    if (( curl_rc == 0 )); then
+      if [[ "$http_code" == "200" ]]; then
+        cat "$response_file"
+        rm -f "$response_file"
+        return 0
+      fi
+      if [[ "$http_code" == "404" ]]; then
+        error_msg=$(jq -r '.error // empty' "$response_file" 2>/dev/null || true)
+        if [[ "$error_msg" == "job not found" ]]; then
+          rm -f "$response_file"
+          return 2
+        fi
+      fi
     fi
+    rm -f "$response_file"
     if (( attempt >= max_attempts )); then
       return 1
     fi
@@ -264,11 +279,18 @@ if [[ "$BOOTSTRAP_CACHE" != "0" && -s "$BOOTSTRAP_RESPONSE" ]]; then
   log "using cached bootstrap payload"
 else
   log "fetching bootstrap payload"
-  if ! fetch_bootstrap >"$BOOTSTRAP_RESPONSE"; then
+  if response=$(fetch_bootstrap); then
+    printf "%s" "$response" >"$BOOTSTRAP_RESPONSE"
+    chmod 600 "$BOOTSTRAP_RESPONSE"
+  else
+    fetch_rc=$?
+    if [[ "$fetch_rc" -eq 2 ]]; then
+      log "no job assigned for vmid $VMID; exiting cleanly"
+      exit 0
+    fi
     die "failed to fetch bootstrap payload"
     exit 1
   fi
-  chmod 600 "$BOOTSTRAP_RESPONSE"
 fi
 
 JOB_ID="$(jq -r '.job.id // empty' "$BOOTSTRAP_RESPONSE")"

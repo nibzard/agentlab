@@ -1037,6 +1037,19 @@
         "scripts/guest/agent-runner.env"
       ],
       "updated_at": "2026-01-30T07:36:15Z"
+    },
+    {
+      "id": "T056",
+      "title": "Avoid agent-runner restart loops on jobless sandboxes",
+      "priority": 2,
+      "status": "done",
+      "details": "agent-runner currently treats a 404 from /v1/bootstrap/fetch as a hard failure, which causes systemd restart loops for sandboxes created without jobs (sandbox new). Handle the no-job case explicitly (e.g., treat 404 as a clean exit, or gate runner start when no job is associated) and add a regression test or documented behavior.",
+      "files": [
+        "scripts/guest/agent-runner",
+        "scripts/tests/agent_runner_no_job.sh",
+        "to-do.json"
+      ],
+      "updated_at": "2026-01-30T08:01:33Z"
     }
   ]
 }
