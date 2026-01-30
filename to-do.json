@@ -1061,6 +1061,22 @@
         "scripts/create_template.sh"
       ],
       "updated_at": "2026-01-30T08:16:19Z"
+    },
+    {
+      "id": "T058",
+      "title": "Remove on-disk artifact if metadata insert fails",
+      "priority": 3,
+      "status": "done",
+      "details": "Artifact uploads currently write the file before inserting the DB record; if CreateArtifact fails, the file is left behind and will never be GC’d. Delete the staged/renamed file on DB errors and add a regression test that forces a DB insert failure.",
+      "tags": [
+        "bug",
+        "artifacts"
+      ],
+      "files": [
+        "internal/daemon/artifact_api.go",
+        "internal/daemon/artifact_api_test.go"
+      ],
+      "updated_at": "2026-01-30T08:32:29Z"
     }
   ]
 }

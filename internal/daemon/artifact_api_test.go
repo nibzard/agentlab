@@ -93,6 +93,57 @@ func TestArtifactUploadSuccess(t *testing.T) {
 	}
 }
 
+func TestArtifactUploadCleansFileOnInsertFailure(t *testing.T) {
+	ctx := context.Background()
+	store := newTestStore(t)
+	now := time.Date(2026, 1, 30, 2, 15, 0, 0, time.UTC)
+
+	job := models.Job{
+		ID:        "job_artifact_insert_fail",
+		RepoURL:   "https://example.com/repo.git",
+		Ref:       "main",
+		Profile:   "yolo",
+		Status:    models.JobRunning,
+		CreatedAt: now,
+		UpdatedAt: now,
+	}
+	if err := store.CreateJob(ctx, job); err != nil {
+		t.Fatalf("create job: %v", err)
+	}
+
+	token := "artifact-token-insert-fail"
+	hash, err := db.HashArtifactToken(token)
+	if err != nil {
+		t.Fatalf("hash token: %v", err)
+	}
+	if err := store.CreateArtifactToken(ctx, hash, job.ID, 2004, now.Add(time.Hour)); err != nil {
+		t.Fatalf("create artifact token: %v", err)
+	}
+	if _, err := store.DB.Exec(`DROP TABLE artifacts`); err != nil {
+		t.Fatalf("drop artifacts table: %v", err)
+	}
+
+	root := t.TempDir()
+	agentSubnet := mustParseCIDR(t, "10.77.0.0/16")
+	api := NewArtifactAPI(store, root, 1024, agentSubnet)
+	api.now = func() time.Time { return now }
+
+	req := httptest.NewRequest(http.MethodPost, "/upload", strings.NewReader("data"))
+	req.Header.Set("Authorization", "Bearer "+token)
+	req.RemoteAddr = "10.77.0.55:1234"
+	resp := httptest.NewRecorder()
+
+	api.handleUpload(resp, req)
+	if resp.Code != http.StatusInternalServerError {
+		t.Fatalf("expected 500, got %d", resp.Code)
+	}
+
+	artifactPath := filepath.Join(root, job.ID, defaultArtifactName)
+	if _, err := os.Stat(artifactPath); err == nil || !os.IsNotExist(err) {
+		t.Fatalf("expected artifact file removed, got err=%v", err)
+	}
+}
+
 func TestArtifactUploadRejectsTraversal(t *testing.T) {
 	ctx := context.Background()
 	store := newTestStore(t)

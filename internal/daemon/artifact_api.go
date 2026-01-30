@@ -202,6 +202,7 @@ func (api *ArtifactAPI) handleUpload(w http.ResponseWriter, r *http.Request) {
 	}
 	id, err := api.store.CreateArtifact(r.Context(), artifact)
 	if err != nil {
+		_ = os.Remove(targetPath)
 		writeError(w, http.StatusInternalServerError, "failed to record artifact")
 		return
 	}
