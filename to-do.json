@@ -510,10 +510,14 @@
       "id": "T030",
       "title": "Ship agentlab Skills file for Claude Code CLI",
       "priority": 1,
-      "status": "todo",
+      "status": "done",
       "details": "Create skills/agentlab/skill.md mapping high-level commands to agentlab CLI with guardrails.",
       "depends_on": [
         "T022"
+      ],
+      "updated_at": "2026-01-30T01:28:02Z",
+      "files": [
+        "skills/agentlab/skill.md"
       ]
     },
     {
