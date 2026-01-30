@@ -110,6 +110,21 @@ type V1LeaseRenewResponse struct {
 	LeaseExpires string `json:"lease_expires_at"`
 }
 
+type V1Event struct {
+	ID          int64           `json:"id"`
+	Timestamp   string          `json:"ts"`
+	Kind        string          `json:"kind"`
+	SandboxVMID *int            `json:"sandbox_vmid,omitempty"`
+	JobID       string          `json:"job_id,omitempty"`
+	Message     string          `json:"msg,omitempty"`
+	Payload     json.RawMessage `json:"json,omitempty"`
+}
+
+type V1EventsResponse struct {
+	Events []V1Event `json:"events"`
+	LastID int64     `json:"last_id,omitempty"`
+}
+
 type V1ArtifactMetadata struct {
 	Name      string `json:"name"`
 	Path      string `json:"path,omitempty"`

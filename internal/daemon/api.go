@@ -23,6 +23,8 @@ const (
 	defaultJobRef            = "main"
 	defaultJobMode           = "dangerous"
 	maxCreateJobIDIterations = 5
+	defaultEventsLimit       = 200
+	maxEventsLimit           = 1000
 )
 
 // ControlAPI handles local control plane HTTP requests over the Unix socket.
@@ -208,6 +210,14 @@ func (api *ControlAPI) handleSandboxByID(w http.ResponseWriter, r *http.Request)
 				return
 			}
 			api.handleSandboxDestroy(w, r, vmid)
+			return
+		}
+		if parts[1] == "events" {
+			if r.Method != http.MethodGet {
+				writeMethodNotAllowed(w, []string{http.MethodGet})
+				return
+			}
+			api.handleSandboxEvents(w, r, vmid)
 			return
 		}
 	case 3:
@@ -402,6 +412,64 @@ func (api *ControlAPI) handleSandboxLeaseRenew(w http.ResponseWriter, r *http.Re
 	})
 }
 
+func (api *ControlAPI) handleSandboxEvents(w http.ResponseWriter, r *http.Request, vmid int) {
+	if api.store == nil {
+		writeError(w, http.StatusInternalServerError, "event store unavailable")
+		return
+	}
+	query := r.URL.Query()
+	after, err := parseQueryInt64(query.Get("after"))
+	if err != nil || after < 0 {
+		writeError(w, http.StatusBadRequest, "invalid after")
+		return
+	}
+	tail, err := parseQueryInt(query.Get("tail"))
+	if err != nil || tail < 0 {
+		writeError(w, http.StatusBadRequest, "invalid tail")
+		return
+	}
+	limit, err := parseQueryInt(query.Get("limit"))
+	if err != nil || limit < 0 {
+		writeError(w, http.StatusBadRequest, "invalid limit")
+		return
+	}
+	if tail > 0 && after > 0 {
+		writeError(w, http.StatusBadRequest, "tail and after are mutually exclusive")
+		return
+	}
+	if limit <= 0 {
+		limit = defaultEventsLimit
+	}
+	if limit > maxEventsLimit {
+		limit = maxEventsLimit
+	}
+	var events []db.Event
+	if tail > 0 {
+		if tail > maxEventsLimit {
+			tail = maxEventsLimit
+		}
+		events, err = api.store.ListEventsBySandboxTail(r.Context(), vmid, tail)
+	} else {
+		events, err = api.store.ListEventsBySandbox(r.Context(), vmid, after, limit)
+	}
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to load events")
+		return
+	}
+	resp := V1EventsResponse{Events: make([]V1Event, 0, len(events))}
+	var lastID int64
+	for _, ev := range events {
+		if ev.ID > lastID {
+			lastID = ev.ID
+		}
+		resp.Events = append(resp.Events, eventToV1(ev))
+	}
+	if lastID > 0 {
+		resp.LastID = lastID
+	}
+	writeJSON(w, http.StatusOK, resp)
+}
+
 func (api *ControlAPI) profileExists(name string) bool {
 	if name == "" {
 		return false
@@ -510,4 +578,52 @@ func isUniqueConstraint(err error) bool {
 		return false
 	}
 	return strings.Contains(err.Error(), "UNIQUE constraint failed")
+}
+
+func parseQueryInt(value string) (int, error) {
+	if strings.TrimSpace(value) == "" {
+		return 0, nil
+	}
+	parsed, err := strconv.Atoi(value)
+	if err != nil {
+		return 0, err
+	}
+	return parsed, nil
+}
+
+func parseQueryInt64(value string) (int64, error) {
+	if strings.TrimSpace(value) == "" {
+		return 0, nil
+	}
+	parsed, err := strconv.ParseInt(value, 10, 64)
+	if err != nil {
+		return 0, err
+	}
+	return parsed, nil
+}
+
+func eventToV1(ev db.Event) V1Event {
+	resp := V1Event{
+		ID:        ev.ID,
+		Kind:      ev.Kind,
+		Timestamp: ev.Timestamp.UTC().Format(time.RFC3339Nano),
+		Message:   strings.TrimSpace(ev.Message),
+	}
+	if ev.SandboxVMID != nil {
+		resp.SandboxVMID = ev.SandboxVMID
+	}
+	if ev.JobID != nil {
+		resp.JobID = *ev.JobID
+	}
+	if strings.TrimSpace(ev.JSON) != "" {
+		payload := []byte(ev.JSON)
+		if !json.Valid(payload) {
+			payload, _ = json.Marshal(ev.JSON)
+		}
+		resp.Payload = json.RawMessage(payload)
+	}
+	if resp.Message == "" {
+		resp.Message = ""
+	}
+	return resp
 }

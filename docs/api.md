@@ -126,3 +126,11 @@ Body:
 ```json
 { "ttl_minutes": 240 }
 ```
+
+### GET /v1/sandboxes/{vmid}/events
+List events recorded for a sandbox.
+
+Query params (mutually exclusive `tail`/`after`):
+- `tail=<n>` returns the last N events (default used by CLI logs).
+- `after=<id>` returns events with id greater than `after` (for follow).
+- `limit=<n>` caps the number of events (default 200, max 1000).
