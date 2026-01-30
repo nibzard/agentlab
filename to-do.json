@@ -763,11 +763,16 @@
       "id": "T040",
       "title": "Add network isolation regression tests",
       "priority": 2,
-      "status": "todo",
+      "status": "done",
       "details": "Verify LAN/tailnet blocks and Internet egress from sandbox with repeatable checks.",
       "depends_on": [
         "T004",
         "T005"
+      ],
+      "updated_at": "2026-01-30T04:02:14Z",
+      "files": [
+        "scripts/tests/network_isolation.sh",
+        "scripts/README.md"
       ]
     },
     {
