@@ -108,7 +108,7 @@ func NewService(cfg config.Config, profiles map[string]models.Profile, store *db
 
 	localMux := http.NewServeMux()
 	localMux.HandleFunc("/healthz", healthHandler)
-	NewControlAPI(store, profiles, sandboxManager, workspaceManager, jobOrchestrator).Register(localMux)
+	NewControlAPI(store, profiles, sandboxManager, workspaceManager, jobOrchestrator, cfg.ArtifactDir).Register(localMux)
 
 	bootstrapMux := http.NewServeMux()
 	bootstrapMux.HandleFunc("/healthz", healthHandler)

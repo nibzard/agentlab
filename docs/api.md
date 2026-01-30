@@ -125,6 +125,35 @@ Create a job record.
 ### GET /v1/jobs/{id}
 Fetch a job by id.
 
+### GET /v1/jobs/{id}/artifacts
+List artifacts recorded for a job.
+
+Response:
+
+```json
+{
+  "job_id": "job_0123abcd",
+  "artifacts": [
+    {
+      "name": "agentlab-artifacts.tar.gz",
+      "path": "agentlab-artifacts.tar.gz",
+      "size_bytes": 1048576,
+      "sha256": "0123abcd...",
+      "mime": "application/gzip",
+      "created_at": "2026-01-30T03:15:00Z"
+    }
+  ]
+}
+```
+
+### GET /v1/jobs/{id}/artifacts/download
+Download a stored artifact file.
+
+Query params:
+- `path=<relative path>` downloads an exact artifact path.
+- `name=<artifact name>` downloads the latest artifact with that name.
+- If neither is provided, the latest artifact is returned.
+
 ### POST /v1/sandboxes
 Create a sandbox record. If `vmid` is omitted, agentlabd allocates the next available VMID starting at 1000 based on its database.
 

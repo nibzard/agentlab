@@ -9,6 +9,7 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"strings"
 )
 
 const defaultSocketPath = "/run/agentlab/agentlabd.sock"
@@ -50,6 +51,20 @@ type jobResponse struct {
 	Result      json.RawMessage `json:"result,omitempty"`
 	CreatedAt   string          `json:"created_at"`
 	UpdatedAt   string          `json:"updated_at"`
+}
+
+type artifactInfo struct {
+	Name      string `json:"name"`
+	Path      string `json:"path"`
+	SizeBytes int64  `json:"size_bytes"`
+	Sha256    string `json:"sha256"`
+	MIME      string `json:"mime,omitempty"`
+	CreatedAt string `json:"created_at,omitempty"`
+}
+
+type artifactsResponse struct {
+	JobID     string         `json:"job_id"`
+	Artifacts []artifactInfo `json:"artifacts"`
 }
 
 type sandboxCreateRequest struct {
@@ -188,6 +203,32 @@ func (c *apiClient) doJSON(ctx context.Context, method, path string, payload any
 		return nil, parseAPIError(resp.StatusCode, data)
 	}
 	return data, nil
+}
+
+func (c *apiClient) doRequest(ctx context.Context, method, path string, body io.Reader, headers map[string]string) (*http.Response, error) {
+	req, err := http.NewRequestWithContext(ctx, method, "http://unix"+path, body)
+	if err != nil {
+		return nil, err
+	}
+	for key, value := range headers {
+		if strings.TrimSpace(key) == "" {
+			continue
+		}
+		req.Header.Set(key, value)
+	}
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("request %s %s via %s: %w", method, path, c.socketPath, err)
+	}
+	if resp.StatusCode >= 400 {
+		data, readErr := io.ReadAll(io.LimitReader(resp.Body, maxJSONOutputBytes))
+		_ = resp.Body.Close()
+		if readErr != nil {
+			return nil, fmt.Errorf("request failed with status %d", resp.StatusCode)
+		}
+		return nil, parseAPIError(resp.StatusCode, data)
+	}
+	return resp, nil
 }
 
 func parseAPIError(status int, data []byte) error {

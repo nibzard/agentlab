@@ -18,6 +18,8 @@ const usageText = `agentlab is the CLI for agentlabd.
 Usage:
   agentlab --version
   agentlab [--socket PATH] [--json] job run --repo <url> --task <task> --profile <profile> [--ref <ref>] [--mode <mode>] [--ttl <ttl>] [--keepalive]
+  agentlab [--socket PATH] [--json] job artifacts <job_id>
+  agentlab [--socket PATH] [--json] job artifacts download <job_id> [--out <path>] [--path <path>] [--name <name>] [--latest] [--bundle]
   agentlab [--socket PATH] [--json] sandbox new --profile <profile> [--name <name>] [--ttl <ttl>] [--keepalive] [--workspace <id>] [--vmid <vmid>] [--job <id>]
   agentlab [--socket PATH] [--json] sandbox list
   agentlab [--socket PATH] [--json] sandbox show <vmid>
@@ -114,11 +116,20 @@ func printUsage() {
 }
 
 func printJobUsage() {
-	fmt.Fprintln(os.Stdout, "Usage: agentlab job run [flags]")
+	fmt.Fprintln(os.Stdout, "Usage: agentlab job <run|artifacts> [flags]")
 }
 
 func printJobRunUsage() {
 	fmt.Fprintln(os.Stdout, "Usage: agentlab job run --repo <url> --task <task> --profile <profile> [--ref <ref>] [--mode <mode>] [--ttl <ttl>] [--keepalive]")
+}
+
+func printJobArtifactsUsage() {
+	fmt.Fprintln(os.Stdout, "Usage: agentlab job artifacts <job_id>")
+}
+
+func printJobArtifactsDownloadUsage() {
+	fmt.Fprintln(os.Stdout, "Usage: agentlab job artifacts download <job_id> [--out <path>] [--path <path>] [--name <name>] [--latest] [--bundle]")
+	fmt.Fprintln(os.Stdout, "Note: By default, downloads the latest bundle (agentlab-artifacts.tar.gz) when available.")
 }
 
 func printSandboxUsage() {

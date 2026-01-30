@@ -170,6 +170,20 @@ type V1ArtifactMetadata struct {
 	MIME      string `json:"mime,omitempty"`
 }
 
+type V1Artifact struct {
+	Name      string `json:"name"`
+	Path      string `json:"path"`
+	SizeBytes int64  `json:"size_bytes"`
+	Sha256    string `json:"sha256"`
+	MIME      string `json:"mime,omitempty"`
+	CreatedAt string `json:"created_at"`
+}
+
+type V1ArtifactsResponse struct {
+	JobID     string       `json:"job_id"`
+	Artifacts []V1Artifact `json:"artifacts"`
+}
+
 type V1ArtifactUploadResponse struct {
 	JobID    string             `json:"job_id"`
 	Artifact V1ArtifactMetadata `json:"artifact"`

@@ -9,7 +9,9 @@ import (
 	"io"
 	"math"
 	"net/http"
+	"net/url"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"text/tabwriter"
@@ -17,12 +19,13 @@ import (
 )
 
 const (
-	defaultLogTail      = 50
-	eventPollInterval   = 2 * time.Second
-	defaultEventLimit   = 200
-	maxEventLimit       = 1000
-	ttlFlagDescription  = "lease ttl in minutes or duration (e.g. 120 or 2h)"
-	jsonFlagDescription = "output json"
+	defaultLogTail            = 50
+	eventPollInterval         = 2 * time.Second
+	defaultEventLimit         = 200
+	maxEventLimit             = 1000
+	ttlFlagDescription        = "lease ttl in minutes or duration (e.g. 120 or 2h)"
+	jsonFlagDescription       = "output json"
+	defaultArtifactBundleName = "agentlab-artifacts.tar.gz"
 )
 
 var errHelp = errors.New("help requested")
@@ -64,6 +67,8 @@ func runJobCommand(ctx context.Context, args []string, base commonFlags) error {
 	switch args[0] {
 	case "run":
 		return runJobRun(ctx, args[1:], base)
+	case "artifacts":
+		return runJobArtifacts(ctx, args[1:], base)
 	default:
 		printJobUsage()
 		return fmt.Errorf("unknown job command %q", args[0])
@@ -125,6 +130,160 @@ func runJobRun(ctx context.Context, args []string, base commonFlags) error {
 		return err
 	}
 	printJob(resp)
+	return nil
+}
+
+func runJobArtifacts(ctx context.Context, args []string, base commonFlags) error {
+	if len(args) == 0 {
+		printJobArtifactsUsage()
+		return nil
+	}
+	switch args[0] {
+	case "download":
+		return runJobArtifactsDownload(ctx, args[1:], base)
+	default:
+		return runJobArtifactsList(ctx, args, base)
+	}
+}
+
+func runJobArtifactsList(ctx context.Context, args []string, base commonFlags) error {
+	fs := newFlagSet("job artifacts")
+	opts := base
+	opts.bind(fs)
+	var help bool
+	fs.BoolVar(&help, "help", false, "show help")
+	fs.BoolVar(&help, "h", false, "show help")
+	if err := parseFlags(fs, args, printJobArtifactsUsage, &help); err != nil {
+		return err
+	}
+	if fs.NArg() < 1 {
+		printJobArtifactsUsage()
+		return fmt.Errorf("job_id is required")
+	}
+	jobID := strings.TrimSpace(fs.Arg(0))
+	if jobID == "" {
+		return fmt.Errorf("job_id is required")
+	}
+
+	client := newAPIClient(opts.socketPath)
+	payload, err := client.doJSON(ctx, http.MethodGet, fmt.Sprintf("/v1/jobs/%s/artifacts", jobID), nil)
+	if err != nil {
+		return err
+	}
+	if opts.jsonOutput {
+		return prettyPrintJSON(os.Stdout, payload)
+	}
+	var resp artifactsResponse
+	if err := json.Unmarshal(payload, &resp); err != nil {
+		return err
+	}
+	printArtifactsList(resp.Artifacts)
+	return nil
+}
+
+func runJobArtifactsDownload(ctx context.Context, args []string, base commonFlags) error {
+	fs := newFlagSet("job artifacts download")
+	opts := base
+	opts.bind(fs)
+	var out string
+	var path string
+	var name string
+	var latest bool
+	var bundle bool
+	var help bool
+	fs.StringVar(&out, "out", "", "output file path or directory")
+	fs.StringVar(&path, "path", "", "artifact path to download")
+	fs.StringVar(&name, "name", "", "artifact name to download")
+	fs.BoolVar(&latest, "latest", false, "download latest artifact")
+	fs.BoolVar(&bundle, "bundle", false, "download latest bundle (agentlab-artifacts.tar.gz)")
+	fs.BoolVar(&help, "help", false, "show help")
+	fs.BoolVar(&help, "h", false, "show help")
+	if err := parseFlags(fs, args, printJobArtifactsDownloadUsage, &help); err != nil {
+		return err
+	}
+	if fs.NArg() < 1 {
+		printJobArtifactsDownloadUsage()
+		return fmt.Errorf("job_id is required")
+	}
+	jobID := strings.TrimSpace(fs.Arg(0))
+	if jobID == "" {
+		return fmt.Errorf("job_id is required")
+	}
+	path = strings.TrimSpace(path)
+	name = strings.TrimSpace(name)
+	if path != "" && name != "" {
+		return fmt.Errorf("path and name are mutually exclusive")
+	}
+	if path == "" && name == "" && !latest && !bundle {
+		bundle = true
+	}
+
+	client := newAPIClient(opts.socketPath)
+	payload, err := client.doJSON(ctx, http.MethodGet, fmt.Sprintf("/v1/jobs/%s/artifacts", jobID), nil)
+	if err != nil {
+		return err
+	}
+	var resp artifactsResponse
+	if err := json.Unmarshal(payload, &resp); err != nil {
+		return err
+	}
+	if len(resp.Artifacts) == 0 {
+		return fmt.Errorf("no artifacts found for job %s", jobID)
+	}
+	artifact, err := selectArtifact(resp.Artifacts, path, name, latest, bundle)
+	if err != nil {
+		return err
+	}
+	if strings.TrimSpace(artifact.Path) == "" {
+		artifact.Path = strings.TrimSpace(artifact.Name)
+	}
+	if strings.TrimSpace(artifact.Path) == "" {
+		return fmt.Errorf("selected artifact has no path")
+	}
+
+	targetName := strings.TrimSpace(artifact.Name)
+	if targetName == "" {
+		targetName = filepath.Base(strings.TrimSpace(artifact.Path))
+	}
+	targetPath, err := resolveArtifactOutPath(out, targetName)
+	if err != nil {
+		return err
+	}
+
+	downloadPath := fmt.Sprintf("/v1/jobs/%s/artifacts/download?path=%s", jobID, url.QueryEscape(artifact.Path))
+	respBody, err := client.doRequest(ctx, http.MethodGet, downloadPath, nil, nil)
+	if err != nil {
+		return err
+	}
+	defer respBody.Body.Close()
+
+	outFile, err := os.OpenFile(targetPath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o644)
+	if err != nil {
+		return err
+	}
+	defer outFile.Close()
+
+	if _, err := io.Copy(outFile, respBody.Body); err != nil {
+		return err
+	}
+	if err := outFile.Sync(); err != nil {
+		return err
+	}
+
+	if opts.jsonOutput {
+		result := map[string]any{
+			"job_id":   jobID,
+			"artifact": artifact,
+			"out":      targetPath,
+		}
+		data, err := json.Marshal(result)
+		if err != nil {
+			return err
+		}
+		_, _ = os.Stdout.Write(append(data, '\n'))
+		return nil
+	}
+	fmt.Printf("downloaded %s to %s\n", artifact.Path, targetPath)
 	return nil
 }
 
@@ -762,6 +921,30 @@ func printJob(job jobResponse) {
 	fmt.Printf("Updated At: %s\n", job.UpdatedAt)
 }
 
+func printArtifactsList(artifacts []artifactInfo) {
+	w := tabwriter.NewWriter(os.Stdout, 2, 8, 2, ' ', 0)
+	fmt.Fprintln(w, "NAME\tPATH\tSIZE(B)\tMIME\tCREATED\tSHA256")
+	for _, artifact := range artifacts {
+		name := strings.TrimSpace(artifact.Name)
+		if name == "" {
+			name = filepath.Base(strings.TrimSpace(artifact.Path))
+		}
+		sha := strings.TrimSpace(artifact.Sha256)
+		if len(sha) > 12 {
+			sha = sha[:12]
+		}
+		fmt.Fprintf(w, "%s\t%s\t%d\t%s\t%s\t%s\n",
+			orDash(name),
+			orDash(artifact.Path),
+			artifact.SizeBytes,
+			orDash(artifact.MIME),
+			orDash(artifact.CreatedAt),
+			orDash(sha),
+		)
+	}
+	_ = w.Flush()
+}
+
 func printEvents(events []eventResponse, jsonOutput bool) int64 {
 	var lastID int64
 	for _, ev := range events {
@@ -787,6 +970,79 @@ func printEvents(events []eventResponse, jsonOutput bool) int64 {
 		fmt.Printf("%s\t%s\tjob=%s\t%s\n", ev.Timestamp, ev.Kind, job, msg)
 	}
 	return lastID
+}
+
+func selectArtifact(artifacts []artifactInfo, path, name string, latest, bundle bool) (artifactInfo, error) {
+	if len(artifacts) == 0 {
+		return artifactInfo{}, fmt.Errorf("no artifacts found")
+	}
+	if path != "" {
+		for _, artifact := range artifacts {
+			if strings.TrimSpace(artifact.Path) == path {
+				return artifact, nil
+			}
+		}
+		return artifactInfo{}, fmt.Errorf("artifact path %q not found", path)
+	}
+	if name != "" {
+		if strings.ContainsAny(name, "/\\") {
+			return artifactInfo{}, fmt.Errorf("artifact name must not contain path separators")
+		}
+		var match *artifactInfo
+		for i := range artifacts {
+			if artifacts[i].Name == name {
+				match = &artifacts[i]
+			}
+		}
+		if match == nil {
+			return artifactInfo{}, fmt.Errorf("artifact name %q not found", name)
+		}
+		return *match, nil
+	}
+	if bundle {
+		var match *artifactInfo
+		for i := range artifacts {
+			if artifacts[i].Name == defaultArtifactBundleName {
+				match = &artifacts[i]
+			}
+		}
+		if match != nil {
+			return *match, nil
+		}
+	}
+	if latest || bundle {
+		return artifacts[len(artifacts)-1], nil
+	}
+	return artifacts[len(artifacts)-1], nil
+}
+
+func resolveArtifactOutPath(out, name string) (string, error) {
+	name = strings.TrimSpace(name)
+	if name == "" {
+		name = "artifact"
+	}
+	out = strings.TrimSpace(out)
+	if out == "" {
+		return name, nil
+	}
+	if strings.HasSuffix(out, string(os.PathSeparator)) {
+		if err := os.MkdirAll(out, 0o750); err != nil {
+			return "", err
+		}
+		return filepath.Join(out, name), nil
+	}
+	if info, err := os.Stat(out); err == nil && info.IsDir() {
+		return filepath.Join(out, name), nil
+	} else if err != nil && !os.IsNotExist(err) {
+		return "", err
+	}
+	dir := filepath.Dir(out)
+	if dir != "." && dir != "" {
+		if err := os.MkdirAll(dir, 0o750); err != nil {
+			return "", err
+		}
+	}
+	return out, nil
 }
 
 func parseVMID(value string) (int, error) {

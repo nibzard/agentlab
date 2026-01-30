@@ -9,6 +9,8 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
@@ -34,16 +36,18 @@ type ControlAPI struct {
 	sandboxManager  *SandboxManager
 	workspaceMgr    *WorkspaceManager
 	jobOrchestrator *JobOrchestrator
+	artifactRoot    string
 	now             func() time.Time
 }
 
-func NewControlAPI(store *db.Store, profiles map[string]models.Profile, manager *SandboxManager, workspaceMgr *WorkspaceManager, orchestrator *JobOrchestrator) *ControlAPI {
+func NewControlAPI(store *db.Store, profiles map[string]models.Profile, manager *SandboxManager, workspaceMgr *WorkspaceManager, orchestrator *JobOrchestrator, artifactRoot string) *ControlAPI {
 	return &ControlAPI{
 		store:           store,
 		profiles:        profiles,
 		sandboxManager:  manager,
 		workspaceMgr:    workspaceMgr,
 		jobOrchestrator: orchestrator,
+		artifactRoot:    strings.TrimSpace(artifactRoot),
 		now:             time.Now,
 	}
 }
@@ -70,26 +74,43 @@ func (api *ControlAPI) handleJobs(w http.ResponseWriter, r *http.Request) {
 }
 
 func (api *ControlAPI) handleJobByID(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodGet {
-		writeMethodNotAllowed(w, []string{http.MethodGet})
-		return
-	}
-	id := strings.TrimPrefix(r.URL.Path, "/v1/jobs/")
-	id = strings.Trim(id, "/")
-	if id == "" || strings.Contains(id, "/") {
+	tail := strings.TrimPrefix(r.URL.Path, "/v1/jobs/")
+	parts := strings.Split(strings.Trim(tail, "/"), "/")
+	if len(parts) == 0 || parts[0] == "" {
 		writeError(w, http.StatusNotFound, "job not found")
 		return
 	}
-	job, err := api.store.GetJob(r.Context(), id)
-	if err != nil {
-		if errors.Is(err, sql.ErrNoRows) {
-			writeError(w, http.StatusNotFound, "job not found")
+	jobID := parts[0]
+
+	switch len(parts) {
+	case 1:
+		if r.Method != http.MethodGet {
+			writeMethodNotAllowed(w, []string{http.MethodGet})
 			return
 		}
-		writeError(w, http.StatusInternalServerError, "failed to load job")
+		api.handleJobGet(w, r, jobID)
 		return
+	case 2:
+		if parts[1] == "artifacts" {
+			if r.Method != http.MethodGet {
+				writeMethodNotAllowed(w, []string{http.MethodGet})
+				return
+			}
+			api.handleJobArtifactsList(w, r, jobID)
+			return
+		}
+	case 3:
+		if parts[1] == "artifacts" && parts[2] == "download" {
+			if r.Method != http.MethodGet {
+				writeMethodNotAllowed(w, []string{http.MethodGet})
+				return
+			}
+			api.handleJobArtifactDownload(w, r, jobID)
+			return
+		}
 	}
-	writeJSON(w, http.StatusOK, jobToV1(job))
+
+	writeError(w, http.StatusNotFound, "job not found")
 }
 
 func (api *ControlAPI) handleJobCreate(w http.ResponseWriter, r *http.Request) {
@@ -179,6 +200,157 @@ func (api *ControlAPI) handleJobCreate(w http.ResponseWriter, r *http.Request) {
 	}
 	api.jobOrchestrator.Start(job.ID)
 	writeJSON(w, http.StatusCreated, jobToV1(job))
+}
+
+func (api *ControlAPI) handleJobGet(w http.ResponseWriter, r *http.Request, jobID string) {
+	jobID = strings.TrimSpace(jobID)
+	if jobID == "" {
+		writeError(w, http.StatusNotFound, "job not found")
+		return
+	}
+	job, err := api.store.GetJob(r.Context(), jobID)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			writeError(w, http.StatusNotFound, "job not found")
+			return
+		}
+		writeError(w, http.StatusInternalServerError, "failed to load job")
+		return
+	}
+	writeJSON(w, http.StatusOK, jobToV1(job))
+}
+
+func (api *ControlAPI) handleJobArtifactsList(w http.ResponseWriter, r *http.Request, jobID string) {
+	jobID = strings.TrimSpace(jobID)
+	if jobID == "" {
+		writeError(w, http.StatusNotFound, "job not found")
+		return
+	}
+	if _, err := api.store.GetJob(r.Context(), jobID); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			writeError(w, http.StatusNotFound, "job not found")
+			return
+		}
+		writeError(w, http.StatusInternalServerError, "failed to load job")
+		return
+	}
+	artifacts, err := api.store.ListArtifactsByJob(r.Context(), jobID)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to list artifacts")
+		return
+	}
+	resp := V1ArtifactsResponse{
+		JobID:     jobID,
+		Artifacts: make([]V1Artifact, 0, len(artifacts)),
+	}
+	for _, artifact := range artifacts {
+		resp.Artifacts = append(resp.Artifacts, artifactToV1(artifact))
+	}
+	writeJSON(w, http.StatusOK, resp)
+}
+
+func (api *ControlAPI) handleJobArtifactDownload(w http.ResponseWriter, r *http.Request, jobID string) {
+	jobID = strings.TrimSpace(jobID)
+	if jobID == "" {
+		writeError(w, http.StatusNotFound, "job not found")
+		return
+	}
+	if _, err := api.store.GetJob(r.Context(), jobID); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			writeError(w, http.StatusNotFound, "job not found")
+			return
+		}
+		writeError(w, http.StatusInternalServerError, "failed to load job")
+		return
+	}
+	root := strings.TrimSpace(api.artifactRoot)
+	if root == "" {
+		writeError(w, http.StatusInternalServerError, "artifact root is not configured")
+		return
+	}
+	artifacts, err := api.store.ListArtifactsByJob(r.Context(), jobID)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to list artifacts")
+		return
+	}
+	if len(artifacts) == 0 {
+		writeError(w, http.StatusNotFound, "no artifacts found")
+		return
+	}
+
+	query := r.URL.Query()
+	pathParam := strings.TrimSpace(query.Get("path"))
+	nameParam := strings.TrimSpace(query.Get("name"))
+	if pathParam != "" && nameParam != "" {
+		writeError(w, http.StatusBadRequest, "path and name are mutually exclusive")
+		return
+	}
+	var selected *db.Artifact
+	if pathParam != "" {
+		cleaned, err := sanitizeArtifactPath(pathParam)
+		if err != nil {
+			writeError(w, http.StatusBadRequest, err.Error())
+			return
+		}
+		for i := range artifacts {
+			if artifacts[i].Path == cleaned {
+				selected = &artifacts[i]
+				break
+			}
+		}
+	} else if nameParam != "" {
+		if err := validateArtifactName(nameParam); err != nil {
+			writeError(w, http.StatusBadRequest, err.Error())
+			return
+		}
+		for i := range artifacts {
+			if artifacts[i].Name == nameParam {
+				selected = &artifacts[i]
+			}
+		}
+	} else {
+		selected = &artifacts[len(artifacts)-1]
+	}
+
+	if selected == nil {
+		writeError(w, http.StatusNotFound, "artifact not found")
+		return
+	}
+	jobDir := filepath.Join(root, jobID)
+	targetPath, err := safeJoin(jobDir, selected.Path)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "artifact path is invalid")
+		return
+	}
+	file, err := os.Open(targetPath)
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			writeError(w, http.StatusNotFound, "artifact file missing")
+			return
+		}
+		writeError(w, http.StatusInternalServerError, "failed to open artifact")
+		return
+	}
+	defer file.Close()
+
+	stat, err := file.Stat()
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to stat artifact")
+		return
+	}
+	contentType := strings.TrimSpace(selected.MIME)
+	if contentType == "" {
+		contentType = "application/octet-stream"
+	}
+	filename := filepath.Base(selected.Name)
+	if filename == "." || filename == string(filepath.Separator) || filename == "" {
+		filename = filepath.Base(selected.Path)
+	}
+	w.Header().Set("Content-Type", contentType)
+	w.Header().Set("Content-Length", strconv.FormatInt(stat.Size(), 10))
+	w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=%q", filename))
+	w.WriteHeader(http.StatusOK)
+	_, _ = io.Copy(w, file)
 }
 
 func (api *ControlAPI) handleSandboxes(w http.ResponseWriter, r *http.Request) {
@@ -919,4 +1091,29 @@ func eventToV1(ev db.Event) V1Event {
 		resp.Message = ""
 	}
 	return resp
+}
+
+func artifactToV1(artifact db.Artifact) V1Artifact {
+	resp := V1Artifact{
+		Name:      artifact.Name,
+		Path:      artifact.Path,
+		SizeBytes: artifact.SizeBytes,
+		Sha256:    artifact.Sha256,
+		MIME:      artifact.MIME,
+	}
+	if !artifact.CreatedAt.IsZero() {
+		resp.CreatedAt = artifact.CreatedAt.UTC().Format(time.RFC3339Nano)
+	}
+	return resp
+}
+
+func validateArtifactName(name string) error {
+	name = strings.TrimSpace(name)
+	if name == "" {
+		return errors.New("artifact name is required")
+	}
+	if strings.ContainsAny(name, "/\\") {
+		return errors.New("artifact name must not contain path separators")
+	}
+	return nil
 }
