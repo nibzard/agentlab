@@ -29,6 +29,10 @@ STREAM_LOGS="${AGENTLAB_RUNNER_STREAM_LOGS:-0}"
 LOG_MAX_CHARS="${AGENTLAB_RUNNER_LOG_MAX_CHARS:-800}"
 BOOTSTRAP_CACHE="${AGENTLAB_BOOTSTRAP_CACHE:-1}"
 REDACT_LABEL="[REDACTED]"
+CURL_CONNECT_TIMEOUT="${AGENTLAB_CURL_CONNECT_TIMEOUT:-10}"
+CURL_BOOTSTRAP_MAX_TIME="${AGENTLAB_CURL_BOOTSTRAP_MAX_TIME:-60}"
+CURL_REPORT_MAX_TIME="${AGENTLAB_CURL_REPORT_MAX_TIME:-20}"
+CURL_UPLOAD_MAX_TIME="${AGENTLAB_CURL_UPLOAD_MAX_TIME:-300}"
 INNER_SANDBOX=""
 declare -a INNER_SANDBOX_ARGS=()
 declare -a INNER_SANDBOX_PREFIX=()
@@ -202,7 +206,8 @@ post_with_backoff() {
   local delay=1
 
   while true; do
-    if curl -fsS -X POST -H "Content-Type: application/json" -d "$payload" "$url" >/dev/null; then
+    if curl -fsS --connect-timeout "$CURL_CONNECT_TIMEOUT" --max-time "$CURL_REPORT_MAX_TIME" \
+      -X POST -H "Content-Type: application/json" -d "$payload" "$url" >/dev/null; then
       return 0
     fi
     if (( attempt >= max_attempts )); then
@@ -226,7 +231,8 @@ fetch_bootstrap() {
   local delay=2
 
   while true; do
-    if response=$(curl -fsS -X POST -H "Content-Type: application/json" -d "$payload" "$BOOTSTRAP_URL"); then
+    if response=$(curl -fsS --connect-timeout "$CURL_CONNECT_TIMEOUT" --max-time "$CURL_BOOTSTRAP_MAX_TIME" \
+      -X POST -H "Content-Type: application/json" -d "$payload" "$BOOTSTRAP_URL"); then
       printf "%s" "$response"
       return 0
     fi
@@ -546,7 +552,8 @@ ARTIFACT_TOKEN="$(jq -r '.artifact.token // empty' "$BOOTSTRAP_RESPONSE")"
 if [[ -n "$ARTIFACT_ENDPOINT" && -n "$ARTIFACT_TOKEN" && -f "$ARTIFACT_BUNDLE" ]]; then
   upload_payload=""
   upload_payload=$(printf "%s" "${ARTIFACT_ENDPOINT%/}")
-  if ! curl -fsS -X POST -H "Authorization: Bearer $ARTIFACT_TOKEN" \
+  if ! curl -fsS --connect-timeout "$CURL_CONNECT_TIMEOUT" --max-time "$CURL_UPLOAD_MAX_TIME" \
+    -X POST -H "Authorization: Bearer $ARTIFACT_TOKEN" \
     -H "Content-Type: application/gzip" \
     --data-binary "@$ARTIFACT_BUNDLE" "$upload_payload" >/dev/null; then
     log "artifact upload failed"

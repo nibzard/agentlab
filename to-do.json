@@ -1030,11 +1030,13 @@
       "id": "T055",
       "title": "Add curl timeouts for agent-runner bootstrap/report/upload",
       "priority": 3,
-      "status": "todo",
+      "status": "done",
       "details": "agent-runner uses curl without connect/max timeouts for bootstrap fetch, status reports, and artifact uploads, which can hang indefinitely on network stalls. Add sane defaults (configurable via env) to prevent job hangs.",
       "files": [
-        "scripts/guest/agent-runner"
-      ]
+        "scripts/guest/agent-runner",
+        "scripts/guest/agent-runner.env"
+      ],
+      "updated_at": "2026-01-30T07:36:15Z"
     }
   ]
 }
