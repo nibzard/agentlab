@@ -19,6 +19,11 @@ LogsDirectory=agentlab
 LogsDirectoryMode=0750
 StandardOutput=append:/var/log/agentlab/agentlabd.log
 StandardError=append:/var/log/agentlab/agentlabd.log
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ReadWritePaths=/etc/pve /var/lib/vz /var/lib/agentlab /var/log/agentlab /run/agentlab
+CapabilityBoundingSet=CAP_CHOWN CAP_DAC_OVERRIDE CAP_FOWNER CAP_SETGID CAP_SETUID CAP_NET_ADMIN CAP_SYS_ADMIN
 
 [Install]
 WantedBy=multi-user.target

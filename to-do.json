@@ -614,12 +614,12 @@
         "T030",
         "T019"
       ],
-      "updated_at": "2026-01-30T03:42:10Z",
+      "updated_at": "2026-01-30T03:44:05Z",
       "files": [
-        "scripts/install_host.sh",
-        "scripts/README.md",
-        "skills/agentlab/SKILL.md",
         "AGENTLAB_DEV_SPECIFICATION.md",
+        "scripts/README.md",
+        "scripts/install_host.sh",
+        "skills/agentlab/SKILL.md",
         "to-do.json"
       ]
     },
@@ -670,10 +670,15 @@
       "id": "T034",
       "title": "Harden agentlabd systemd service",
       "priority": 2,
-      "status": "todo",
+      "status": "done",
       "details": "Apply ProtectSystem, PrivateTmp, NoNewPrivileges, and capability restrictions while keeping provisioning functional.",
       "depends_on": [
         "T002"
+      ],
+      "updated_at": "2026-01-30T03:46:29Z",
+      "files": [
+        "scripts/systemd/agentlabd.service",
+        "to-do.json"
       ]
     },
     {
