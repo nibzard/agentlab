@@ -218,3 +218,58 @@ func TestShellBackendGuestIPDHCPFallback(t *testing.T) {
 		t.Fatalf("GuestIP() calls = %#v, want %#v", runner.calls, wantCalls)
 	}
 }
+
+func TestShellBackendCreateVolume(t *testing.T) {
+	runner := &fakeRunner{responses: []runnerResponse{{stdout: "local-zfs:vm-0-disk-1\n"}}}
+	backend := &ShellBackend{Runner: runner}
+
+	volid, err := backend.CreateVolume(context.Background(), "local-zfs", "workspace-abc", 80)
+	if err != nil {
+		t.Fatalf("CreateVolume() error = %v", err)
+	}
+	if volid != "local-zfs:vm-0-disk-1" {
+		t.Fatalf("CreateVolume() = %q, want %q", volid, "local-zfs:vm-0-disk-1")
+	}
+	want := []runnerCall{{
+		name: "pvesm",
+		args: []string{"alloc", "local-zfs", "0", "workspace-abc", "80G"},
+	}}
+	if !reflect.DeepEqual(runner.calls, want) {
+		t.Fatalf("CreateVolume() calls = %#v, want %#v", runner.calls, want)
+	}
+}
+
+func TestShellBackendAttachDetachVolume(t *testing.T) {
+	runner := &fakeRunner{responses: []runnerResponse{{}, {}}}
+	backend := &ShellBackend{Runner: runner}
+
+	if err := backend.AttachVolume(context.Background(), 101, "local-zfs:vm-0-disk-1", "scsi1"); err != nil {
+		t.Fatalf("AttachVolume() error = %v", err)
+	}
+	if err := backend.DetachVolume(context.Background(), 101, "scsi1"); err != nil {
+		t.Fatalf("DetachVolume() error = %v", err)
+	}
+	want := []runnerCall{
+		{name: "qm", args: []string{"set", "101", "--scsi1", "local-zfs:vm-0-disk-1"}},
+		{name: "qm", args: []string{"set", "101", "--delete", "scsi1"}},
+	}
+	if !reflect.DeepEqual(runner.calls, want) {
+		t.Fatalf("Attach/Detach calls = %#v, want %#v", runner.calls, want)
+	}
+}
+
+func TestShellBackendDeleteVolume(t *testing.T) {
+	runner := &fakeRunner{responses: []runnerResponse{{}}}
+	backend := &ShellBackend{Runner: runner}
+
+	if err := backend.DeleteVolume(context.Background(), "local-zfs:vm-0-disk-1"); err != nil {
+		t.Fatalf("DeleteVolume() error = %v", err)
+	}
+	want := []runnerCall{{
+		name: "pvesm",
+		args: []string{"free", "local-zfs:vm-0-disk-1"},
+	}}
+	if !reflect.DeepEqual(runner.calls, want) {
+		t.Fatalf("DeleteVolume() calls = %#v, want %#v", runner.calls, want)
+	}
+}

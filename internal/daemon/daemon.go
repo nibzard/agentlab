@@ -38,6 +38,7 @@ type Service struct {
 	bootstrapServer   *http.Server
 	artifactServer    *http.Server
 	sandboxManager    *SandboxManager
+	workspaceManager  *WorkspaceManager
 }
 
 // Run loads profiles, binds listeners, and serves until ctx is canceled.
@@ -87,7 +88,8 @@ func NewService(cfg config.Config, profiles map[string]models.Profile, store *db
 	}
 
 	backend := &proxmox.ShellBackend{}
-	sandboxManager := NewSandboxManager(store, backend, log.Default())
+	workspaceManager := NewWorkspaceManager(store, backend, log.Default())
+	sandboxManager := NewSandboxManager(store, backend, log.Default()).WithWorkspaceManager(workspaceManager)
 	redactor := NewRedactor(nil)
 	snippetStore := proxmox.SnippetStore{
 		Storage: cfg.SnippetStorage,
@@ -96,14 +98,14 @@ func NewService(cfg config.Config, profiles map[string]models.Profile, store *db
 	controllerURL := buildControllerURL(cfg.BootstrapListen)
 	var jobOrchestrator *JobOrchestrator
 	if strings.TrimSpace(cfg.SSHPublicKey) != "" {
-		jobOrchestrator = NewJobOrchestrator(store, profiles, backend, sandboxManager, snippetStore, cfg.SSHPublicKey, controllerURL, log.Default(), redactor)
+		jobOrchestrator = NewJobOrchestrator(store, profiles, backend, sandboxManager, workspaceManager, snippetStore, cfg.SSHPublicKey, controllerURL, log.Default(), redactor)
 	} else {
 		log.Printf("agentlabd: ssh public key missing; job orchestration disabled")
 	}
 
 	localMux := http.NewServeMux()
 	localMux.HandleFunc("/healthz", healthHandler)
-	NewControlAPI(store, profiles, sandboxManager, jobOrchestrator).Register(localMux)
+	NewControlAPI(store, profiles, sandboxManager, workspaceManager, jobOrchestrator).Register(localMux)
 
 	bootstrapMux := http.NewServeMux()
 	bootstrapMux.HandleFunc("/healthz", healthHandler)
@@ -147,6 +149,7 @@ func NewService(cfg config.Config, profiles map[string]models.Profile, store *db
 		bootstrapServer:   bootstrapServer,
 		artifactServer:    artifactServer,
 		sandboxManager:    sandboxManager,
+		workspaceManager:  workspaceManager,
 	}, nil
 }
 

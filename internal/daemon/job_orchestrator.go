@@ -44,6 +44,7 @@ type JobOrchestrator struct {
 	profiles       map[string]models.Profile
 	backend        proxmox.Backend
 	sandboxManager *SandboxManager
+	workspaceMgr   *WorkspaceManager
 	snippetStore   proxmox.SnippetStore
 	sshPublicKey   string
 	controllerURL  string
@@ -56,7 +57,7 @@ type JobOrchestrator struct {
 	snippets       map[int]proxmox.CloudInitSnippet
 }
 
-func NewJobOrchestrator(store *db.Store, profiles map[string]models.Profile, backend proxmox.Backend, manager *SandboxManager, snippetStore proxmox.SnippetStore, sshPublicKey, controllerURL string, logger *log.Logger, redactor *Redactor) *JobOrchestrator {
+func NewJobOrchestrator(store *db.Store, profiles map[string]models.Profile, backend proxmox.Backend, manager *SandboxManager, workspaceMgr *WorkspaceManager, snippetStore proxmox.SnippetStore, sshPublicKey, controllerURL string, logger *log.Logger, redactor *Redactor) *JobOrchestrator {
 	if logger == nil {
 		logger = log.Default()
 	}
@@ -68,6 +69,7 @@ func NewJobOrchestrator(store *db.Store, profiles map[string]models.Profile, bac
 		profiles:       profiles,
 		backend:        backend,
 		sandboxManager: manager,
+		workspaceMgr:   workspaceMgr,
 		snippetStore:   snippetStore,
 		sshPublicKey:   strings.TrimSpace(sshPublicKey),
 		controllerURL:  strings.TrimSpace(controllerURL),
@@ -176,6 +178,17 @@ func (o *JobOrchestrator) Run(ctx context.Context, jobID string) error {
 	}); err != nil {
 		o.cleanupSnippet(sandbox.VMID)
 		return o.failJob(ctx, job, sandbox.VMID, err)
+	}
+
+	if sandbox.WorkspaceID != nil && strings.TrimSpace(*sandbox.WorkspaceID) != "" {
+		if o.workspaceMgr == nil {
+			o.cleanupSnippet(sandbox.VMID)
+			return o.failJob(ctx, job, sandbox.VMID, errors.New("workspace manager unavailable"))
+		}
+		if _, err := o.workspaceMgr.Attach(ctx, *sandbox.WorkspaceID, sandbox.VMID); err != nil {
+			o.cleanupSnippet(sandbox.VMID)
+			return o.failJob(ctx, job, sandbox.VMID, err)
+		}
 	}
 
 	if err := o.sandboxManager.Transition(ctx, sandbox.VMID, models.SandboxBooting); err != nil {

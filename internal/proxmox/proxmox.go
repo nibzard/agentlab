@@ -30,4 +30,8 @@ type Backend interface {
 	Destroy(ctx context.Context, vmid VMID) error
 	Status(ctx context.Context, vmid VMID) (Status, error)
 	GuestIP(ctx context.Context, vmid VMID) (string, error)
+	CreateVolume(ctx context.Context, storage, name string, sizeGB int) (string, error)
+	AttachVolume(ctx context.Context, vmid VMID, volumeID, slot string) error
+	DetachVolume(ctx context.Context, vmid VMID, slot string) error
+	DeleteVolume(ctx context.Context, volumeID string) error
 }

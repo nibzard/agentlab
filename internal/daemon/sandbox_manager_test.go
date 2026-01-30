@@ -47,6 +47,22 @@ func (s *stubBackend) GuestIP(context.Context, proxmox.VMID) (string, error) {
 	return "", nil
 }
 
+func (s *stubBackend) CreateVolume(context.Context, string, string, int) (string, error) {
+	return "local-zfs:workspace", nil
+}
+
+func (s *stubBackend) AttachVolume(context.Context, proxmox.VMID, string, string) error {
+	return nil
+}
+
+func (s *stubBackend) DetachVolume(context.Context, proxmox.VMID, string) error {
+	return nil
+}
+
+func (s *stubBackend) DeleteVolume(context.Context, string) error {
+	return nil
+}
+
 func TestSandboxTransitions(t *testing.T) {
 	ctx := context.Background()
 	store := newTestStore(t)

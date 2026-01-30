@@ -82,6 +82,29 @@ curl --unix-socket /run/agentlab/agentlabd.sock http://localhost/v1/healthz
 ```
 
 ```json
+// V1WorkspaceCreateRequest
+{
+  "name": "workspace-alpha",
+  "size_gb": 80,
+  "storage": "local-zfs"
+}
+```
+
+```json
+// V1WorkspaceResponse
+{
+  "id": "workspace-0123abcd",
+  "name": "workspace-alpha",
+  "storage": "local-zfs",
+  "volid": "local-zfs:vm-0-disk-0",
+  "size_gb": 80,
+  "attached_vmid": 1000,
+  "created_at": "2026-01-29T23:45:00Z",
+  "updated_at": "2026-01-29T23:45:00Z"
+}
+```
+
+```json
 // V1LeaseRenewRequest
 { "ttl_minutes": 240 }
 ```
@@ -134,3 +157,30 @@ Query params (mutually exclusive `tail`/`after`):
 - `tail=<n>` returns the last N events (default used by CLI logs).
 - `after=<id>` returns events with id greater than `after` (for follow).
 - `limit=<n>` caps the number of events (default 200, max 1000).
+
+### POST /v1/workspaces
+Create a workspace volume.
+
+Body:
+
+```json
+{ "name": "workspace-alpha", "size_gb": 80, "storage": "local-zfs" }
+```
+
+### GET /v1/workspaces
+List workspaces.
+
+### GET /v1/workspaces/{id}
+Fetch a workspace by id or name.
+
+### POST /v1/workspaces/{id}/attach
+Attach a workspace volume to a sandbox VM.
+
+Body:
+
+```json
+{ "vmid": 1000 }
+```
+
+### POST /v1/workspaces/{id}/detach
+Detach a workspace volume from its attached VM.

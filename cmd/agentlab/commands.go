@@ -150,6 +150,26 @@ func runSandboxCommand(ctx context.Context, args []string, base commonFlags) err
 	}
 }
 
+func runWorkspaceCommand(ctx context.Context, args []string, base commonFlags) error {
+	if len(args) == 0 {
+		printWorkspaceUsage()
+		return nil
+	}
+	switch args[0] {
+	case "create":
+		return runWorkspaceCreate(ctx, args[1:], base)
+	case "list":
+		return runWorkspaceList(ctx, args[1:], base)
+	case "attach":
+		return runWorkspaceAttach(ctx, args[1:], base)
+	case "detach":
+		return runWorkspaceDetach(ctx, args[1:], base)
+	default:
+		printWorkspaceUsage()
+		return fmt.Errorf("unknown workspace command %q", args[0])
+	}
+}
+
 func runSandboxNew(ctx context.Context, args []string, base commonFlags) error {
 	fs := newFlagSet("sandbox new")
 	opts := base
@@ -165,7 +185,7 @@ func runSandboxNew(ctx context.Context, args []string, base commonFlags) error {
 	fs.StringVar(&name, "name", "", "sandbox name")
 	fs.StringVar(&profile, "profile", "", "profile name")
 	fs.StringVar(&ttl, "ttl", "", ttlFlagDescription)
-	fs.StringVar(&workspace, "workspace", "", "workspace id")
+	fs.StringVar(&workspace, "workspace", "", "workspace id or name")
 	fs.IntVar(&vmid, "vmid", 0, "vmid override")
 	fs.StringVar(&jobID, "job", "", "attach to existing job id")
 	fs.BoolVar(&keepalive, "keepalive", false, "keep sandbox after job completion")
@@ -375,6 +395,154 @@ func runSandboxLeaseRenew(ctx context.Context, args []string, base commonFlags) 
 	return nil
 }
 
+func runWorkspaceCreate(ctx context.Context, args []string, base commonFlags) error {
+	fs := newFlagSet("workspace create")
+	opts := base
+	opts.bind(fs)
+	var name string
+	var size string
+	var storage string
+	var help bool
+	fs.StringVar(&name, "name", "", "workspace name")
+	fs.StringVar(&size, "size", "", "workspace size (e.g. 80G)")
+	fs.StringVar(&storage, "storage", "", "Proxmox storage (default local-zfs)")
+	fs.BoolVar(&help, "help", false, "show help")
+	fs.BoolVar(&help, "h", false, "show help")
+	if err := parseFlags(fs, args, printWorkspaceCreateUsage, &help); err != nil {
+		return err
+	}
+	name = strings.TrimSpace(name)
+	size = strings.TrimSpace(size)
+	storage = strings.TrimSpace(storage)
+	if name == "" || size == "" {
+		printWorkspaceCreateUsage()
+		return fmt.Errorf("name and size are required")
+	}
+	sizeGB, err := parseSizeGB(size)
+	if err != nil {
+		return err
+	}
+
+	client := newAPIClient(opts.socketPath)
+	req := workspaceCreateRequest{
+		Name:    name,
+		SizeGB:  sizeGB,
+		Storage: storage,
+	}
+	payload, err := client.doJSON(ctx, http.MethodPost, "/v1/workspaces", req)
+	if err != nil {
+		return err
+	}
+	if opts.jsonOutput {
+		return prettyPrintJSON(os.Stdout, payload)
+	}
+	var resp workspaceResponse
+	if err := json.Unmarshal(payload, &resp); err != nil {
+		return err
+	}
+	printWorkspace(resp)
+	return nil
+}
+
+func runWorkspaceList(ctx context.Context, args []string, base commonFlags) error {
+	fs := newFlagSet("workspace list")
+	opts := base
+	opts.bind(fs)
+	var help bool
+	fs.BoolVar(&help, "help", false, "show help")
+	fs.BoolVar(&help, "h", false, "show help")
+	if err := parseFlags(fs, args, printWorkspaceListUsage, &help); err != nil {
+		return err
+	}
+	client := newAPIClient(opts.socketPath)
+	payload, err := client.doJSON(ctx, http.MethodGet, "/v1/workspaces", nil)
+	if err != nil {
+		return err
+	}
+	if opts.jsonOutput {
+		return prettyPrintJSON(os.Stdout, payload)
+	}
+	var resp workspacesResponse
+	if err := json.Unmarshal(payload, &resp); err != nil {
+		return err
+	}
+	printWorkspaceList(resp.Workspaces)
+	return nil
+}
+
+func runWorkspaceAttach(ctx context.Context, args []string, base commonFlags) error {
+	fs := newFlagSet("workspace attach")
+	opts := base
+	opts.bind(fs)
+	var help bool
+	fs.BoolVar(&help, "help", false, "show help")
+	fs.BoolVar(&help, "h", false, "show help")
+	if err := parseFlags(fs, args, printWorkspaceAttachUsage, &help); err != nil {
+		return err
+	}
+	if fs.NArg() < 2 {
+		printWorkspaceAttachUsage()
+		return fmt.Errorf("workspace and vmid are required")
+	}
+	workspace := strings.TrimSpace(fs.Arg(0))
+	if workspace == "" {
+		return fmt.Errorf("workspace is required")
+	}
+	vmid, err := parseVMID(fs.Arg(1))
+	if err != nil {
+		return err
+	}
+	client := newAPIClient(opts.socketPath)
+	req := workspaceAttachRequest{VMID: vmid}
+	payload, err := client.doJSON(ctx, http.MethodPost, fmt.Sprintf("/v1/workspaces/%s/attach", workspace), req)
+	if err != nil {
+		return err
+	}
+	if opts.jsonOutput {
+		return prettyPrintJSON(os.Stdout, payload)
+	}
+	var resp workspaceResponse
+	if err := json.Unmarshal(payload, &resp); err != nil {
+		return err
+	}
+	printWorkspace(resp)
+	return nil
+}
+
+func runWorkspaceDetach(ctx context.Context, args []string, base commonFlags) error {
+	fs := newFlagSet("workspace detach")
+	opts := base
+	opts.bind(fs)
+	var help bool
+	fs.BoolVar(&help, "help", false, "show help")
+	fs.BoolVar(&help, "h", false, "show help")
+	if err := parseFlags(fs, args, printWorkspaceDetachUsage, &help); err != nil {
+		return err
+	}
+	if fs.NArg() < 1 {
+		printWorkspaceDetachUsage()
+		return fmt.Errorf("workspace is required")
+	}
+	workspace := strings.TrimSpace(fs.Arg(0))
+	if workspace == "" {
+		return fmt.Errorf("workspace is required")
+	}
+	client := newAPIClient(opts.socketPath)
+	payload, err := client.doJSON(ctx, http.MethodPost, fmt.Sprintf("/v1/workspaces/%s/detach", workspace), nil)
+	if err != nil {
+		return err
+	}
+	if opts.jsonOutput {
+		return prettyPrintJSON(os.Stdout, payload)
+	}
+	var resp workspaceResponse
+	if err := json.Unmarshal(payload, &resp); err != nil {
+		return err
+	}
+	printWorkspace(resp)
+	return nil
+}
+
 func runLogsCommand(ctx context.Context, args []string, base commonFlags) error {
 	fs := newFlagSet("logs")
 	opts := base
@@ -489,6 +657,26 @@ func printSandboxList(sandboxes []sandboxResponse) {
 	_ = w.Flush()
 }
 
+func printWorkspace(ws workspaceResponse) {
+	fmt.Printf("ID: %s\n", ws.ID)
+	fmt.Printf("Name: %s\n", ws.Name)
+	fmt.Printf("Storage: %s\n", ws.Storage)
+	fmt.Printf("Volume ID: %s\n", ws.VolumeID)
+	fmt.Printf("Size GB: %d\n", ws.SizeGB)
+	fmt.Printf("Attached VMID: %s\n", vmidString(ws.AttachedVMID))
+	fmt.Printf("Created At: %s\n", ws.CreatedAt)
+	fmt.Printf("Updated At: %s\n", ws.UpdatedAt)
+}
+
+func printWorkspaceList(workspaces []workspaceResponse) {
+	w := tabwriter.NewWriter(os.Stdout, 2, 8, 2, ' ', 0)
+	fmt.Fprintln(w, "ID\tNAME\tSIZE(GB)\tSTORAGE\tATTACHED")
+	for _, ws := range workspaces {
+		fmt.Fprintf(w, "%s\t%s\t%d\t%s\t%s\n", ws.ID, ws.Name, ws.SizeGB, ws.Storage, vmidString(ws.AttachedVMID))
+	}
+	_ = w.Flush()
+}
+
 func printJob(job jobResponse) {
 	fmt.Printf("Job ID: %s\n", job.ID)
 	fmt.Printf("Repo: %s\n", job.RepoURL)
@@ -573,6 +761,26 @@ func parseRequiredTTLMinutes(value string) (int, error) {
 		return 0, fmt.Errorf("ttl must be positive")
 	}
 	return *minutes, nil
+}
+
+func parseSizeGB(value string) (int, error) {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return 0, fmt.Errorf("size is required")
+	}
+	lower := strings.ToLower(value)
+	switch {
+	case strings.HasSuffix(lower, "gb"):
+		lower = strings.TrimSuffix(lower, "gb")
+	case strings.HasSuffix(lower, "g"):
+		lower = strings.TrimSuffix(lower, "g")
+	}
+	lower = strings.TrimSpace(lower)
+	size, err := strconv.Atoi(lower)
+	if err != nil || size <= 0 {
+		return 0, fmt.Errorf("invalid size %q", value)
+	}
+	return size, nil
 }
 
 func orDash(value string) string {

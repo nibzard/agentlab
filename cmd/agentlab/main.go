@@ -23,6 +23,10 @@ Usage:
   agentlab [--socket PATH] [--json] sandbox show <vmid>
   agentlab [--socket PATH] [--json] sandbox destroy <vmid>
   agentlab [--socket PATH] [--json] sandbox lease renew <vmid> --ttl <ttl>
+  agentlab [--socket PATH] [--json] workspace create --name <name> --size <size> [--storage <storage>]
+  agentlab [--socket PATH] [--json] workspace list
+  agentlab [--socket PATH] [--json] workspace attach <workspace> <vmid>
+  agentlab [--socket PATH] [--json] workspace detach <workspace>
   agentlab [--socket PATH] [--json] ssh <vmid> [--user <user>] [--port <port>] [--identity <path>] [--exec]
   agentlab [--socket PATH] [--json] logs <vmid> [--follow] [--tail <n>]
 
@@ -92,6 +96,8 @@ func dispatch(ctx context.Context, args []string, base commonFlags) error {
 		return runJobCommand(ctx, args[1:], base)
 	case "sandbox":
 		return runSandboxCommand(ctx, args[1:], base)
+	case "workspace":
+		return runWorkspaceCommand(ctx, args[1:], base)
 	case "ssh":
 		return runSSHCommand(ctx, args[1:], base)
 	case "logs":
@@ -140,6 +146,26 @@ func printSandboxLeaseUsage() {
 
 func printSandboxLeaseRenewUsage() {
 	printSandboxLeaseUsage()
+}
+
+func printWorkspaceUsage() {
+	fmt.Fprintln(os.Stdout, "Usage: agentlab workspace <create|list|attach|detach>")
+}
+
+func printWorkspaceCreateUsage() {
+	fmt.Fprintln(os.Stdout, "Usage: agentlab workspace create --name <name> --size <size> [--storage <storage>]")
+}
+
+func printWorkspaceListUsage() {
+	fmt.Fprintln(os.Stdout, "Usage: agentlab workspace list")
+}
+
+func printWorkspaceAttachUsage() {
+	fmt.Fprintln(os.Stdout, "Usage: agentlab workspace attach <workspace> <vmid>")
+}
+
+func printWorkspaceDetachUsage() {
+	fmt.Fprintln(os.Stdout, "Usage: agentlab workspace detach <workspace>")
 }
 
 func printLogsUsage() {

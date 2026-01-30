@@ -48,6 +48,7 @@ type ShellBackend struct {
 	AgentCIDR          string
 	QmPath             string
 	PveShPath          string
+	PveSmPath          string
 	Runner             CommandRunner
 	GuestIPAttempts    int
 	GuestIPInitialWait time.Duration
@@ -166,6 +167,13 @@ func (b *ShellBackend) pveshPath() string {
 	return "pvesh"
 }
 
+func (b *ShellBackend) pvesmPath() string {
+	if b.PveSmPath != "" {
+		return b.PveSmPath
+	}
+	return "pvesm"
+}
+
 func (b *ShellBackend) pollGuestAgentIP(ctx context.Context, node string, vmid VMID) (string, error) {
 	attempts := b.guestIPAttempts()
 	wait := b.guestIPInitialWait()
@@ -264,6 +272,61 @@ func (b *ShellBackend) dhcpLeaseIP(ctx context.Context, vmid VMID) (string, erro
 		return "", readErr
 	}
 	return "", ErrGuestIPNotFound
+}
+
+func (b *ShellBackend) CreateVolume(ctx context.Context, storage, name string, sizeGB int) (string, error) {
+	storage = strings.TrimSpace(storage)
+	if storage == "" {
+		return "", errors.New("storage is required")
+	}
+	name = strings.TrimSpace(name)
+	if name == "" {
+		return "", errors.New("volume name is required")
+	}
+	if sizeGB <= 0 {
+		return "", errors.New("size_gb must be positive")
+	}
+	sizeArg := fmt.Sprintf("%dG", sizeGB)
+	out, err := b.runner().Run(ctx, b.pvesmPath(), "alloc", storage, "0", name, sizeArg)
+	if err != nil {
+		return "", err
+	}
+	volid := strings.TrimSpace(out)
+	if volid == "" {
+		return "", errors.New("empty volume id")
+	}
+	return volid, nil
+}
+
+func (b *ShellBackend) AttachVolume(ctx context.Context, vmid VMID, volumeID, slot string) error {
+	volumeID = strings.TrimSpace(volumeID)
+	if volumeID == "" {
+		return errors.New("volume id is required")
+	}
+	slot = strings.TrimSpace(slot)
+	if slot == "" {
+		return errors.New("slot is required")
+	}
+	_, err := b.runner().Run(ctx, b.qmPath(), "set", strconv.Itoa(int(vmid)), "--"+slot, volumeID)
+	return err
+}
+
+func (b *ShellBackend) DetachVolume(ctx context.Context, vmid VMID, slot string) error {
+	slot = strings.TrimSpace(slot)
+	if slot == "" {
+		return errors.New("slot is required")
+	}
+	_, err := b.runner().Run(ctx, b.qmPath(), "set", strconv.Itoa(int(vmid)), "--delete", slot)
+	return err
+}
+
+func (b *ShellBackend) DeleteVolume(ctx context.Context, volumeID string) error {
+	volumeID = strings.TrimSpace(volumeID)
+	if volumeID == "" {
+		return errors.New("volume id is required")
+	}
+	_, err := b.runner().Run(ctx, b.pvesmPath(), "free", volumeID)
+	return err
 }
 
 func (b *ShellBackend) guestIPAttempts() int {

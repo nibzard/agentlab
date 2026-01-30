@@ -28,6 +28,7 @@ type SandboxManager struct {
 	store      *db.Store
 	backend    proxmox.Backend
 	logger     *log.Logger
+	workspace  *WorkspaceManager
 	now        func() time.Time
 	gcInterval time.Duration
 }
@@ -44,6 +45,15 @@ func NewSandboxManager(store *db.Store, backend proxmox.Backend, logger *log.Log
 		now:        time.Now,
 		gcInterval: defaultLeaseGCInterval,
 	}
+}
+
+// WithWorkspaceManager sets the workspace manager for detach-on-destroy.
+func (m *SandboxManager) WithWorkspaceManager(manager *WorkspaceManager) *SandboxManager {
+	if m == nil {
+		return m
+	}
+	m.workspace = manager
+	return m
 }
 
 // StartLeaseGC runs lease GC immediately and then on an interval until ctx is done.
@@ -136,6 +146,11 @@ func (m *SandboxManager) Destroy(ctx context.Context, vmid int) error {
 	}
 	if sandbox.State == models.SandboxDestroyed {
 		return nil
+	}
+	if m.workspace != nil {
+		if err := m.workspace.DetachFromVM(ctx, vmid); err != nil {
+			return fmt.Errorf("detach workspace for vmid %d: %w", vmid, err)
+		}
 	}
 	if err := m.destroySandbox(ctx, vmid); err != nil {
 		return err

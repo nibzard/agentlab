@@ -88,6 +88,31 @@ type leaseRenewResponse struct {
 	LeaseExpires string `json:"lease_expires_at"`
 }
 
+type workspaceCreateRequest struct {
+	Name    string `json:"name"`
+	SizeGB  int    `json:"size_gb"`
+	Storage string `json:"storage,omitempty"`
+}
+
+type workspaceAttachRequest struct {
+	VMID int `json:"vmid"`
+}
+
+type workspaceResponse struct {
+	ID           string `json:"id"`
+	Name         string `json:"name"`
+	Storage      string `json:"storage"`
+	VolumeID     string `json:"volid"`
+	SizeGB       int    `json:"size_gb"`
+	AttachedVMID *int   `json:"attached_vmid,omitempty"`
+	CreatedAt    string `json:"created_at"`
+	UpdatedAt    string `json:"updated_at"`
+}
+
+type workspacesResponse struct {
+	Workspaces []workspaceResponse `json:"workspaces"`
+}
+
 type eventResponse struct {
 	ID          int64           `json:"id"`
 	Timestamp   string          `json:"ts"`

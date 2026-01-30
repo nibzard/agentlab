@@ -449,11 +449,28 @@
       "id": "T024",
       "title": "Implement workspace volume management on local-zfs",
       "priority": 2,
-      "status": "todo",
+      "status": "done",
       "details": "Create/attach/detach ZFS volumes, track attachment in DB, and prevent multi-attach.",
       "depends_on": [
         "T011",
         "T007"
+      ],
+      "updated_at": "2026-01-30T02:41:16Z",
+      "files": [
+        "internal/db/workspaces.go",
+        "internal/daemon/workspace_manager.go",
+        "internal/daemon/api.go",
+        "internal/daemon/api_types.go",
+        "internal/daemon/daemon.go",
+        "internal/daemon/job_orchestrator.go",
+        "internal/daemon/sandbox_manager.go",
+        "internal/db/sandboxes.go",
+        "internal/proxmox/proxmox.go",
+        "internal/proxmox/shell_backend.go",
+        "cmd/agentlab/api.go",
+        "cmd/agentlab/commands.go",
+        "cmd/agentlab/main.go",
+        "docs/api.md"
       ]
     },
     {

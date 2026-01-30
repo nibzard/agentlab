@@ -32,15 +32,17 @@ type ControlAPI struct {
 	store           *db.Store
 	profiles        map[string]models.Profile
 	sandboxManager  *SandboxManager
+	workspaceMgr    *WorkspaceManager
 	jobOrchestrator *JobOrchestrator
 	now             func() time.Time
 }
 
-func NewControlAPI(store *db.Store, profiles map[string]models.Profile, manager *SandboxManager, orchestrator *JobOrchestrator) *ControlAPI {
+func NewControlAPI(store *db.Store, profiles map[string]models.Profile, manager *SandboxManager, workspaceMgr *WorkspaceManager, orchestrator *JobOrchestrator) *ControlAPI {
 	return &ControlAPI{
 		store:           store,
 		profiles:        profiles,
 		sandboxManager:  manager,
+		workspaceMgr:    workspaceMgr,
 		jobOrchestrator: orchestrator,
 		now:             time.Now,
 	}
@@ -54,6 +56,8 @@ func (api *ControlAPI) Register(mux *http.ServeMux) {
 	mux.HandleFunc("/v1/jobs/", api.handleJobByID)
 	mux.HandleFunc("/v1/sandboxes", api.handleSandboxes)
 	mux.HandleFunc("/v1/sandboxes/", api.handleSandboxByID)
+	mux.HandleFunc("/v1/workspaces", api.handleWorkspaces)
+	mux.HandleFunc("/v1/workspaces/", api.handleWorkspaceByID)
 }
 
 func (api *ControlAPI) handleJobs(w http.ResponseWriter, r *http.Request) {
@@ -240,6 +244,54 @@ func (api *ControlAPI) handleSandboxByID(w http.ResponseWriter, r *http.Request)
 	writeError(w, http.StatusNotFound, "sandbox not found")
 }
 
+func (api *ControlAPI) handleWorkspaces(w http.ResponseWriter, r *http.Request) {
+	switch r.Method {
+	case http.MethodPost:
+		api.handleWorkspaceCreate(w, r)
+	case http.MethodGet:
+		api.handleWorkspaceList(w, r)
+	default:
+		writeMethodNotAllowed(w, []string{http.MethodGet, http.MethodPost})
+	}
+}
+
+func (api *ControlAPI) handleWorkspaceByID(w http.ResponseWriter, r *http.Request) {
+	tail := strings.TrimPrefix(r.URL.Path, "/v1/workspaces/")
+	parts := strings.Split(strings.Trim(tail, "/"), "/")
+	if len(parts) == 0 || parts[0] == "" {
+		writeError(w, http.StatusNotFound, "workspace not found")
+		return
+	}
+	id := parts[0]
+	switch len(parts) {
+	case 1:
+		if r.Method != http.MethodGet {
+			writeMethodNotAllowed(w, []string{http.MethodGet})
+			return
+		}
+		api.handleWorkspaceGet(w, r, id)
+		return
+	case 2:
+		switch parts[1] {
+		case "attach":
+			if r.Method != http.MethodPost {
+				writeMethodNotAllowed(w, []string{http.MethodPost})
+				return
+			}
+			api.handleWorkspaceAttach(w, r, id)
+			return
+		case "detach":
+			if r.Method != http.MethodPost {
+				writeMethodNotAllowed(w, []string{http.MethodPost})
+				return
+			}
+			api.handleWorkspaceDetach(w, r, id)
+			return
+		}
+	}
+	writeError(w, http.StatusNotFound, "workspace not found")
+}
+
 func (api *ControlAPI) handleSandboxList(w http.ResponseWriter, r *http.Request) {
 	sandboxes, err := api.store.ListSandboxes(r.Context())
 	if err != nil {
@@ -299,6 +351,29 @@ func (api *ControlAPI) handleSandboxCreate(w http.ResponseWriter, r *http.Reques
 	}
 
 	ctx := r.Context()
+	if req.Workspace != nil && strings.TrimSpace(*req.Workspace) != "" {
+		if api.workspaceMgr == nil {
+			writeError(w, http.StatusInternalServerError, "workspace manager unavailable")
+			return
+		}
+		workspace, err := api.workspaceMgr.Resolve(ctx, *req.Workspace)
+		if err != nil {
+			if errors.Is(err, ErrWorkspaceNotFound) {
+				writeError(w, http.StatusNotFound, "workspace not found")
+				return
+			}
+			writeError(w, http.StatusInternalServerError, "failed to load workspace")
+			return
+		}
+		if workspace.AttachedVM != nil {
+			if req.VMID == nil || *req.VMID != *workspace.AttachedVM {
+				writeError(w, http.StatusConflict, "workspace already attached")
+				return
+			}
+		}
+		workspaceID := workspace.ID
+		req.Workspace = &workspaceID
+	}
 	if req.JobID != "" {
 		if _, err := api.store.GetJob(ctx, req.JobID); err != nil {
 			if errors.Is(err, sql.ErrNoRows) {
@@ -366,6 +441,124 @@ func (api *ControlAPI) handleSandboxCreate(w http.ResponseWriter, r *http.Reques
 	}
 
 	writeJSON(w, http.StatusCreated, sandboxToV1(createdSandbox))
+}
+
+func (api *ControlAPI) handleWorkspaceCreate(w http.ResponseWriter, r *http.Request) {
+	if api.workspaceMgr == nil {
+		writeError(w, http.StatusInternalServerError, "workspace manager unavailable")
+		return
+	}
+	var req V1WorkspaceCreateRequest
+	if err := decodeJSON(w, r, &req); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	req.Name = strings.TrimSpace(req.Name)
+	req.Storage = strings.TrimSpace(req.Storage)
+	if req.Name == "" {
+		writeError(w, http.StatusBadRequest, "name is required")
+		return
+	}
+	if req.SizeGB <= 0 {
+		writeError(w, http.StatusBadRequest, "size_gb must be positive")
+		return
+	}
+	workspace, err := api.workspaceMgr.Create(r.Context(), req.Name, req.Storage, req.SizeGB)
+	if err != nil {
+		switch {
+		case errors.Is(err, ErrWorkspaceExists):
+			writeError(w, http.StatusConflict, "workspace already exists")
+		default:
+			writeError(w, http.StatusInternalServerError, "failed to create workspace")
+		}
+		return
+	}
+	writeJSON(w, http.StatusCreated, workspaceToV1(workspace))
+}
+
+func (api *ControlAPI) handleWorkspaceList(w http.ResponseWriter, r *http.Request) {
+	if api.workspaceMgr == nil {
+		writeError(w, http.StatusInternalServerError, "workspace manager unavailable")
+		return
+	}
+	workspaces, err := api.workspaceMgr.List(r.Context())
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to list workspaces")
+		return
+	}
+	resp := V1WorkspacesResponse{Workspaces: make([]V1WorkspaceResponse, 0, len(workspaces))}
+	for _, ws := range workspaces {
+		resp.Workspaces = append(resp.Workspaces, workspaceToV1(ws))
+	}
+	writeJSON(w, http.StatusOK, resp)
+}
+
+func (api *ControlAPI) handleWorkspaceGet(w http.ResponseWriter, r *http.Request, id string) {
+	if api.workspaceMgr == nil {
+		writeError(w, http.StatusInternalServerError, "workspace manager unavailable")
+		return
+	}
+	workspace, err := api.workspaceMgr.Resolve(r.Context(), id)
+	if err != nil {
+		if errors.Is(err, ErrWorkspaceNotFound) {
+			writeError(w, http.StatusNotFound, "workspace not found")
+			return
+		}
+		writeError(w, http.StatusInternalServerError, "failed to load workspace")
+		return
+	}
+	writeJSON(w, http.StatusOK, workspaceToV1(workspace))
+}
+
+func (api *ControlAPI) handleWorkspaceAttach(w http.ResponseWriter, r *http.Request, id string) {
+	if api.workspaceMgr == nil {
+		writeError(w, http.StatusInternalServerError, "workspace manager unavailable")
+		return
+	}
+	var req V1WorkspaceAttachRequest
+	if err := decodeJSON(w, r, &req); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	if req.VMID <= 0 {
+		writeError(w, http.StatusBadRequest, "vmid must be positive")
+		return
+	}
+	workspace, err := api.workspaceMgr.Attach(r.Context(), id, req.VMID)
+	if err != nil {
+		switch {
+		case errors.Is(err, ErrWorkspaceNotFound):
+			writeError(w, http.StatusNotFound, "workspace not found")
+		case errors.Is(err, ErrWorkspaceAttached), errors.Is(err, ErrWorkspaceVMInUse):
+			writeError(w, http.StatusConflict, err.Error())
+		case errors.Is(err, ErrSandboxNotFound):
+			writeError(w, http.StatusNotFound, "sandbox not found")
+		default:
+			writeError(w, http.StatusInternalServerError, "failed to attach workspace")
+		}
+		return
+	}
+	writeJSON(w, http.StatusOK, workspaceToV1(workspace))
+}
+
+func (api *ControlAPI) handleWorkspaceDetach(w http.ResponseWriter, r *http.Request, id string) {
+	if api.workspaceMgr == nil {
+		writeError(w, http.StatusInternalServerError, "workspace manager unavailable")
+		return
+	}
+	workspace, err := api.workspaceMgr.Detach(r.Context(), id)
+	if err != nil {
+		switch {
+		case errors.Is(err, ErrWorkspaceNotFound):
+			writeError(w, http.StatusNotFound, "workspace not found")
+		case errors.Is(err, ErrWorkspaceNotAttached):
+			writeError(w, http.StatusConflict, err.Error())
+		default:
+			writeError(w, http.StatusInternalServerError, "failed to detach workspace")
+		}
+		return
+	}
+	writeJSON(w, http.StatusOK, workspaceToV1(workspace))
 }
 
 func (api *ControlAPI) handleSandboxDestroy(w http.ResponseWriter, r *http.Request, vmid int) {
@@ -545,6 +738,23 @@ func sandboxToV1(sb models.Sandbox) V1SandboxResponse {
 	if !sb.LeaseExpires.IsZero() {
 		value := sb.LeaseExpires.UTC().Format(time.RFC3339Nano)
 		resp.LeaseExpires = &value
+	}
+	return resp
+}
+
+func workspaceToV1(ws models.Workspace) V1WorkspaceResponse {
+	resp := V1WorkspaceResponse{
+		ID:        ws.ID,
+		Name:      ws.Name,
+		Storage:   ws.Storage,
+		VolumeID:  ws.VolumeID,
+		SizeGB:    ws.SizeGB,
+		CreatedAt: ws.CreatedAt.UTC().Format(time.RFC3339Nano),
+		UpdatedAt: ws.LastUpdated.UTC().Format(time.RFC3339Nano),
+	}
+	if ws.AttachedVM != nil && *ws.AttachedVM > 0 {
+		value := *ws.AttachedVM
+		resp.AttachedVMID = &value
 	}
 	return resp
 }

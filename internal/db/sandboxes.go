@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/agentlab/agentlab/internal/models"
@@ -193,6 +194,37 @@ func (s *Store) UpdateSandboxIP(ctx context.Context, vmid int, ip string) error 
 	)
 	if err != nil {
 		return fmt.Errorf("update sandbox %d ip: %w", vmid, err)
+	}
+	return nil
+}
+
+// UpdateSandboxWorkspace updates the workspace id for a sandbox.
+func (s *Store) UpdateSandboxWorkspace(ctx context.Context, vmid int, workspaceID *string) error {
+	if s == nil || s.DB == nil {
+		return errors.New("db store is nil")
+	}
+	if vmid <= 0 {
+		return errors.New("vmid must be positive")
+	}
+	var workspace interface{}
+	if workspaceID != nil && strings.TrimSpace(*workspaceID) != "" {
+		workspace = strings.TrimSpace(*workspaceID)
+	}
+	updatedAt := formatTime(time.Now().UTC())
+	res, err := s.DB.ExecContext(ctx, `UPDATE sandboxes SET workspace_id = ?, updated_at = ? WHERE vmid = ?`,
+		workspace,
+		updatedAt,
+		vmid,
+	)
+	if err != nil {
+		return fmt.Errorf("update sandbox %d workspace: %w", vmid, err)
+	}
+	affected, err := res.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("rows affected sandbox %d workspace: %w", vmid, err)
+	}
+	if affected == 0 {
+		return sql.ErrNoRows
 	}
 	return nil
 }
