@@ -2,8 +2,11 @@ package main
 
 import (
 	"context"
+	"flag"
+	"io"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/agentlab/agentlab/internal/buildinfo"
@@ -161,4 +164,58 @@ func TestErrorHandling(t *testing.T) {
 		err := daemon.Run(ctx, cfg)
 		assert.Error(t, err, "daemon.Run should fail with invalid config")
 	})
+}
+
+func captureStdout(t *testing.T, fn func()) string {
+	t.Helper()
+	oldStdout := os.Stdout
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatalf("pipe: %v", err)
+	}
+	os.Stdout = w
+	defer func() { os.Stdout = oldStdout }()
+
+	fn()
+	_ = w.Close()
+	os.Stdout = oldStdout
+	out, err := io.ReadAll(r)
+	_ = r.Close()
+	if err != nil {
+		t.Fatalf("read stdout: %v", err)
+	}
+	return string(out)
+}
+
+func TestMainVersion(t *testing.T) {
+	oldArgs := os.Args
+	oldFlagSet := flag.CommandLine
+	oldVersion := buildinfo.Version
+	oldCommit := buildinfo.Commit
+	oldDate := buildinfo.Date
+	defer func() {
+		os.Args = oldArgs
+		flag.CommandLine = oldFlagSet
+		buildinfo.Version = oldVersion
+		buildinfo.Commit = oldCommit
+		buildinfo.Date = oldDate
+	}()
+
+	buildinfo.Version = "9.9.9"
+	buildinfo.Commit = "abc123"
+	buildinfo.Date = "2026-01-30"
+
+	os.Args = []string{"agentlabd", "-version"}
+	flag.CommandLine = flag.NewFlagSet(os.Args[0], flag.ExitOnError)
+
+	out := captureStdout(t, func() {
+		main()
+	})
+
+	if !strings.Contains(out, "version=9.9.9") {
+		t.Fatalf("expected version output, got %q", out)
+	}
+	if !strings.Contains(out, "commit=abc123") {
+		t.Fatalf("expected commit output, got %q", out)
+	}
 }

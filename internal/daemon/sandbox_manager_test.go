@@ -6,6 +6,7 @@ import (
 	"io"
 	"log"
 	"path/filepath"
+	"sync"
 	"testing"
 	"time"
 
@@ -241,4 +242,143 @@ func newTestStore(t *testing.T) *db.Store {
 		_ = store.Close()
 	})
 	return store
+}
+
+func TestSandboxManagerConcurrentRenewLease(t *testing.T) {
+	ctx := context.Background()
+	store := newTestStore(t)
+	mgr := NewSandboxManager(store, nil, log.New(io.Discard, "", 0))
+	base := time.Date(2026, 1, 29, 13, 0, 0, 0, time.UTC)
+	mgr.now = func() time.Time { return base }
+
+	sandbox := models.Sandbox{
+		VMID:          105,
+		Name:          "concurrent-lease",
+		Profile:       "default",
+		State:         models.SandboxReady,
+		Keepalive:     true,
+		LeaseExpires:  base.Add(5 * time.Minute),
+		CreatedAt:     base,
+		LastUpdatedAt: base,
+	}
+	if err := store.CreateSandbox(ctx, sandbox); err != nil {
+		t.Fatalf("create sandbox: %v", err)
+	}
+
+	ttl := 2 * time.Hour
+	workers := 8
+	errs := make(chan error, workers)
+	var wg sync.WaitGroup
+	for i := 0; i < workers; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			_, err := mgr.RenewLease(ctx, sandbox.VMID, ttl)
+			errs <- err
+		}()
+	}
+	wg.Wait()
+	close(errs)
+
+	for err := range errs {
+		if err != nil {
+			t.Fatalf("renew lease error: %v", err)
+		}
+	}
+
+	updated, err := store.GetSandbox(ctx, sandbox.VMID)
+	if err != nil {
+		t.Fatalf("get sandbox: %v", err)
+	}
+	expected := base.Add(ttl)
+	if !updated.LeaseExpires.Equal(expected) {
+		t.Fatalf("expected lease %s, got %s", expected, updated.LeaseExpires)
+	}
+}
+
+func TestSandboxManagerConcurrentTransition(t *testing.T) {
+	ctx := context.Background()
+	store := newTestStore(t)
+	mgr := NewSandboxManager(store, nil, log.New(io.Discard, "", 0))
+
+	sandbox := models.Sandbox{
+		VMID:          106,
+		Name:          "concurrent-transition",
+		Profile:       "default",
+		State:         models.SandboxRunning,
+		Keepalive:     false,
+		CreatedAt:     time.Now().UTC(),
+		LastUpdatedAt: time.Now().UTC(),
+	}
+	if err := store.CreateSandbox(ctx, sandbox); err != nil {
+		t.Fatalf("create sandbox: %v", err)
+	}
+
+	workers := 8
+	errs := make(chan error, workers)
+	var wg sync.WaitGroup
+	for i := 0; i < workers; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			errs <- mgr.Transition(ctx, sandbox.VMID, models.SandboxCompleted)
+		}()
+	}
+	wg.Wait()
+	close(errs)
+
+	for err := range errs {
+		if err != nil && !errors.Is(err, ErrInvalidTransition) {
+			t.Fatalf("unexpected transition error: %v", err)
+		}
+	}
+
+	updated, err := store.GetSandbox(ctx, sandbox.VMID)
+	if err != nil {
+		t.Fatalf("get sandbox: %v", err)
+	}
+	if updated.State != models.SandboxCompleted {
+		t.Fatalf("expected completed, got %s", updated.State)
+	}
+}
+
+func TestSandboxManagerConcurrentLeaseGC(t *testing.T) {
+	ctx := context.Background()
+	store := newTestStore(t)
+	mgr := NewSandboxManager(store, nil, log.New(io.Discard, "", 0))
+	base := time.Date(2026, 1, 29, 14, 0, 0, 0, time.UTC)
+	mgr.now = func() time.Time { return base }
+
+	sandbox := models.Sandbox{
+		VMID:          107,
+		Name:          "concurrent-gc",
+		Profile:       "default",
+		State:         models.SandboxRunning,
+		Keepalive:     false,
+		LeaseExpires:  base.Add(-1 * time.Minute),
+		CreatedAt:     base.Add(-2 * time.Hour),
+		LastUpdatedAt: base.Add(-90 * time.Minute),
+	}
+	if err := store.CreateSandbox(ctx, sandbox); err != nil {
+		t.Fatalf("create sandbox: %v", err)
+	}
+
+	workers := 3
+	var wg sync.WaitGroup
+	for i := 0; i < workers; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			mgr.runLeaseGC(ctx)
+		}()
+	}
+	wg.Wait()
+
+	updated, err := store.GetSandbox(ctx, sandbox.VMID)
+	if err != nil {
+		t.Fatalf("get sandbox: %v", err)
+	}
+	if updated.State != models.SandboxDestroyed {
+		t.Fatalf("expected destroyed, got %s", updated.State)
+	}
 }
