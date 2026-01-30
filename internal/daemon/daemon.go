@@ -88,6 +88,7 @@ func NewService(cfg config.Config, profiles map[string]models.Profile, store *db
 
 	backend := &proxmox.ShellBackend{}
 	sandboxManager := NewSandboxManager(store, backend, log.Default())
+	redactor := NewRedactor(nil)
 	snippetStore := proxmox.SnippetStore{
 		Storage: cfg.SnippetStorage,
 		Dir:     cfg.SnippetsDir,
@@ -95,7 +96,7 @@ func NewService(cfg config.Config, profiles map[string]models.Profile, store *db
 	controllerURL := buildControllerURL(cfg.BootstrapListen)
 	var jobOrchestrator *JobOrchestrator
 	if strings.TrimSpace(cfg.SSHPublicKey) != "" {
-		jobOrchestrator = NewJobOrchestrator(store, profiles, backend, sandboxManager, snippetStore, cfg.SSHPublicKey, controllerURL, log.Default())
+		jobOrchestrator = NewJobOrchestrator(store, profiles, backend, sandboxManager, snippetStore, cfg.SSHPublicKey, controllerURL, log.Default(), redactor)
 	} else {
 		log.Printf("agentlabd: ssh public key missing; job orchestration disabled")
 	}
@@ -112,7 +113,7 @@ func NewService(cfg config.Config, profiles map[string]models.Profile, store *db
 		SopsPath:   cfg.SecretsSopsPath,
 	}
 	artifactEndpoint := buildArtifactUploadURL(cfg.ArtifactListen)
-	NewBootstrapAPI(store, profiles, secretsStore, cfg.SecretsBundle, cfg.BootstrapListen, artifactEndpoint, time.Duration(cfg.ArtifactTokenTTLMinutes)*time.Minute).Register(bootstrapMux)
+	NewBootstrapAPI(store, profiles, secretsStore, cfg.SecretsBundle, cfg.BootstrapListen, artifactEndpoint, time.Duration(cfg.ArtifactTokenTTLMinutes)*time.Minute, redactor).Register(bootstrapMux)
 	NewRunnerAPI(jobOrchestrator).Register(bootstrapMux)
 
 	artifactMux := http.NewServeMux()

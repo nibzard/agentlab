@@ -555,12 +555,23 @@
       "id": "T033",
       "title": "Implement secret redaction and log safety",
       "priority": 1,
-      "status": "todo",
+      "status": "done",
       "details": "Scrub bootstrap tokens and sensitive env keys from logs with automated tests.",
       "depends_on": [
         "T015",
         "T017",
         "T020"
+      ],
+      "updated_at": "2026-01-30T01:49:49Z",
+      "files": [
+        "internal/daemon/redaction.go",
+        "internal/daemon/job_orchestrator.go",
+        "internal/daemon/bootstrap_api.go",
+        "internal/daemon/daemon.go",
+        "internal/daemon/redaction_test.go",
+        "internal/daemon/bootstrap_api_test.go",
+        "internal/daemon/job_orchestrator_test.go",
+        "scripts/guest/agent-runner"
       ]
     },
     {

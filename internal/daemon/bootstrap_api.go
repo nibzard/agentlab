@@ -36,15 +36,19 @@ type BootstrapAPI struct {
 	now              func() time.Time
 	rand             io.Reader
 	agentSubnet      *net.IPNet
+	redactor         *Redactor
 }
 
-func NewBootstrapAPI(store *db.Store, profiles map[string]models.Profile, secretsStore secrets.Store, secretsBundle, bootstrapListen, artifactEndpoint string, artifactTokenTTL time.Duration) *BootstrapAPI {
+func NewBootstrapAPI(store *db.Store, profiles map[string]models.Profile, secretsStore secrets.Store, secretsBundle, bootstrapListen, artifactEndpoint string, artifactTokenTTL time.Duration, redactor *Redactor) *BootstrapAPI {
 	bundle := strings.TrimSpace(secretsBundle)
 	if bundle == "" {
 		bundle = "default"
 	}
 	if artifactTokenTTL <= 0 {
 		artifactTokenTTL = defaultArtifactTokenTTL
+	}
+	if redactor == nil {
+		redactor = NewRedactor(nil)
 	}
 	api := &BootstrapAPI{
 		store:            store,
@@ -55,6 +59,7 @@ func NewBootstrapAPI(store *db.Store, profiles map[string]models.Profile, secret
 		artifactTokenTTL: artifactTokenTTL,
 		now:              time.Now,
 		rand:             rand.Reader,
+		redactor:         redactor,
 	}
 	api.agentSubnet = deriveAgentSubnet(bootstrapListen)
 	return api
@@ -107,6 +112,9 @@ func (api *BootstrapAPI) handleBootstrapFetch(w http.ResponseWriter, r *http.Req
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to load secrets bundle")
 		return
+	}
+	if api.redactor != nil {
+		api.redactor.AddKeys(envKeys(bundle.Env)...)
 	}
 	claudeSettings, err := bundle.ClaudeSettingsJSON()
 	if err != nil {
@@ -282,6 +290,9 @@ func (api *BootstrapAPI) issueArtifactToken(ctx context.Context, jobID string, v
 				continue
 			}
 			return "", err
+		}
+		if api.redactor != nil {
+			api.redactor.AddValues(token)
 		}
 		return token, nil
 	}

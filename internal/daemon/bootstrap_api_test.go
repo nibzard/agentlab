@@ -78,7 +78,7 @@ claude:
 		t.Fatalf("write bundle: %v", err)
 	}
 
-	api := NewBootstrapAPI(store, nil, secrets.Store{Dir: secretsDir, AllowPlaintext: true}, "default", "10.77.0.1:8844", "http://10.77.0.1:8846/upload", time.Hour)
+	api := NewBootstrapAPI(store, nil, secrets.Store{Dir: secretsDir, AllowPlaintext: true}, "default", "10.77.0.1:8844", "http://10.77.0.1:8846/upload", time.Hour, nil)
 	api.now = func() time.Time { return now }
 
 	payload := `{"token":"` + token + `","vmid":2001}`
@@ -146,7 +146,7 @@ claude:
 }
 
 func TestBootstrapFetchRejectsNonAgentSubnet(t *testing.T) {
-	api := NewBootstrapAPI(newTestStore(t), nil, secrets.Store{}, "default", "10.77.0.1:8844", "http://10.77.0.1:8846/upload", time.Hour)
+	api := NewBootstrapAPI(newTestStore(t), nil, secrets.Store{}, "default", "10.77.0.1:8844", "http://10.77.0.1:8846/upload", time.Hour, nil)
 	req := httptest.NewRequest(http.MethodPost, "/v1/bootstrap/fetch", strings.NewReader(`{"token":"t","vmid":1}`))
 	req.RemoteAddr = "192.168.1.5:2222"
 	resp := httptest.NewRecorder()

@@ -48,6 +48,7 @@ type JobOrchestrator struct {
 	sshPublicKey   string
 	controllerURL  string
 	logger         *log.Logger
+	redactor       *Redactor
 	now            func() time.Time
 	rand           io.Reader
 	bootstrapTTL   time.Duration
@@ -55,9 +56,12 @@ type JobOrchestrator struct {
 	snippets       map[int]proxmox.CloudInitSnippet
 }
 
-func NewJobOrchestrator(store *db.Store, profiles map[string]models.Profile, backend proxmox.Backend, manager *SandboxManager, snippetStore proxmox.SnippetStore, sshPublicKey, controllerURL string, logger *log.Logger) *JobOrchestrator {
+func NewJobOrchestrator(store *db.Store, profiles map[string]models.Profile, backend proxmox.Backend, manager *SandboxManager, snippetStore proxmox.SnippetStore, sshPublicKey, controllerURL string, logger *log.Logger, redactor *Redactor) *JobOrchestrator {
 	if logger == nil {
 		logger = log.Default()
+	}
+	if redactor == nil {
+		redactor = NewRedactor(nil)
 	}
 	return &JobOrchestrator{
 		store:          store,
@@ -68,6 +72,7 @@ func NewJobOrchestrator(store *db.Store, profiles map[string]models.Profile, bac
 		sshPublicKey:   strings.TrimSpace(sshPublicKey),
 		controllerURL:  strings.TrimSpace(controllerURL),
 		logger:         logger,
+		redactor:       redactor,
 		now:            time.Now,
 		rand:           rand.Reader,
 		bootstrapTTL:   defaultBootstrapTTL,
@@ -81,7 +86,11 @@ func (o *JobOrchestrator) Start(jobID string) {
 	}
 	go func() {
 		if err := o.Run(context.Background(), jobID); err != nil && o.logger != nil {
-			o.logger.Printf("job orchestration %s: %v", jobID, err)
+			msg := err.Error()
+			if o.redactor != nil {
+				msg = o.redactor.Redact(msg)
+			}
+			o.logger.Printf("job orchestration %s: %s", jobID, msg)
 		}
 	}()
 }
@@ -212,6 +221,11 @@ func (o *JobOrchestrator) HandleReport(ctx context.Context, report JobReport) er
 	if report.Status == "" {
 		return errors.New("status is required")
 	}
+	if o.redactor != nil {
+		report.Message = o.redactor.Redact(strings.TrimSpace(report.Message))
+	} else {
+		report.Message = strings.TrimSpace(report.Message)
+	}
 
 	job, err := o.store.GetJob(ctx, report.JobID)
 	if err != nil {
@@ -325,9 +339,13 @@ func (o *JobOrchestrator) failJob(ctx context.Context, job models.Job, vmid int,
 	if cause == nil {
 		return nil
 	}
-	resultJSON, _ := buildJobResult(models.JobFailed, cause.Error(), nil, nil, o.now().UTC())
+	message := cause.Error()
+	if o.redactor != nil {
+		message = o.redactor.Redact(message)
+	}
+	resultJSON, _ := buildJobResult(models.JobFailed, message, nil, nil, o.now().UTC())
 	_ = o.store.UpdateJobResult(ctx, job.ID, models.JobFailed, resultJSON)
-	_ = o.store.RecordEvent(ctx, "job.failed", nullableVMID(vmid), &job.ID, cause.Error(), "")
+	_ = o.store.RecordEvent(ctx, "job.failed", nullableVMID(vmid), &job.ID, message, "")
 	if vmid > 0 && !job.Keepalive && o.sandboxManager != nil {
 		_ = o.sandboxManager.Destroy(ctx, vmid)
 		o.cleanupSnippet(vmid)
@@ -352,6 +370,9 @@ func (o *JobOrchestrator) bootstrapToken() (string, string, time.Time, error) {
 		return "", "", time.Time{}, err
 	}
 	token := hex.EncodeToString(buf)
+	if o.redactor != nil {
+		o.redactor.AddValues(token)
+	}
 	hash, err := db.HashBootstrapToken(token)
 	if err != nil {
 		return "", "", time.Time{}, err

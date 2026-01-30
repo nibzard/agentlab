@@ -28,6 +28,50 @@ REPO_DIR="${AGENTLAB_REPO_DIR:-}"
 STREAM_LOGS="${AGENTLAB_RUNNER_STREAM_LOGS:-0}"
 LOG_MAX_CHARS="${AGENTLAB_RUNNER_LOG_MAX_CHARS:-800}"
 BOOTSTRAP_CACHE="${AGENTLAB_BOOTSTRAP_CACHE:-1}"
+REDACT_LABEL="[REDACTED]"
+
+declare -a REDACT_VALUES=()
+declare -a REDACT_SED_ARGS=()
+declare -A REDACT_VALUE_SET=()
+
+escape_sed_regex() {
+  printf '%s' "$1" | sed -e 's/[\\/&]/\\&/g' -e 's/[][\\.^$*+?()|{}]/\\&/g'
+}
+
+add_redact_value() {
+  local value="${1:-}"
+  if [[ -z "$value" ]]; then
+    return 0
+  fi
+  if [[ "$value" == *$'\n'* ]]; then
+    return 0
+  fi
+  if (( ${#value} < 6 )); then
+    return 0
+  fi
+  if [[ -n "${REDACT_VALUE_SET[$value]:-}" ]]; then
+    return 0
+  fi
+  REDACT_VALUE_SET["$value"]=1
+  REDACT_VALUES+=("$value")
+}
+
+build_redact_sed() {
+  REDACT_SED_ARGS=()
+  local value escaped
+  for value in "${REDACT_VALUES[@]}"; do
+    escaped=$(escape_sed_regex "$value")
+    REDACT_SED_ARGS+=(-e "s/${escaped}/${REDACT_LABEL}/g")
+  done
+}
+
+redact_stream() {
+  if (( ${#REDACT_SED_ARGS[@]} == 0 )); then
+    cat
+    return 0
+  fi
+  sed -E "${REDACT_SED_ARGS[@]}"
+}
 
 mkdir -p "$SECRETS_DIR" "$RUN_DIR"
 chmod 700 "$SECRETS_DIR" "$RUN_DIR"
@@ -108,6 +152,18 @@ fetch_bootstrap() {
   done
 }
 
+init_redaction() {
+  add_redact_value "$TOKEN"
+  add_redact_value "$(jq -r '.artifact.token // empty' "$BOOTSTRAP_RESPONSE")"
+  add_redact_value "$(jq -r '.git.token // empty' "$BOOTSTRAP_RESPONSE")"
+  if jq -e '.env // {} | length > 0' "$BOOTSTRAP_RESPONSE" >/dev/null; then
+    while IFS= read -r value; do
+      add_redact_value "$value"
+    done < <(jq -r '.env // {} | to_entries[] | .value | tostring' "$BOOTSTRAP_RESPONSE")
+  fi
+  build_redact_sed
+}
+
 if [[ "$BOOTSTRAP_CACHE" != "0" && -s "$BOOTSTRAP_RESPONSE" ]]; then
   log "using cached bootstrap payload"
 else
@@ -135,6 +191,8 @@ fi
 if [[ -z "$JOB_REF" || "$JOB_REF" == "null" ]]; then
   JOB_REF="main"
 fi
+
+init_redaction
 
 report_status() {
   local status="$1"
@@ -310,19 +368,19 @@ run_agent() {
   if [[ "$AGENT_COMMAND" == "agentlab-agent" ]]; then
     if [[ -n "$JOB_TASK" ]]; then
       cmd+=(agentlab-agent --agent "$AGENT_TOOL")
-      (printf "%s\n" "$JOB_TASK" | "${cmd[@]}") 2>&1 | tee -a "$LOG_FILE" | stream_logs
+      (printf "%s\n" "$JOB_TASK" | "${cmd[@]}") 2>&1 | redact_stream | tee -a "$LOG_FILE" | stream_logs
       exit_code=${PIPESTATUS[0]}
     else
       cmd+=(agentlab-agent --agent "$AGENT_TOOL")
-      ("${cmd[@]}") 2>&1 | tee -a "$LOG_FILE" | stream_logs
+      ("${cmd[@]}") 2>&1 | redact_stream | tee -a "$LOG_FILE" | stream_logs
       exit_code=${PIPESTATUS[0]}
     fi
   else
     if [[ -x "$AGENT_COMMAND" && -z "$AGENT_ARGS" ]]; then
-      (cd "$REPO_DIR" && "${cmd[@]}" "$AGENT_COMMAND") 2>&1 | tee -a "$LOG_FILE" | stream_logs
+      (cd "$REPO_DIR" && "${cmd[@]}" "$AGENT_COMMAND") 2>&1 | redact_stream | tee -a "$LOG_FILE" | stream_logs
       exit_code=${PIPESTATUS[0]}
     else
-      (cd "$REPO_DIR" && "${cmd[@]}" bash -lc "$AGENT_COMMAND $AGENT_ARGS") 2>&1 | tee -a "$LOG_FILE" | stream_logs
+      (cd "$REPO_DIR" && "${cmd[@]}" bash -lc "$AGENT_COMMAND $AGENT_ARGS") 2>&1 | redact_stream | tee -a "$LOG_FILE" | stream_logs
       exit_code=${PIPESTATUS[0]}
     fi
   fi
