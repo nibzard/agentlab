@@ -1017,13 +1017,14 @@
       "id": "T054",
       "title": "Use failure-timeout context for workspace rebind cleanup",
       "priority": 2,
-      "status": "todo",
+      "status": "done",
       "details": "RebindWorkspace cleanup currently runs with the provision timeout context, so detach/reattach/destroy can be skipped after a timeout. Use a fresh background context with a short timeout for cleanup steps (matching job/provision cleanup) and add a timeout-path test.",
       "files": [
         "internal/daemon/workspace_rebind.go",
-        "internal/daemon/job_orchestrator.go",
-        "internal/daemon/job_orchestrator_test.go"
-      ]
+        "internal/daemon/job_orchestrator_test.go",
+        "to-do.json"
+      ],
+      "updated_at": "2026-01-30T07:32:01Z"
     },
     {
       "id": "T055",

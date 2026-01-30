@@ -115,14 +115,16 @@ func (o *JobOrchestrator) RebindWorkspace(ctx context.Context, workspaceID, prof
 		if err == nil {
 			return
 		}
+		cleanupCtx, cancel := o.withFailureTimeout()
+		defer cancel()
 		if attachedToNew {
-			_, _ = o.workspaceMgr.Detach(ctx, workspace.ID)
+			_, _ = o.workspaceMgr.Detach(cleanupCtx, workspace.ID)
 		}
 		if detachedOld && oldVMID != nil {
-			_, _ = o.workspaceMgr.Attach(ctx, workspace.ID, *oldVMID)
+			_, _ = o.workspaceMgr.Attach(cleanupCtx, workspace.ID, *oldVMID)
 		}
 		if created.VMID > 0 {
-			_ = o.sandboxManager.Destroy(ctx, created.VMID)
+			_ = o.sandboxManager.Destroy(cleanupCtx, created.VMID)
 		}
 		if snippetCreated {
 			o.cleanupSnippet(created.VMID)

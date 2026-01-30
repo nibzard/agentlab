@@ -22,6 +22,7 @@ type orchestratorBackend struct {
 	guestIP        string
 	blockClone     bool
 	blockConfigure bool
+	blockStart     bool
 }
 
 func (b *orchestratorBackend) Clone(ctx context.Context, _ proxmox.VMID, target proxmox.VMID, _ string) error {
@@ -42,8 +43,12 @@ func (b *orchestratorBackend) Configure(ctx context.Context, _ proxmox.VMID, cfg
 	return nil
 }
 
-func (b *orchestratorBackend) Start(_ context.Context, vmid proxmox.VMID) error {
+func (b *orchestratorBackend) Start(ctx context.Context, vmid proxmox.VMID) error {
 	b.startCalls = append(b.startCalls, vmid)
+	if b.blockStart {
+		<-ctx.Done()
+		return ctx.Err()
+	}
 	return nil
 }
 
@@ -445,6 +450,77 @@ func TestJobOrchestratorProvisionSandboxTimeoutCleanup(t *testing.T) {
 	}
 	if updatedSandbox.State != models.SandboxDestroyed {
 		t.Fatalf("expected sandbox DESTROYED, got %s", updatedSandbox.State)
+	}
+	if len(backend.destroyCalls) != 1 {
+		t.Fatalf("expected destroy call, got %d", len(backend.destroyCalls))
+	}
+}
+
+func TestWorkspaceRebindTimeoutCleanup(t *testing.T) {
+	ctx := context.Background()
+	store := newTestStore(t)
+	backend := &orchestratorBackend{blockStart: true}
+	manager := NewSandboxManager(store, backend, log.New(io.Discard, "", 0))
+	workspaceMgr := NewWorkspaceManager(store, backend, log.New(io.Discard, "", 0))
+	profiles := map[string]models.Profile{
+		"default": {Name: "default", TemplateVM: 9000},
+	}
+	snippetStore := proxmox.SnippetStore{Storage: "local", Dir: t.TempDir()}
+	orchestrator := NewJobOrchestrator(store, profiles, backend, manager, workspaceMgr, snippetStore, "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIBtestkey agent@test", "http://10.77.0.1:8844", log.New(io.Discard, "", 0), nil, nil)
+	orchestrator.WithProvisionTimeout(200 * time.Millisecond)
+
+	now := time.Date(2026, 1, 29, 17, 0, 0, 0, time.UTC)
+	orchestrator.now = func() time.Time { return now }
+	oldSandbox := models.Sandbox{
+		VMID:          1400,
+		Name:          "sandbox-1400",
+		Profile:       "default",
+		State:         models.SandboxRunning,
+		CreatedAt:     now,
+		LastUpdatedAt: now,
+	}
+	if err := store.CreateSandbox(ctx, oldSandbox); err != nil {
+		t.Fatalf("create sandbox: %v", err)
+	}
+
+	workspace, err := workspaceMgr.Create(ctx, "dev", "local-zfs", 10)
+	if err != nil {
+		t.Fatalf("create workspace: %v", err)
+	}
+	workspace, err = workspaceMgr.Attach(ctx, workspace.ID, oldSandbox.VMID)
+	if err != nil {
+		t.Fatalf("attach workspace: %v", err)
+	}
+	if workspace.AttachedVM == nil || *workspace.AttachedVM != oldSandbox.VMID {
+		t.Fatalf("expected workspace attached to vmid %d", oldSandbox.VMID)
+	}
+
+	if _, err := orchestrator.RebindWorkspace(ctx, workspace.ID, "default", nil, false); err == nil {
+		t.Fatalf("expected timeout error")
+	}
+
+	updatedWorkspace, err := store.GetWorkspace(ctx, workspace.ID)
+	if err != nil {
+		t.Fatalf("get workspace: %v", err)
+	}
+	if updatedWorkspace.AttachedVM == nil || *updatedWorkspace.AttachedVM != oldSandbox.VMID {
+		t.Fatalf("expected workspace reattached to vmid %d, got %v", oldSandbox.VMID, updatedWorkspace.AttachedVM)
+	}
+	updatedOld, err := store.GetSandbox(ctx, oldSandbox.VMID)
+	if err != nil {
+		t.Fatalf("get old sandbox: %v", err)
+	}
+	if updatedOld.WorkspaceID == nil || *updatedOld.WorkspaceID != workspace.ID {
+		t.Fatalf("expected old sandbox workspace restored")
+	}
+
+	newVMID := oldSandbox.VMID + 1
+	updatedNew, err := store.GetSandbox(ctx, newVMID)
+	if err != nil {
+		t.Fatalf("get new sandbox: %v", err)
+	}
+	if updatedNew.State != models.SandboxDestroyed {
+		t.Fatalf("expected sandbox DESTROYED, got %s", updatedNew.State)
 	}
 	if len(backend.destroyCalls) != 1 {
 		t.Fatalf("expected destroy call, got %d", len(backend.destroyCalls))
