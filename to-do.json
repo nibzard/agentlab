@@ -1050,6 +1050,17 @@
         "to-do.json"
       ],
       "updated_at": "2026-01-30T08:01:33Z"
+    },
+    {
+      "id": "T057",
+      "title": "Ensure create_template.sh creates cache dir when --image-file is used",
+      "priority": 3,
+      "status": "done",
+      "details": "create_template.sh only creates CACHE_DIR when downloading the image; if --image-file is supplied and CACHE_DIR is missing, the WORK_IMAGE copy fails. Ensure the cache/work directory exists regardless of image source (and consider a small sanity check/test).",
+      "files": [
+        "scripts/create_template.sh"
+      ],
+      "updated_at": "2026-01-30T08:16:19Z"
     }
   ]
 }

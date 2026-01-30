@@ -230,6 +230,8 @@ if [[ "$SKIP_CUSTOMIZE" == "0" ]]; then
   [[ -f "$AGENTLAB_WORK_MOUNT_UNIT" ]] || die "workspace mount unit not found at $AGENTLAB_WORK_MOUNT_UNIT"
 fi
 
+install -d -m 0755 "$CACHE_DIR"
+
 download_image() {
   local url="$1"
   local dest="$2"
@@ -243,7 +245,6 @@ download_image() {
 }
 
 if [[ -z "$IMAGE_FILE" ]]; then
-  install -d -m 0755 "$CACHE_DIR"
   IMAGE_FILE="${CACHE_DIR}/$(basename "$IMAGE_URL")"
   if [[ "$REFRESH" == "1" || ! -f "$IMAGE_FILE" ]]; then
     log "Downloading cloud image to $IMAGE_FILE"
