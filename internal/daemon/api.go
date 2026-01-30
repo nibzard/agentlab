@@ -126,6 +126,12 @@ func (api *ControlAPI) handleJobCreate(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "unknown profile")
 		return
 	}
+	if profile, ok := api.profile(req.Profile); ok {
+		if err := validateProfileForProvisioning(profile); err != nil {
+			writeError(w, http.StatusBadRequest, err.Error())
+			return
+		}
+	}
 
 	ctx := r.Context()
 	var job models.Job
@@ -276,6 +282,12 @@ func (api *ControlAPI) handleSandboxCreate(w http.ResponseWriter, r *http.Reques
 	if !api.profileExists(req.Profile) {
 		writeError(w, http.StatusBadRequest, "unknown profile")
 		return
+	}
+	if profile, ok := api.profile(req.Profile); ok {
+		if err := validateProfileForProvisioning(profile); err != nil {
+			writeError(w, http.StatusBadRequest, err.Error())
+			return
+		}
 	}
 	if req.TTLMinutes != nil && *req.TTLMinutes <= 0 {
 		writeError(w, http.StatusBadRequest, "ttl_minutes must be positive")
@@ -479,6 +491,17 @@ func (api *ControlAPI) profileExists(name string) bool {
 	}
 	_, ok := api.profiles[name]
 	return ok
+}
+
+func (api *ControlAPI) profile(name string) (models.Profile, bool) {
+	if name == "" {
+		return models.Profile{}, false
+	}
+	if api.profiles == nil {
+		return models.Profile{}, false
+	}
+	profile, ok := api.profiles[name]
+	return profile, ok
 }
 
 func jobToV1(job models.Job) V1JobResponse {

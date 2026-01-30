@@ -174,6 +174,7 @@ Implement NAT on host using nftables (preferred) or iptables.
 
 ### 7.3 No host mounts
 Do **not** mount host directories into agent VMs.
+This prevents sandboxes from reading or tampering with host data (including other sandboxes) and avoids unwanted persistence on the host; use workspace disks or artifact uploads instead.
 All persistence is via:
 - git remote
 - artifact upload
@@ -643,4 +644,3 @@ table inet agentlab {
 - Which storage pool name (local-zfs vs local-lvm)
 - Which agent CLIs are baked into template vs installed per job
 - Artifact upload service (simple HTTP on host vs MinIO)
-

@@ -468,19 +468,19 @@
         "T010",
         "T017"
       ],
-      "updated_at": "2026-01-30T01:23:40Z",
+      "updated_at": "2026-01-30T01:24:43Z",
       "files": [
+        "docs/secrets.md",
         "internal/config/config.go",
-        "internal/daemon/daemon.go",
-        "internal/daemon/bootstrap_api.go",
         "internal/daemon/api_types.go",
         "internal/daemon/artifact_api.go",
         "internal/daemon/artifact_api_test.go",
+        "internal/daemon/bootstrap_api.go",
         "internal/daemon/bootstrap_api_test.go",
-        "internal/db/migrations.go",
+        "internal/daemon/daemon.go",
         "internal/db/artifact_tokens.go",
         "internal/db/artifacts.go",
-        "docs/secrets.md",
+        "internal/db/migrations.go",
         "to-do.json"
       ]
     },
@@ -515,9 +515,10 @@
       "depends_on": [
         "T022"
       ],
-      "updated_at": "2026-01-30T01:28:02Z",
+      "updated_at": "2026-01-30T01:30:10Z",
       "files": [
-        "skills/agentlab/skill.md"
+        "skills/agentlab/skill.md",
+        "to-do.json"
       ]
     },
     {
@@ -535,10 +536,19 @@
       "id": "T032",
       "title": "Enforce no-host-mount policy in provisioning",
       "priority": 1,
-      "status": "todo",
+      "status": "done",
       "details": "Add guardrails to refuse profiles requesting host bind mounts and document rationale.",
       "depends_on": [
         "T007"
+      ],
+      "updated_at": "2026-01-30T01:37:45Z",
+      "files": [
+        "internal/daemon/profile_validation.go",
+        "internal/daemon/api.go",
+        "internal/daemon/job_orchestrator.go",
+        "internal/daemon/profile_validation_test.go",
+        "internal/daemon/job_orchestrator_test.go",
+        "PROXMOX_SPECS.md"
       ]
     },
     {

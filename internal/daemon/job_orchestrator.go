@@ -107,6 +107,9 @@ func (o *JobOrchestrator) Run(ctx context.Context, jobID string) error {
 	if !ok {
 		return o.failJob(ctx, job, 0, fmt.Errorf("unknown profile %q", job.Profile))
 	}
+	if err := validateProfileForProvisioning(profile); err != nil {
+		return o.failJob(ctx, job, 0, err)
+	}
 	if o.sandboxManager == nil {
 		return o.failJob(ctx, job, 0, errors.New("sandbox manager unavailable"))
 	}
