@@ -1,0 +1,75 @@
+# Default AgentLab profiles.
+# Copy each YAML document into its own file under /etc/agentlab/profiles/.
+# Only name and template_vmid are required by agentlabd; the rest are defaults.
+---
+name: yolo-ephemeral
+template_vmid: 9000
+network:
+  bridge: vmbr1
+  model: virtio
+  firewall_group: agent_nat_default
+resources:
+  cores: 4
+  memory_mb: 6144
+  balloon: false
+storage:
+  root_size_gb: 40
+  workspace: none
+behavior:
+  mode: dangerous
+  keepalive_default: false
+  ttl_minutes_default: 180
+secrets_bundle: default
+repo:
+  clone_path: /tmp/repo
+artifacts:
+  upload: true
+  endpoint: http://10.77.0.1:8846/upload
+---
+name: yolo-workspace
+template_vmid: 9000
+network:
+  bridge: vmbr1
+  model: virtio
+  firewall_group: agent_nat_default
+resources:
+  cores: 4
+  memory_mb: 6144
+  balloon: false
+storage:
+  root_size_gb: 30
+  workspace: attach
+behavior:
+  mode: dangerous
+  keepalive_default: true
+  ttl_minutes_default: 480
+secrets_bundle: default
+repo:
+  clone_path: /work/repo
+artifacts:
+  upload: true
+  endpoint: http://10.77.0.1:8846/upload
+---
+name: interactive-dev
+template_vmid: 9000
+network:
+  bridge: vmbr1
+  model: virtio
+  firewall_group: agent_nat_default
+resources:
+  cores: 6
+  memory_mb: 8192
+  balloon: false
+storage:
+  root_size_gb: 60
+  workspace: none
+behavior:
+  mode: dangerous
+  keepalive_default: true
+  ttl_minutes_default: 720
+secrets_bundle: default
+repo:
+  clone_path: /tmp/repo
+artifacts:
+  upload: true
+  endpoint: http://10.77.0.1:8846/upload

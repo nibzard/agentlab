@@ -779,10 +779,16 @@
       "id": "T041",
       "title": "Ship default profile YAMLs for yolo-ephemeral, yolo-workspace, and interactive-dev",
       "priority": 2,
-      "status": "todo",
+      "status": "done",
       "details": "Provide baseline resource/network/secrets bundle configs in scripts/profiles/defaults.yaml compatible with agentlabd loader.",
       "depends_on": [
         "T010"
+      ],
+      "updated_at": "2026-01-30T04:07:33Z",
+      "files": [
+        "scripts/profiles/defaults.yaml",
+        "scripts/README.md",
+        "to-do.json"
       ]
     }
   ]
