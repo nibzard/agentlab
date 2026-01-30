@@ -902,11 +902,66 @@
         "cmd/agentlab/commands.go",
         "internal/daemon/api.go",
         "internal/daemon/api_types.go",
+        "internal/daemon/behavior_defaults_test.go",
         "internal/daemon/profile_behavior.go",
         "internal/daemon/workspace_rebind.go",
-        "internal/daemon/behavior_defaults_test.go"
+        "to-do.json"
       ],
-      "updated_at": "2026-01-30T05:57:17Z"
+      "updated_at": "2026-01-30T05:58:01Z"
+    },
+    {
+      "id": "T047",
+      "title": "Restrict runner report endpoint to agent subnet or add authentication",
+      "priority": 1,
+      "status": "done",
+      "details": "Runner reports are accepted from any remote address on the bootstrap listener. Enforce agent-subnet checks (like bootstrap/artifact) and/or require a shared token from the bootstrap payload; add coverage for rejection of non-agent sources.",
+      "files": [
+        "internal/daemon/runner_api.go",
+        "internal/daemon/daemon.go",
+        "internal/daemon/runner_api_test.go",
+        "internal/daemon/bootstrap_api.go",
+        "to-do.json"
+      ],
+      "updated_at": "2026-01-30T06:11:53Z"
+    },
+    {
+      "id": "T048",
+      "title": "Move guest secrets directory under /run/agentlab to avoid clobbering /run/secrets",
+      "priority": 2,
+      "status": "todo",
+      "details": "Use an agentlab-specific secrets path (for example /run/agentlab/secrets) and update agent-runner, cleanup script, and systemd unit/runtime directories accordingly.",
+      "files": [
+        "scripts/guest/agent-runner",
+        "scripts/guest/agent-secrets-cleanup",
+        "scripts/guest/agent-runner.service",
+        "scripts/create_template.sh"
+      ]
+    },
+    {
+      "id": "T049",
+      "title": "Add timeouts for CLI HTTP calls and provisioning steps",
+      "priority": 3,
+      "status": "todo",
+      "details": "The CLI client and job provisioning path can hang indefinitely when agentlabd or Proxmox commands stall. Add configurable timeouts (HTTP client, job orchestration/provisioning) and propagate context deadlines.",
+      "files": [
+        "cmd/agentlab/api.go",
+        "internal/daemon/job_orchestrator.go",
+        "internal/proxmox/shell_backend.go",
+        "internal/config/config.go"
+      ]
+    },
+    {
+      "id": "T050",
+      "title": "Expand README with overview, prerequisites, and quickstart",
+      "priority": 4,
+      "status": "todo",
+      "details": "README currently contains only the title. Add a concise overview, setup prerequisites, and links to runbook/secrets/API docs.",
+      "files": [
+        "README.md",
+        "docs/runbook.md",
+        "docs/secrets.md",
+        "docs/api.md"
+      ]
     }
   ]
 }

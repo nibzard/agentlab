@@ -147,7 +147,7 @@ func NewService(cfg config.Config, profiles map[string]models.Profile, store *db
 		artifactEndpoint = buildArtifactUploadURL(cfg.ArtifactListen)
 	}
 	NewBootstrapAPI(store, profiles, secretsStore, cfg.SecretsBundle, agentSubnet, artifactEndpoint, time.Duration(cfg.ArtifactTokenTTLMinutes)*time.Minute, redactor).Register(bootstrapMux)
-	NewRunnerAPI(jobOrchestrator).Register(bootstrapMux)
+	NewRunnerAPI(jobOrchestrator, agentSubnet).Register(bootstrapMux)
 
 	artifactMux := http.NewServeMux()
 	artifactMux.HandleFunc("/healthz", healthHandler)

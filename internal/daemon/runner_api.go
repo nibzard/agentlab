@@ -2,6 +2,7 @@ package daemon
 
 import (
 	"errors"
+	"net"
 	"net/http"
 	"strings"
 
@@ -11,10 +12,11 @@ import (
 // RunnerAPI handles guest runner status reports.
 type RunnerAPI struct {
 	orchestrator *JobOrchestrator
+	agentSubnet  *net.IPNet
 }
 
-func NewRunnerAPI(orchestrator *JobOrchestrator) *RunnerAPI {
-	return &RunnerAPI{orchestrator: orchestrator}
+func NewRunnerAPI(orchestrator *JobOrchestrator, agentSubnet *net.IPNet) *RunnerAPI {
+	return &RunnerAPI{orchestrator: orchestrator, agentSubnet: agentSubnet}
 }
 
 func (api *RunnerAPI) Register(mux *http.ServeMux) {
@@ -27,6 +29,10 @@ func (api *RunnerAPI) Register(mux *http.ServeMux) {
 func (api *RunnerAPI) handleRunnerReport(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		writeMethodNotAllowed(w, []string{http.MethodPost})
+		return
+	}
+	if !api.remoteAllowed(r.RemoteAddr) {
+		writeError(w, http.StatusForbidden, "runner access restricted to agent subnet")
 		return
 	}
 	var req V1RunnerReportRequest
@@ -81,6 +87,22 @@ func (api *RunnerAPI) handleRunnerReport(w http.ResponseWriter, r *http.Request)
 		resp.SandboxStatus = string(target)
 	}
 	writeJSON(w, http.StatusOK, resp)
+}
+
+func (api *RunnerAPI) remoteAllowed(addr string) bool {
+	if api.agentSubnet == nil {
+		return true
+	}
+	host, _, err := net.SplitHostPort(addr)
+	if err != nil {
+		host = addr
+	}
+	host = strings.Trim(host, "[]")
+	ip := net.ParseIP(host)
+	if ip == nil || ip.IsUnspecified() {
+		return false
+	}
+	return api.agentSubnet.Contains(ip)
 }
 
 func parseJobStatus(value string) (models.JobStatus, error) {
