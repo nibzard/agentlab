@@ -11,3 +11,4 @@
 - `net/apply.sh`: install and optionally enable the agentlab nftables rules.
 - `net/setup_vmbr1.sh`: configure the vmbr1 bridge and enable IP forwarding on the host.
 - `net/setup_tailscale_router.sh`: advertise the agent subnet via Tailscale for tailnet access.
+- `tests/golden_path.sh`: end-to-end golden path integration test for jobs + artifacts.

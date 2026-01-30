@@ -562,16 +562,17 @@
         "T017",
         "T020"
       ],
-      "updated_at": "2026-01-30T01:49:49Z",
+      "updated_at": "2026-01-30T01:50:34Z",
       "files": [
-        "internal/daemon/redaction.go",
-        "internal/daemon/job_orchestrator.go",
         "internal/daemon/bootstrap_api.go",
-        "internal/daemon/daemon.go",
-        "internal/daemon/redaction_test.go",
         "internal/daemon/bootstrap_api_test.go",
+        "internal/daemon/daemon.go",
+        "internal/daemon/job_orchestrator.go",
         "internal/daemon/job_orchestrator_test.go",
-        "scripts/guest/agent-runner"
+        "internal/daemon/redaction.go",
+        "internal/daemon/redaction_test.go",
+        "scripts/guest/agent-runner",
+        "to-do.json"
       ]
     },
     {
@@ -632,13 +633,19 @@
       "id": "T039",
       "title": "Create end-to-end golden path integration test",
       "priority": 1,
-      "status": "todo",
+      "status": "done",
       "details": "Automate sandbox create → run trivial repo task → upload artifact → teardown validation.",
       "depends_on": [
         "T002",
         "T004",
         "T014",
         "T020"
+      ],
+      "updated_at": "2026-01-30T01:59:21Z",
+      "files": [
+        "scripts/tests/golden_path.sh",
+        "scripts/README.md",
+        "to-do.json"
       ]
     },
     {
