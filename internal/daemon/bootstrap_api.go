@@ -108,6 +108,20 @@ func (api *BootstrapAPI) handleBootstrapFetch(w http.ResponseWriter, r *http.Req
 		writeError(w, http.StatusInternalServerError, "failed to load job")
 		return
 	}
+	tokenHash, err := db.HashBootstrapToken(req.Token)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "invalid token")
+		return
+	}
+	valid, err := api.store.ValidateBootstrapToken(r.Context(), tokenHash, req.VMID, api.now().UTC())
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to validate token")
+		return
+	}
+	if !valid {
+		writeError(w, http.StatusForbidden, "invalid or expired bootstrap token")
+		return
+	}
 	bundle, err := api.secretsStore.Load(r.Context(), api.secretsBundle)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to load secrets bundle")
@@ -119,20 +133,6 @@ func (api *BootstrapAPI) handleBootstrapFetch(w http.ResponseWriter, r *http.Req
 	claudeSettings, err := bundle.ClaudeSettingsJSON()
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to encode claude settings")
-		return
-	}
-	tokenHash, err := db.HashBootstrapToken(req.Token)
-	if err != nil {
-		writeError(w, http.StatusBadRequest, "invalid token")
-		return
-	}
-	consumed, err := api.store.ConsumeBootstrapToken(r.Context(), tokenHash, req.VMID, api.now().UTC())
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, "failed to validate token")
-		return
-	}
-	if !consumed {
-		writeError(w, http.StatusForbidden, "invalid or expired bootstrap token")
 		return
 	}
 
@@ -174,6 +174,16 @@ func (api *BootstrapAPI) handleBootstrapFetch(w http.ResponseWriter, r *http.Req
 	}
 	if policy != nil {
 		resp.Policy = policy
+	}
+
+	consumed, err := api.store.ConsumeBootstrapToken(r.Context(), tokenHash, req.VMID, api.now().UTC())
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to consume token")
+		return
+	}
+	if !consumed {
+		writeError(w, http.StatusForbidden, "invalid or expired bootstrap token")
+		return
 	}
 
 	writeJSON(w, http.StatusOK, resp)

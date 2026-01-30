@@ -3,6 +3,7 @@ package db
 import (
 	"context"
 	"crypto/sha256"
+	"database/sql"
 	"encoding/hex"
 	"errors"
 	"fmt"
@@ -46,6 +47,38 @@ func (s *Store) CreateBootstrapToken(ctx context.Context, tokenHash string, vmid
 		return fmt.Errorf("insert bootstrap token for vmid %d: %w", vmid, err)
 	}
 	return nil
+}
+
+// ValidateBootstrapToken reports whether a token is valid and unconsumed.
+func (s *Store) ValidateBootstrapToken(ctx context.Context, tokenHash string, vmid int, now time.Time) (bool, error) {
+	if s == nil || s.DB == nil {
+		return false, errors.New("db store is nil")
+	}
+	tokenHash = strings.TrimSpace(tokenHash)
+	if tokenHash == "" {
+		return false, errors.New("token hash is required")
+	}
+	if vmid <= 0 {
+		return false, errors.New("vmid must be positive")
+	}
+	if now.IsZero() {
+		now = time.Now().UTC()
+	}
+	timestamp := formatTime(now)
+	row := s.DB.QueryRowContext(ctx, `SELECT 1 FROM bootstrap_tokens
+		WHERE token = ? AND vmid = ? AND consumed_at IS NULL AND expires_at > ?`,
+		tokenHash,
+		vmid,
+		timestamp,
+	)
+	var exists int
+	if err := row.Scan(&exists); err != nil {
+		if err == sql.ErrNoRows {
+			return false, nil
+		}
+		return false, fmt.Errorf("validate bootstrap token for vmid %d: %w", vmid, err)
+	}
+	return true, nil
 }
 
 // ConsumeBootstrapToken marks a token as consumed if it is valid and unexpired.

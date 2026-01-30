@@ -1,8 +1,10 @@
 package daemon
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -15,6 +17,12 @@ import (
 	"github.com/agentlab/agentlab/internal/models"
 	"github.com/agentlab/agentlab/internal/secrets"
 )
+
+type failingReader struct{}
+
+func (failingReader) Read(_ []byte) (int, error) {
+	return 0, errors.New("rand failure")
+}
 
 func TestBootstrapFetchSuccess(t *testing.T) {
 	ctx := context.Background()
@@ -174,6 +182,105 @@ behavior:
 	api.handleBootstrapFetch(replay, reqReplay)
 	if replay.Code != http.StatusForbidden {
 		t.Fatalf("expected 403 on reused token, got %d", replay.Code)
+	}
+}
+
+func TestBootstrapFetchRetryAfterFailureDoesNotConsumeToken(t *testing.T) {
+	ctx := context.Background()
+	store := newTestStore(t)
+	now := time.Date(2026, 1, 30, 1, 30, 0, 0, time.UTC)
+
+	sandbox := models.Sandbox{
+		VMID:          2002,
+		Name:          "sandbox-2002",
+		Profile:       "yolo",
+		State:         models.SandboxRunning,
+		Keepalive:     false,
+		CreatedAt:     now,
+		LastUpdatedAt: now,
+	}
+	if err := store.CreateSandbox(ctx, sandbox); err != nil {
+		t.Fatalf("create sandbox: %v", err)
+	}
+
+	job := models.Job{
+		ID:          "job_bootstrap_retry",
+		RepoURL:     "https://example.com/repo.git",
+		Ref:         "main",
+		Profile:     "yolo",
+		Task:        "run tests",
+		Mode:        "dangerous",
+		Status:      models.JobRunning,
+		SandboxVMID: &sandbox.VMID,
+		CreatedAt:   now,
+		UpdatedAt:   now,
+	}
+	if err := store.CreateJob(ctx, job); err != nil {
+		t.Fatalf("create job: %v", err)
+	}
+
+	token := "token-retry"
+	hash, err := db.HashBootstrapToken(token)
+	if err != nil {
+		t.Fatalf("hash token: %v", err)
+	}
+	if err := store.CreateBootstrapToken(ctx, hash, sandbox.VMID, now.Add(5*time.Minute)); err != nil {
+		t.Fatalf("create bootstrap token: %v", err)
+	}
+
+	secretsDir := t.TempDir()
+	bundlePath := filepath.Join(secretsDir, "default.yaml")
+	bundle := []byte(`version: 1
+
+env:
+  OPENAI_API_KEY: "sk-test"
+`)
+	if err := os.WriteFile(bundlePath, bundle, 0o600); err != nil {
+		t.Fatalf("write bundle: %v", err)
+	}
+
+	agentSubnet := mustParseCIDR(t, "10.77.0.0/16")
+	api := NewBootstrapAPI(store, nil, secrets.Store{Dir: secretsDir, AllowPlaintext: true}, "default", agentSubnet, "http://10.77.0.1:8846/upload", time.Hour, nil)
+	api.now = func() time.Time { return now }
+	api.rand = failingReader{}
+
+	payload := `{"token":"` + token + `","vmid":2002}`
+	req := httptest.NewRequest(http.MethodPost, "/v1/bootstrap/fetch", strings.NewReader(payload))
+	req.RemoteAddr = "10.77.0.55:1234"
+	resp := httptest.NewRecorder()
+	api.handleBootstrapFetch(resp, req)
+	if resp.Code != http.StatusInternalServerError {
+		t.Fatalf("expected 500 on artifact token failure, got %d", resp.Code)
+	}
+
+	valid, err := store.ValidateBootstrapToken(ctx, hash, sandbox.VMID, now)
+	if err != nil {
+		t.Fatalf("validate token: %v", err)
+	}
+	if !valid {
+		t.Fatal("expected token to remain valid after failure")
+	}
+
+	tokenBytes := make([]byte, artifactTokenBytes*maxArtifactTokenAttempts)
+	for i := range tokenBytes {
+		tokenBytes[i] = byte(i + 1)
+	}
+	api.rand = bytes.NewReader(tokenBytes)
+
+	retry := httptest.NewRequest(http.MethodPost, "/v1/bootstrap/fetch", strings.NewReader(payload))
+	retry.RemoteAddr = "10.77.0.55:1234"
+	retryResp := httptest.NewRecorder()
+	api.handleBootstrapFetch(retryResp, retry)
+	if retryResp.Code != http.StatusOK {
+		t.Fatalf("expected 200 on retry, got %d", retryResp.Code)
+	}
+
+	valid, err = store.ValidateBootstrapToken(ctx, hash, sandbox.VMID, now.Add(time.Minute))
+	if err != nil {
+		t.Fatalf("validate token after success: %v", err)
+	}
+	if valid {
+		t.Fatal("expected token to be consumed after success")
 	}
 }
 

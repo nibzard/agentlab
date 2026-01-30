@@ -869,24 +869,26 @@
       "status": "done",
       "details": "When AGENT_COMMAND defaults to agentlab-agent, agent-runner does not cd into the repo, so agents start outside the checkout. Update scripts/guest/agent-runner to run agentlab-agent from $REPO_DIR and add a regression check (unit/integration) if feasible.",
       "files": [
+        "scripts/README.md",
         "scripts/guest/agent-runner",
         "scripts/tests/agent_runner_repo_dir.sh",
-        "scripts/README.md",
         "to-do.json"
       ],
-      "updated_at": "2026-01-30T05:32:41Z"
+      "updated_at": "2026-01-30T05:35:33Z"
     },
     {
       "id": "T045",
       "title": "Avoid consuming bootstrap tokens before response is ready",
       "priority": 1,
-      "status": "todo",
+      "status": "done",
       "details": "BootstrapAPI consumes the one-time token before issuing artifact tokens and building the response; any subsequent error burns the token and prevents retries. Reorder/transactionalize token consumption or add a validate-then-consume flow, and add a test for retry safety.",
       "files": [
         "internal/daemon/bootstrap_api.go",
         "internal/db/bootstrap_tokens.go",
-        "internal/daemon/bootstrap_api_test.go"
-      ]
+        "internal/daemon/bootstrap_api_test.go",
+        "internal/db/bootstrap_tokens_test.go"
+      ],
+      "updated_at": "2026-01-30T05:40:52Z"
     },
     {
       "id": "T046",
