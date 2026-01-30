@@ -432,11 +432,17 @@
       "id": "T023",
       "title": "Implement CLI SSH helper with Tailscale-aware messaging",
       "priority": 2,
-      "status": "todo",
+      "status": "done",
       "details": "Resolve IP, print/exec ssh command, and warn when tailnet route is not reachable.",
       "depends_on": [
         "T009",
         "T005"
+      ],
+      "updated_at": "2026-01-30T02:20:32Z",
+      "files": [
+        "cmd/agentlab/ssh.go",
+        "cmd/agentlab/main.go",
+        "to-do.json"
       ]
     },
     {

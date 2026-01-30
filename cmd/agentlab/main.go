@@ -23,6 +23,7 @@ Usage:
   agentlab [--socket PATH] [--json] sandbox show <vmid>
   agentlab [--socket PATH] [--json] sandbox destroy <vmid>
   agentlab [--socket PATH] [--json] sandbox lease renew <vmid> --ttl <ttl>
+  agentlab [--socket PATH] [--json] ssh <vmid> [--user <user>] [--port <port>] [--identity <path>] [--exec]
   agentlab [--socket PATH] [--json] logs <vmid> [--follow] [--tail <n>]
 
 Global Flags:
@@ -91,6 +92,8 @@ func dispatch(ctx context.Context, args []string, base commonFlags) error {
 		return runJobCommand(ctx, args[1:], base)
 	case "sandbox":
 		return runSandboxCommand(ctx, args[1:], base)
+	case "ssh":
+		return runSSHCommand(ctx, args[1:], base)
 	case "logs":
 		return runLogsCommand(ctx, args[1:], base)
 	default:
@@ -142,6 +145,11 @@ func printSandboxLeaseRenewUsage() {
 func printLogsUsage() {
 	fmt.Fprintln(os.Stdout, "Usage: agentlab logs <vmid> [--follow] [--tail <n>]")
 	fmt.Fprintln(os.Stdout, "Note: --json outputs one JSON object per line.")
+}
+
+func printSSHUsage() {
+	fmt.Fprintln(os.Stdout, "Usage: agentlab ssh <vmid> [--user <user>] [--port <port>] [--identity <path>] [--exec]")
+	fmt.Fprintln(os.Stdout, "Note: --exec replaces the CLI with ssh when run in a terminal.")
 }
 
 func isHelpToken(value string) bool {
