@@ -212,7 +212,9 @@ func (m *WorkspaceManager) Detach(ctx context.Context, idOrName string) (models.
 	}
 	vmid := *workspace.AttachedVM
 	if err := m.backend.DetachVolume(ctx, proxmox.VMID(vmid), workspaceDiskSlot); err != nil {
-		return models.Workspace{}, err
+		if !errors.Is(err, proxmox.ErrVMNotFound) {
+			return models.Workspace{}, err
+		}
 	}
 	detached, err := m.store.DetachWorkspace(ctx, workspace.ID, vmid)
 	if err != nil {

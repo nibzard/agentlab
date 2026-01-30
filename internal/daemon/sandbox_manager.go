@@ -222,6 +222,11 @@ func (m *SandboxManager) expireSandbox(ctx context.Context, sandbox models.Sandb
 			return err
 		}
 	}
+	if m.workspace != nil {
+		if err := m.workspace.DetachFromVM(ctx, sandbox.VMID); err != nil {
+			return fmt.Errorf("detach workspace for vmid %d: %w", sandbox.VMID, err)
+		}
+	}
 	if err := m.destroySandbox(ctx, sandbox.VMID); err != nil {
 		return err
 	}

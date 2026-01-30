@@ -15,8 +15,10 @@ import (
 )
 
 type stubBackend struct {
-	stopErr    error
-	destroyErr error
+	stopErr     error
+	destroyErr  error
+	detachErr   error
+	detachCalls int
 }
 
 func (s *stubBackend) Clone(context.Context, proxmox.VMID, proxmox.VMID, string) error {
@@ -56,7 +58,8 @@ func (s *stubBackend) AttachVolume(context.Context, proxmox.VMID, string, string
 }
 
 func (s *stubBackend) DetachVolume(context.Context, proxmox.VMID, string) error {
-	return nil
+	s.detachCalls++
+	return s.detachErr
 }
 
 func (s *stubBackend) DeleteVolume(context.Context, string) error {
@@ -174,6 +177,56 @@ func TestSandboxDestroyMissingVM(t *testing.T) {
 	}
 	if updated.State != models.SandboxDestroyed {
 		t.Fatalf("expected destroyed, got %s", updated.State)
+	}
+}
+
+func TestSandboxLeaseGCDetachesWorkspace(t *testing.T) {
+	ctx := context.Background()
+	store := newTestStore(t)
+	backend := &stubBackend{detachErr: proxmox.ErrVMNotFound}
+	workspaceMgr := NewWorkspaceManager(store, backend, log.New(io.Discard, "", 0))
+	mgr := NewSandboxManager(store, backend, log.New(io.Discard, "", 0)).WithWorkspaceManager(workspaceMgr)
+	base := time.Date(2026, 1, 29, 12, 0, 0, 0, time.UTC)
+	mgr.now = func() time.Time { return base }
+
+	sandbox := models.Sandbox{
+		VMID:         104,
+		Name:         "expired-workspace",
+		Profile:      "default",
+		State:        models.SandboxRunning,
+		Keepalive:    false,
+		LeaseExpires: base.Add(-1 * time.Minute),
+		CreatedAt:    base.Add(-1 * time.Hour),
+	}
+	if err := store.CreateSandbox(ctx, sandbox); err != nil {
+		t.Fatalf("create sandbox: %v", err)
+	}
+	workspace, err := workspaceMgr.Create(ctx, "gc-workspace", "", 10)
+	if err != nil {
+		t.Fatalf("create workspace: %v", err)
+	}
+	if _, err := workspaceMgr.Attach(ctx, workspace.ID, sandbox.VMID); err != nil {
+		t.Fatalf("attach workspace: %v", err)
+	}
+
+	mgr.runLeaseGC(ctx)
+
+	updatedSandbox, err := store.GetSandbox(ctx, sandbox.VMID)
+	if err != nil {
+		t.Fatalf("get sandbox: %v", err)
+	}
+	if updatedSandbox.WorkspaceID != nil {
+		t.Fatalf("expected sandbox workspace cleared, got %v", *updatedSandbox.WorkspaceID)
+	}
+	updatedWorkspace, err := store.GetWorkspace(ctx, workspace.ID)
+	if err != nil {
+		t.Fatalf("get workspace: %v", err)
+	}
+	if updatedWorkspace.AttachedVM != nil {
+		t.Fatalf("expected workspace detached, got %d", *updatedWorkspace.AttachedVM)
+	}
+	if backend.detachCalls == 0 {
+		t.Fatalf("expected workspace detach to be invoked")
 	}
 }
 

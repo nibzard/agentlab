@@ -971,7 +971,32 @@
         "README.md",
         "to-do.json"
       ],
-      "updated_at": "2026-01-30T06:36:06Z"
+      "updated_at": "2026-01-30T06:36:25Z"
+    },
+    {
+      "id": "T051",
+      "title": "Detach workspaces during lease GC cleanup",
+      "priority": 2,
+      "status": "done",
+      "details": "Sandbox lease GC (SandboxManager.expireSandbox) destroys VMs without detaching workspace volumes or clearing workspace_id, leaving workspaces marked attached after TTL expiry. Detach via WorkspaceManager (tolerate missing VMs) and add coverage.",
+      "files": [
+        "internal/daemon/sandbox_manager.go",
+        "internal/daemon/sandbox_manager_test.go",
+        "internal/daemon/workspace_manager.go",
+        "internal/proxmox/shell_backend.go"
+      ],
+      "updated_at": "2026-01-30T06:52:17Z"
+    },
+    {
+      "id": "T052",
+      "title": "Ensure job failure cleanup succeeds after provisioning timeouts",
+      "priority": 2,
+      "status": "todo",
+      "details": "JobOrchestrator.Run/ProvisionSandbox uses a timeout context; when it expires, failJob and deferred cleanup run with a canceled context so job status updates and sandbox/snippet cleanup can be skipped. Use a fresh background context (with a short timeout) for failure updates/cleanup and add tests for timeout paths.",
+      "files": [
+        "internal/daemon/job_orchestrator.go",
+        "internal/daemon/job_orchestrator_test.go"
+      ]
     }
   ]
 }

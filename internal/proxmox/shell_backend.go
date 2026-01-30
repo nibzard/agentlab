@@ -330,7 +330,13 @@ func (b *ShellBackend) DetachVolume(ctx context.Context, vmid VMID, slot string)
 		return errors.New("slot is required")
 	}
 	_, err := b.run(ctx, b.qmPath(), "set", strconv.Itoa(int(vmid)), "--delete", slot)
-	return err
+	if err != nil {
+		if isMissingVMError(err) {
+			return fmt.Errorf("%w: %v", ErrVMNotFound, err)
+		}
+		return err
+	}
+	return nil
 }
 
 func (b *ShellBackend) DeleteVolume(ctx context.Context, volumeID string) error {
