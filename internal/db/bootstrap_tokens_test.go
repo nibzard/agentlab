@@ -2,20 +2,9 @@ package db
 
 import (
 	"context"
-	"path/filepath"
 	"testing"
 	"time"
 )
-
-func openTestStore(t *testing.T) *Store {
-	t.Helper()
-	path := filepath.Join(t.TempDir(), "agentlab.db")
-	store, err := Open(path)
-	if err != nil {
-		t.Fatalf("open test store: %v", err)
-	}
-	return store
-}
 
 func TestHashBootstrapToken(t *testing.T) {
 	hash, err := HashBootstrapToken("token-123")

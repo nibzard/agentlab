@@ -2,6 +2,7 @@ name: ci
 
 on:
   push:
+    branches: [main]
   pull_request:
 
 jobs:
@@ -16,7 +17,33 @@ jobs:
           go-version-file: go.mod
       - name: Lint
         run: make lint
-      - name: Test
-        run: make test
+      - name: Test with Coverage
+        run: go test -coverprofile=coverage.out -covermode=atomic ./...
+      - name: Generate Coverage HTML
+        run: go tool cover -html=coverage.out -o coverage.html
+      - name: Upload Coverage to Codecov
+        uses: codecov/codecov-action@v4
+        with:
+          files: ./coverage.out
+          fail_ci_if_error: false
+          token: ${{ secrets.CODECOV_TOKEN }}
+      - name: Comment Coverage on PR
+        if: github.event_name == 'pull_request'
+        uses: romeovs/coverage-report-action@v0
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+      - name: Upload Coverage Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-report
+          path: |
+            coverage.out
+            coverage.html
+          retention-days: 30
+      - name: Test Race Detector
+        run: make test-race
+      - name: Integration Tests
+        run: go test -tags=integration -short ./tests/...
+        continue-on-error: true
       - name: Build
         run: make build

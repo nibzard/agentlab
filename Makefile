@@ -13,7 +13,7 @@ LDFLAGS := -s -w \
 	-X 'github.com/agentlab/agentlab/internal/buildinfo.Commit=$(COMMIT)' \
 	-X 'github.com/agentlab/agentlab/internal/buildinfo.Date=$(DATE)'
 
-.PHONY: all build lint test clean
+.PHONY: all build lint test test-coverage test-race test-integration test-all clean
 
 all: build
 
@@ -48,6 +48,18 @@ lint:
 
 test:
 	$(GO) test ./...
+
+test-coverage:
+	$(GO) test -coverprofile=coverage.out -covermode=atomic ./...
+	$(GO) tool cover -html=coverage.out -o coverage.html
+
+test-race:
+	$(GO) test -race ./...
+
+test-integration:
+	$(GO) test -tags=integration ./...
+
+test-all: test test-race test-coverage
 
 clean:
 	rm -rf $(BIN_DIR) $(DIST_DIR)

@@ -1009,9 +1009,10 @@
       "details": "ShellBackend GuestIP selection ignores the configured agent subnet when multiple NICs are present. Wire agent_subnet (or derived subnet) into ShellBackend.AgentCIDR so IP discovery prefers vmbr1 addresses; add regression coverage for multi-IP selection.",
       "files": [
         "internal/daemon/daemon.go",
-        "internal/daemon/daemon_test.go"
+        "internal/daemon/daemon_test.go",
+        "to-do.json"
       ],
-      "updated_at": "2026-01-30T07:25:19Z"
+      "updated_at": "2026-01-30T07:26:36Z"
     },
     {
       "id": "T054",
@@ -1020,11 +1021,11 @@
       "status": "done",
       "details": "RebindWorkspace cleanup currently runs with the provision timeout context, so detach/reattach/destroy can be skipped after a timeout. Use a fresh background context with a short timeout for cleanup steps (matching job/provision cleanup) and add a timeout-path test.",
       "files": [
-        "internal/daemon/workspace_rebind.go",
         "internal/daemon/job_orchestrator_test.go",
+        "internal/daemon/workspace_rebind.go",
         "to-do.json"
       ],
-      "updated_at": "2026-01-30T07:32:01Z"
+      "updated_at": "2026-01-30T07:34:30Z"
     },
     {
       "id": "T055",
@@ -1034,9 +1035,10 @@
       "details": "agent-runner uses curl without connect/max timeouts for bootstrap fetch, status reports, and artifact uploads, which can hang indefinitely on network stalls. Add sane defaults (configurable via env) to prevent job hangs.",
       "files": [
         "scripts/guest/agent-runner",
-        "scripts/guest/agent-runner.env"
+        "scripts/guest/agent-runner.env",
+        "to-do.json"
       ],
-      "updated_at": "2026-01-30T07:36:15Z"
+      "updated_at": "2026-01-30T07:38:37Z"
     },
     {
       "id": "T056",
@@ -1049,7 +1051,7 @@
         "scripts/tests/agent_runner_no_job.sh",
         "to-do.json"
       ],
-      "updated_at": "2026-01-30T08:01:33Z"
+      "updated_at": "2026-01-30T08:15:29Z"
     },
     {
       "id": "T057",
@@ -1058,9 +1060,10 @@
       "status": "done",
       "details": "create_template.sh only creates CACHE_DIR when downloading the image; if --image-file is supplied and CACHE_DIR is missing, the WORK_IMAGE copy fails. Ensure the cache/work directory exists regardless of image source (and consider a small sanity check/test).",
       "files": [
-        "scripts/create_template.sh"
+        "scripts/create_template.sh",
+        "to-do.json"
       ],
-      "updated_at": "2026-01-30T08:16:19Z"
+      "updated_at": "2026-01-30T08:21:11Z"
     },
     {
       "id": "T058",
@@ -1074,9 +1077,20 @@
       ],
       "files": [
         "internal/daemon/artifact_api.go",
-        "internal/daemon/artifact_api_test.go"
+        "internal/daemon/artifact_api_test.go",
+        "to-do.json"
       ],
-      "updated_at": "2026-01-30T08:32:29Z"
+      "updated_at": "2026-01-30T08:37:45Z"
+    },
+    {
+      "id": "PROJECT-DONE",
+      "title": "Project done: no new tasks",
+      "status": "done",
+      "priority": 5,
+      "tags": [
+        "project-done"
+      ],
+      "details": "Final review on 2026-01-30 found no new tasks to add."
     }
   ]
 }
