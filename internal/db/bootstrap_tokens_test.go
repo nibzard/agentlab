@@ -1,0 +1,78 @@
+package db
+
+import (
+	"context"
+	"path/filepath"
+	"testing"
+	"time"
+)
+
+func openTestStore(t *testing.T) *Store {
+	t.Helper()
+	path := filepath.Join(t.TempDir(), "agentlab.db")
+	store, err := Open(path)
+	if err != nil {
+		t.Fatalf("open test store: %v", err)
+	}
+	return store
+}
+
+func TestHashBootstrapToken(t *testing.T) {
+	hash, err := HashBootstrapToken("token-123")
+	if err != nil {
+		t.Fatalf("hash token: %v", err)
+	}
+	if len(hash) != 64 {
+		t.Fatalf("expected hash length 64, got %d", len(hash))
+	}
+	if _, err := HashBootstrapToken(" "); err == nil {
+		t.Fatal("expected error for empty token")
+	}
+}
+
+func TestConsumeBootstrapToken(t *testing.T) {
+	store := openTestStore(t)
+	defer func() {
+		_ = store.Close()
+	}()
+	ctx := context.Background()
+	now := time.Now().UTC()
+	tokenHash, err := HashBootstrapToken("token-abc")
+	if err != nil {
+		t.Fatalf("hash token: %v", err)
+	}
+	if err := store.CreateBootstrapToken(ctx, tokenHash, 1234, now.Add(5*time.Minute)); err != nil {
+		t.Fatalf("create token: %v", err)
+	}
+
+	consumed, err := store.ConsumeBootstrapToken(ctx, tokenHash, 1234, now.Add(1*time.Minute))
+	if err != nil {
+		t.Fatalf("consume token: %v", err)
+	}
+	if !consumed {
+		t.Fatal("expected token to be consumed")
+	}
+
+	consumed, err = store.ConsumeBootstrapToken(ctx, tokenHash, 1234, now.Add(2*time.Minute))
+	if err != nil {
+		t.Fatalf("consume token again: %v", err)
+	}
+	if consumed {
+		t.Fatal("expected token to be rejected after consumption")
+	}
+
+	expiredHash, err := HashBootstrapToken("expired-token")
+	if err != nil {
+		t.Fatalf("hash expired token: %v", err)
+	}
+	if err := store.CreateBootstrapToken(ctx, expiredHash, 5678, now.Add(-1*time.Minute)); err != nil {
+		t.Fatalf("create expired token: %v", err)
+	}
+	consumed, err = store.ConsumeBootstrapToken(ctx, expiredHash, 5678, now)
+	if err != nil {
+		t.Fatalf("consume expired token: %v", err)
+	}
+	if consumed {
+		t.Fatal("expected expired token to be rejected")
+	}
+}

@@ -298,10 +298,16 @@
       "id": "T016",
       "title": "Implement one-time bootstrap token issuance and validation",
       "priority": 1,
-      "status": "todo",
+      "status": "done",
       "details": "Mint short-lived tokens, store hash+expiry, and mark consumed on first successful fetch.",
       "depends_on": [
         "T011"
+      ],
+      "updated_at": "2026-01-30T00:09:47Z",
+      "files": [
+        "internal/db/bootstrap_tokens.go",
+        "internal/db/bootstrap_tokens_test.go",
+        "internal/daemon/job_orchestrator.go"
       ]
     },
     {

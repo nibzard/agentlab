@@ -3,7 +3,6 @@ package daemon
 import (
 	"context"
 	"crypto/rand"
-	"crypto/sha256"
 	"database/sql"
 	"encoding/hex"
 	"encoding/json"
@@ -350,8 +349,10 @@ func (o *JobOrchestrator) bootstrapToken() (string, string, time.Time, error) {
 		return "", "", time.Time{}, err
 	}
 	token := hex.EncodeToString(buf)
-	sum := sha256.Sum256([]byte(token))
-	hash := hex.EncodeToString(sum[:])
+	hash, err := db.HashBootstrapToken(token)
+	if err != nil {
+		return "", "", time.Time{}, err
+	}
 	expires := o.now().UTC().Add(o.bootstrapTTL)
 	return token, hash, expires, nil
 }
