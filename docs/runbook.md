@@ -1,0 +1,224 @@
+# Operator runbook
+
+This runbook covers day-2 operations for the AgentLab control plane on a Proxmox host.
+It assumes the host has Proxmox VE installed and that you are operating as root or
+using sudo.
+
+## Quick reference
+
+Services:
+- agentlabd: `systemctl status agentlabd.service`
+- AgentLab nftables rules: `systemctl status agentlab-nftables.service`
+
+Key paths:
+- Config: `/etc/agentlab/config.yaml`
+- Profiles: `/etc/agentlab/profiles/*.yaml`
+- Secrets bundles: `/etc/agentlab/secrets`
+- Age key: `/etc/agentlab/keys/age.key`
+- Database: `/var/lib/agentlab/agentlab.db`
+- Artifacts: `/var/lib/agentlab/artifacts`
+- Logs: `/var/log/agentlab/agentlabd.log`
+- Socket: `/run/agentlab/agentlabd.sock`
+- Cloud-init snippets (default): `/var/lib/vz/snippets`
+
+Network defaults:
+- Agent bridge: `vmbr1` on `10.77.0.0/16` (host `10.77.0.1`)
+- NAT egress: `vmbr0`
+- Tailscale interface: `tailscale0`
+
+## First-time setup checklist
+
+1) Build binaries on the host:
+
+```bash
+make build
+```
+
+2) Install binaries + systemd unit:
+
+```bash
+sudo scripts/install_host.sh
+```
+
+3) Create the agent bridge + enable IP forwarding:
+
+```bash
+sudo scripts/net/setup_vmbr1.sh --apply
+```
+
+4) Install NAT + egress/tailnet block rules:
+
+```bash
+sudo scripts/net/apply.sh --apply
+```
+
+5) Configure Tailscale subnet routing (approve the route in the admin console):
+
+```bash
+sudo scripts/net/setup_tailscale_router.sh --apply
+```
+
+6) Create a secrets bundle and config file.
+
+- Follow `docs/secrets.md` to create `/etc/agentlab/secrets/default.age` (or sops).
+- Create `/etc/agentlab/config.yaml` with at least an SSH key so cloud-init can
+  install access for operators:
+
+```yaml
+ssh_public_key_path: /etc/agentlab/keys/agentlab_id_ed25519.pub
+secrets_bundle: default
+```
+
+7) Create at least one profile in `/etc/agentlab/profiles/`. Only `name` and
+`template_vmid` are required today; the raw YAML is stored for future use.
+
+```yaml
+name: yolo-ephemeral
+template_vmid: 9000
+```
+
+8) Build the VM template (defaults to VMID 9000):
+
+```bash
+sudo scripts/create_template.sh
+```
+
+9) Restart the daemon after config or profile changes:
+
+```bash
+sudo systemctl restart agentlabd.service
+```
+
+## Template build and updates
+
+Build the template with defaults:
+
+```bash
+sudo scripts/create_template.sh
+```
+
+Common overrides:
+
+```bash
+sudo scripts/create_template.sh \
+  --vmid 9100 \
+  --name agentlab-ubuntu-2404 \
+  --storage local-zfs \
+  --bridge vmbr1
+```
+
+Notes:
+- `scripts/create_template.sh` requires `qm` (Proxmox) and `virt-customize`
+  (`libguestfs-tools`) unless you pass `--skip-customize`.
+- The script exits if the VMID already exists. For updates, create a new VMID
+  and update your profile `template_vmid` to the new value.
+- If you change guest tooling (agent-runner, workspace units, CLI versions),
+  rebuild the template and update profiles to the new VMID.
+
+## Secrets rotation
+
+Follow the rotation steps in `docs/secrets.md`:
+
+1) Create a new bundle (for example, `default-2026-01-30.age`).
+2) Update `secrets_bundle` in `/etc/agentlab/config.yaml`.
+3) Restart `agentlabd`.
+4) Keep the old bundle until all running sandboxes complete, then revoke old
+   tokens and remove the old bundle file.
+
+Age key rotation:
+- Generate a new age key, re-encrypt the bundle, update
+  `secrets_age_key_path`, then restart `agentlabd`.
+
+## Tailscale routing
+
+Advertising the subnet route:
+
+```bash
+sudo scripts/net/setup_tailscale_router.sh --apply --subnet 10.77.0.0/16
+```
+
+Verify:
+- `tailscale status` shows the host as a subnet router.
+- Approve the route in the Tailscale admin console if required.
+- From a tailnet device, `ssh agent@10.77.x.y` should work once the route is
+  accepted and the sandbox is running.
+
+If tailnet access fails:
+- Confirm `tailscale0` exists and has an IP.
+- Verify nftables rules are active: `systemctl status agentlab-nftables.service`.
+- Re-run `scripts/net/apply.sh --apply` if rules were not installed.
+
+## Debugging stuck sandboxes
+
+1) Identify the sandbox and state:
+
+```bash
+agentlab sandbox list
+agentlab sandbox show <vmid>
+```
+
+2) Check events and job state:
+
+```bash
+agentlab logs <vmid> --tail 200
+agentlab job show <job_id> --events-tail 200
+```
+
+3) Check daemon health and logs:
+
+```bash
+systemctl status agentlabd.service
+journalctl -u agentlabd.service -n 200 --no-pager
+tail -n 200 /var/log/agentlab/agentlabd.log
+```
+
+4) Check Proxmox VM state and guest agent:
+
+```bash
+qm status <vmid>
+qm config <vmid>
+qm agent <vmid> ping
+```
+
+5) Verify cloud-init snippet exists (default path) and is referenced:
+
+```bash
+ls -l /var/lib/vz/snippets
+qm config <vmid> | grep -E 'cicustom|cloudinit'
+```
+
+6) Validate network policy from a tailnet device:
+
+```bash
+scripts/net/smoke_test.sh --ip <sandbox_ip> --ssh-key <path>
+```
+
+Common causes:
+- QEMU guest agent missing or stopped in the template.
+- Invalid profile `template_vmid` after a template rebuild.
+- Missing secrets bundle or invalid `secrets_bundle` name in config.
+- Tailnet route not approved in the admin console.
+
+## Daemon recovery
+
+Restart the daemon:
+
+```bash
+sudo systemctl restart agentlabd.service
+```
+
+Verify:
+- `systemctl status agentlabd.service` is active.
+- The socket exists and is group-writable: `/run/agentlab/agentlabd.sock`.
+- Users who run `agentlab` are in the `agentlab` group:
+
+```bash
+sudo usermod -aG agentlab <user>
+```
+
+If the daemon will not start:
+- Check `/etc/agentlab/config.yaml` for YAML errors.
+- Confirm `/etc/agentlab/profiles` contains valid YAML with `name` and
+  `template_vmid`.
+- Inspect logs with `journalctl -u agentlabd.service`.
+

@@ -701,15 +701,15 @@
         "T011",
         "T020"
       ],
-      "updated_at": "2026-01-30T03:53:43Z",
+      "updated_at": "2026-01-30T03:54:25Z",
       "files": [
-        "internal/db/events.go",
-        "internal/daemon/api.go",
-        "internal/daemon/api_types.go",
         "cmd/agentlab/api.go",
         "cmd/agentlab/commands.go",
         "cmd/agentlab/main.go",
         "docs/api.md",
+        "internal/daemon/api.go",
+        "internal/daemon/api_types.go",
+        "internal/db/events.go",
         "to-do.json"
       ]
     },
@@ -717,13 +717,17 @@
       "id": "T037",
       "title": "Write operator runbook documentation",
       "priority": 2,
-      "status": "todo",
+      "status": "done",
       "details": "Cover template build, secrets rotation, debugging stuck sandboxes, daemon recovery, and Tailscale routing.",
       "depends_on": [
         "T003",
         "T005",
         "T018",
         "T002"
+      ],
+      "updated_at": "2026-01-30T03:57:35Z",
+      "files": [
+        "docs/runbook.md"
       ]
     },
     {
