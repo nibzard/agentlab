@@ -3,6 +3,7 @@ package config
 import (
 	"fmt"
 	"net"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -22,6 +23,9 @@ type Config struct {
 	BootstrapListen         string
 	ArtifactListen          string
 	MetricsListen           string
+	AgentSubnet             string
+	ControllerURL           string
+	ArtifactUploadURL       string
 	ArtifactDir             string
 	ArtifactMaxBytes        int64
 	ArtifactTokenTTLMinutes int
@@ -46,6 +50,9 @@ type FileConfig struct {
 	BootstrapListen         string `yaml:"bootstrap_listen"`
 	ArtifactListen          string `yaml:"artifact_listen"`
 	MetricsListen           string `yaml:"metrics_listen"`
+	AgentSubnet             string `yaml:"agent_subnet"`
+	ControllerURL           string `yaml:"controller_url"`
+	ArtifactUploadURL       string `yaml:"artifact_upload_url"`
 	ArtifactDir             string `yaml:"artifact_dir"`
 	ArtifactMaxBytes        int64  `yaml:"artifact_max_bytes"`
 	ArtifactTokenTTLMinutes int    `yaml:"artifact_token_ttl_minutes"`
@@ -150,6 +157,15 @@ func applyFileConfig(cfg *Config, fileCfg FileConfig) {
 	if fileCfg.MetricsListen != "" {
 		cfg.MetricsListen = fileCfg.MetricsListen
 	}
+	if fileCfg.AgentSubnet != "" {
+		cfg.AgentSubnet = fileCfg.AgentSubnet
+	}
+	if fileCfg.ControllerURL != "" {
+		cfg.ControllerURL = fileCfg.ControllerURL
+	}
+	if fileCfg.ArtifactUploadURL != "" {
+		cfg.ArtifactUploadURL = fileCfg.ArtifactUploadURL
+	}
 	if fileCfg.ArtifactDir != "" {
 		cfg.ArtifactDir = fileCfg.ArtifactDir
 	}
@@ -217,11 +233,40 @@ func (c Config) Validate() error {
 	if c.SecretsDir == "" {
 		return fmt.Errorf("secrets_dir is required")
 	}
-	if _, _, err := net.SplitHostPort(c.BootstrapListen); err != nil {
+	bootstrapHost, _, err := net.SplitHostPort(c.BootstrapListen)
+	if err != nil {
 		return fmt.Errorf("bootstrap_listen must be host:port: %w", err)
 	}
-	if _, _, err := net.SplitHostPort(c.ArtifactListen); err != nil {
+	artifactHost, _, err := net.SplitHostPort(c.ArtifactListen)
+	if err != nil {
 		return fmt.Errorf("artifact_listen must be host:port: %w", err)
+	}
+	agentSubnet := strings.TrimSpace(c.AgentSubnet)
+	if agentSubnet != "" {
+		if _, _, err := net.ParseCIDR(agentSubnet); err != nil {
+			return fmt.Errorf("agent_subnet must be CIDR: %w", err)
+		}
+	}
+	bootstrapWildcard := isWildcardHost(bootstrapHost)
+	artifactWildcard := isWildcardHost(artifactHost)
+	if (bootstrapWildcard || artifactWildcard) && agentSubnet == "" {
+		return fmt.Errorf("agent_subnet is required when bootstrap_listen or artifact_listen binds to wildcard")
+	}
+	if bootstrapWildcard && strings.TrimSpace(c.ControllerURL) == "" {
+		return fmt.Errorf("controller_url is required when bootstrap_listen binds to wildcard")
+	}
+	if artifactWildcard && strings.TrimSpace(c.ArtifactUploadURL) == "" {
+		return fmt.Errorf("artifact_upload_url is required when artifact_listen binds to wildcard")
+	}
+	if strings.TrimSpace(c.ControllerURL) != "" {
+		if err := validateURL(c.ControllerURL, "controller_url"); err != nil {
+			return err
+		}
+	}
+	if strings.TrimSpace(c.ArtifactUploadURL) != "" {
+		if err := validateURL(c.ArtifactUploadURL, "artifact_upload_url"); err != nil {
+			return err
+		}
 	}
 	if strings.TrimSpace(c.MetricsListen) != "" {
 		host, _, err := net.SplitHostPort(c.MetricsListen)
@@ -247,4 +292,35 @@ func isLoopbackHost(host string) bool {
 		return false
 	}
 	return ip.IsLoopback()
+}
+
+func isWildcardHost(host string) bool {
+	host = strings.TrimSpace(strings.Trim(host, "[]"))
+	if host == "" {
+		return true
+	}
+	if i := strings.LastIndex(host, "%"); i != -1 {
+		host = host[:i]
+	}
+	ip := net.ParseIP(host)
+	if ip == nil {
+		return false
+	}
+	return ip.IsUnspecified()
+}
+
+func validateURL(value, field string) error {
+	parsed, err := url.Parse(strings.TrimSpace(value))
+	if err != nil {
+		return fmt.Errorf("%s must be a valid URL: %w", field, err)
+	}
+	if parsed.Scheme == "" || parsed.Host == "" {
+		return fmt.Errorf("%s must include scheme and host", field)
+	}
+	switch strings.ToLower(parsed.Scheme) {
+	case "http", "https":
+		return nil
+	default:
+		return fmt.Errorf("%s must use http or https", field)
+	}
 }

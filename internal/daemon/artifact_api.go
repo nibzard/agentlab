@@ -31,14 +31,14 @@ type ArtifactAPI struct {
 	agentSubnet *net.IPNet
 }
 
-func NewArtifactAPI(store *db.Store, rootDir string, maxBytes int64, listen string) *ArtifactAPI {
+func NewArtifactAPI(store *db.Store, rootDir string, maxBytes int64, agentSubnet *net.IPNet) *ArtifactAPI {
 	api := &ArtifactAPI{
-		store:    store,
-		rootDir:  strings.TrimSpace(rootDir),
-		maxBytes: maxBytes,
-		now:      time.Now,
+		store:       store,
+		rootDir:     strings.TrimSpace(rootDir),
+		maxBytes:    maxBytes,
+		now:         time.Now,
+		agentSubnet: agentSubnet,
 	}
-	api.agentSubnet = deriveAgentSubnet(listen)
 	return api
 }
 

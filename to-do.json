@@ -690,19 +690,19 @@
       "depends_on": [
         "T020"
       ],
-      "updated_at": "2026-01-30T04:23:34Z",
+      "updated_at": "2026-01-30T04:25:49Z",
       "files": [
-        "internal/daemon/profile_inner_sandbox.go",
-        "internal/daemon/profile_validation.go",
+        "PROXMOX_SPECS.md",
+        "docs/runbook.md",
         "internal/daemon/api_types.go",
         "internal/daemon/bootstrap_api.go",
         "internal/daemon/bootstrap_api_test.go",
+        "internal/daemon/profile_inner_sandbox.go",
+        "internal/daemon/profile_validation.go",
+        "scripts/create_template.sh",
         "scripts/guest/agent-runner",
         "scripts/guest/agent-runner.env",
-        "scripts/create_template.sh",
         "scripts/profiles/defaults.yaml",
-        "PROXMOX_SPECS.md",
-        "docs/runbook.md",
         "to-do.json"
       ]
     },
@@ -755,7 +755,7 @@
       "depends_on": [
         "T010"
       ],
-      "updated_at": "2026-01-30T04:33:35Z",
+      "updated_at": "2026-01-30T04:35:55Z",
       "files": [
         "docs/runbook.md",
         "go.mod",
@@ -820,6 +820,31 @@
         "scripts/profiles/defaults.yaml",
         "to-do.json"
       ]
+    },
+    {
+      "id": "T042",
+      "title": "Require explicit agent subnet/controller URLs when bootstrap/artifact listeners bind to wildcard",
+      "priority": 1,
+      "status": "done",
+      "details": "bootstrap_listen/artifact_listen allow 0.0.0.0 or :port today, which yields invalid controller/artifact URLs and disables subnet restriction. Add validation or explicit config (agent_subnet/controller_url/artifact_upload_url), enforce remoteAllowed using the configured subnet, and cover with tests.",
+      "updated_at": "2026-01-30T04:57:45Z",
+      "files": [
+        "internal/config/config.go",
+        "internal/config/config_test.go",
+        "internal/daemon/daemon.go",
+        "internal/daemon/bootstrap_api.go",
+        "internal/daemon/artifact_api.go",
+        "internal/daemon/bootstrap_api_test.go",
+        "internal/daemon/artifact_api_test.go",
+        "internal/daemon/testutil_test.go"
+      ]
+    },
+    {
+      "id": "T043",
+      "title": "Provision real VMs for sandbox new flow",
+      "priority": 2,
+      "status": "todo",
+      "details": "sandbox new currently creates only a DB record. Add a provisioning pipeline for non-job sandboxes (clone template, configure cloud-init/snippet, apply profile resources, start VM, IP discovery, state transitions) and align API/CLI/docs. Ensure destroy handles missing VMs gracefully."
     }
   ]
 }

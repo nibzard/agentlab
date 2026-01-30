@@ -75,6 +75,10 @@ func NewService(cfg config.Config, profiles map[string]models.Profile, store *db
 	if err := ensureDir(cfg.ArtifactDir, artifactDirPerms); err != nil {
 		return nil, err
 	}
+	agentSubnet, err := resolveAgentSubnet(cfg.AgentSubnet, cfg.BootstrapListen)
+	if err != nil {
+		return nil, err
+	}
 	var metrics *Metrics
 	if strings.TrimSpace(cfg.MetricsListen) != "" {
 		metrics = NewMetrics()
@@ -113,7 +117,10 @@ func NewService(cfg config.Config, profiles map[string]models.Profile, store *db
 		Storage: cfg.SnippetStorage,
 		Dir:     cfg.SnippetsDir,
 	}
-	controllerURL := buildControllerURL(cfg.BootstrapListen)
+	controllerURL := strings.TrimSpace(cfg.ControllerURL)
+	if controllerURL == "" {
+		controllerURL = buildControllerURL(cfg.BootstrapListen)
+	}
 	var jobOrchestrator *JobOrchestrator
 	if strings.TrimSpace(cfg.SSHPublicKey) != "" {
 		jobOrchestrator = NewJobOrchestrator(store, profiles, backend, sandboxManager, workspaceManager, snippetStore, cfg.SSHPublicKey, controllerURL, log.Default(), redactor, metrics)
@@ -135,13 +142,16 @@ func NewService(cfg config.Config, profiles map[string]models.Profile, store *db
 		AgeKeyPath: cfg.SecretsAgeKeyPath,
 		SopsPath:   cfg.SecretsSopsPath,
 	}
-	artifactEndpoint := buildArtifactUploadURL(cfg.ArtifactListen)
-	NewBootstrapAPI(store, profiles, secretsStore, cfg.SecretsBundle, cfg.BootstrapListen, artifactEndpoint, time.Duration(cfg.ArtifactTokenTTLMinutes)*time.Minute, redactor).Register(bootstrapMux)
+	artifactEndpoint := strings.TrimSpace(cfg.ArtifactUploadURL)
+	if artifactEndpoint == "" {
+		artifactEndpoint = buildArtifactUploadURL(cfg.ArtifactListen)
+	}
+	NewBootstrapAPI(store, profiles, secretsStore, cfg.SecretsBundle, agentSubnet, artifactEndpoint, time.Duration(cfg.ArtifactTokenTTLMinutes)*time.Minute, redactor).Register(bootstrapMux)
 	NewRunnerAPI(jobOrchestrator).Register(bootstrapMux)
 
 	artifactMux := http.NewServeMux()
 	artifactMux.HandleFunc("/healthz", healthHandler)
-	NewArtifactAPI(store, cfg.ArtifactDir, cfg.ArtifactMaxBytes, cfg.ArtifactListen).Register(artifactMux)
+	NewArtifactAPI(store, cfg.ArtifactDir, cfg.ArtifactMaxBytes, agentSubnet).Register(artifactMux)
 
 	artifactGC := NewArtifactGC(store, profiles, cfg.ArtifactDir, log.Default(), redactor)
 
@@ -317,4 +327,16 @@ func buildArtifactUploadURL(listen string) string {
 		host = "[" + host + "]"
 	}
 	return "http://" + host + ":" + port + "/upload"
+}
+
+func resolveAgentSubnet(agentSubnet, listen string) (*net.IPNet, error) {
+	agentSubnet = strings.TrimSpace(agentSubnet)
+	if agentSubnet == "" {
+		return deriveAgentSubnet(listen), nil
+	}
+	_, subnet, err := net.ParseCIDR(agentSubnet)
+	if err != nil {
+		return nil, fmt.Errorf("agent_subnet must be CIDR: %w", err)
+	}
+	return subnet, nil
 }

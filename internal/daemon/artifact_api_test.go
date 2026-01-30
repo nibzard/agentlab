@@ -46,7 +46,8 @@ func TestArtifactUploadSuccess(t *testing.T) {
 	}
 
 	root := t.TempDir()
-	api := NewArtifactAPI(store, root, 1024, "10.77.0.1:8846")
+	agentSubnet := mustParseCIDR(t, "10.77.0.0/16")
+	api := NewArtifactAPI(store, root, 1024, agentSubnet)
 	api.now = func() time.Time { return now }
 
 	body := []byte("hello world")
@@ -118,7 +119,8 @@ func TestArtifactUploadRejectsTraversal(t *testing.T) {
 		t.Fatalf("create artifact token: %v", err)
 	}
 
-	api := NewArtifactAPI(store, t.TempDir(), 1024, "10.77.0.1:8846")
+	agentSubnet := mustParseCIDR(t, "10.77.0.0/16")
+	api := NewArtifactAPI(store, t.TempDir(), 1024, agentSubnet)
 	api.now = func() time.Time { return now }
 	req := httptest.NewRequest(http.MethodPost, "/upload?path=../evil", strings.NewReader("data"))
 	req.Header.Set("Authorization", "Bearer "+token)
@@ -157,7 +159,8 @@ func TestArtifactUploadEnforcesSizeLimit(t *testing.T) {
 		t.Fatalf("create artifact token: %v", err)
 	}
 
-	api := NewArtifactAPI(store, t.TempDir(), 4, "10.77.0.1:8846")
+	agentSubnet := mustParseCIDR(t, "10.77.0.0/16")
+	api := NewArtifactAPI(store, t.TempDir(), 4, agentSubnet)
 	api.now = func() time.Time { return now }
 	req := httptest.NewRequest(http.MethodPost, "/upload", strings.NewReader("too-large"))
 	req.Header.Set("Authorization", "Bearer "+token)

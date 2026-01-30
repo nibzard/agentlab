@@ -94,7 +94,8 @@ behavior:
 		},
 	}
 
-	api := NewBootstrapAPI(store, profiles, secrets.Store{Dir: secretsDir, AllowPlaintext: true}, "default", "10.77.0.1:8844", "http://10.77.0.1:8846/upload", time.Hour, nil)
+	agentSubnet := mustParseCIDR(t, "10.77.0.0/16")
+	api := NewBootstrapAPI(store, profiles, secrets.Store{Dir: secretsDir, AllowPlaintext: true}, "default", agentSubnet, "http://10.77.0.1:8846/upload", time.Hour, nil)
 	api.now = func() time.Time { return now }
 
 	payload := `{"token":"` + token + `","vmid":2001}`
@@ -177,9 +178,22 @@ behavior:
 }
 
 func TestBootstrapFetchRejectsNonAgentSubnet(t *testing.T) {
-	api := NewBootstrapAPI(newTestStore(t), nil, secrets.Store{}, "default", "10.77.0.1:8844", "http://10.77.0.1:8846/upload", time.Hour, nil)
+	agentSubnet := mustParseCIDR(t, "10.77.0.0/16")
+	api := NewBootstrapAPI(newTestStore(t), nil, secrets.Store{}, "default", agentSubnet, "http://10.77.0.1:8846/upload", time.Hour, nil)
 	req := httptest.NewRequest(http.MethodPost, "/v1/bootstrap/fetch", strings.NewReader(`{"token":"t","vmid":1}`))
 	req.RemoteAddr = "192.168.1.5:2222"
+	resp := httptest.NewRecorder()
+	api.handleBootstrapFetch(resp, req)
+	if resp.Code != http.StatusForbidden {
+		t.Fatalf("expected 403, got %d", resp.Code)
+	}
+}
+
+func TestBootstrapFetchUsesConfiguredSubnet(t *testing.T) {
+	agentSubnet := mustParseCIDR(t, "10.78.0.0/16")
+	api := NewBootstrapAPI(newTestStore(t), nil, secrets.Store{}, "default", agentSubnet, "", time.Hour, nil)
+	req := httptest.NewRequest(http.MethodPost, "/v1/bootstrap/fetch", strings.NewReader(`{"token":"t","vmid":1}`))
+	req.RemoteAddr = "10.77.0.55:1234"
 	resp := httptest.NewRecorder()
 	api.handleBootstrapFetch(resp, req)
 	if resp.Code != http.StatusForbidden {

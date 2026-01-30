@@ -39,7 +39,7 @@ type BootstrapAPI struct {
 	redactor         *Redactor
 }
 
-func NewBootstrapAPI(store *db.Store, profiles map[string]models.Profile, secretsStore secrets.Store, secretsBundle, bootstrapListen, artifactEndpoint string, artifactTokenTTL time.Duration, redactor *Redactor) *BootstrapAPI {
+func NewBootstrapAPI(store *db.Store, profiles map[string]models.Profile, secretsStore secrets.Store, secretsBundle string, agentSubnet *net.IPNet, artifactEndpoint string, artifactTokenTTL time.Duration, redactor *Redactor) *BootstrapAPI {
 	bundle := strings.TrimSpace(secretsBundle)
 	if bundle == "" {
 		bundle = "default"
@@ -60,8 +60,8 @@ func NewBootstrapAPI(store *db.Store, profiles map[string]models.Profile, secret
 		now:              time.Now,
 		rand:             rand.Reader,
 		redactor:         redactor,
+		agentSubnet:      agentSubnet,
 	}
-	api.agentSubnet = deriveAgentSubnet(bootstrapListen)
 	return api
 }
 
