@@ -19,6 +19,7 @@
 - `net/setup_tailscale_router.sh`: advertise the agent subnet via Tailscale for tailnet access.
 - `tests/golden_path.sh`: end-to-end golden path integration test for jobs + artifacts.
 - `tests/network_isolation.sh`: regression test for sandbox egress + LAN/tailnet blocks.
+- `tests/agent_runner_repo_dir.sh`: regression test that agent-runner launches agentlab-agent from the repo checkout.
 
 ## Claude Code skills
 

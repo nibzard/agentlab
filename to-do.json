@@ -846,7 +846,7 @@
       "priority": 2,
       "status": "done",
       "details": "sandbox new currently creates only a DB record. Add a provisioning pipeline for non-job sandboxes (clone template, configure cloud-init/snippet, apply profile resources, start VM, IP discovery, state transitions) and align API/CLI/docs. Ensure destroy handles missing VMs gracefully.",
-      "updated_at": "2026-01-30T05:10:22Z",
+      "updated_at": "2026-01-30T05:11:06Z",
       "files": [
         "cmd/agentlab/commands.go",
         "docs/api.md",
@@ -858,7 +858,46 @@
         "internal/daemon/sandbox_manager_test.go",
         "internal/daemon/workspace_rebind.go",
         "internal/proxmox/errors.go",
-        "internal/proxmox/shell_backend.go"
+        "internal/proxmox/shell_backend.go",
+        "to-do.json"
+      ]
+    },
+    {
+      "id": "T044",
+      "title": "Run agentlab-agent inside repo directory in agent-runner",
+      "priority": 1,
+      "status": "done",
+      "details": "When AGENT_COMMAND defaults to agentlab-agent, agent-runner does not cd into the repo, so agents start outside the checkout. Update scripts/guest/agent-runner to run agentlab-agent from $REPO_DIR and add a regression check (unit/integration) if feasible.",
+      "files": [
+        "scripts/guest/agent-runner",
+        "scripts/tests/agent_runner_repo_dir.sh",
+        "scripts/README.md",
+        "to-do.json"
+      ],
+      "updated_at": "2026-01-30T05:32:41Z"
+    },
+    {
+      "id": "T045",
+      "title": "Avoid consuming bootstrap tokens before response is ready",
+      "priority": 1,
+      "status": "todo",
+      "details": "BootstrapAPI consumes the one-time token before issuing artifact tokens and building the response; any subsequent error burns the token and prevents retries. Reorder/transactionalize token consumption or add a validate-then-consume flow, and add a test for retry safety.",
+      "files": [
+        "internal/daemon/bootstrap_api.go",
+        "internal/db/bootstrap_tokens.go",
+        "internal/daemon/bootstrap_api_test.go"
+      ]
+    },
+    {
+      "id": "T046",
+      "title": "Apply profile keepalive/TTL defaults when creating jobs/sandboxes",
+      "priority": 2,
+      "status": "todo",
+      "details": "Profiles define behavior.keepalive_default and behavior.ttl_minutes_default but the API currently ignores them when TTL/keepalive are omitted. Parse these defaults and apply them for job create, sandbox new, and workspace rebind (when ttl/keepalive not explicitly set). Add tests.",
+      "files": [
+        "internal/daemon/api.go",
+        "internal/daemon/job_orchestrator.go",
+        "internal/daemon/workspace_rebind.go"
       ]
     }
   ]

@@ -467,11 +467,11 @@ run_agent() {
   if [[ "$AGENT_COMMAND" == "agentlab-agent" ]]; then
     if [[ -n "$JOB_TASK" ]]; then
       cmd+=(agentlab-agent --agent "$AGENT_TOOL")
-      (printf "%s\n" "$JOB_TASK" | "${cmd[@]}") 2>&1 | redact_stream | tee -a "$LOG_FILE" | stream_logs
+      (cd "$REPO_DIR" && printf "%s\n" "$JOB_TASK" | "${cmd[@]}") 2>&1 | redact_stream | tee -a "$LOG_FILE" | stream_logs
       exit_code=${PIPESTATUS[0]}
     else
       cmd+=(agentlab-agent --agent "$AGENT_TOOL")
-      ("${cmd[@]}") 2>&1 | redact_stream | tee -a "$LOG_FILE" | stream_logs
+      (cd "$REPO_DIR" && "${cmd[@]}") 2>&1 | redact_stream | tee -a "$LOG_FILE" | stream_logs
       exit_code=${PIPESTATUS[0]}
     fi
   else
