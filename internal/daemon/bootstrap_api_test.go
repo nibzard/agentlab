@@ -78,7 +78,23 @@ claude:
 		t.Fatalf("write bundle: %v", err)
 	}
 
-	api := NewBootstrapAPI(store, nil, secrets.Store{Dir: secretsDir, AllowPlaintext: true}, "default", "10.77.0.1:8844", "http://10.77.0.1:8846/upload", time.Hour, nil)
+	profiles := map[string]models.Profile{
+		"yolo": {
+			Name: "yolo",
+			RawYAML: `
+name: yolo
+template_vmid: 9000
+behavior:
+  inner_sandbox: bubblewrap
+  inner_sandbox_args:
+    - --bind
+    - /scratch
+    - /scratch
+`,
+		},
+	}
+
+	api := NewBootstrapAPI(store, profiles, secrets.Store{Dir: secretsDir, AllowPlaintext: true}, "default", "10.77.0.1:8844", "http://10.77.0.1:8846/upload", time.Hour, nil)
 	api.now = func() time.Time { return now }
 
 	payload := `{"token":"` + token + `","vmid":2001}`
@@ -134,6 +150,21 @@ claude:
 	}
 	if decoded.Policy == nil || decoded.Policy.Mode != "dangerous" {
 		t.Fatalf("expected policy mode dangerous")
+	}
+	if decoded.Policy.InnerSandbox != "bubblewrap" {
+		t.Fatalf("expected inner sandbox bubblewrap")
+	}
+	if len(decoded.Policy.InnerSandboxArgs) != 3 {
+		t.Fatalf("expected 3 inner sandbox args")
+	}
+	if decoded.Policy.InnerSandboxArgs[0] != "--bind" {
+		t.Fatalf("unexpected inner sandbox arg %s", decoded.Policy.InnerSandboxArgs[0])
+	}
+	if decoded.Policy.InnerSandboxArgs[1] != "/scratch" {
+		t.Fatalf("unexpected inner sandbox arg %s", decoded.Policy.InnerSandboxArgs[1])
+	}
+	if decoded.Policy.InnerSandboxArgs[2] != "/scratch" {
+		t.Fatalf("unexpected inner sandbox arg %s", decoded.Policy.InnerSandboxArgs[2])
 	}
 
 	reqReplay := httptest.NewRequest(http.MethodPost, "/v1/bootstrap/fetch", strings.NewReader(payload))

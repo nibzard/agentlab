@@ -685,10 +685,25 @@
       "id": "T035",
       "title": "Evaluate optional inner sandboxing for agent process (bubblewrap)",
       "priority": 3,
-      "status": "todo",
+      "status": "done",
       "details": "Prototype bubblewrap execution and document tradeoffs behind a profile flag.",
       "depends_on": [
         "T020"
+      ],
+      "updated_at": "2026-01-30T04:23:34Z",
+      "files": [
+        "internal/daemon/profile_inner_sandbox.go",
+        "internal/daemon/profile_validation.go",
+        "internal/daemon/api_types.go",
+        "internal/daemon/bootstrap_api.go",
+        "internal/daemon/bootstrap_api_test.go",
+        "scripts/guest/agent-runner",
+        "scripts/guest/agent-runner.env",
+        "scripts/create_template.sh",
+        "scripts/profiles/defaults.yaml",
+        "PROXMOX_SPECS.md",
+        "docs/runbook.md",
+        "to-do.json"
       ]
     },
     {
@@ -725,9 +740,10 @@
         "T018",
         "T002"
       ],
-      "updated_at": "2026-01-30T03:57:35Z",
+      "updated_at": "2026-01-30T03:57:59Z",
       "files": [
-        "docs/runbook.md"
+        "docs/runbook.md",
+        "to-do.json"
       ]
     },
     {
@@ -769,10 +785,11 @@
         "T004",
         "T005"
       ],
-      "updated_at": "2026-01-30T04:02:14Z",
+      "updated_at": "2026-01-30T04:04:23Z",
       "files": [
+        "scripts/README.md",
         "scripts/tests/network_isolation.sh",
-        "scripts/README.md"
+        "to-do.json"
       ]
     },
     {
@@ -784,10 +801,10 @@
       "depends_on": [
         "T010"
       ],
-      "updated_at": "2026-01-30T04:07:33Z",
+      "updated_at": "2026-01-30T04:09:50Z",
       "files": [
-        "scripts/profiles/defaults.yaml",
         "scripts/README.md",
+        "scripts/profiles/defaults.yaml",
         "to-do.json"
       ]
     }

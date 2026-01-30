@@ -19,6 +19,11 @@ behavior:
   mode: dangerous
   keepalive_default: false
   ttl_minutes_default: 180
+  # inner_sandbox: bubblewrap
+  # inner_sandbox_args:
+  #   - --bind
+  #   - /scratch
+  #   - /scratch
 secrets_bundle: default
 repo:
   clone_path: /tmp/repo

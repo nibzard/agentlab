@@ -116,7 +116,7 @@ We aim to reduce:
 ### Optional hardening (SHOULD)
 - Run agent as non-root inside guest.
 - Restrict guest SSH access (ephemeral keys).
-- Add “inner sandbox” for the agent process (bubblewrap) if feasible.
+- Add “inner sandbox” for the agent process (bubblewrap) if feasible (profile `behavior.inner_sandbox`).
 - Add egress allowlists for high-risk profiles (later).
 
 ---
@@ -455,6 +455,7 @@ behavior:
   mode: dangerous
   keepalive_default: false
   ttl_minutes_default: 180
+  # inner_sandbox: bubblewrap
 secrets_bundle: default
 repo:
   clone_path: /tmp/repo    # workspace profile overrides to /work/repo

@@ -115,6 +115,41 @@ Notes:
 - If you change guest tooling (agent-runner, workspace units, CLI versions),
   rebuild the template and update profiles to the new VMID.
 
+## Inner sandboxing (bubblewrap)
+
+AgentLab can optionally run the agent CLI inside a bubblewrap mount namespace
+within the guest. This is enabled per profile.
+
+Enable in a profile:
+
+```yaml
+behavior:
+  inner_sandbox: bubblewrap
+  inner_sandbox_args:
+    - --bind
+    - /scratch
+    - /scratch
+```
+
+Notes:
+- The default sandbox uses a read-only root and rebinds `/tmp`, `/var/tmp`,
+  `/run`, the repo path, and `$HOME` as writable; `/run/secrets` is re-bound
+  read-only.
+- `inner_sandbox_args` entries are appended as individual bubblewrap arguments.
+  List each token separately.
+- Ensure `bubblewrap` is installed in the guest template (rebuild the template
+  or install the package inside the image).
+- If bubblewrap fails with "permission denied", enable unprivileged user
+  namespaces in the guest (`kernel.unprivileged_userns_clone=1`).
+- Emergency disable: set `AGENTLAB_INNER_SANDBOX=0` in
+  `/etc/agentlab/agent-runner.env`.
+
+Tradeoffs:
+- Pros: reduces accidental writes to system paths, limits persistence, adds
+  mount/pid namespace isolation within the guest.
+- Cons: requires unprivileged user namespaces; can break tools that expect
+  writable `/run` or `/var`; not a full security boundary; no network isolation.
+
 ## Secrets rotation
 
 Follow the rotation steps in `docs/secrets.md`:
@@ -221,4 +256,3 @@ If the daemon will not start:
 - Confirm `/etc/agentlab/profiles` contains valid YAML with `name` and
   `template_vmid`.
 - Inspect logs with `journalctl -u agentlabd.service`.
-

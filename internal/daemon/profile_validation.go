@@ -14,10 +14,27 @@ func validateProfileForProvisioning(profile models.Profile) error {
 	if err != nil {
 		return fmt.Errorf("parse profile %q: %w", profile.Name, err)
 	}
-	if len(paths) == 0 {
+	if len(paths) > 0 {
+		return fmt.Errorf("profile %q requests host mounts at %s; host bind mounts are not allowed (use workspace disks instead)", profile.Name, strings.Join(paths, ", "))
+	}
+	if err := validateProfileInnerSandbox(profile); err != nil {
+		return err
+	}
+	return nil
+}
+
+func validateProfileInnerSandbox(profile models.Profile) error {
+	cfg, err := parseProfileInnerSandbox(profile.RawYAML)
+	if err != nil {
+		return fmt.Errorf("parse profile %q: %w", profile.Name, err)
+	}
+	if cfg.Name == "" {
 		return nil
 	}
-	return fmt.Errorf("profile %q requests host mounts at %s; host bind mounts are not allowed (use workspace disks instead)", profile.Name, strings.Join(paths, ", "))
+	if cfg.Name != "bubblewrap" {
+		return fmt.Errorf("profile %q has unsupported behavior.inner_sandbox %q", profile.Name, cfg.Name)
+	}
+	return nil
 }
 
 func profileHostMountPaths(raw string) ([]string, error) {

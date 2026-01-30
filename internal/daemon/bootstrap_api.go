@@ -161,7 +161,18 @@ func (api *BootstrapAPI) handleBootstrapFetch(w http.ResponseWriter, r *http.Req
 	} else if artifact := bootstrapArtifactFromBundle(bundle); artifact != nil {
 		resp.Artifact = artifact
 	}
-	if policy := bootstrapPolicyFromJob(job); policy != nil {
+	var profile *models.Profile
+	if api.profiles != nil {
+		if stored, ok := api.profiles[job.Profile]; ok {
+			profile = &stored
+		}
+	}
+	policy, err := bootstrapPolicyFromJobAndProfile(job, profile)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "invalid profile behavior policy")
+		return
+	}
+	if policy != nil {
 		resp.Policy = policy
 	}
 
@@ -229,15 +240,34 @@ func bootstrapJobFromModel(job models.Job) V1BootstrapJob {
 	return resp
 }
 
-func bootstrapPolicyFromJob(job models.Job) *V1BootstrapPolicy {
+func bootstrapPolicyFromJobAndProfile(job models.Job, profile *models.Profile) (*V1BootstrapPolicy, error) {
 	mode := strings.TrimSpace(job.Mode)
 	if mode == "" {
 		mode = defaultJobMode
 	}
-	if mode == "" {
-		return nil
+	var policy V1BootstrapPolicy
+	hasPolicy := false
+	if mode != "" {
+		policy.Mode = mode
+		hasPolicy = true
 	}
-	return &V1BootstrapPolicy{Mode: mode}
+	if profile != nil {
+		cfg, err := parseProfileInnerSandbox(profile.RawYAML)
+		if err != nil {
+			return nil, err
+		}
+		if cfg.Name != "" {
+			policy.InnerSandbox = cfg.Name
+			if len(cfg.Args) > 0 {
+				policy.InnerSandboxArgs = cfg.Args
+			}
+			hasPolicy = true
+		}
+	}
+	if !hasPolicy {
+		return nil, nil
+	}
+	return &policy, nil
 }
 
 func bootstrapGitFromBundle(bundle secrets.Bundle) *V1BootstrapGit {

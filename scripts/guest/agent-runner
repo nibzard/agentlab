@@ -29,6 +29,9 @@ STREAM_LOGS="${AGENTLAB_RUNNER_STREAM_LOGS:-0}"
 LOG_MAX_CHARS="${AGENTLAB_RUNNER_LOG_MAX_CHARS:-800}"
 BOOTSTRAP_CACHE="${AGENTLAB_BOOTSTRAP_CACHE:-1}"
 REDACT_LABEL="[REDACTED]"
+INNER_SANDBOX=""
+declare -a INNER_SANDBOX_ARGS=()
+declare -a INNER_SANDBOX_PREFIX=()
 
 declare -a REDACT_VALUES=()
 declare -a REDACT_SED_ARGS=()
@@ -71,6 +74,93 @@ redact_stream() {
     return 0
   fi
   sed -E "${REDACT_SED_ARGS[@]}"
+}
+
+trim_value() {
+  local value="${1:-}"
+  value="${value#"${value%%[![:space:]]*}"}"
+  value="${value%"${value##*[![:space:]]}"}"
+  printf "%s" "$value"
+}
+
+normalize_inner_sandbox() {
+  local value
+  value="$(trim_value "${1:-}")"
+  value="${value,,}"
+  case "$value" in
+    ""|none|off|false|0|disabled)
+      printf ""
+      ;;
+    true|yes|1|bubblewrap|bwrap)
+      printf "bubblewrap"
+      ;;
+    *)
+      printf "%s" "$value"
+      ;;
+  esac
+}
+
+load_inner_sandbox_config() {
+  local raw="${AGENTLAB_INNER_SANDBOX:-}"
+  if [[ -z "$raw" ]]; then
+    raw="$(jq -r '.policy.inner_sandbox // empty' "$BOOTSTRAP_RESPONSE")"
+  fi
+  INNER_SANDBOX="$(normalize_inner_sandbox "$raw")"
+  INNER_SANDBOX_ARGS=()
+  if [[ -n "${AGENTLAB_INNER_SANDBOX_ARGS:-}" ]]; then
+    read -r -a INNER_SANDBOX_ARGS <<<"${AGENTLAB_INNER_SANDBOX_ARGS}"
+  elif [[ -n "$INNER_SANDBOX" ]]; then
+    mapfile -t INNER_SANDBOX_ARGS < <(jq -r '.policy.inner_sandbox_args[]?' "$BOOTSTRAP_RESPONSE")
+  fi
+}
+
+configure_inner_sandbox() {
+  INNER_SANDBOX_PREFIX=()
+  if [[ -z "$INNER_SANDBOX" ]]; then
+    return 0
+  fi
+  if [[ "$INNER_SANDBOX" != "bubblewrap" ]]; then
+    report_status "FAILED" "unknown inner sandbox: $INNER_SANDBOX"
+    return 1
+  fi
+  if ! command -v bwrap >/dev/null 2>&1; then
+    report_status "FAILED" "inner sandbox requested but bubblewrap (bwrap) not installed"
+    return 1
+  fi
+  local -a args=(
+    bwrap
+    --die-with-parent
+    --unshare-all
+    --share-net
+    --ro-bind / /
+    --proc /proc
+    --dev /dev
+  )
+  if [[ -d /tmp ]]; then
+    args+=(--bind /tmp /tmp)
+  fi
+  if [[ -d /var/tmp ]]; then
+    args+=(--bind /var/tmp /var/tmp)
+  fi
+  if [[ -d /run ]]; then
+    args+=(--bind /run /run)
+  fi
+  if [[ -n "${HOME:-}" && -d "$HOME" ]]; then
+    args+=(--bind "$HOME" "$HOME")
+  fi
+  if [[ -n "$REPO_DIR" ]]; then
+    args+=(--bind "$REPO_DIR" "$REPO_DIR")
+  fi
+  if [[ -n "$SECRETS_DIR" ]]; then
+    args+=(--ro-bind "$SECRETS_DIR" "$SECRETS_DIR")
+  fi
+  if (( ${#INNER_SANDBOX_ARGS[@]} > 0 )); then
+    args+=("${INNER_SANDBOX_ARGS[@]}")
+  fi
+  args+=(--)
+  INNER_SANDBOX_PREFIX=("${args[@]}")
+  log "inner sandbox enabled: bubblewrap"
+  return 0
 }
 
 mkdir -p "$SECRETS_DIR" "$RUN_DIR"
@@ -193,6 +283,7 @@ if [[ -z "$JOB_REF" || "$JOB_REF" == "null" ]]; then
 fi
 
 init_redaction
+load_inner_sandbox_config
 
 report_status() {
   local status="$1"
@@ -298,6 +389,9 @@ clone_or_update_repo() {
 }
 
 clone_or_update_repo
+if ! configure_inner_sandbox; then
+  exit 1
+fi
 report_status "RUNNING" "repo ready"
 
 AGENT_COMMAND="${AGENTLAB_AGENT_COMMAND:-}"
@@ -314,6 +408,7 @@ export AGENTLAB_JOB_ID="$JOB_ID"
 export AGENTLAB_JOB_MODE="$JOB_MODE"
 export AGENTLAB_JOB_PROFILE="$JOB_PROFILE"
 export AGENTLAB_REPO_DIR="$REPO_DIR"
+export AGENTLAB_INNER_SANDBOX="$INNER_SANDBOX"
 
 if [[ -z "$AGENT_COMMAND" && -x "$REPO_DIR/.agentlab/run.sh" ]]; then
   AGENT_COMMAND="$REPO_DIR/.agentlab/run.sh"
@@ -363,6 +458,10 @@ run_agent() {
     if command -v timeout >/dev/null 2>&1; then
       cmd=(timeout --signal=SIGTERM --kill-after=30 "$((JOB_TTL_MINUTES * 60))")
     fi
+  fi
+
+  if (( ${#INNER_SANDBOX_PREFIX[@]} > 0 )); then
+    cmd+=("${INNER_SANDBOX_PREFIX[@]}")
   fi
 
   if [[ "$AGENT_COMMAND" == "agentlab-agent" ]]; then

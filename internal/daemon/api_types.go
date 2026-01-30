@@ -36,7 +36,9 @@ type V1BootstrapJob struct {
 }
 
 type V1BootstrapPolicy struct {
-	Mode string `json:"mode,omitempty"`
+	Mode             string   `json:"mode,omitempty"`
+	InnerSandbox     string   `json:"inner_sandbox,omitempty"`
+	InnerSandboxArgs []string `json:"inner_sandbox_args,omitempty"`
 }
 
 type V1BootstrapFetchResponse struct {
