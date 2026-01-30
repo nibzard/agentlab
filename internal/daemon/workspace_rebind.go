@@ -145,10 +145,15 @@ func (o *JobOrchestrator) RebindWorkspace(ctx context.Context, workspaceID, prof
 	o.rememberSnippet(snippet)
 	snippetCreated = true
 
-	if err = o.backend.Configure(ctx, proxmox.VMID(created.VMID), proxmox.VMConfig{
+	cfg := proxmox.VMConfig{
 		Name:      created.Name,
 		CloudInit: snippet.StoragePath,
-	}); err != nil {
+	}
+	cfg, err = applyProfileVMConfig(profile, cfg)
+	if err != nil {
+		return result, err
+	}
+	if err = o.backend.Configure(ctx, proxmox.VMID(created.VMID), cfg); err != nil {
 		return result, err
 	}
 

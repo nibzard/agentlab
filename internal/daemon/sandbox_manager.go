@@ -239,6 +239,9 @@ func (m *SandboxManager) stopSandbox(ctx context.Context, vmid int) error {
 		return nil
 	}
 	if err := m.backend.Stop(ctx, proxmox.VMID(vmid)); err != nil {
+		if errors.Is(err, proxmox.ErrVMNotFound) {
+			return nil
+		}
 		return fmt.Errorf("stop vmid %d: %w", vmid, err)
 	}
 	return nil
@@ -249,6 +252,9 @@ func (m *SandboxManager) destroySandbox(ctx context.Context, vmid int) error {
 		return nil
 	}
 	if err := m.backend.Destroy(ctx, proxmox.VMID(vmid)); err != nil {
+		if errors.Is(err, proxmox.ErrVMNotFound) {
+			return nil
+		}
 		return fmt.Errorf("destroy vmid %d: %w", vmid, err)
 	}
 	return nil

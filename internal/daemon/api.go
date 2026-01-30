@@ -532,6 +532,7 @@ func (api *ControlAPI) handleSandboxCreate(w http.ResponseWriter, r *http.Reques
 	req.Name = strings.TrimSpace(req.Name)
 	req.Profile = strings.TrimSpace(req.Profile)
 	req.JobID = strings.TrimSpace(req.JobID)
+	provisionSandbox := req.JobID == ""
 	if req.Profile == "" {
 		writeError(w, http.StatusBadRequest, "profile is required")
 		return
@@ -552,6 +553,10 @@ func (api *ControlAPI) handleSandboxCreate(w http.ResponseWriter, r *http.Reques
 	}
 	if req.VMID != nil && *req.VMID <= 0 {
 		writeError(w, http.StatusBadRequest, "vmid must be positive")
+		return
+	}
+	if provisionSandbox && api.jobOrchestrator == nil {
+		writeError(w, http.StatusServiceUnavailable, "sandbox provisioning unavailable")
 		return
 	}
 
@@ -643,6 +648,16 @@ func (api *ControlAPI) handleSandboxCreate(w http.ResponseWriter, r *http.Reques
 			writeError(w, http.StatusNotFound, "job not found")
 			return
 		}
+	}
+
+	if provisionSandbox {
+		updated, err := api.jobOrchestrator.ProvisionSandbox(ctx, createdSandbox.VMID)
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, "failed to provision sandbox")
+			return
+		}
+		writeJSON(w, http.StatusCreated, sandboxToV1(updated))
+		return
 	}
 
 	writeJSON(w, http.StatusCreated, sandboxToV1(createdSandbox))

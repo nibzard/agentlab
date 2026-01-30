@@ -396,7 +396,7 @@ func runSandboxNew(ctx context.Context, args []string, base commonFlags) error {
 	fs.StringVar(&workspace, "workspace", "", "workspace id or name")
 	fs.IntVar(&vmid, "vmid", 0, "vmid override")
 	fs.StringVar(&jobID, "job", "", "attach to existing job id")
-	fs.BoolVar(&keepalive, "keepalive", false, "keep sandbox after job completion")
+	fs.BoolVar(&keepalive, "keepalive", false, "enable keepalive lease for sandbox")
 	fs.BoolVar(&help, "help", false, "show help")
 	fs.BoolVar(&help, "h", false, "show help")
 	if err := parseFlags(fs, args, printSandboxNewUsage, &help); err != nil {

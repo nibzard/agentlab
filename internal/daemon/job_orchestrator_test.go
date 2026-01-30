@@ -140,6 +140,81 @@ func TestJobOrchestratorRun(t *testing.T) {
 	}
 }
 
+func TestJobOrchestratorProvisionSandbox(t *testing.T) {
+	ctx := context.Background()
+	store := newTestStore(t)
+	backend := &orchestratorBackend{guestIP: "10.77.0.42"}
+	manager := NewSandboxManager(store, backend, log.New(io.Discard, "", 0))
+	profiles := map[string]models.Profile{
+		"yolo": {
+			Name:       "yolo",
+			TemplateVM: 9000,
+			RawYAML: `
+name: yolo
+template_vmid: 9000
+network:
+  bridge: vmbr1
+  model: virtio
+resources:
+  cores: 4
+  memory_mb: 4096
+  cpulist: "0-3"
+`,
+		},
+	}
+	snippetDir := t.TempDir()
+	snippetStore := proxmox.SnippetStore{Storage: "local", Dir: snippetDir}
+	orchestrator := NewJobOrchestrator(store, profiles, backend, manager, nil, snippetStore, "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIBtestkey agent@test", "http://10.77.0.1:8844", log.New(io.Discard, "", 0), nil, nil)
+
+	now := time.Date(2026, 1, 29, 15, 0, 0, 0, time.UTC)
+	sandbox := models.Sandbox{
+		VMID:          1200,
+		Name:          "sandbox-1200",
+		Profile:       "yolo",
+		State:         models.SandboxRequested,
+		Keepalive:     true,
+		CreatedAt:     now,
+		LastUpdatedAt: now,
+	}
+	if err := store.CreateSandbox(ctx, sandbox); err != nil {
+		t.Fatalf("create sandbox: %v", err)
+	}
+
+	updated, err := orchestrator.ProvisionSandbox(ctx, sandbox.VMID)
+	if err != nil {
+		t.Fatalf("provision sandbox: %v", err)
+	}
+	if updated.State != models.SandboxRunning {
+		t.Fatalf("expected sandbox RUNNING, got %s", updated.State)
+	}
+	if updated.IP != backend.guestIP {
+		t.Fatalf("expected sandbox IP %s, got %s", backend.guestIP, updated.IP)
+	}
+	if len(backend.cloneCalls) != 1 || backend.cloneCalls[0] != proxmox.VMID(sandbox.VMID) {
+		t.Fatalf("expected clone called for vmid %d", sandbox.VMID)
+	}
+	if len(backend.configureCalls) != 1 {
+		t.Fatalf("expected configure called once")
+	}
+	cfg := backend.configureCalls[0]
+	if cfg.Cores != 4 || cfg.MemoryMB != 4096 || cfg.CPUPinning != "0-3" {
+		t.Fatalf("unexpected resource config: %+v", cfg)
+	}
+	if cfg.Bridge != "vmbr1" || cfg.NetModel != "virtio" {
+		t.Fatalf("unexpected network config: %+v", cfg)
+	}
+	if cfg.CloudInit == "" || !strings.Contains(cfg.CloudInit, "snippets") {
+		t.Fatalf("expected cloud-init snippet path, got %q", cfg.CloudInit)
+	}
+	matches, err := filepath.Glob(filepath.Join(snippetDir, "agentlab-*.yaml"))
+	if err != nil {
+		t.Fatalf("snippet glob: %v", err)
+	}
+	if len(matches) == 0 {
+		t.Fatalf("expected snippet file in %s", snippetDir)
+	}
+}
+
 func TestJobOrchestratorRejectsHostMountProfile(t *testing.T) {
 	ctx := context.Background()
 	store := newTestStore(t)

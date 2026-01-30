@@ -174,10 +174,16 @@ func (o *JobOrchestrator) Run(ctx context.Context, jobID string) error {
 	}
 	o.rememberSnippet(snippet)
 
-	if err := o.backend.Configure(ctx, proxmox.VMID(sandbox.VMID), proxmox.VMConfig{
+	cfg := proxmox.VMConfig{
 		Name:      sandbox.Name,
 		CloudInit: snippet.StoragePath,
-	}); err != nil {
+	}
+	cfg, err = applyProfileVMConfig(profile, cfg)
+	if err != nil {
+		o.cleanupSnippet(sandbox.VMID)
+		return o.failJob(ctx, job, sandbox.VMID, err)
+	}
+	if err := o.backend.Configure(ctx, proxmox.VMID(sandbox.VMID), cfg); err != nil {
 		o.cleanupSnippet(sandbox.VMID)
 		return o.failJob(ctx, job, sandbox.VMID, err)
 	}
@@ -224,6 +230,144 @@ func (o *JobOrchestrator) Run(ctx context.Context, jobID string) error {
 	}
 	_ = o.store.RecordEvent(ctx, "job.running", &sandbox.VMID, &job.ID, "sandbox running", "")
 	return nil
+}
+
+// ProvisionSandbox provisions a non-job sandbox end-to-end and returns the updated record.
+func (o *JobOrchestrator) ProvisionSandbox(ctx context.Context, vmid int) (models.Sandbox, error) {
+	if o == nil || o.store == nil {
+		return models.Sandbox{}, errors.New("sandbox provisioner unavailable")
+	}
+	if vmid <= 0 {
+		return models.Sandbox{}, errors.New("vmid must be positive")
+	}
+	sandbox, err := o.store.GetSandbox(ctx, vmid)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return models.Sandbox{}, ErrSandboxNotFound
+		}
+		return models.Sandbox{}, err
+	}
+	if sandbox.State == models.SandboxRunning {
+		return sandbox, nil
+	}
+	if sandbox.State != models.SandboxRequested {
+		return models.Sandbox{}, fmt.Errorf("sandbox %d in state %s cannot be provisioned", sandbox.VMID, sandbox.State)
+	}
+
+	profile, ok := o.profile(sandbox.Profile)
+	if !ok {
+		return models.Sandbox{}, fmt.Errorf("unknown profile %q", sandbox.Profile)
+	}
+	if err := validateProfileForProvisioning(profile); err != nil {
+		return models.Sandbox{}, err
+	}
+	if o.sandboxManager == nil {
+		return models.Sandbox{}, errors.New("sandbox manager unavailable")
+	}
+	if o.backend == nil {
+		return models.Sandbox{}, errors.New("proxmox backend unavailable")
+	}
+	if o.sshPublicKey == "" {
+		return models.Sandbox{}, errors.New("ssh public key unavailable")
+	}
+	if o.controllerURL == "" {
+		return models.Sandbox{}, errors.New("controller URL unavailable")
+	}
+
+	var provisionErr error
+	defer func() {
+		if provisionErr == nil {
+			return
+		}
+		_ = o.sandboxManager.Destroy(ctx, vmid)
+	}()
+
+	fail := func(err error) (models.Sandbox, error) {
+		provisionErr = err
+		return models.Sandbox{}, err
+	}
+
+	if err := o.sandboxManager.Transition(ctx, sandbox.VMID, models.SandboxProvisioning); err != nil {
+		return fail(err)
+	}
+	if err := o.backend.Clone(ctx, proxmox.VMID(profile.TemplateVM), proxmox.VMID(sandbox.VMID), sandbox.Name); err != nil {
+		return fail(err)
+	}
+
+	token, tokenHash, expiresAt, err := o.bootstrapToken()
+	if err != nil {
+		return fail(err)
+	}
+	if err := o.store.CreateBootstrapToken(ctx, tokenHash, sandbox.VMID, expiresAt); err != nil {
+		return fail(err)
+	}
+
+	snippet, err := o.snippetStore.Create(proxmox.SnippetInput{
+		VMID:           proxmox.VMID(sandbox.VMID),
+		Hostname:       sandbox.Name,
+		SSHPublicKey:   o.sshPublicKey,
+		BootstrapToken: token,
+		ControllerURL:  o.controllerURL,
+	})
+	if err != nil {
+		return fail(err)
+	}
+	o.rememberSnippet(snippet)
+
+	cfg := proxmox.VMConfig{
+		Name:      sandbox.Name,
+		CloudInit: snippet.StoragePath,
+	}
+	cfg, err = applyProfileVMConfig(profile, cfg)
+	if err != nil {
+		return fail(err)
+	}
+	if err := o.backend.Configure(ctx, proxmox.VMID(sandbox.VMID), cfg); err != nil {
+		return fail(err)
+	}
+
+	if sandbox.WorkspaceID != nil && strings.TrimSpace(*sandbox.WorkspaceID) != "" {
+		if o.workspaceMgr == nil {
+			return fail(errors.New("workspace manager unavailable"))
+		}
+		if _, err := o.workspaceMgr.Attach(ctx, *sandbox.WorkspaceID, sandbox.VMID); err != nil {
+			return fail(err)
+		}
+	}
+
+	if err := o.sandboxManager.Transition(ctx, sandbox.VMID, models.SandboxBooting); err != nil {
+		return fail(err)
+	}
+	if err := o.backend.Start(ctx, proxmox.VMID(sandbox.VMID)); err != nil {
+		return fail(err)
+	}
+
+	ip, err := o.backend.GuestIP(ctx, proxmox.VMID(sandbox.VMID))
+	if err != nil {
+		return fail(err)
+	}
+	if ip != "" {
+		if err := o.store.UpdateSandboxIP(ctx, sandbox.VMID, ip); err != nil {
+			return fail(err)
+		}
+	}
+
+	if err := o.sandboxManager.Transition(ctx, sandbox.VMID, models.SandboxReady); err != nil {
+		return fail(err)
+	}
+	if err := o.sandboxManager.Transition(ctx, sandbox.VMID, models.SandboxRunning); err != nil {
+		return fail(err)
+	}
+
+	updated, loadErr := o.store.GetSandbox(ctx, sandbox.VMID)
+	if loadErr != nil {
+		updated = sandbox
+		updated.State = models.SandboxRunning
+		if ip != "" {
+			updated.IP = ip
+		}
+	}
+	return updated, nil
 }
 
 func (o *JobOrchestrator) HandleReport(ctx context.Context, report JobReport) error {

@@ -103,12 +103,24 @@ func (b *ShellBackend) Start(ctx context.Context, vmid VMID) error {
 
 func (b *ShellBackend) Stop(ctx context.Context, vmid VMID) error {
 	_, err := b.runner().Run(ctx, b.qmPath(), "stop", strconv.Itoa(int(vmid)))
-	return err
+	if err != nil {
+		if isMissingVMError(err) {
+			return fmt.Errorf("%w: %v", ErrVMNotFound, err)
+		}
+		return err
+	}
+	return nil
 }
 
 func (b *ShellBackend) Destroy(ctx context.Context, vmid VMID) error {
 	_, err := b.runner().Run(ctx, b.qmPath(), "destroy", strconv.Itoa(int(vmid)), "--purge", "1")
-	return err
+	if err != nil {
+		if isMissingVMError(err) {
+			return fmt.Errorf("%w: %v", ErrVMNotFound, err)
+		}
+		return err
+	}
+	return nil
 }
 
 func (b *ShellBackend) Status(ctx context.Context, vmid VMID) (Status, error) {
@@ -607,6 +619,26 @@ func formatCICustom(value string) string {
 		return value
 	}
 	return "user=" + value
+}
+
+func isMissingVMError(err error) bool {
+	if err == nil {
+		return false
+	}
+	msg := strings.ToLower(err.Error())
+	indicators := []string{
+		"does not exist",
+		"no such vm",
+		"no such qemu",
+		"no such vmid",
+		"vmid does not exist",
+	}
+	for _, indicator := range indicators {
+		if strings.Contains(msg, indicator) {
+			return true
+		}
+	}
+	return strings.Contains(msg, "not found") && strings.Contains(msg, "vm")
 }
 
 func parseStatus(output string) (Status, error) {

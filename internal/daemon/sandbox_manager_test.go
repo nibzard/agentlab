@@ -147,6 +147,36 @@ func TestSandboxLeaseGC(t *testing.T) {
 	}
 }
 
+func TestSandboxDestroyMissingVM(t *testing.T) {
+	ctx := context.Background()
+	store := newTestStore(t)
+	backend := &stubBackend{destroyErr: proxmox.ErrVMNotFound}
+	mgr := NewSandboxManager(store, backend, log.New(io.Discard, "", 0))
+
+	sandbox := models.Sandbox{
+		VMID:      103,
+		Name:      "missing-vm",
+		Profile:   "default",
+		State:     models.SandboxProvisioning,
+		Keepalive: false,
+		CreatedAt: time.Now().UTC(),
+	}
+	if err := store.CreateSandbox(ctx, sandbox); err != nil {
+		t.Fatalf("create sandbox: %v", err)
+	}
+
+	if err := mgr.Destroy(ctx, sandbox.VMID); err != nil {
+		t.Fatalf("destroy sandbox: %v", err)
+	}
+	updated, err := store.GetSandbox(ctx, sandbox.VMID)
+	if err != nil {
+		t.Fatalf("get sandbox: %v", err)
+	}
+	if updated.State != models.SandboxDestroyed {
+		t.Fatalf("expected destroyed, got %s", updated.State)
+	}
+}
+
 func newTestStore(t *testing.T) *db.Store {
 	t.Helper()
 	path := filepath.Join(t.TempDir(), "agentlab.db")

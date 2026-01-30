@@ -170,7 +170,11 @@ Query params:
 - If neither is provided, the latest artifact is returned.
 
 ### POST /v1/sandboxes
-Create a sandbox record. If `vmid` is omitted, agentlabd allocates the next available VMID starting at 1000 based on its database.
+Create and provision a sandbox VM. If `vmid` is omitted, agentlabd allocates the next available VMID starting at 1000 based on its database. Provisioning clones the template, writes a cloud-init snippet, applies profile resources, starts the VM, and records the guest IP.
+
+Notes:
+- If `job_id` is provided, the sandbox record is created and attached to the job, but provisioning is deferred to the job runner.
+- The request may take time while the VM boots.
 
 Optional:
 - `job_id` attaches the sandbox to an existing job.

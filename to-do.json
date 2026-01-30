@@ -827,24 +827,39 @@
       "priority": 1,
       "status": "done",
       "details": "bootstrap_listen/artifact_listen allow 0.0.0.0 or :port today, which yields invalid controller/artifact URLs and disables subnet restriction. Add validation or explicit config (agent_subnet/controller_url/artifact_upload_url), enforce remoteAllowed using the configured subnet, and cover with tests.",
-      "updated_at": "2026-01-30T04:57:45Z",
+      "updated_at": "2026-01-30T04:59:30Z",
       "files": [
         "internal/config/config.go",
         "internal/config/config_test.go",
-        "internal/daemon/daemon.go",
-        "internal/daemon/bootstrap_api.go",
         "internal/daemon/artifact_api.go",
-        "internal/daemon/bootstrap_api_test.go",
         "internal/daemon/artifact_api_test.go",
-        "internal/daemon/testutil_test.go"
+        "internal/daemon/bootstrap_api.go",
+        "internal/daemon/bootstrap_api_test.go",
+        "internal/daemon/daemon.go",
+        "internal/daemon/testutil_test.go",
+        "to-do.json"
       ]
     },
     {
       "id": "T043",
       "title": "Provision real VMs for sandbox new flow",
       "priority": 2,
-      "status": "todo",
-      "details": "sandbox new currently creates only a DB record. Add a provisioning pipeline for non-job sandboxes (clone template, configure cloud-init/snippet, apply profile resources, start VM, IP discovery, state transitions) and align API/CLI/docs. Ensure destroy handles missing VMs gracefully."
+      "status": "done",
+      "details": "sandbox new currently creates only a DB record. Add a provisioning pipeline for non-job sandboxes (clone template, configure cloud-init/snippet, apply profile resources, start VM, IP discovery, state transitions) and align API/CLI/docs. Ensure destroy handles missing VMs gracefully.",
+      "updated_at": "2026-01-30T05:10:22Z",
+      "files": [
+        "cmd/agentlab/commands.go",
+        "docs/api.md",
+        "internal/daemon/api.go",
+        "internal/daemon/job_orchestrator.go",
+        "internal/daemon/job_orchestrator_test.go",
+        "internal/daemon/profile_resources.go",
+        "internal/daemon/sandbox_manager.go",
+        "internal/daemon/sandbox_manager_test.go",
+        "internal/daemon/workspace_rebind.go",
+        "internal/proxmox/errors.go",
+        "internal/proxmox/shell_backend.go"
+      ]
     }
   ]
 }
