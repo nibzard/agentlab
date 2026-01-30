@@ -336,10 +336,10 @@
       "priority": 1,
       "status": "done",
       "details": "Download cloud image, create VM, enable qga, install base packages, and convert to template.",
-      "updated_at": "2026-01-30T00:30:24Z",
+      "updated_at": "2026-01-30T00:30:45Z",
       "files": [
-        "scripts/create_template.sh",
         "scripts/README.md",
+        "scripts/create_template.sh",
         "to-do.json"
       ]
     },
@@ -347,10 +347,17 @@
       "id": "T019",
       "title": "Package agent CLIs into the template with a dispatcher wrapper",
       "priority": 1,
-      "status": "todo",
+      "status": "done",
       "details": "Install and pin Claude Code CLI, OpenAI Codex CLI, and OpenCode CLI; provide /usr/local/bin/agentlab-agent.",
       "depends_on": [
         "T018"
+      ],
+      "updated_at": "2026-01-30T00:39:38Z",
+      "files": [
+        "scripts/create_template.sh",
+        "scripts/guest/agentlab-agent",
+        "scripts/README.md",
+        "to-do.json"
       ]
     },
     {

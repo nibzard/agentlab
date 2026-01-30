@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
 log() {
   printf "[create_template] %s\n" "$*"
 }
@@ -28,6 +30,10 @@ Options:
   --cache-dir <dir>        Cache directory for images (default: /var/lib/agentlab/images)
   --packages <list>        Comma/space separated package list
   --skip-customize         Skip virt-customize package/user prep
+  --skip-agent-tools       Skip installing agent CLIs + wrapper
+  --claude-version <v>     Claude Code CLI version (default: 1.0.100)
+  --codex-version <v>      OpenAI Codex CLI version (default: 0.28.0)
+  --opencode-version <v>   OpenCode CLI version (default: 0.6.4)
   --refresh                Re-download the cloud image
   -h, --help               Show this help
 
@@ -49,8 +55,24 @@ IMAGE_URL="https://cloud-images.ubuntu.com/noble/current/noble-server-cloudimg-a
 IMAGE_FILE=""
 CACHE_DIR="/var/lib/agentlab/images"
 PACKAGES="qemu-guest-agent,git,curl,ca-certificates,jq"
+CLAUDE_CODE_VERSION="1.0.100"
+CODEX_VERSION="0.28.0"
+OPENCODE_VERSION="0.6.4"
 SKIP_CUSTOMIZE=0
+SKIP_AGENT_TOOLS=0
 REFRESH=0
+
+AGENTLAB_AGENT_WRAPPER="${SCRIPT_DIR}/guest/agentlab-agent"
+AGENT_TOOLS_ENV=""
+
+ensure_package() {
+  local pkg="$1"
+  local normalized
+  normalized=",${PACKAGES// /,},"
+  if [[ "$normalized" != *",$pkg,"* ]]; then
+    PACKAGES="${PACKAGES},${pkg}"
+  fi
+}
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -118,6 +140,25 @@ while [[ $# -gt 0 ]]; do
       SKIP_CUSTOMIZE=1
       shift
       ;;
+    --skip-agent-tools)
+      SKIP_AGENT_TOOLS=1
+      shift
+      ;;
+    --claude-version)
+      [[ $# -lt 2 ]] && die "--claude-version requires a value"
+      CLAUDE_CODE_VERSION="$2"
+      shift 2
+      ;;
+    --codex-version)
+      [[ $# -lt 2 ]] && die "--codex-version requires a value"
+      CODEX_VERSION="$2"
+      shift 2
+      ;;
+    --opencode-version)
+      [[ $# -lt 2 ]] && die "--opencode-version requires a value"
+      OPENCODE_VERSION="$2"
+      shift 2
+      ;;
     --refresh)
       REFRESH=1
       shift
@@ -150,6 +191,26 @@ fi
 
 if qm status "$VMID" >/dev/null 2>&1; then
   die "VMID $VMID already exists"
+fi
+
+if [[ "$SKIP_CUSTOMIZE" == "1" && "$SKIP_AGENT_TOOLS" == "0" ]]; then
+  log "Skipping agent tool install because --skip-customize was set"
+  SKIP_AGENT_TOOLS=1
+fi
+
+if [[ "$SKIP_AGENT_TOOLS" == "0" ]]; then
+  [[ -f "$AGENTLAB_AGENT_WRAPPER" ]] || die "agentlab-agent wrapper not found at $AGENTLAB_AGENT_WRAPPER"
+  ensure_package "nodejs"
+  ensure_package "npm"
+  ensure_package "ripgrep"
+  AGENT_TOOLS_ENV="$(mktemp)"
+  cat > "$AGENT_TOOLS_ENV" <<EOF
+CLAUDE_CODE_VERSION="${CLAUDE_CODE_VERSION}"
+CODEX_VERSION="${CODEX_VERSION}"
+OPENCODE_VERSION="${OPENCODE_VERSION}"
+BUILT_AT="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+EOF
+  trap 'rm -f "$AGENT_TOOLS_ENV"' EXIT
 fi
 
 download_image() {
@@ -192,17 +253,41 @@ if [[ "$SKIP_CUSTOMIZE" == "0" ]]; then
   fi
   pkg_list="${PACKAGES// /,}"
   log "Customizing image with packages: $pkg_list"
-  virt-customize -a "$WORK_IMAGE" \
-    --install "$pkg_list" \
-    --run-command "id -u agent >/dev/null 2>&1 || useradd -m -s /bin/bash agent" \
-    --run-command "id -u agent >/dev/null 2>&1 && usermod -aG sudo agent" \
-    --run-command "id -u agent >/dev/null 2>&1 && passwd -l agent" \
-    --run-command "install -d -m 0755 /etc/sudoers.d" \
-    --run-command "printf 'agent ALL=(ALL) NOPASSWD:ALL\\n' > /etc/sudoers.d/90-agentlab" \
-    --run-command "chmod 0440 /etc/sudoers.d/90-agentlab" \
-    --run-command "install -d -m 0755 /etc/ssh/sshd_config.d" \
-    --run-command "printf 'PasswordAuthentication no\\nPermitRootLogin prohibit-password\\n' > /etc/ssh/sshd_config.d/99-agentlab.conf" \
+  virt_args=(
+    -a "$WORK_IMAGE"
+    --install "$pkg_list"
+    --run-command "id -u agent >/dev/null 2>&1 || useradd -m -s /bin/bash agent"
+    --run-command "id -u agent >/dev/null 2>&1 && usermod -aG sudo agent"
+    --run-command "id -u agent >/dev/null 2>&1 && passwd -l agent"
+    --run-command "install -d -m 0755 /etc/sudoers.d"
+    --run-command "printf 'agent ALL=(ALL) NOPASSWD:ALL\\n' > /etc/sudoers.d/90-agentlab"
+    --run-command "chmod 0440 /etc/sudoers.d/90-agentlab"
+    --run-command "install -d -m 0755 /etc/ssh/sshd_config.d"
+    --run-command "printf 'PasswordAuthentication no\\nPermitRootLogin prohibit-password\\n' > /etc/ssh/sshd_config.d/99-agentlab.conf"
     --run-command "systemctl enable qemu-guest-agent"
+  )
+
+  if [[ "$SKIP_AGENT_TOOLS" == "0" ]]; then
+    log "Installing agent CLIs (claude ${CLAUDE_CODE_VERSION}, codex ${CODEX_VERSION}, opencode ${OPENCODE_VERSION})"
+    virt_args+=(
+      --run-command "npm config set fund false"
+      --run-command "npm config set update-notifier false"
+      --run-command "npm config set unsafe-perm true"
+      --run-command "npm install -g @anthropic-ai/claude-code@${CLAUDE_CODE_VERSION}"
+      --run-command "npm install -g @openai/codex@${CODEX_VERSION}"
+      --run-command "npm install -g opencode-ai@${OPENCODE_VERSION}"
+      --run-command "install -d -m 0755 /etc/agentlab"
+      --upload "${AGENTLAB_AGENT_WRAPPER}:/usr/local/bin/agentlab-agent"
+      --upload "${AGENT_TOOLS_ENV}:/etc/agentlab/agent-tools.env"
+      --run-command "chmod 0755 /usr/local/bin/agentlab-agent"
+      --run-command "chmod 0644 /etc/agentlab/agent-tools.env"
+      --run-command "command -v claude codex opencode >/dev/null"
+    )
+  else
+    log "Skipping agent CLI install"
+  fi
+
+  virt-customize "${virt_args[@]}"
 else
   log "Skipping image customization; ensure qemu-guest-agent and base packages are installed"
 fi

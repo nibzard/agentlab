@@ -1,0 +1,101 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+AGENTLAB_TOOLS_ENV="/etc/agentlab/agent-tools.env"
+DEFAULT_AGENT="claude"
+AGENTLAB_AGENT="${AGENTLAB_AGENT:-$DEFAULT_AGENT}"
+
+load_versions() {
+  if [[ -f "$AGENTLAB_TOOLS_ENV" ]]; then
+    # shellcheck disable=SC1090
+    source "$AGENTLAB_TOOLS_ENV"
+  fi
+}
+
+show_help() {
+  cat <<'USAGE'
+Usage:
+  agentlab-agent [--agent <claude|codex|opencode>] [--] <args...>
+  agentlab-agent <claude|codex|opencode> [--] <args...>
+  agentlab-agent --list
+  agentlab-agent --version
+
+Environment:
+  AGENTLAB_AGENT   Default agent selection (claude|codex|opencode)
+
+Notes:
+  - Use -- to pass arguments that start with dashes to the selected agent.
+  - claude runs with DISABLE_AUTOUPDATER=1 to keep pinned versions.
+USAGE
+}
+
+show_versions() {
+  load_versions
+  printf "claude-code %s\n" "${CLAUDE_CODE_VERSION:-unknown}"
+  printf "openai-codex %s\n" "${CODEX_VERSION:-unknown}"
+  printf "opencode %s\n" "${OPENCODE_VERSION:-unknown}"
+  if [[ -n "${BUILT_AT:-}" ]]; then
+    printf "built-at %s\n" "$BUILT_AT"
+  fi
+}
+
+show_list() {
+  load_versions
+  printf "claude  (claude-code %s)\n" "${CLAUDE_CODE_VERSION:-unknown}"
+  printf "codex   (openai-codex %s)\n" "${CODEX_VERSION:-unknown}"
+  printf "opencode (opencode %s)\n" "${OPENCODE_VERSION:-unknown}"
+}
+
+if [[ $# -eq 0 ]]; then
+  show_help
+  exit 0
+fi
+
+case "$1" in
+  -h|--help)
+    show_help
+    exit 0
+    ;;
+  --list)
+    show_list
+    exit 0
+    ;;
+  --version)
+    show_versions
+    exit 0
+    ;;
+esac
+
+agent=""
+if [[ "$1" == "--" ]]; then
+  shift
+  agent="$AGENTLAB_AGENT"
+elif [[ "$1" == "--agent" || "$1" == "--tool" ]]; then
+  [[ $# -lt 2 ]] && { echo "agentlab-agent: --agent requires a value" >&2; exit 2; }
+  agent="$2"
+  shift 2
+elif [[ "$1" == "claude" || "$1" == "codex" || "$1" == "opencode" ]]; then
+  agent="$1"
+  shift
+else
+  agent="$AGENTLAB_AGENT"
+fi
+
+agent="$(printf "%s" "$agent" | tr '[:upper:]' '[:lower:]')"
+
+case "$agent" in
+  claude)
+    export DISABLE_AUTOUPDATER=1
+    exec claude "$@"
+    ;;
+  codex)
+    exec codex "$@"
+    ;;
+  opencode|open-code)
+    exec opencode "$@"
+    ;;
+  *)
+    echo "agentlab-agent: unknown agent '$agent'" >&2
+    exit 2
+    ;;
+esac
