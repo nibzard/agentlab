@@ -6,6 +6,7 @@
 - `guest/agent-runner`: guest bootstrap + execution script invoked by systemd.
 - `guest/agent-runner.service`: systemd unit for the guest runner.
 - `guest/agent-runner.env`: optional runner environment overrides.
+- `guest/agent-secrets-cleanup`: guest cleanup helper invoked on service stop.
 - `systemd/agentlabd.service`: systemd unit for the agentlabd daemon.
 - `net/agent_nat.nft`: nftables rules template for agent subnet NAT + egress/tailnet blocks.
 - `net/apply.sh`: install and optionally enable the agentlab nftables rules.

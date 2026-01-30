@@ -110,10 +110,10 @@
         "T004",
         "T005"
       ],
-      "updated_at": "2026-01-30T02:07:26Z",
+      "updated_at": "2026-01-30T02:07:45Z",
       "files": [
-        "scripts/net/smoke_test.sh",
         "scripts/README.md",
+        "scripts/net/smoke_test.sh",
         "to-do.json"
       ]
     },
@@ -392,10 +392,19 @@
       "id": "T021",
       "title": "Add secrets cleanup on guest stop",
       "priority": 2,
-      "status": "todo",
+      "status": "done",
       "details": "Wipe /run/secrets and temporary repo directories via ExecStopPost or dedicated cleanup unit.",
       "depends_on": [
         "T020"
+      ],
+      "updated_at": "2026-01-30T02:11:35Z",
+      "files": [
+        "scripts/guest/agent-secrets-cleanup",
+        "scripts/guest/agent-runner.service",
+        "scripts/guest/agent-runner.env",
+        "scripts/create_template.sh",
+        "scripts/README.md",
+        "to-do.json"
       ]
     },
     {

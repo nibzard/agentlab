@@ -66,6 +66,7 @@ AGENTLAB_AGENT_WRAPPER="${SCRIPT_DIR}/guest/agentlab-agent"
 AGENTLAB_RUNNER_SCRIPT="${SCRIPT_DIR}/guest/agent-runner"
 AGENTLAB_RUNNER_SERVICE="${SCRIPT_DIR}/guest/agent-runner.service"
 AGENTLAB_RUNNER_ENV="${SCRIPT_DIR}/guest/agent-runner.env"
+AGENTLAB_SECRETS_CLEANUP_SCRIPT="${SCRIPT_DIR}/guest/agent-secrets-cleanup"
 AGENT_TOOLS_ENV=""
 
 ensure_package() {
@@ -220,6 +221,7 @@ if [[ "$SKIP_CUSTOMIZE" == "0" ]]; then
   [[ -f "$AGENTLAB_RUNNER_SCRIPT" ]] || die "agent-runner script not found at $AGENTLAB_RUNNER_SCRIPT"
   [[ -f "$AGENTLAB_RUNNER_SERVICE" ]] || die "agent-runner service not found at $AGENTLAB_RUNNER_SERVICE"
   [[ -f "$AGENTLAB_RUNNER_ENV" ]] || die "agent-runner env not found at $AGENTLAB_RUNNER_ENV"
+  [[ -f "$AGENTLAB_SECRETS_CLEANUP_SCRIPT" ]] || die "agent secrets cleanup script not found at $AGENTLAB_SECRETS_CLEANUP_SCRIPT"
 fi
 
 download_image() {
@@ -278,7 +280,9 @@ if [[ "$SKIP_CUSTOMIZE" == "0" ]]; then
     --upload "${AGENTLAB_RUNNER_SCRIPT}:/usr/local/bin/agent-runner"
     --upload "${AGENTLAB_RUNNER_SERVICE}:/etc/systemd/system/agent-runner.service"
     --upload "${AGENTLAB_RUNNER_ENV}:/etc/agentlab/agent-runner.env"
+    --upload "${AGENTLAB_SECRETS_CLEANUP_SCRIPT}:/usr/local/bin/agent-secrets-cleanup"
     --run-command "chmod 0755 /usr/local/bin/agent-runner"
+    --run-command "chmod 0755 /usr/local/bin/agent-secrets-cleanup"
     --run-command "chmod 0644 /etc/agentlab/agent-runner.env"
     --run-command "systemctl enable agent-runner.service"
   )
