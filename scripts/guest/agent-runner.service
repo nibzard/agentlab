@@ -13,7 +13,7 @@ ExecStart=/usr/local/bin/agent-runner
 ExecStopPost=/usr/local/bin/agent-secrets-cleanup
 Restart=on-failure
 RestartSec=10
-RuntimeDirectory=agentlab secrets
+RuntimeDirectory=agentlab
 RuntimeDirectoryMode=0700
 
 [Install]

@@ -135,8 +135,8 @@ behavior:
 
 Notes:
 - The default sandbox uses a read-only root and rebinds `/tmp`, `/var/tmp`,
-  `/run`, the repo path, and `$HOME` as writable; `/run/secrets` is re-bound
-  read-only.
+  `/run`, the repo path, and `$HOME` as writable; `/run/agentlab/secrets` is
+  re-bound read-only.
 - `inner_sandbox_args` entries are appended as individual bubblewrap arguments.
   List each token separately.
 - Ensure `bubblewrap` is installed in the guest template (rebuild the template

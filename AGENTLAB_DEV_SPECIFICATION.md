@@ -371,14 +371,14 @@ This preserves “remote access for humans” without giving sandboxes a free pa
   Implement `agent-runner` behavior (systemd service):
   1) read `/etc/agentlab/bootstrap.json` (token/controller/vmid)
   2) fetch bootstrap payload
-  3) write secrets to **tmpfs** (`/run/secrets`) only
+  3) write secrets to **tmpfs** (`/run/agentlab/secrets`) only
   4) clone/pull repo into `/tmp/repo` (or `/work/repo` if workspace attached)
   5) execute agent loop with the selected CLI
   6) stream logs + status events to controller
   7) upload artifacts + final report
 - **Definition of done:**
   - runner survives transient network failures (retry with backoff)
-  - secrets never written outside `/run/secrets`
+  - secrets never written outside `/run/agentlab/secrets`
   - structured status updates observable from host
 
 #### F4. Secrets cleanup on stop
@@ -387,7 +387,7 @@ This preserves “remote access for humans” without giving sandboxes a free pa
 - **Dependencies:** F3  
 - **Description:**  
   Add `ExecStopPost` or a dedicated cleanup unit to:
-  - wipe `/run/secrets`
+  - wipe `/run/agentlab/secrets`
   - wipe temp dirs used for repo checkout if ephemeral
 - **Definition of done:**
   - after completion, secrets are not present in filesystem artifacts

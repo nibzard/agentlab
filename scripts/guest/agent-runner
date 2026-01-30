@@ -21,7 +21,7 @@ if [[ -f "$RUNNER_ENV" ]]; then
 fi
 
 BOOTSTRAP_PATH="${AGENTLAB_BOOTSTRAP:-/etc/agentlab/bootstrap.json}"
-SECRETS_DIR="${AGENTLAB_SECRETS_DIR:-/run/secrets}"
+SECRETS_DIR="${AGENTLAB_SECRETS_DIR:-/run/agentlab/secrets}"
 RUN_DIR="${AGENTLAB_RUN_DIR:-/run/agentlab}"
 WORK_DIR_BASE="${AGENTLAB_WORK_DIR_BASE:-/tmp}"
 REPO_DIR="${AGENTLAB_REPO_DIR:-}"

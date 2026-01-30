@@ -928,14 +928,17 @@
       "id": "T048",
       "title": "Move guest secrets directory under /run/agentlab to avoid clobbering /run/secrets",
       "priority": 2,
-      "status": "todo",
+      "status": "done",
       "details": "Use an agentlab-specific secrets path (for example /run/agentlab/secrets) and update agent-runner, cleanup script, and systemd unit/runtime directories accordingly.",
       "files": [
         "scripts/guest/agent-runner",
         "scripts/guest/agent-secrets-cleanup",
         "scripts/guest/agent-runner.service",
-        "scripts/create_template.sh"
-      ]
+        "AGENTLAB_DEV_SPECIFICATION.md",
+        "PROXMOX_SPECS.md",
+        "docs/runbook.md"
+      ],
+      "updated_at": "2026-01-30T06:15:24Z"
     },
     {
       "id": "T049",

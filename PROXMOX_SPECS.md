@@ -207,7 +207,7 @@ Cloud-init user-data must support:
 ### 8.4 agent-runner contract
 The guest’s `agent-runner` MUST:
 1. Fetch secrets from controller using `bootstrap_token`
-2. Store secrets in tmpfs (`/run/secrets/…`) only
+2. Store secrets in tmpfs (`/run/agentlab/secrets/…`) only
 3. Clone/pull repo
 4. Run agent loop / task command
 5. Emit structured status + logs
@@ -586,8 +586,8 @@ TOKEN="$(jq -r .token "$BOOTSTRAP")"
 CTRL="$(jq -r .controller "$BOOTSTRAP")"
 VMID="$(jq -r .vmid "$BOOTSTRAP")"
 
-mkdir -p /run/secrets
-chmod 700 /run/secrets
+mkdir -p /run/agentlab/secrets
+chmod 700 /run/agentlab/secrets
 
 # Fetch secrets one-time
 SECRETS_JSON="$(curl -fsS -X POST "$CTRL/v1/bootstrap/fetch" \
@@ -595,16 +595,16 @@ SECRETS_JSON="$(curl -fsS -X POST "$CTRL/v1/bootstrap/fetch" \
   -d "{\"token\":\"$TOKEN\",\"vmid\":$VMID}")"
 
 # Write only to tmpfs
-echo "$SECRETS_JSON" > /run/secrets/all.json
-chmod 600 /run/secrets/all.json
+echo "$SECRETS_JSON" > /run/agentlab/secrets/all.json
+chmod 600 /run/agentlab/secrets/all.json
 
 # Configure Claude settings (example)
-jq -r '.claude_settings_json' /run/secrets/all.json > /run/secrets/claude-settings.json
-chmod 600 /run/secrets/claude-settings.json
+jq -r '.claude_settings_json' /run/agentlab/secrets/all.json > /run/agentlab/secrets/claude-settings.json
+chmod 600 /run/agentlab/secrets/claude-settings.json
 
 # Run job loop (placeholder)
 # - clone repo, run agent, push PR, upload artifacts
-exec /usr/local/bin/run-agent-loop.sh /run/secrets/all.json
+exec /usr/local/bin/run-agent-loop.sh /run/agentlab/secrets/all.json
 ```
 
 ### D) Example nftables (sketch)
