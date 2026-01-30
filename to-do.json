@@ -983,9 +983,10 @@
         "internal/daemon/sandbox_manager.go",
         "internal/daemon/sandbox_manager_test.go",
         "internal/daemon/workspace_manager.go",
-        "internal/proxmox/shell_backend.go"
+        "internal/proxmox/shell_backend.go",
+        "to-do.json"
       ],
-      "updated_at": "2026-01-30T06:52:17Z"
+      "updated_at": "2026-01-30T06:53:42Z"
     },
     {
       "id": "T052",
@@ -995,9 +996,44 @@
       "details": "JobOrchestrator.Run/ProvisionSandbox uses a timeout context; when it expires, failJob and deferred cleanup run with a canceled context so job status updates and sandbox/snippet cleanup can be skipped. Use a fresh background context (with a short timeout) for failure updates/cleanup and add tests for timeout paths.",
       "files": [
         "internal/daemon/job_orchestrator.go",
-        "internal/daemon/job_orchestrator_test.go"
+        "internal/daemon/job_orchestrator_test.go",
+        "to-do.json"
       ],
-      "updated_at": "2026-01-30T07:01:10Z"
+      "updated_at": "2026-01-30T07:07:19Z"
+    },
+    {
+      "id": "T053",
+      "title": "Propagate agent subnet to Proxmox IP discovery",
+      "priority": 2,
+      "status": "done",
+      "details": "ShellBackend GuestIP selection ignores the configured agent subnet when multiple NICs are present. Wire agent_subnet (or derived subnet) into ShellBackend.AgentCIDR so IP discovery prefers vmbr1 addresses; add regression coverage for multi-IP selection.",
+      "files": [
+        "internal/daemon/daemon.go",
+        "internal/daemon/daemon_test.go"
+      ],
+      "updated_at": "2026-01-30T07:25:19Z"
+    },
+    {
+      "id": "T054",
+      "title": "Use failure-timeout context for workspace rebind cleanup",
+      "priority": 2,
+      "status": "todo",
+      "details": "RebindWorkspace cleanup currently runs with the provision timeout context, so detach/reattach/destroy can be skipped after a timeout. Use a fresh background context with a short timeout for cleanup steps (matching job/provision cleanup) and add a timeout-path test.",
+      "files": [
+        "internal/daemon/workspace_rebind.go",
+        "internal/daemon/job_orchestrator.go",
+        "internal/daemon/job_orchestrator_test.go"
+      ]
+    },
+    {
+      "id": "T055",
+      "title": "Add curl timeouts for agent-runner bootstrap/report/upload",
+      "priority": 3,
+      "status": "todo",
+      "details": "agent-runner uses curl without connect/max timeouts for bootstrap fetch, status reports, and artifact uploads, which can hang indefinitely on network stalls. Add sane defaults (configurable via env) to prevent job hangs.",
+      "files": [
+        "scripts/guest/agent-runner"
+      ]
     }
   ]
 }

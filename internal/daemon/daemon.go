@@ -79,6 +79,10 @@ func NewService(cfg config.Config, profiles map[string]models.Profile, store *db
 	if err != nil {
 		return nil, err
 	}
+	agentCIDR := ""
+	if agentSubnet != nil {
+		agentCIDR = agentSubnet.String()
+	}
 	var metrics *Metrics
 	if strings.TrimSpace(cfg.MetricsListen) != "" {
 		metrics = NewMetrics()
@@ -111,6 +115,7 @@ func NewService(cfg config.Config, profiles map[string]models.Profile, store *db
 
 	backend := &proxmox.ShellBackend{
 		CommandTimeout: cfg.ProxmoxCommandTimeout,
+		AgentCIDR:      agentCIDR,
 	}
 	workspaceManager := NewWorkspaceManager(store, backend, log.Default())
 	sandboxManager := NewSandboxManager(store, backend, log.Default()).WithWorkspaceManager(workspaceManager).WithMetrics(metrics)
