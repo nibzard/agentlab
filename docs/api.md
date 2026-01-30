@@ -184,3 +184,22 @@ Body:
 
 ### POST /v1/workspaces/{id}/detach
 Detach a workspace volume from its attached VM.
+
+### POST /v1/workspaces/{id}/rebind
+Create a new sandbox from a profile and attach the workspace.
+
+Body:
+
+```json
+{ "profile": "yolo-workspace", "ttl_minutes": 240, "keep_old": false }
+```
+
+Response:
+
+```json
+{
+  "workspace": { "id": "workspace-0123abcd", "name": "workspace-alpha" },
+  "sandbox": { "vmid": 1001, "profile": "yolo-workspace", "state": "RUNNING" },
+  "old_vmid": 1000
+}
+```

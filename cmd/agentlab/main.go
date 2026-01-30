@@ -27,6 +27,7 @@ Usage:
   agentlab [--socket PATH] [--json] workspace list
   agentlab [--socket PATH] [--json] workspace attach <workspace> <vmid>
   agentlab [--socket PATH] [--json] workspace detach <workspace>
+  agentlab [--socket PATH] [--json] workspace rebind <workspace> --profile <profile> [--ttl <ttl>] [--keep-old]
   agentlab [--socket PATH] [--json] ssh <vmid> [--user <user>] [--port <port>] [--identity <path>] [--exec]
   agentlab [--socket PATH] [--json] logs <vmid> [--follow] [--tail <n>]
 
@@ -149,7 +150,7 @@ func printSandboxLeaseRenewUsage() {
 }
 
 func printWorkspaceUsage() {
-	fmt.Fprintln(os.Stdout, "Usage: agentlab workspace <create|list|attach|detach>")
+	fmt.Fprintln(os.Stdout, "Usage: agentlab workspace <create|list|attach|detach|rebind>")
 }
 
 func printWorkspaceCreateUsage() {
@@ -166,6 +167,10 @@ func printWorkspaceAttachUsage() {
 
 func printWorkspaceDetachUsage() {
 	fmt.Fprintln(os.Stdout, "Usage: agentlab workspace detach <workspace>")
+}
+
+func printWorkspaceRebindUsage() {
+	fmt.Fprintln(os.Stdout, "Usage: agentlab workspace rebind <workspace> --profile <profile> [--ttl <ttl>] [--keep-old]")
 }
 
 func printLogsUsage() {

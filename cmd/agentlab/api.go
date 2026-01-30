@@ -98,6 +98,12 @@ type workspaceAttachRequest struct {
 	VMID int `json:"vmid"`
 }
 
+type workspaceRebindRequest struct {
+	Profile    string `json:"profile"`
+	TTLMinutes *int   `json:"ttl_minutes,omitempty"`
+	KeepOld    bool   `json:"keep_old,omitempty"`
+}
+
 type workspaceResponse struct {
 	ID           string `json:"id"`
 	Name         string `json:"name"`
@@ -111,6 +117,12 @@ type workspaceResponse struct {
 
 type workspacesResponse struct {
 	Workspaces []workspaceResponse `json:"workspaces"`
+}
+
+type workspaceRebindResponse struct {
+	Workspace workspaceResponse `json:"workspace"`
+	Sandbox   sandboxResponse   `json:"sandbox"`
+	OldVMID   *int              `json:"old_vmid,omitempty"`
 }
 
 type eventResponse struct {

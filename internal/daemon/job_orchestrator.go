@@ -418,6 +418,14 @@ func (o *JobOrchestrator) cleanupSnippet(vmid int) {
 	}
 }
 
+// CleanupSnippet removes a remembered cloud-init snippet for a VMID.
+func (o *JobOrchestrator) CleanupSnippet(vmid int) {
+	if o == nil {
+		return
+	}
+	o.cleanupSnippet(vmid)
+}
+
 func (o *JobOrchestrator) randReader() io.Reader {
 	if o.rand != nil {
 		return o.rand

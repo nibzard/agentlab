@@ -164,6 +164,8 @@ func runWorkspaceCommand(ctx context.Context, args []string, base commonFlags) e
 		return runWorkspaceAttach(ctx, args[1:], base)
 	case "detach":
 		return runWorkspaceDetach(ctx, args[1:], base)
+	case "rebind":
+		return runWorkspaceRebind(ctx, args[1:], base)
 	default:
 		printWorkspaceUsage()
 		return fmt.Errorf("unknown workspace command %q", args[0])
@@ -543,6 +545,61 @@ func runWorkspaceDetach(ctx context.Context, args []string, base commonFlags) er
 	return nil
 }
 
+func runWorkspaceRebind(ctx context.Context, args []string, base commonFlags) error {
+	fs := newFlagSet("workspace rebind")
+	opts := base
+	opts.bind(fs)
+	var profile string
+	var ttl string
+	var keepOld bool
+	var help bool
+	fs.StringVar(&profile, "profile", "", "profile name")
+	fs.StringVar(&ttl, "ttl", "", ttlFlagDescription)
+	fs.BoolVar(&keepOld, "keep-old", false, "keep old sandbox running")
+	fs.BoolVar(&help, "help", false, "show help")
+	fs.BoolVar(&help, "h", false, "show help")
+	if err := parseFlags(fs, args, printWorkspaceRebindUsage, &help); err != nil {
+		return err
+	}
+	if fs.NArg() < 1 {
+		printWorkspaceRebindUsage()
+		return fmt.Errorf("workspace is required")
+	}
+	workspace := strings.TrimSpace(fs.Arg(0))
+	if workspace == "" {
+		return fmt.Errorf("workspace is required")
+	}
+	profile = strings.TrimSpace(profile)
+	if profile == "" {
+		printWorkspaceRebindUsage()
+		return fmt.Errorf("profile is required")
+	}
+	ttlMinutes, err := parseTTLMinutes(ttl)
+	if err != nil {
+		return err
+	}
+
+	client := newAPIClient(opts.socketPath)
+	req := workspaceRebindRequest{
+		Profile:    profile,
+		TTLMinutes: ttlMinutes,
+		KeepOld:    keepOld,
+	}
+	payload, err := client.doJSON(ctx, http.MethodPost, fmt.Sprintf("/v1/workspaces/%s/rebind", workspace), req)
+	if err != nil {
+		return err
+	}
+	if opts.jsonOutput {
+		return prettyPrintJSON(os.Stdout, payload)
+	}
+	var resp workspaceRebindResponse
+	if err := json.Unmarshal(payload, &resp); err != nil {
+		return err
+	}
+	printWorkspaceRebind(resp, keepOld)
+	return nil
+}
+
 func runLogsCommand(ctx context.Context, args []string, base commonFlags) error {
 	fs := newFlagSet("logs")
 	opts := base
@@ -675,6 +732,19 @@ func printWorkspaceList(workspaces []workspaceResponse) {
 		fmt.Fprintf(w, "%s\t%s\t%d\t%s\t%s\n", ws.ID, ws.Name, ws.SizeGB, ws.Storage, vmidString(ws.AttachedVMID))
 	}
 	_ = w.Flush()
+}
+
+func printWorkspaceRebind(resp workspaceRebindResponse, keepOld bool) {
+	fmt.Printf("Workspace: %s\n", resp.Workspace.Name)
+	fmt.Printf("New VMID: %d\n", resp.Sandbox.VMID)
+	fmt.Printf("New IP: %s\n", orDash(resp.Sandbox.IP))
+	if resp.OldVMID != nil {
+		status := "destroyed"
+		if keepOld {
+			status = "kept"
+		}
+		fmt.Printf("Old VMID: %d (%s)\n", *resp.OldVMID, status)
+	}
 }
 
 func printJob(job jobResponse) {

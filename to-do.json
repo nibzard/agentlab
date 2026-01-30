@@ -397,13 +397,13 @@
       "depends_on": [
         "T020"
       ],
-      "updated_at": "2026-01-30T02:11:35Z",
+      "updated_at": "2026-01-30T02:12:11Z",
       "files": [
-        "scripts/guest/agent-secrets-cleanup",
-        "scripts/guest/agent-runner.service",
-        "scripts/guest/agent-runner.env",
-        "scripts/create_template.sh",
         "scripts/README.md",
+        "scripts/create_template.sh",
+        "scripts/guest/agent-runner.env",
+        "scripts/guest/agent-runner.service",
+        "scripts/guest/agent-secrets-cleanup",
         "to-do.json"
       ]
     },
@@ -438,10 +438,10 @@
         "T009",
         "T005"
       ],
-      "updated_at": "2026-01-30T02:20:32Z",
+      "updated_at": "2026-01-30T02:23:27Z",
       "files": [
-        "cmd/agentlab/ssh.go",
         "cmd/agentlab/main.go",
+        "cmd/agentlab/ssh.go",
         "to-do.json"
       ]
     },
@@ -455,22 +455,23 @@
         "T011",
         "T007"
       ],
-      "updated_at": "2026-01-30T02:41:16Z",
+      "updated_at": "2026-01-30T02:43:18Z",
       "files": [
-        "internal/db/workspaces.go",
-        "internal/daemon/workspace_manager.go",
+        "cmd/agentlab/api.go",
+        "cmd/agentlab/commands.go",
+        "cmd/agentlab/main.go",
+        "docs/api.md",
         "internal/daemon/api.go",
         "internal/daemon/api_types.go",
         "internal/daemon/daemon.go",
         "internal/daemon/job_orchestrator.go",
         "internal/daemon/sandbox_manager.go",
+        "internal/daemon/workspace_manager.go",
         "internal/db/sandboxes.go",
+        "internal/db/workspaces.go",
         "internal/proxmox/proxmox.go",
         "internal/proxmox/shell_backend.go",
-        "cmd/agentlab/api.go",
-        "cmd/agentlab/commands.go",
-        "cmd/agentlab/main.go",
-        "docs/api.md"
+        "to-do.json"
       ]
     },
     {
@@ -483,10 +484,10 @@
         "T024",
         "T018"
       ],
-      "updated_at": "2026-01-30T02:50:27Z",
+      "updated_at": "2026-01-30T02:54:56Z",
       "files": [
-        "scripts/create_template.sh",
         "scripts/README.md",
+        "scripts/create_template.sh",
         "scripts/guest/agent-runner.service",
         "scripts/guest/agentlab-workspace-setup",
         "scripts/guest/agentlab-workspace-setup.service",
@@ -498,12 +499,26 @@
       "id": "T026",
       "title": "Implement workspace rebind workflow",
       "priority": 2,
-      "status": "todo",
+      "status": "done",
       "details": "Create new sandbox, attach workspace, and safely detach/destroy old sandbox as requested.",
       "depends_on": [
         "T024",
         "T025",
         "T012"
+      ],
+      "updated_at": "2026-01-30T03:13:06Z",
+      "files": [
+        "internal/daemon/workspace_rebind.go",
+        "internal/daemon/job_orchestrator.go",
+        "internal/daemon/sandbox_manager.go",
+        "internal/daemon/daemon.go",
+        "internal/daemon/api.go",
+        "internal/daemon/api_types.go",
+        "cmd/agentlab/commands.go",
+        "cmd/agentlab/main.go",
+        "cmd/agentlab/api.go",
+        "docs/api.md",
+        "to-do.json"
       ]
     },
     {

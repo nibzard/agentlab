@@ -29,6 +29,7 @@ type SandboxManager struct {
 	backend    proxmox.Backend
 	logger     *log.Logger
 	workspace  *WorkspaceManager
+	snippetFn  func(vmid int)
 	now        func() time.Time
 	gcInterval time.Duration
 }
@@ -53,6 +54,15 @@ func (m *SandboxManager) WithWorkspaceManager(manager *WorkspaceManager) *Sandbo
 		return m
 	}
 	m.workspace = manager
+	return m
+}
+
+// WithSnippetCleaner sets a callback to clean up cloud-init snippets on destroy.
+func (m *SandboxManager) WithSnippetCleaner(cleaner func(vmid int)) *SandboxManager {
+	if m == nil {
+		return m
+	}
+	m.snippetFn = cleaner
 	return m
 }
 
@@ -158,6 +168,9 @@ func (m *SandboxManager) Destroy(ctx context.Context, vmid int) error {
 	if err := m.Transition(ctx, vmid, models.SandboxDestroyed); err != nil {
 		return err
 	}
+	if m.snippetFn != nil {
+		m.snippetFn(vmid)
+	}
 	return nil
 }
 
@@ -196,7 +209,13 @@ func (m *SandboxManager) expireSandbox(ctx context.Context, sandbox models.Sandb
 	if err := m.destroySandbox(ctx, sandbox.VMID); err != nil {
 		return err
 	}
-	return m.Transition(ctx, sandbox.VMID, models.SandboxDestroyed)
+	if err := m.Transition(ctx, sandbox.VMID, models.SandboxDestroyed); err != nil {
+		return err
+	}
+	if m.snippetFn != nil {
+		m.snippetFn(sandbox.VMID)
+	}
+	return nil
 }
 
 func (m *SandboxManager) stopSandbox(ctx context.Context, vmid int) error {

@@ -120,6 +120,12 @@ type V1WorkspaceAttachRequest struct {
 	VMID int `json:"vmid"`
 }
 
+type V1WorkspaceRebindRequest struct {
+	Profile    string `json:"profile"`
+	TTLMinutes *int   `json:"ttl_minutes,omitempty"`
+	KeepOld    bool   `json:"keep_old,omitempty"`
+}
+
 type V1WorkspaceResponse struct {
 	ID           string `json:"id"`
 	Name         string `json:"name"`
@@ -133,6 +139,12 @@ type V1WorkspaceResponse struct {
 
 type V1WorkspacesResponse struct {
 	Workspaces []V1WorkspaceResponse `json:"workspaces"`
+}
+
+type V1WorkspaceRebindResponse struct {
+	Workspace V1WorkspaceResponse `json:"workspace"`
+	Sandbox   V1SandboxResponse   `json:"sandbox"`
+	OldVMID   *int                `json:"old_vmid,omitempty"`
 }
 
 type V1Event struct {

@@ -102,6 +102,9 @@ func NewService(cfg config.Config, profiles map[string]models.Profile, store *db
 	} else {
 		log.Printf("agentlabd: ssh public key missing; job orchestration disabled")
 	}
+	if jobOrchestrator != nil {
+		sandboxManager.WithSnippetCleaner(jobOrchestrator.CleanupSnippet)
+	}
 
 	localMux := http.NewServeMux()
 	localMux.HandleFunc("/healthz", healthHandler)

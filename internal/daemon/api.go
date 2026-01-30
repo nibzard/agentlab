@@ -287,6 +287,13 @@ func (api *ControlAPI) handleWorkspaceByID(w http.ResponseWriter, r *http.Reques
 			}
 			api.handleWorkspaceDetach(w, r, id)
 			return
+		case "rebind":
+			if r.Method != http.MethodPost {
+				writeMethodNotAllowed(w, []string{http.MethodPost})
+				return
+			}
+			api.handleWorkspaceRebind(w, r, id)
+			return
 		}
 	}
 	writeError(w, http.StatusNotFound, "workspace not found")
@@ -559,6 +566,59 @@ func (api *ControlAPI) handleWorkspaceDetach(w http.ResponseWriter, r *http.Requ
 		return
 	}
 	writeJSON(w, http.StatusOK, workspaceToV1(workspace))
+}
+
+func (api *ControlAPI) handleWorkspaceRebind(w http.ResponseWriter, r *http.Request, id string) {
+	if api.jobOrchestrator == nil {
+		writeError(w, http.StatusServiceUnavailable, "workspace rebind unavailable")
+		return
+	}
+	var req V1WorkspaceRebindRequest
+	if err := decodeJSON(w, r, &req); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	req.Profile = strings.TrimSpace(req.Profile)
+	if req.Profile == "" {
+		writeError(w, http.StatusBadRequest, "profile is required")
+		return
+	}
+	if req.TTLMinutes != nil && *req.TTLMinutes <= 0 {
+		writeError(w, http.StatusBadRequest, "ttl_minutes must be positive")
+		return
+	}
+	if !api.profileExists(req.Profile) {
+		writeError(w, http.StatusBadRequest, "unknown profile")
+		return
+	}
+	if profile, ok := api.profile(req.Profile); ok {
+		if err := validateProfileForProvisioning(profile); err != nil {
+			writeError(w, http.StatusBadRequest, err.Error())
+			return
+		}
+	}
+	result, err := api.jobOrchestrator.RebindWorkspace(r.Context(), id, req.Profile, req.TTLMinutes, req.KeepOld)
+	if err != nil {
+		switch {
+		case errors.Is(err, ErrWorkspaceNotFound):
+			writeError(w, http.StatusNotFound, "workspace not found")
+		case errors.Is(err, ErrWorkspaceAttached), errors.Is(err, ErrWorkspaceVMInUse):
+			writeError(w, http.StatusConflict, err.Error())
+		case errors.Is(err, ErrSandboxNotFound):
+			writeError(w, http.StatusNotFound, "sandbox not found")
+		case errors.Is(err, ErrInvalidTransition):
+			writeError(w, http.StatusConflict, "invalid sandbox state")
+		default:
+			writeError(w, http.StatusInternalServerError, "failed to rebind workspace")
+		}
+		return
+	}
+	resp := V1WorkspaceRebindResponse{
+		Workspace: workspaceToV1(result.Workspace),
+		Sandbox:   sandboxToV1(result.Sandbox),
+		OldVMID:   result.OldVMID,
+	}
+	writeJSON(w, http.StatusOK, resp)
 }
 
 func (api *ControlAPI) handleSandboxDestroy(w http.ResponseWriter, r *http.Request, vmid int) {
