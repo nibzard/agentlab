@@ -181,6 +181,7 @@ func renderCloudInitUserData(hostname, sshKey, token, controller string, vmid in
 		"      - " + sshKey,
 		"write_files:",
 		"  - path: /etc/agentlab/bootstrap.json",
+		"    owner: agent:agent",
 		"    permissions: \"0600\"",
 		"    content: |",
 		"      " + string(jsonBytes),

@@ -1,0 +1,407 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+umask 077
+
+log() {
+  printf "[agent-runner] %s\n" "$*" >&2
+}
+
+die() {
+  log "ERROR: $*"
+  return 1
+}
+
+RUNNER_ENV="${AGENTLAB_RUNNER_ENV:-/etc/agentlab/agent-runner.env}"
+if [[ -f "$RUNNER_ENV" ]]; then
+  set -a
+  # shellcheck disable=SC1090
+  source "$RUNNER_ENV"
+  set +a
+fi
+
+BOOTSTRAP_PATH="${AGENTLAB_BOOTSTRAP:-/etc/agentlab/bootstrap.json}"
+SECRETS_DIR="${AGENTLAB_SECRETS_DIR:-/run/secrets}"
+RUN_DIR="${AGENTLAB_RUN_DIR:-/run/agentlab}"
+WORK_DIR_BASE="${AGENTLAB_WORK_DIR_BASE:-/tmp}"
+REPO_DIR="${AGENTLAB_REPO_DIR:-}"
+STREAM_LOGS="${AGENTLAB_RUNNER_STREAM_LOGS:-0}"
+LOG_MAX_CHARS="${AGENTLAB_RUNNER_LOG_MAX_CHARS:-800}"
+BOOTSTRAP_CACHE="${AGENTLAB_BOOTSTRAP_CACHE:-1}"
+
+mkdir -p "$SECRETS_DIR" "$RUN_DIR"
+chmod 700 "$SECRETS_DIR" "$RUN_DIR"
+
+for dep in jq curl git; do
+  if ! command -v "$dep" >/dev/null 2>&1; then
+    die "missing dependency: $dep"
+    exit 1
+  fi
+done
+
+if [[ ! -f "$BOOTSTRAP_PATH" ]]; then
+  die "bootstrap file not found at $BOOTSTRAP_PATH"
+  exit 1
+fi
+
+TOKEN="$(jq -r '.token // empty' "$BOOTSTRAP_PATH")"
+CONTROLLER="$(jq -r '.controller // empty' "$BOOTSTRAP_PATH")"
+VMID="$(jq -r '.vmid // 0' "$BOOTSTRAP_PATH")"
+
+if [[ -z "$TOKEN" || -z "$CONTROLLER" || "$VMID" -le 0 ]]; then
+  die "bootstrap file missing token/controller/vmid"
+  exit 1
+fi
+
+CONTROLLER="${CONTROLLER%/}"
+BOOTSTRAP_URL="$CONTROLLER/v1/bootstrap/fetch"
+REPORT_URL="$CONTROLLER/v1/runner/report"
+
+BOOTSTRAP_RESPONSE="$SECRETS_DIR/bootstrap.json"
+
+post_with_backoff() {
+  local url="$1"
+  local payload="$2"
+  local label="$3"
+  local max_attempts="${AGENTLAB_RETRY_MAX:-6}"
+  local attempt=1
+  local delay=1
+
+  while true; do
+    if curl -fsS -X POST -H "Content-Type: application/json" -d "$payload" "$url" >/dev/null; then
+      return 0
+    fi
+    if (( attempt >= max_attempts )); then
+      log "failed to ${label} after ${attempt} attempts"
+      return 1
+    fi
+    sleep "$delay"
+    attempt=$((attempt + 1))
+    delay=$((delay * 2))
+    if (( delay > 30 )); then
+      delay=30
+    fi
+  done
+}
+
+fetch_bootstrap() {
+  local payload
+  payload=$(jq -n --arg token "$TOKEN" --argjson vmid "$VMID" '{token:$token, vmid:$vmid}')
+  local max_attempts="${AGENTLAB_BOOTSTRAP_RETRY_MAX:-10}"
+  local attempt=1
+  local delay=2
+
+  while true; do
+    if response=$(curl -fsS -X POST -H "Content-Type: application/json" -d "$payload" "$BOOTSTRAP_URL"); then
+      printf "%s" "$response"
+      return 0
+    fi
+    if (( attempt >= max_attempts )); then
+      return 1
+    fi
+    sleep "$delay"
+    attempt=$((attempt + 1))
+    delay=$((delay * 2))
+    if (( delay > 30 )); then
+      delay=30
+    fi
+  done
+}
+
+if [[ "$BOOTSTRAP_CACHE" != "0" && -s "$BOOTSTRAP_RESPONSE" ]]; then
+  log "using cached bootstrap payload"
+else
+  log "fetching bootstrap payload"
+  if ! fetch_bootstrap >"$BOOTSTRAP_RESPONSE"; then
+    die "failed to fetch bootstrap payload"
+    exit 1
+  fi
+  chmod 600 "$BOOTSTRAP_RESPONSE"
+fi
+
+JOB_ID="$(jq -r '.job.id // empty' "$BOOTSTRAP_RESPONSE")"
+JOB_REPO="$(jq -r '.job.repo_url // empty' "$BOOTSTRAP_RESPONSE")"
+JOB_REF="$(jq -r '.job.ref // empty' "$BOOTSTRAP_RESPONSE")"
+JOB_TASK="$(jq -r '.job.task // empty' "$BOOTSTRAP_RESPONSE")"
+JOB_MODE="$(jq -r '.job.mode // empty' "$BOOTSTRAP_RESPONSE")"
+JOB_PROFILE="$(jq -r '.job.profile // empty' "$BOOTSTRAP_RESPONSE")"
+JOB_TTL_MINUTES="$(jq -r '.job.ttl_minutes // empty' "$BOOTSTRAP_RESPONSE")"
+
+if [[ -z "$JOB_ID" || -z "$JOB_REPO" ]]; then
+  die "bootstrap payload missing job id or repo_url"
+  exit 1
+fi
+
+if [[ -z "$JOB_REF" || "$JOB_REF" == "null" ]]; then
+  JOB_REF="main"
+fi
+
+report_status() {
+  local status="$1"
+  local message="${2:-}"
+  local artifacts_json="${3:-[]}"
+  local result_json="${4:-null}"
+
+  local payload
+  payload=$(jq -n \
+    --arg job_id "$JOB_ID" \
+    --argjson vmid "$VMID" \
+    --arg status "$status" \
+    --arg message "$message" \
+    --argjson artifacts "$artifacts_json" \
+    --argjson result "$result_json" \
+    '({job_id:$job_id, vmid:$vmid, status:$status}
+      + ( $message != "" ? {message:$message} : {} )
+      + ( ( $artifacts | length ) > 0 ? {artifacts:$artifacts} : {} )
+      + ( $result != null ? {result:$result} : {} )
+    )')
+
+  post_with_backoff "$REPORT_URL" "$payload" "report status" || true
+}
+
+log "bootstrap ok for job $JOB_ID"
+report_status "RUNNING" "bootstrap fetched"
+
+ENV_FILE="$SECRETS_DIR/env.sh"
+if jq -e '.env // {} | length > 0' "$BOOTSTRAP_RESPONSE" >/dev/null; then
+  jq -r '.env // {} | to_entries[] | "export " + .key + "=" + @sh(.value|tostring)' "$BOOTSTRAP_RESPONSE" >"$ENV_FILE"
+  chmod 600 "$ENV_FILE"
+  # shellcheck disable=SC1090
+  source "$ENV_FILE"
+fi
+
+CLAUDE_SETTINGS_JSON="$(jq -r '.claude_settings_json // empty' "$BOOTSTRAP_RESPONSE")"
+if [[ -n "$CLAUDE_SETTINGS_JSON" && "$CLAUDE_SETTINGS_JSON" != "null" ]]; then
+  CLAUDE_SETTINGS_PATH="$SECRETS_DIR/claude-settings.json"
+  printf "%s" "$CLAUDE_SETTINGS_JSON" >"$CLAUDE_SETTINGS_PATH"
+  chmod 600 "$CLAUDE_SETTINGS_PATH"
+  export CLAUDE_SETTINGS_PATH
+fi
+
+setup_git_auth() {
+  local git_token git_user ssh_key known_hosts
+  git_token="$(jq -r '.git.token // empty' "$BOOTSTRAP_RESPONSE")"
+  git_user="$(jq -r '.git.username // empty' "$BOOTSTRAP_RESPONSE")"
+  ssh_key="$(jq -r '.git.ssh_private_key // empty' "$BOOTSTRAP_RESPONSE")"
+  known_hosts="$(jq -r '.git.known_hosts // empty' "$BOOTSTRAP_RESPONSE")"
+
+  if [[ -n "$ssh_key" && "$ssh_key" != "null" ]]; then
+    local key_path="$SECRETS_DIR/id_ed25519"
+    printf "%s\n" "$ssh_key" >"$key_path"
+    chmod 600 "$key_path"
+    local known_hosts_path="$SECRETS_DIR/known_hosts"
+    if [[ -n "$known_hosts" && "$known_hosts" != "null" ]]; then
+      printf "%s\n" "$known_hosts" >"$known_hosts_path"
+    else
+      : >"$known_hosts_path"
+    fi
+    export GIT_SSH_COMMAND="ssh -i $key_path -o IdentitiesOnly=yes -o StrictHostKeyChecking=accept-new -o UserKnownHostsFile=$known_hosts_path"
+  elif [[ -n "$git_token" && "$git_token" != "null" ]]; then
+    local askpass_path="$SECRETS_DIR/git-askpass"
+    cat >"$askpass_path" <<'ASKPASS'
+#!/usr/bin/env bash
+case "$1" in
+  *Username*) printf '%s\n' "${GIT_USERNAME:-x-access-token}" ;;
+  *Password*|*) printf '%s\n' "${GIT_TOKEN:-}" ;;
+esac
+ASKPASS
+    chmod 700 "$askpass_path"
+    export GIT_ASKPASS="$askpass_path"
+    export GIT_USERNAME="${git_user:-x-access-token}"
+    export GIT_TOKEN="$git_token"
+    export GIT_TERMINAL_PROMPT=0
+  fi
+}
+
+setup_git_auth
+
+if [[ -z "$REPO_DIR" ]]; then
+  if [[ -d /work && -w /work ]]; then
+    REPO_DIR="/work/repo"
+  else
+    REPO_DIR="$WORK_DIR_BASE/repo"
+  fi
+fi
+
+mkdir -p "$(dirname "$REPO_DIR")"
+
+clone_or_update_repo() {
+  if [[ -d "$REPO_DIR/.git" ]]; then
+    log "updating repo in $REPO_DIR"
+    git -C "$REPO_DIR" fetch --force origin "$JOB_REF"
+    git -C "$REPO_DIR" checkout -B agentlab FETCH_HEAD
+  else
+    rm -rf "$REPO_DIR"
+    log "cloning repo $JOB_REPO to $REPO_DIR"
+    git clone "$JOB_REPO" "$REPO_DIR"
+    git -C "$REPO_DIR" fetch --force origin "$JOB_REF"
+    git -C "$REPO_DIR" checkout -B agentlab FETCH_HEAD
+  fi
+}
+
+clone_or_update_repo
+report_status "RUNNING" "repo ready"
+
+AGENT_COMMAND="${AGENTLAB_AGENT_COMMAND:-}"
+AGENT_ARGS="${AGENTLAB_AGENT_ARGS:-}"
+AGENT_TOOL="${AGENTLAB_AGENT:-claude}"
+TASK_FILE="$SECRETS_DIR/task.txt"
+if [[ -n "$JOB_TASK" ]]; then
+  printf "%s\n" "$JOB_TASK" >"$TASK_FILE"
+  chmod 600 "$TASK_FILE"
+fi
+export AGENTLAB_TASK="$JOB_TASK"
+export AGENTLAB_TASK_FILE="$TASK_FILE"
+export AGENTLAB_JOB_ID="$JOB_ID"
+export AGENTLAB_JOB_MODE="$JOB_MODE"
+export AGENTLAB_JOB_PROFILE="$JOB_PROFILE"
+export AGENTLAB_REPO_DIR="$REPO_DIR"
+
+if [[ -z "$AGENT_COMMAND" && -x "$REPO_DIR/.agentlab/run.sh" ]]; then
+  AGENT_COMMAND="$REPO_DIR/.agentlab/run.sh"
+fi
+
+if [[ -z "$AGENT_COMMAND" ]]; then
+  AGENT_COMMAND="agentlab-agent"
+fi
+
+LOG_FILE="$RUN_DIR/agent-runner.log"
+: >"$LOG_FILE"
+chmod 600 "$LOG_FILE"
+
+stream_logs() {
+  if [[ "$STREAM_LOGS" != "1" ]]; then
+    cat
+    return 0
+  fi
+  local line
+  local buffer=""
+  local last_send=0
+  local now
+  while IFS= read -r line; do
+    buffer+="$line\n"
+    now=$(date +%s)
+    if (( now - last_send >= 2 )); then
+      report_status "RUNNING" "$(printf "%s" "$buffer" | head -c "$LOG_MAX_CHARS")"
+      buffer=""
+      last_send=$now
+    fi
+  done
+  if [[ -n "$buffer" ]]; then
+    report_status "RUNNING" "$(printf "%s" "$buffer" | head -c "$LOG_MAX_CHARS")"
+  fi
+}
+
+run_agent() {
+  local exit_code
+  local -a cmd
+  if [[ -n "${AGENTLAB_RUNNER_TIMEOUT_SECONDS:-}" && "${AGENTLAB_RUNNER_TIMEOUT_SECONDS}" -gt 0 ]]; then
+    if command -v timeout >/dev/null 2>&1; then
+      cmd=(timeout --signal=SIGTERM --kill-after=30 "${AGENTLAB_RUNNER_TIMEOUT_SECONDS}")
+    else
+      log "timeout not available; ignoring AGENTLAB_RUNNER_TIMEOUT_SECONDS"
+    fi
+  elif [[ -n "$JOB_TTL_MINUTES" && "$JOB_TTL_MINUTES" != "null" ]]; then
+    if command -v timeout >/dev/null 2>&1; then
+      cmd=(timeout --signal=SIGTERM --kill-after=30 "$((JOB_TTL_MINUTES * 60))")
+    fi
+  fi
+
+  if [[ "$AGENT_COMMAND" == "agentlab-agent" ]]; then
+    if [[ -n "$JOB_TASK" ]]; then
+      cmd+=(agentlab-agent --agent "$AGENT_TOOL")
+      (printf "%s\n" "$JOB_TASK" | "${cmd[@]}") 2>&1 | tee -a "$LOG_FILE" | stream_logs
+      exit_code=${PIPESTATUS[0]}
+    else
+      cmd+=(agentlab-agent --agent "$AGENT_TOOL")
+      ("${cmd[@]}") 2>&1 | tee -a "$LOG_FILE" | stream_logs
+      exit_code=${PIPESTATUS[0]}
+    fi
+  else
+    if [[ -x "$AGENT_COMMAND" && -z "$AGENT_ARGS" ]]; then
+      (cd "$REPO_DIR" && "${cmd[@]}" "$AGENT_COMMAND") 2>&1 | tee -a "$LOG_FILE" | stream_logs
+      exit_code=${PIPESTATUS[0]}
+    else
+      (cd "$REPO_DIR" && "${cmd[@]}" bash -lc "$AGENT_COMMAND $AGENT_ARGS") 2>&1 | tee -a "$LOG_FILE" | stream_logs
+      exit_code=${PIPESTATUS[0]}
+    fi
+  fi
+
+  return "$exit_code"
+}
+
+report_status "RUNNING" "agent starting"
+START_TS=$(date +%s)
+if run_agent; then
+  AGENT_EXIT=0
+else
+  AGENT_EXIT=$?
+fi
+END_TS=$(date +%s)
+DURATION=$((END_TS - START_TS))
+
+STATUS="COMPLETED"
+if [[ "$AGENT_EXIT" -ne 0 ]]; then
+  if [[ "$AGENT_EXIT" -eq 124 ]]; then
+    STATUS="TIMEOUT"
+  else
+    STATUS="FAILED"
+  fi
+fi
+
+COMMIT_SHA=""
+if [[ -d "$REPO_DIR/.git" ]]; then
+  COMMIT_SHA=$(git -C "$REPO_DIR" rev-parse HEAD 2>/dev/null || true)
+fi
+
+REPORT_JSON="$RUN_DIR/report.json"
+result_payload=$(jq -n \
+  --arg status "$STATUS" \
+  --argjson exit_code "$AGENT_EXIT" \
+  --argjson duration "$DURATION" \
+  --arg commit "$COMMIT_SHA" \
+  --arg mode "$JOB_MODE" \
+  '{status:$status, exit_code:$exit_code, duration_seconds:$duration, commit:$commit, mode:$mode}')
+printf "%s" "$result_payload" >"$REPORT_JSON"
+chmod 600 "$REPORT_JSON"
+
+ARTIFACTS_DIR="${AGENTLAB_ARTIFACTS_DIR:-$RUN_DIR/artifacts}"
+mkdir -p "$ARTIFACTS_DIR"
+cp -f "$LOG_FILE" "$ARTIFACTS_DIR/agent-runner.log"
+cp -f "$REPORT_JSON" "$ARTIFACTS_DIR/report.json"
+
+ARTIFACT_BUNDLE="$RUN_DIR/agentlab-artifacts.tar.gz"
+if tar -czf "$ARTIFACT_BUNDLE" -C "$ARTIFACTS_DIR" .; then
+  :
+fi
+
+ARTIFACTS_JSON="[]"
+if [[ -f "$ARTIFACT_BUNDLE" ]]; then
+  ART_SIZE=$(stat -c '%s' "$ARTIFACT_BUNDLE" 2>/dev/null || stat -f '%z' "$ARTIFACT_BUNDLE")
+  ART_SHA=$(sha256sum "$ARTIFACT_BUNDLE" | awk '{print $1}')
+  ARTIFACTS_JSON=$(jq -n --arg name "agentlab-artifacts.tar.gz" --arg path "agentlab-artifacts.tar.gz" --argjson size "$ART_SIZE" --arg sha "$ART_SHA" --arg mime "application/gzip" \
+    '[{name:$name, path:$path, size_bytes:$size, sha256:$sha, mime:$mime}]')
+fi
+
+ARTIFACT_ENDPOINT="$(jq -r '.artifact.endpoint // empty' "$BOOTSTRAP_RESPONSE")"
+ARTIFACT_TOKEN="$(jq -r '.artifact.token // empty' "$BOOTSTRAP_RESPONSE")"
+
+if [[ -n "$ARTIFACT_ENDPOINT" && -n "$ARTIFACT_TOKEN" && -f "$ARTIFACT_BUNDLE" ]]; then
+  upload_payload=""
+  upload_payload=$(printf "%s" "${ARTIFACT_ENDPOINT%/}")
+  if ! curl -fsS -X POST -H "Authorization: Bearer $ARTIFACT_TOKEN" \
+    -H "Content-Type: application/gzip" \
+    --data-binary "@$ARTIFACT_BUNDLE" "$upload_payload" >/dev/null; then
+    log "artifact upload failed"
+  else
+    log "artifact upload complete"
+  fi
+fi
+
+report_status "$STATUS" "agent finished" "$ARTIFACTS_JSON" "$result_payload"
+
+if [[ "$STATUS" == "FAILED" || "$STATUS" == "TIMEOUT" ]]; then
+  log "agent finished with status $STATUS"
+fi
+
+exit 0

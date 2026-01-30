@@ -1,0 +1,19 @@
+[Unit]
+Description=Agent Runner
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=agent
+Group=agent
+Environment=AGENTLAB_BOOTSTRAP=/etc/agentlab/bootstrap.json
+EnvironmentFile=-/etc/agentlab/agent-runner.env
+ExecStart=/usr/local/bin/agent-runner
+Restart=on-failure
+RestartSec=10
+RuntimeDirectory=agentlab secrets
+RuntimeDirectoryMode=0700
+
+[Install]
+WantedBy=multi-user.target

@@ -67,6 +67,9 @@ func TestSnippetStoreCreateAndDelete(t *testing.T) {
 	if !strings.Contains(content, "{\"token\":\"token-123\",\"controller\":\"http://10.77.0.1:8844\",\"vmid\":101}") {
 		t.Fatalf("content missing bootstrap json")
 	}
+	if !strings.Contains(content, "owner: agent:agent") {
+		t.Fatalf("content missing bootstrap owner")
+	}
 	if strings.Contains(content, "runcmd") {
 		t.Fatalf("content should not contain runcmd")
 	}

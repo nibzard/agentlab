@@ -352,11 +352,11 @@
       "depends_on": [
         "T018"
       ],
-      "updated_at": "2026-01-30T00:39:38Z",
+      "updated_at": "2026-01-30T00:43:16Z",
       "files": [
+        "scripts/README.md",
         "scripts/create_template.sh",
         "scripts/guest/agentlab-agent",
-        "scripts/README.md",
         "to-do.json"
       ]
     },
@@ -364,11 +364,22 @@
       "id": "T020",
       "title": "Implement agent-runner service for guest bootstrap and execution",
       "priority": 1,
-      "status": "todo",
+      "status": "done",
       "details": "Fetch bootstrap payload, store secrets in tmpfs, clone repo, run agent loop, stream logs/status, and upload artifacts.",
       "depends_on": [
         "T017",
         "T019"
+      ],
+      "updated_at": "2026-01-30T00:52:44Z",
+      "files": [
+        "scripts/guest/agent-runner",
+        "scripts/guest/agent-runner.service",
+        "scripts/guest/agent-runner.env",
+        "scripts/create_template.sh",
+        "scripts/README.md",
+        "internal/proxmox/cloudinit_snippets.go",
+        "internal/proxmox/cloudinit_snippets_test.go",
+        "to-do.json"
       ]
     },
     {

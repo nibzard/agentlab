@@ -63,6 +63,9 @@ SKIP_AGENT_TOOLS=0
 REFRESH=0
 
 AGENTLAB_AGENT_WRAPPER="${SCRIPT_DIR}/guest/agentlab-agent"
+AGENTLAB_RUNNER_SCRIPT="${SCRIPT_DIR}/guest/agent-runner"
+AGENTLAB_RUNNER_SERVICE="${SCRIPT_DIR}/guest/agent-runner.service"
+AGENTLAB_RUNNER_ENV="${SCRIPT_DIR}/guest/agent-runner.env"
 AGENT_TOOLS_ENV=""
 
 ensure_package() {
@@ -213,6 +216,12 @@ EOF
   trap 'rm -f "$AGENT_TOOLS_ENV"' EXIT
 fi
 
+if [[ "$SKIP_CUSTOMIZE" == "0" ]]; then
+  [[ -f "$AGENTLAB_RUNNER_SCRIPT" ]] || die "agent-runner script not found at $AGENTLAB_RUNNER_SCRIPT"
+  [[ -f "$AGENTLAB_RUNNER_SERVICE" ]] || die "agent-runner service not found at $AGENTLAB_RUNNER_SERVICE"
+  [[ -f "$AGENTLAB_RUNNER_ENV" ]] || die "agent-runner env not found at $AGENTLAB_RUNNER_ENV"
+fi
+
 download_image() {
   local url="$1"
   local dest="$2"
@@ -256,6 +265,7 @@ if [[ "$SKIP_CUSTOMIZE" == "0" ]]; then
   virt_args=(
     -a "$WORK_IMAGE"
     --install "$pkg_list"
+    --run-command "install -d -m 0755 /etc/agentlab"
     --run-command "id -u agent >/dev/null 2>&1 || useradd -m -s /bin/bash agent"
     --run-command "id -u agent >/dev/null 2>&1 && usermod -aG sudo agent"
     --run-command "id -u agent >/dev/null 2>&1 && passwd -l agent"
@@ -265,6 +275,12 @@ if [[ "$SKIP_CUSTOMIZE" == "0" ]]; then
     --run-command "install -d -m 0755 /etc/ssh/sshd_config.d"
     --run-command "printf 'PasswordAuthentication no\\nPermitRootLogin prohibit-password\\n' > /etc/ssh/sshd_config.d/99-agentlab.conf"
     --run-command "systemctl enable qemu-guest-agent"
+    --upload "${AGENTLAB_RUNNER_SCRIPT}:/usr/local/bin/agent-runner"
+    --upload "${AGENTLAB_RUNNER_SERVICE}:/etc/systemd/system/agent-runner.service"
+    --upload "${AGENTLAB_RUNNER_ENV}:/etc/agentlab/agent-runner.env"
+    --run-command "chmod 0755 /usr/local/bin/agent-runner"
+    --run-command "chmod 0644 /etc/agentlab/agent-runner.env"
+    --run-command "systemctl enable agent-runner.service"
   )
 
   if [[ "$SKIP_AGENT_TOOLS" == "0" ]]; then
