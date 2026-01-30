@@ -106,6 +106,9 @@ install -d -o root -g agentlab -m 0750 \
   /var/lib/agentlab \
   /var/log/agentlab \
   /run/agentlab
+install -d -o root -g root -m 0700 \
+  /etc/agentlab/secrets \
+  /etc/agentlab/keys
 
 log "Installing binaries to $BIN_DIR"
 install -d -m 0755 "$BIN_DIR"

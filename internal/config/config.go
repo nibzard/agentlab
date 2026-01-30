@@ -12,49 +12,61 @@ import (
 
 // Config holds daemon configuration paths and listener settings.
 type Config struct {
-	ConfigPath       string
-	ProfilesDir      string
-	DataDir          string
-	LogDir           string
-	RunDir           string
-	SocketPath       string
-	DBPath           string
-	BootstrapListen  string
-	SnippetsDir      string
-	SnippetStorage   string
-	SSHPublicKey     string
-	SSHPublicKeyPath string
+	ConfigPath        string
+	ProfilesDir       string
+	DataDir           string
+	LogDir            string
+	RunDir            string
+	SocketPath        string
+	DBPath            string
+	BootstrapListen   string
+	SecretsDir        string
+	SecretsBundle     string
+	SecretsAgeKeyPath string
+	SecretsSopsPath   string
+	SnippetsDir       string
+	SnippetStorage    string
+	SSHPublicKey      string
+	SSHPublicKeyPath  string
 }
 
 // FileConfig represents supported YAML config overrides.
 type FileConfig struct {
-	ProfilesDir      string `yaml:"profiles_dir"`
-	DataDir          string `yaml:"data_dir"`
-	LogDir           string `yaml:"log_dir"`
-	RunDir           string `yaml:"run_dir"`
-	SocketPath       string `yaml:"socket_path"`
-	DBPath           string `yaml:"db_path"`
-	BootstrapListen  string `yaml:"bootstrap_listen"`
-	SnippetsDir      string `yaml:"snippets_dir"`
-	SnippetStorage   string `yaml:"snippet_storage"`
-	SSHPublicKey     string `yaml:"ssh_public_key"`
-	SSHPublicKeyPath string `yaml:"ssh_public_key_path"`
+	ProfilesDir       string `yaml:"profiles_dir"`
+	DataDir           string `yaml:"data_dir"`
+	LogDir            string `yaml:"log_dir"`
+	RunDir            string `yaml:"run_dir"`
+	SocketPath        string `yaml:"socket_path"`
+	DBPath            string `yaml:"db_path"`
+	BootstrapListen   string `yaml:"bootstrap_listen"`
+	SecretsDir        string `yaml:"secrets_dir"`
+	SecretsBundle     string `yaml:"secrets_bundle"`
+	SecretsAgeKeyPath string `yaml:"secrets_age_key_path"`
+	SecretsSopsPath   string `yaml:"secrets_sops_path"`
+	SnippetsDir       string `yaml:"snippets_dir"`
+	SnippetStorage    string `yaml:"snippet_storage"`
+	SSHPublicKey      string `yaml:"ssh_public_key"`
+	SSHPublicKeyPath  string `yaml:"ssh_public_key_path"`
 }
 
 func DefaultConfig() Config {
 	dataDir := "/var/lib/agentlab"
 	runDir := "/run/agentlab"
 	return Config{
-		ConfigPath:      "/etc/agentlab/config.yaml",
-		ProfilesDir:     "/etc/agentlab/profiles",
-		DataDir:         dataDir,
-		LogDir:          "/var/log/agentlab",
-		RunDir:          runDir,
-		SocketPath:      filepath.Join(runDir, "agentlabd.sock"),
-		DBPath:          filepath.Join(dataDir, "agentlab.db"),
-		BootstrapListen: "10.77.0.1:8844",
-		SnippetsDir:     "/var/lib/vz/snippets",
-		SnippetStorage:  "local",
+		ConfigPath:        "/etc/agentlab/config.yaml",
+		ProfilesDir:       "/etc/agentlab/profiles",
+		DataDir:           dataDir,
+		LogDir:            "/var/log/agentlab",
+		RunDir:            runDir,
+		SocketPath:        filepath.Join(runDir, "agentlabd.sock"),
+		DBPath:            filepath.Join(dataDir, "agentlab.db"),
+		BootstrapListen:   "10.77.0.1:8844",
+		SecretsDir:        "/etc/agentlab/secrets",
+		SecretsBundle:     "default",
+		SecretsAgeKeyPath: "/etc/agentlab/keys/age.key",
+		SecretsSopsPath:   "sops",
+		SnippetsDir:       "/var/lib/vz/snippets",
+		SnippetStorage:    "local",
 	}
 }
 
@@ -114,6 +126,18 @@ func applyFileConfig(cfg *Config, fileCfg FileConfig) {
 	if fileCfg.BootstrapListen != "" {
 		cfg.BootstrapListen = fileCfg.BootstrapListen
 	}
+	if fileCfg.SecretsDir != "" {
+		cfg.SecretsDir = fileCfg.SecretsDir
+	}
+	if fileCfg.SecretsBundle != "" {
+		cfg.SecretsBundle = fileCfg.SecretsBundle
+	}
+	if fileCfg.SecretsAgeKeyPath != "" {
+		cfg.SecretsAgeKeyPath = fileCfg.SecretsAgeKeyPath
+	}
+	if fileCfg.SecretsSopsPath != "" {
+		cfg.SecretsSopsPath = fileCfg.SecretsSopsPath
+	}
 	if fileCfg.SnippetsDir != "" {
 		cfg.SnippetsDir = fileCfg.SnippetsDir
 	}
@@ -144,6 +168,9 @@ func (c Config) Validate() error {
 	}
 	if c.BootstrapListen == "" {
 		return fmt.Errorf("bootstrap_listen is required")
+	}
+	if c.SecretsDir == "" {
+		return fmt.Errorf("secrets_dir is required")
 	}
 	if _, _, err := net.SplitHostPort(c.BootstrapListen); err != nil {
 		return fmt.Errorf("bootstrap_listen must be host:port: %w", err)
