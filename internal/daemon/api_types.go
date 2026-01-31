@@ -87,6 +87,10 @@ type V1SandboxCreateRequest struct {
 	JobID      string  `json:"job_id,omitempty"`
 }
 
+type V1SandboxDestroyRequest struct {
+	Force bool `json:"force"`
+}
+
 type V1SandboxResponse struct {
 	VMID          int     `json:"vmid"`
 	Name          string  `json:"name"`

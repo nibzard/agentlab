@@ -80,6 +80,10 @@ type sandboxCreateRequest struct {
 	JobID      string  `json:"job_id,omitempty"`
 }
 
+type sandboxDestroyRequest struct {
+	Force bool `json:"force"`
+}
+
 type sandboxResponse struct {
 	VMID          int     `json:"vmid"`
 	Name          string  `json:"name"`
@@ -104,6 +108,10 @@ type leaseRenewRequest struct {
 type leaseRenewResponse struct {
 	VMID         int    `json:"vmid"`
 	LeaseExpires string `json:"lease_expires_at"`
+}
+
+type pruneResponse struct {
+	Count int `json:"count"`
 }
 
 type workspaceCreateRequest struct {

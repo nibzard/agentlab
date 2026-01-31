@@ -26,8 +26,9 @@ Usage:
   agentlab [--socket PATH] [--json] [--timeout DURATION] sandbox new --profile <profile> [--name <name>] [--ttl <ttl>] [--keepalive] [--workspace <id>] [--vmid <vmid>] [--job <id>]
   agentlab [--socket PATH] [--json] [--timeout DURATION] sandbox list
   agentlab [--socket PATH] [--json] [--timeout DURATION] sandbox show <vmid>
-  agentlab [--socket PATH] [--json] [--timeout DURATION] sandbox destroy <vmid>
-  agentlab [--socket PATH] [--json] [--timeout DURATION] sandbox lease renew <vmid> --ttl <ttl>
+  agentlab [--socket PATH] [--json] [--timeout DURATION] sandbox destroy [--force] <vmid>
+  agentlab [--socket PATH] [--json] [--timeout DURATION] sandbox lease renew --ttl <ttl> <vmid>
+  agentlab [--socket PATH] [--json] [--timeout DURATION] sandbox prune
   agentlab [--socket PATH] [--json] [--timeout DURATION] workspace create --name <name> --size <size> [--storage <storage>]
   agentlab [--socket PATH] [--json] [--timeout DURATION] workspace list
   agentlab [--socket PATH] [--json] [--timeout DURATION] workspace attach <workspace> <vmid>
@@ -213,7 +214,7 @@ func printJobArtifactsDownloadUsage() {
 }
 
 func printSandboxUsage() {
-	fmt.Fprintln(os.Stdout, "Usage: agentlab sandbox <new|list|show|destroy|lease>")
+	fmt.Fprintln(os.Stdout, "Usage: agentlab sandbox <new|list|show|destroy|lease|prune>")
 }
 
 func printSandboxNewUsage() {
@@ -229,15 +230,22 @@ func printSandboxShowUsage() {
 }
 
 func printSandboxDestroyUsage() {
-	fmt.Fprintln(os.Stdout, "Usage: agentlab sandbox destroy <vmid>")
+	fmt.Fprintln(os.Stdout, "Usage: agentlab sandbox destroy [--force] <vmid>")
+	fmt.Fprintln(os.Stdout, "Note: --force bypasses state restrictions and destroys sandbox in any state")
 }
 
 func printSandboxLeaseUsage() {
-	fmt.Fprintln(os.Stdout, "Usage: agentlab sandbox lease renew <vmid> --ttl <ttl>")
+	fmt.Fprintln(os.Stdout, "Usage: agentlab sandbox lease renew --ttl <ttl> <vmid>")
+	fmt.Fprintln(os.Stdout, "Note: Flags must come before the vmid argument (e.g., --ttl 120 1009)")
 }
 
 func printSandboxLeaseRenewUsage() {
 	printSandboxLeaseUsage()
+}
+
+func printSandboxPruneUsage() {
+	fmt.Fprintln(os.Stdout, "Usage: agentlab sandbox prune")
+	fmt.Fprintln(os.Stdout, "Note: Removes orphaned sandbox entries (sandboxes in TIMEOUT state that no longer exist in Proxmox)")
 }
 
 func printWorkspaceUsage() {

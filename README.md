@@ -21,7 +21,7 @@ Security posture by default:
 - Storage pool suitable for templates/clones (ZFS or LVM-thin recommended).
 - `vmbr0` for LAN/WAN and ability to create `vmbr1` for the agent subnet
   (defaults to `10.77.0.0/16`).
-- Go toolchain (see `go.mod`) to build the binaries.
+- Go 1.24.0 or higher to build the binaries (Go toolchain will auto-download if needed).
 - Tailscale on the host for remote SSH access (recommended).
 
 ## Quickstart (host setup)
@@ -71,3 +71,23 @@ For full operator setup, see the runbook below.
 - Runbook: `docs/runbook.md`
 - Secrets bundles: `docs/secrets.md`
 - Local control API: `docs/api.md`
+- Troubleshooting: `docs/troubleshooting.md`
+
+## Sandbox States
+
+| State | Description | Allowed Operations |
+|--------|-------------|-------------------|
+| REQUESTED | VM creation requested | show, logs |
+| PROVISIONING | VM being created | show, logs |
+| BOOTING | VM is booting | show, logs |
+| READY | VM ready but not running | show, logs, destroy |
+| RUNNING | VM actively running | show, logs, destroy, lease renew |
+| STOPPED | VM stopped | show, logs, start, destroy |
+| TIMEOUT | Lease expired, VM may be gone | show, logs, destroy (--force) |
+| DESTROYED | VM destroyed | show |
+| FAILED | VM provisioning failed | show, logs |
+
+**Notes:**
+- Use `--force` with `sandbox destroy` to bypass state restrictions
+- Use `sandbox prune` to remove orphaned TIMEOUT sandboxes
+- Lease renewal only allowed in RUNNING state

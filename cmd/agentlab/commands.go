@@ -434,6 +434,8 @@ func runSandboxCommand(ctx context.Context, args []string, base commonFlags) err
 		return runSandboxDestroy(ctx, args[1:], base)
 	case "lease":
 		return runSandboxLease(ctx, args[1:], base)
+	case "prune":
+		return runSandboxPrune(ctx, args[1:], base)
 	default:
 		printSandboxUsage()
 		return fmt.Errorf("unknown sandbox command %q", args[0])
@@ -600,7 +602,9 @@ func runSandboxDestroy(ctx context.Context, args []string, base commonFlags) err
 	fs := newFlagSet("sandbox destroy")
 	opts := base
 	opts.bind(fs)
+	var force bool
 	var help bool
+	fs.BoolVar(&force, "force", false, "force destroy even if in invalid state")
 	fs.BoolVar(&help, "help", false, "show help")
 	fs.BoolVar(&help, "h", false, "show help")
 	if err := parseFlags(fs, args, printSandboxDestroyUsage, &help, opts.jsonOutput); err != nil {
@@ -616,7 +620,8 @@ func runSandboxDestroy(ctx context.Context, args []string, base commonFlags) err
 	}
 
 	client := newAPIClient(opts.socketPath, opts.timeout)
-	payload, err := client.doJSON(ctx, http.MethodPost, fmt.Sprintf("/v1/sandboxes/%d/destroy", vmid), nil)
+	req := sandboxDestroyRequest{Force: force}
+	payload, err := client.doJSON(ctx, http.MethodPost, fmt.Sprintf("/v1/sandboxes/%d/destroy", vmid), req)
 	if err != nil {
 		return err
 	}
@@ -667,7 +672,7 @@ func runSandboxLeaseRenew(ctx context.Context, args []string, base commonFlags) 
 	}
 	if ttl == "" {
 		printSandboxLeaseRenewUsage()
-		return fmt.Errorf("ttl is required")
+		return fmt.Errorf("ttl is required. Flags must come before vmid (e.g., --ttl 120 1009)")
 	}
 	vmid, err := parseVMID(fs.Arg(0))
 	if err != nil {
@@ -692,6 +697,33 @@ func runSandboxLeaseRenew(ctx context.Context, args []string, base commonFlags) 
 		return err
 	}
 	fmt.Printf("sandbox %d lease renewed until %s\n", resp.VMID, resp.LeaseExpires)
+	return nil
+}
+
+func runSandboxPrune(ctx context.Context, args []string, base commonFlags) error {
+	fs := newFlagSet("sandbox prune")
+	opts := base
+	opts.bind(fs)
+	var help bool
+	fs.BoolVar(&help, "help", false, "show help")
+	fs.BoolVar(&help, "h", false, "show help")
+	if err := parseFlags(fs, args, printSandboxPruneUsage, &help, opts.jsonOutput); err != nil {
+		return err
+	}
+
+	client := newAPIClient(opts.socketPath, opts.timeout)
+	payload, err := client.doJSON(ctx, http.MethodPost, "/v1/sandboxes/prune", nil)
+	if err != nil {
+		return err
+	}
+	if opts.jsonOutput {
+		return prettyPrintJSON(os.Stdout, payload)
+	}
+	var resp pruneResponse
+	if err := json.Unmarshal(payload, &resp); err != nil {
+		return err
+	}
+	fmt.Printf("pruned %d sandbox(es)\n", resp.Count)
 	return nil
 }
 

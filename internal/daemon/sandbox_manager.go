@@ -265,6 +265,64 @@ func (m *SandboxManager) destroySandbox(ctx context.Context, vmid int) error {
 	return nil
 }
 
+func (m *SandboxManager) ForceDestroy(ctx context.Context, vmid int) error {
+	if m == nil || m.store == nil {
+		return errors.New("sandbox manager not configured")
+	}
+	sandbox, err := m.store.GetSandbox(ctx, vmid)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return ErrSandboxNotFound
+		}
+		return fmt.Errorf("load sandbox %d: %w", vmid, err)
+	}
+	if sandbox.State == models.SandboxDestroyed {
+		return nil
+	}
+	if m.workspace != nil {
+		if err := m.workspace.DetachFromVM(ctx, vmid); err != nil {
+			return fmt.Errorf("detach workspace for vmid %d: %w", vmid, err)
+		}
+	}
+	if err := m.destroySandbox(ctx, vmid); err != nil {
+		return err
+	}
+	if err := m.Transition(ctx, vmid, models.SandboxDestroyed); err != nil {
+		return err
+	}
+	if m.snippetFn != nil {
+		m.snippetFn(vmid)
+	}
+	return nil
+}
+
+func (m *SandboxManager) PruneOrphans(ctx context.Context) (int, error) {
+	if m == nil || m.store == nil {
+		return 0, errors.New("sandbox manager not configured")
+	}
+	sandboxes, err := m.store.ListSandboxes(ctx)
+	if err != nil {
+		return 0, fmt.Errorf("list sandboxes: %w", err)
+	}
+	count := 0
+	for _, sb := range sandboxes {
+		if sb.State == models.SandboxTimeout {
+			if err := m.destroySandbox(ctx, sb.VMID); err != nil {
+				if !errors.Is(err, proxmox.ErrVMNotFound) {
+					m.logger.Printf("prune: failed to destroy sandbox %d: %v", sb.VMID, err)
+					continue
+				}
+			}
+			if err := m.Transition(ctx, sb.VMID, models.SandboxDestroyed); err != nil {
+				m.logger.Printf("prune: failed to mark sandbox %d as destroyed: %v", sb.VMID, err)
+				continue
+			}
+			count++
+		}
+	}
+	return count, nil
+}
+
 func (m *SandboxManager) recordStateEvent(ctx context.Context, vmid int, from, to models.SandboxState) {
 	msg := fmt.Sprintf("%s -> %s", from, to)
 	_ = m.store.RecordEvent(ctx, "sandbox.state", &vmid, nil, msg, "")

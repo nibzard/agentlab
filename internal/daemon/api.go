@@ -64,6 +64,7 @@ func (api *ControlAPI) Register(mux *http.ServeMux) {
 	mux.HandleFunc("/v1/jobs/", api.handleJobByID)
 	mux.HandleFunc("/v1/sandboxes", api.handleSandboxes)
 	mux.HandleFunc("/v1/sandboxes/", api.handleSandboxByID)
+	mux.HandleFunc("/v1/sandboxes/prune", api.handleSandboxPrune)
 	mux.HandleFunc("/v1/workspaces", api.handleWorkspaces)
 	mux.HandleFunc("/v1/workspaces/", api.handleWorkspaceByID)
 }
@@ -878,14 +879,33 @@ func (api *ControlAPI) handleSandboxDestroy(w http.ResponseWriter, r *http.Reque
 		writeError(w, http.StatusInternalServerError, "sandbox manager unavailable")
 		return
 	}
-	if err := api.sandboxManager.Destroy(r.Context(), vmid); err != nil {
+	var req V1SandboxDestroyRequest
+	if err := decodeJSON(w, r, &req); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	var err error
+	if req.Force {
+		err = api.sandboxManager.ForceDestroy(r.Context(), vmid)
+	} else {
+		err = api.sandboxManager.Destroy(r.Context(), vmid)
+	}
+	if err != nil {
 		switch {
 		case errors.Is(err, ErrSandboxNotFound):
 			writeError(w, http.StatusNotFound, "sandbox not found")
 		case errors.Is(err, ErrInvalidTransition):
-			writeError(w, http.StatusConflict, "invalid sandbox state")
+			if api.store != nil {
+				if sb, getErr := api.store.GetSandbox(r.Context(), vmid); getErr == nil {
+					writeError(w, http.StatusConflict, fmt.Sprintf("cannot destroy sandbox in %s state. Valid states: STOPPED, DESTROYED. Use --force to bypass", sb.State))
+				} else {
+					writeError(w, http.StatusConflict, "invalid sandbox state for destroy operation. Use --force to bypass")
+				}
+			} else {
+				writeError(w, http.StatusConflict, "invalid sandbox state. Use --force to bypass")
+			}
 		default:
-			writeError(w, http.StatusInternalServerError, "failed to destroy sandbox")
+			writeError(w, http.StatusInternalServerError, fmt.Sprintf("failed to destroy sandbox: %v", err))
 		}
 		return
 	}
@@ -917,9 +937,17 @@ func (api *ControlAPI) handleSandboxLeaseRenew(w http.ResponseWriter, r *http.Re
 		case errors.Is(err, ErrSandboxNotFound):
 			writeError(w, http.StatusNotFound, "sandbox not found")
 		case errors.Is(err, ErrLeaseNotRenewable):
-			writeError(w, http.StatusConflict, "sandbox lease not renewable")
+			if api.store != nil {
+				if sb, getErr := api.store.GetSandbox(r.Context(), vmid); getErr == nil {
+					writeError(w, http.StatusConflict, fmt.Sprintf("cannot renew lease in %s state. Valid states: RUNNING", sb.State))
+				} else {
+					writeError(w, http.StatusConflict, "sandbox lease not renewable")
+				}
+			} else {
+				writeError(w, http.StatusConflict, "sandbox lease not renewable")
+			}
 		default:
-			writeError(w, http.StatusInternalServerError, "failed to renew lease")
+			writeError(w, http.StatusInternalServerError, fmt.Sprintf("failed to renew lease: %v", err))
 		}
 		return
 	}
@@ -927,6 +955,23 @@ func (api *ControlAPI) handleSandboxLeaseRenew(w http.ResponseWriter, r *http.Re
 		VMID:         vmid,
 		LeaseExpires: lease.UTC().Format(time.RFC3339Nano),
 	})
+}
+
+func (api *ControlAPI) handleSandboxPrune(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		writeMethodNotAllowed(w, []string{http.MethodPost})
+		return
+	}
+	if api.sandboxManager == nil {
+		writeError(w, http.StatusInternalServerError, "sandbox manager unavailable")
+		return
+	}
+	count, err := api.sandboxManager.PruneOrphans(r.Context())
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to prune sandboxes")
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]int{"count": count})
 }
 
 func (api *ControlAPI) handleSandboxEvents(w http.ResponseWriter, r *http.Request, vmid int) {

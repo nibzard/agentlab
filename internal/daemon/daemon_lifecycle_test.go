@@ -78,14 +78,14 @@ func TestRun_ProfileLoadError(t *testing.T) {
 	t.Run("non-existent profiles dir", func(t *testing.T) {
 		temp := t.TempDir()
 		cfg := config.Config{
-			ConfigPath:  filepath.Join(temp, "config.yaml"),
-			ProfilesDir: "/nonexistent/profiles/dir",
-			RunDir:      filepath.Join(temp, "run"),
-			SocketPath:  filepath.Join(temp, "run", "agentlabd.sock"),
-			DBPath:      filepath.Join(temp, "agentlab.db"),
-			BootstrapListen: "127.0.0.1:0",
-			ArtifactListen:  "127.0.0.1:0",
-			ArtifactDir:     filepath.Join(temp, "artifacts"),
+			ConfigPath:              filepath.Join(temp, "config.yaml"),
+			ProfilesDir:             "/nonexistent/profiles/dir",
+			RunDir:                  filepath.Join(temp, "run"),
+			SocketPath:              filepath.Join(temp, "run", "agentlabd.sock"),
+			DBPath:                  filepath.Join(temp, "agentlab.db"),
+			BootstrapListen:         "127.0.0.1:0",
+			ArtifactListen:          "127.0.0.1:0",
+			ArtifactDir:             filepath.Join(temp, "artifacts"),
 			ArtifactMaxBytes:        1024,
 			ArtifactTokenTTLMinutes: 5,
 			SecretsDir:              filepath.Join(temp, "secrets"),
@@ -116,14 +116,14 @@ func TestRun_DatabaseInitError(t *testing.T) {
 		require.NoError(t, err)
 
 		cfg := config.Config{
-			ConfigPath:  filepath.Join(temp, "config.yaml"),
-			ProfilesDir: profilesDir,
-			RunDir:      filepath.Join(temp, "run"),
-			SocketPath:  filepath.Join(temp, "run", "agentlabd.sock"),
-			DBPath:      "/root/nonexistent/path/agentlab.db", // Invalid path
-			BootstrapListen: "127.0.0.1:0",
-			ArtifactListen:  "127.0.0.1:0",
-			ArtifactDir:     filepath.Join(temp, "artifacts"),
+			ConfigPath:              filepath.Join(temp, "config.yaml"),
+			ProfilesDir:             profilesDir,
+			RunDir:                  filepath.Join(temp, "run"),
+			SocketPath:              filepath.Join(temp, "run", "agentlabd.sock"),
+			DBPath:                  "/root/nonexistent/path/agentlab.db", // Invalid path
+			BootstrapListen:         "127.0.0.1:0",
+			ArtifactListen:          "127.0.0.1:0",
+			ArtifactDir:             filepath.Join(temp, "artifacts"),
 			ArtifactMaxBytes:        1024,
 			ArtifactTokenTTLMinutes: 5,
 			SecretsDir:              filepath.Join(temp, "secrets"),
@@ -179,7 +179,7 @@ func TestNewService_Success(t *testing.T) {
 func TestNewService_RunDirError(t *testing.T) {
 	temp := t.TempDir()
 	cfg := config.Config{
-		RunDir:                  "/root/nonexistent/path", // Invalid
+		RunDir:                  "/dev/null/agentlab-test", // Invalid - cannot create under /dev/null
 		SocketPath:              filepath.Join(temp, "sock"),
 		DBPath:                  filepath.Join(temp, "db"),
 		BootstrapListen:         "127.0.0.1:0",
@@ -214,7 +214,7 @@ func TestNewService_ArtifactDirError(t *testing.T) {
 		DBPath:                  filepath.Join(temp, "db"),
 		BootstrapListen:         "127.0.0.1:0",
 		ArtifactListen:          "127.0.0.1:0",
-		ArtifactDir:             "/root/nonexistent/path", // Invalid
+		ArtifactDir:             "/dev/null/agentlab-artifacts", // Invalid - cannot create under /dev/null
 		ArtifactMaxBytes:        1024,
 		ArtifactTokenTTLMinutes: 5,
 		SecretsDir:              filepath.Join(temp, "secrets"),
@@ -232,7 +232,7 @@ func TestNewService_ArtifactDirError(t *testing.T) {
 
 	_, err = NewService(cfg, map[string]models.Profile{}, store)
 	assert.Error(t, err)
-	// Error message will contain "create dir" and the path
+	// Error message will contain "create dir" and path
 	assert.Contains(t, err.Error(), "create dir")
 }
 
@@ -240,7 +240,7 @@ func TestNewService_UnixSocketError(t *testing.T) {
 	temp := t.TempDir()
 	cfg := config.Config{
 		RunDir:                  temp,
-		SocketPath:              "/root/nonexistent/path/sock.sock", // Invalid - parent dir can't be created
+		SocketPath:              "/dev/null/agentlab.sock", // Invalid - cannot create under /dev/null
 		DBPath:                  filepath.Join(temp, "db"),
 		BootstrapListen:         "127.0.0.1:0",
 		ArtifactListen:          "127.0.0.1:0",
