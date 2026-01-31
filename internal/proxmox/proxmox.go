@@ -34,4 +34,7 @@ type Backend interface {
 	AttachVolume(ctx context.Context, vmid VMID, volumeID, slot string) error
 	DetachVolume(ctx context.Context, vmid VMID, slot string) error
 	DeleteVolume(ctx context.Context, volumeID string) error
+	// ValidateTemplate checks if a template VM is suitable for provisioning.
+	// Returns nil if the template exists and has qemu-guest-agent enabled.
+	ValidateTemplate(ctx context.Context, template VMID) error
 }

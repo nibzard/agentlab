@@ -85,6 +85,10 @@ func (b *orchestratorBackend) DeleteVolume(context.Context, string) error {
 	return nil
 }
 
+func (b *orchestratorBackend) ValidateTemplate(context.Context, proxmox.VMID) error {
+	return nil
+}
+
 func TestJobOrchestratorRun(t *testing.T) {
 	ctx := context.Background()
 	store := newTestStore(t)

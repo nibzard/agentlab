@@ -131,6 +131,9 @@ func (o *JobOrchestrator) Run(ctx context.Context, jobID string) error {
 	if err := validateProfileForProvisioning(profile); err != nil {
 		return o.failJob(job, 0, err)
 	}
+	if err := o.backend.ValidateTemplate(ctx, proxmox.VMID(profile.TemplateVM)); err != nil {
+		return o.failJob(job, 0, fmt.Errorf("template validation failed: %w", err))
+	}
 	if o.sandboxManager == nil {
 		return o.failJob(job, 0, errors.New("sandbox manager unavailable"))
 	}
@@ -270,6 +273,9 @@ func (o *JobOrchestrator) ProvisionSandbox(ctx context.Context, vmid int) (model
 	}
 	if err := validateProfileForProvisioning(profile); err != nil {
 		return models.Sandbox{}, err
+	}
+	if err := o.backend.ValidateTemplate(ctx, proxmox.VMID(profile.TemplateVM)); err != nil {
+		return models.Sandbox{}, fmt.Errorf("template validation failed: %w", err)
 	}
 	if o.sandboxManager == nil {
 		return models.Sandbox{}, errors.New("sandbox manager unavailable")

@@ -67,6 +67,10 @@ func (s *stubBackend) DeleteVolume(context.Context, string) error {
 	return nil
 }
 
+func (s *stubBackend) ValidateTemplate(context.Context, proxmox.VMID) error {
+	return nil
+}
+
 func TestSandboxTransitions(t *testing.T) {
 	ctx := context.Background()
 	store := newTestStore(t)

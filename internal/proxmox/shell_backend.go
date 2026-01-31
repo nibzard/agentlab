@@ -348,11 +348,34 @@ func (b *ShellBackend) DeleteVolume(ctx context.Context, volumeID string) error 
 	return err
 }
 
+func (b *ShellBackend) ValidateTemplate(ctx context.Context, template VMID) error {
+	// Check if VM exists
+	out, err := b.run(ctx, b.qmPath(), "config", strconv.Itoa(int(template)))
+	if err != nil {
+		// Check if error indicates VM doesn't exist
+		if isMissingVMError(err) {
+			return fmt.Errorf("template VM %d does not exist", template)
+		}
+		return fmt.Errorf("failed to query template VM %d: %w", template, err)
+	}
+
+	// Check if agent is enabled in the config
+	// The config output should contain "agent: 1" or "agent: enabled=1"
+	if !strings.Contains(out, "agent:") {
+		return fmt.Errorf("template VM %d does not have qemu-guest-agent enabled (missing 'agent:' config)", template)
+	}
+	// Check for explicit agent disabled
+	if strings.Contains(out, "agent: 0") || strings.Contains(out, "agent: disabled=1") {
+		return fmt.Errorf("template VM %d has qemu-guest-agent explicitly disabled", template)
+	}
+	return nil
+}
+
 func (b *ShellBackend) guestIPAttempts() int {
 	if b.GuestIPAttempts > 0 {
 		return b.GuestIPAttempts
 	}
-	return 6
+	return 30
 }
 
 func (b *ShellBackend) guestIPInitialWait() time.Duration {
@@ -366,7 +389,7 @@ func (b *ShellBackend) guestIPMaxWait() time.Duration {
 	if b.GuestIPMaxWait > 0 {
 		return b.GuestIPMaxWait
 	}
-	return 5 * time.Second
+	return 10 * time.Second
 }
 
 func (b *ShellBackend) sleep(ctx context.Context, d time.Duration) error {
