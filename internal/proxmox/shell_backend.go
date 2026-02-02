@@ -16,17 +16,31 @@ import (
 	"time"
 )
 
-var ErrGuestIPNotFound = errors.New("guest IP not found")
+// BashRunner wraps commands in bash to provide interactive shell context.
+type BashRunner struct{}
 
-// CommandRunner executes external commands and returns stdout.
-type CommandRunner interface {
-	Run(ctx context.Context, name string, args ...string) (string, error)
+func (br BashRunner) Run(ctx context.Context, name string, args ...string) (string, error) {
+	allArgs := append([]string{name}, args...)
+	fullCmd := strings.Join(allArgs, " ")
+	cmd := exec.CommandContext(ctx, "bash", "-c", fullCmd)
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+	if err := cmd.Run(); err != nil {
+		errMsg := strings.TrimSpace(stderr.String())
+		if errMsg != "" {
+			return "", fmt.Errorf("command %s failed: %w: %s", fullCmd, err, errMsg)
+		}
+		return "", fmt.Errorf("command %s failed: %w: %s", name, strings.Join(args, " "), err)
+	}
+	return stdout.String(), nil
 }
 
 // ExecRunner runs commands via os/exec.
 type ExecRunner struct{}
 
-func (ExecRunner) Run(ctx context.Context, name string, args ...string) (string, error) {
+func (er ExecRunner) Run(ctx context.Context, name string, args ...string) (string, error) {
 	cmd := exec.CommandContext(ctx, name, args...)
 	var stdout bytes.Buffer
 	var stderr bytes.Buffer
@@ -35,21 +49,22 @@ func (ExecRunner) Run(ctx context.Context, name string, args ...string) (string,
 	if err := cmd.Run(); err != nil {
 		errMsg := strings.TrimSpace(stderr.String())
 		if errMsg != "" {
-			return "", fmt.Errorf("command %s %s failed: %w: %s", name, strings.Join(args, " "), err, errMsg)
+			return "", fmt.Errorf("command %s failed: %w: %s", name, strings.Join(args, " "), err, errMsg)
 		}
-		return "", fmt.Errorf("command %s %s failed: %w", name, strings.Join(args, " "), err)
+		return "", fmt.Errorf("command %s failed: %w: %s", name, strings.Join(args, " "), err)
 	}
 	return stdout.String(), nil
 }
 
 // ShellBackend implements Backend using qm and pvesh commands.
 type ShellBackend struct {
-	Node               string
-	AgentCIDR          string
-	QmPath             string
-	PveShPath          string
-	PveSmPath          string
-	Runner             CommandRunner
+	Node      string
+	AgentCIDR string
+	QmPath    string
+	PveShPath string
+	Runner    CommandRunner
+	// Use BashRunner to work around Proxmox IPC issues
+	BashRunner         BashRunner
 	CommandTimeout     time.Duration
 	GuestIPAttempts    int
 	GuestIPInitialWait time.Duration
@@ -181,10 +196,20 @@ func (b *ShellBackend) pveshPath() string {
 }
 
 func (b *ShellBackend) pvesmPath() string {
-	if b.PveSmPath != "" {
-		return b.PveSmPath
-	}
 	return "pvesm"
+}
+
+// NewShellBackendWithBashRunner creates a ShellBackend that uses BashRunner instead of ExecRunner.
+// This works around Proxmox IPC issues by running qm commands via bash shell.
+func NewShellBackendWithBashRunner(node string, agentCIDR string, qmPath string, pveShPath string, timeout time.Duration) *ShellBackend {
+	return &ShellBackend{
+		Node:           node,
+		AgentCIDR:      agentCIDR,
+		QmPath:         qmPath,
+		PveShPath:      pveShPath,
+		Runner:         BashRunner{},
+		CommandTimeout: timeout,
+	}
 }
 
 func (b *ShellBackend) pollGuestAgentIP(ctx context.Context, node string, vmid VMID) (string, error) {

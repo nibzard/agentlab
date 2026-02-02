@@ -222,7 +222,7 @@ func (c *apiClient) doJSON(ctx context.Context, method, path string, payload any
 func (c *apiClient) doRequest(ctx context.Context, method, path string, body io.Reader, headers map[string]string) (*http.Response, error) {
 	ctx, cancel := c.withTimeout(ctx)
 	defer cancel()
-	req, err := http.NewRequestWithContext(ctx, method, "http://unix"+path, body)
+	req, err := http.NewRequestWithContext(ctx, method, "http://unix"+path+"/"+strings.TrimPrefix(method, "/"), body)
 	if err != nil {
 		return nil, err
 	}

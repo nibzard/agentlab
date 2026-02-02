@@ -40,6 +40,11 @@ type Config struct {
 	SSHPublicKeyPath        string
 	ProxmoxCommandTimeout   time.Duration
 	ProvisioningTimeout     time.Duration
+	// Proxmox API backend configuration
+	ProxmoxBackend  string // "shell" or "api"
+	ProxmoxAPIURL   string // e.g., "https://localhost:8006/api2/json"
+	ProxmoxAPIToken string // e.g., "root@pam!token=uuid"
+	ProxmoxNode     string // Proxmox node name (optional, auto-detected if empty)
 }
 
 // FileConfig represents supported YAML config overrides.
@@ -69,6 +74,10 @@ type FileConfig struct {
 	SSHPublicKeyPath        string `yaml:"ssh_public_key_path"`
 	ProxmoxCommandTimeout   string `yaml:"proxmox_command_timeout"`
 	ProvisioningTimeout     string `yaml:"provisioning_timeout"`
+	ProxmoxBackend          string `yaml:"proxmox_backend"`
+	ProxmoxAPIURL           string `yaml:"proxmox_api_url"`
+	ProxmoxAPIToken         string `yaml:"proxmox_api_token"`
+	ProxmoxNode             string `yaml:"proxmox_node"`
 }
 
 func DefaultConfig() Config {
@@ -96,6 +105,10 @@ func DefaultConfig() Config {
 		SnippetStorage:          "local",
 		ProxmoxCommandTimeout:   2 * time.Minute,
 		ProvisioningTimeout:     10 * time.Minute,
+		ProxmoxBackend:          "api", // Default to API backend (more robust)
+		ProxmoxAPIURL:           "https://localhost:8006",
+		ProxmoxAPIToken:         "", // Must be configured
+		ProxmoxNode:             "", // Auto-detected if empty
 	}
 }
 
@@ -222,6 +235,18 @@ func applyFileConfig(cfg *Config, fileCfg FileConfig) error {
 		}
 		cfg.ProvisioningTimeout = timeout
 	}
+	if fileCfg.ProxmoxBackend != "" {
+		cfg.ProxmoxBackend = fileCfg.ProxmoxBackend
+	}
+	if fileCfg.ProxmoxAPIURL != "" {
+		cfg.ProxmoxAPIURL = fileCfg.ProxmoxAPIURL
+	}
+	if fileCfg.ProxmoxAPIToken != "" {
+		cfg.ProxmoxAPIToken = fileCfg.ProxmoxAPIToken
+	}
+	if fileCfg.ProxmoxNode != "" {
+		cfg.ProxmoxNode = fileCfg.ProxmoxNode
+	}
 	return nil
 }
 
@@ -309,6 +334,12 @@ func (c Config) Validate() error {
 	}
 	if c.ProvisioningTimeout < 0 {
 		return fmt.Errorf("provisioning_timeout must be non-negative")
+	}
+	if c.ProxmoxBackend != "" && c.ProxmoxBackend != "shell" && c.ProxmoxBackend != "api" {
+		return fmt.Errorf("proxmox_backend must be either 'shell' or 'api'")
+	}
+	if c.ProxmoxBackend == "api" && c.ProxmoxAPIToken == "" {
+		return fmt.Errorf("proxmox_api_token is required when using api backend")
 	}
 	return nil
 }

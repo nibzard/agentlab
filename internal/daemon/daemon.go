@@ -113,9 +113,41 @@ func NewService(cfg config.Config, profiles map[string]models.Profile, store *db
 		}
 	}
 
-	backend := &proxmox.ShellBackend{
-		CommandTimeout: cfg.ProxmoxCommandTimeout,
-		AgentCIDR:      agentCIDR,
+	// Create Proxmox backend based on configuration
+	var backend proxmox.Backend
+	switch strings.ToLower(strings.TrimSpace(cfg.ProxmoxBackend)) {
+	case "api":
+		// Use API backend
+		apiBackend, err := proxmox.NewAPIBackend(
+			cfg.ProxmoxAPIURL,
+			cfg.ProxmoxAPIToken,
+			cfg.ProxmoxNode,
+			agentCIDR,
+			cfg.ProxmoxCommandTimeout,
+		)
+		if err != nil {
+			_ = metricsListener.Close()
+			_ = artifactListener.Close()
+			_ = bootstrapListener.Close()
+			_ = unixListener.Close()
+			return nil, fmt.Errorf("create Proxmox API backend: %w", err)
+		}
+		backend = apiBackend
+		log.Printf("using Proxmox API backend (url=%s)", cfg.ProxmoxAPIURL)
+	case "shell", "", "default":
+		// Use shell backend (backward compatible)
+		backend = &proxmox.ShellBackend{
+			CommandTimeout: cfg.ProxmoxCommandTimeout,
+			AgentCIDR:      agentCIDR,
+			Runner:         &proxmox.BashRunner{},
+		}
+		log.Printf("using Proxmox shell backend")
+	default:
+		_ = metricsListener.Close()
+		_ = artifactListener.Close()
+		_ = bootstrapListener.Close()
+		_ = unixListener.Close()
+		return nil, fmt.Errorf("unknown proxmox_backend: %s (must be 'api' or 'shell')", cfg.ProxmoxBackend)
 	}
 	workspaceManager := NewWorkspaceManager(store, backend, log.Default())
 	sandboxManager := NewSandboxManager(store, backend, log.Default()).WithWorkspaceManager(workspaceManager).WithMetrics(metrics)
@@ -128,20 +160,14 @@ func NewService(cfg config.Config, profiles map[string]models.Profile, store *db
 	if controllerURL == "" {
 		controllerURL = buildControllerURL(cfg.BootstrapListen)
 	}
-	var jobOrchestrator *JobOrchestrator
-	if strings.TrimSpace(cfg.SSHPublicKey) != "" {
-		jobOrchestrator = NewJobOrchestrator(store, profiles, backend, sandboxManager, workspaceManager, snippetStore, cfg.SSHPublicKey, controllerURL, log.Default(), redactor, metrics).
-			WithProvisionTimeout(cfg.ProvisioningTimeout)
-	} else {
-		log.Printf("agentlabd: ssh public key missing; job orchestration disabled")
-	}
+	jobOrchestrator := NewJobOrchestrator(store, profiles, backend, sandboxManager, workspaceManager, snippetStore, cfg.SSHPublicKey, controllerURL, log.Default(), redactor, metrics)
 	if jobOrchestrator != nil {
 		sandboxManager.WithSnippetCleaner(jobOrchestrator.CleanupSnippet)
 	}
 
 	localMux := http.NewServeMux()
 	localMux.HandleFunc("/healthz", healthHandler)
-	NewControlAPI(store, profiles, sandboxManager, workspaceManager, jobOrchestrator, cfg.ArtifactDir).Register(localMux)
+	NewControlAPI(store, profiles, sandboxManager, workspaceManager, jobOrchestrator, cfg.ArtifactDir, log.Default()).Register(localMux)
 
 	bootstrapMux := http.NewServeMux()
 	bootstrapMux.HandleFunc("/healthz", healthHandler)
@@ -223,6 +249,7 @@ func (s *Service) Serve(ctx context.Context) error {
 	}
 	if s.sandboxManager != nil {
 		s.sandboxManager.StartLeaseGC(ctx)
+		s.sandboxManager.StartReconciler(ctx)
 	}
 	if s.artifactGC != nil {
 		s.artifactGC.Start(ctx)

@@ -43,7 +43,10 @@ type ControlAPI struct {
 	now             func() time.Time
 }
 
-func NewControlAPI(store *db.Store, profiles map[string]models.Profile, manager *SandboxManager, workspaceMgr *WorkspaceManager, orchestrator *JobOrchestrator, artifactRoot string) *ControlAPI {
+func NewControlAPI(store *db.Store, profiles map[string]models.Profile, manager *SandboxManager, workspaceMgr *WorkspaceManager, orchestrator *JobOrchestrator, artifactRoot string, logger *log.Logger) *ControlAPI {
+	if logger == nil {
+		logger = log.Default()
+	}
 	return &ControlAPI{
 		store:           store,
 		profiles:        profiles,
@@ -51,7 +54,7 @@ func NewControlAPI(store *db.Store, profiles map[string]models.Profile, manager 
 		workspaceMgr:    workspaceMgr,
 		jobOrchestrator: orchestrator,
 		artifactRoot:    strings.TrimSpace(artifactRoot),
-		logger:          nil,
+		logger:          logger,
 		now:             time.Now,
 	}
 }
@@ -591,8 +594,15 @@ func (api *ControlAPI) handleSandboxCreate(w http.ResponseWriter, r *http.Reques
 		writeError(w, http.StatusBadRequest, "vmid must be positive")
 		return
 	}
+
 	if provisionSandbox && api.jobOrchestrator == nil {
-		writeError(w, http.StatusServiceUnavailable, "sandbox provisioning unavailable")
+		ctx := r.Context()
+		vmid := 0
+		if req.VMID != nil {
+			vmid = *req.VMID
+		}
+		_ = api.store.RecordEvent(ctx, "sandbox.provision_failed", &vmid, nil, "job orchestrator not initialized", "")
+		writeError(w, http.StatusServiceUnavailable, "sandbox provisioning unavailable: job orchestrator not initialized (ssh_public_key required)")
 		return
 	}
 
@@ -1143,8 +1153,8 @@ func writeError(w http.ResponseWriter, status int, msg string, err ...error) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
 	payload := map[string]string{"error": msg}
-	// Optionally include error details in non-production
-	if len(err) > 0 && os.Getenv("AGENTLAB_DEV") != "" {
+	// Always include error details for better debugging
+	if len(err) > 0 {
 		details := err[0].Error()
 		payload["details"] = details
 	}

@@ -96,6 +96,26 @@ func (m *SandboxManager) StartLeaseGC(ctx context.Context) {
 	}()
 }
 
+// StartReconciler runs state reconciliation immediately and then on an interval until ctx is done.
+func (m *SandboxManager) StartReconciler(ctx context.Context) {
+	if m == nil || m.store == nil || m.backend == nil {
+		return
+	}
+	m.ReconcileState(ctx)
+	ticker := time.NewTicker(m.gcInterval)
+	go func() {
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+				m.ReconcileState(ctx)
+			}
+		}
+	}()
+}
+
 // Transition moves a sandbox to the requested state if allowed.
 func (m *SandboxManager) Transition(ctx context.Context, vmid int, target models.SandboxState) error {
 	if m == nil || m.store == nil {
@@ -358,4 +378,46 @@ func allowedTransition(from, to models.SandboxState) bool {
 	default:
 		return false
 	}
+}
+
+// ReconcileState syncs sandbox states with actual VM states from Proxmox.
+// This fixes zombie sandboxes that are in an inconsistent state.
+func (m *SandboxManager) ReconcileState(ctx context.Context) error {
+	if m == nil || m.store == nil || m.backend == nil {
+		return nil
+	}
+
+	sandboxes, err := m.store.ListSandboxes(ctx)
+	if err != nil {
+		return fmt.Errorf("list sandboxes: %w", err)
+	}
+
+	for _, sb := range sandboxes {
+		if sb.State == models.SandboxDestroyed || sb.State == models.SandboxCompleted {
+			continue
+		}
+
+		status, err := m.backend.Status(ctx, proxmox.VMID(sb.VMID))
+		if err != nil {
+			if errors.Is(err, proxmox.ErrVMNotFound) {
+				if sb.State != models.SandboxDestroyed && sb.State != models.SandboxRequested {
+					m.logger.Printf("reconcile: VM %d not found in Proxmox, marking as destroyed", sb.VMID)
+					_ = m.Transition(ctx, sb.VMID, models.SandboxDestroyed)
+				}
+			}
+			continue
+		}
+
+		if status == proxmox.StatusStopped && sb.State == models.SandboxRunning {
+			m.logger.Printf("reconcile: VM %d stopped unexpectedly, marking as failed", sb.VMID)
+			_ = m.Transition(ctx, sb.VMID, models.SandboxFailed)
+		}
+
+		if status == proxmox.StatusRunning && sb.State == models.SandboxRequested {
+			m.logger.Printf("reconcile: VM %d is running, marking as ready", sb.VMID)
+			_ = m.Transition(ctx, sb.VMID, models.SandboxReady)
+		}
+	}
+
+	return nil
 }
