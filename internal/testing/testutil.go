@@ -154,6 +154,17 @@ type JobOpts struct {
 }
 
 // NewTestJob creates a test job with default values, applying optional overrides.
+//
+// This factory function creates valid Job structs for testing, filling in
+// required fields with sensible defaults. Any field in opts can be set to
+// override the default.
+//
+// Example:
+//
+//	job := NewTestJob(testing.JobOpts{
+//	    Status: models.JobRunning,
+//	    Task:   "run-tests",
+//	})
 func NewTestJob(opts JobOpts) models.Job {
 	if opts.ID == "" {
 		opts.ID = "job-test-1"
@@ -195,6 +206,9 @@ func NewTestJob(opts JobOpts) models.Job {
 }
 
 // SandboxOpts holds optional parameters for creating test sandboxes.
+//
+// Used with NewTestSandbox to create test sandbox data with specific values.
+// Empty fields use sensible defaults defined in NewTestSandbox.
 type SandboxOpts struct {
 	VMID         int
 	Name         string
@@ -209,6 +223,10 @@ type SandboxOpts struct {
 }
 
 // NewTestSandbox creates a test sandbox with default values, applying optional overrides.
+//
+// This factory function creates valid Sandbox structs for testing, filling in
+// required fields with sensible defaults. Any field in opts can be set to
+// override the default.
 func NewTestSandbox(opts SandboxOpts) models.Sandbox {
 	if opts.VMID == 0 {
 		opts.VMID = TestVMID

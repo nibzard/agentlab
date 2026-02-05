@@ -1179,6 +1179,8 @@ func printEvents(events []eventResponse, jsonOutput bool) int64 {
 	return lastID
 }
 
+// selectArtifact selects an artifact from a list based on the provided criteria.
+// Checks path, name, bundle, and latest in that order.
 func selectArtifact(artifacts []artifactInfo, path, name string, latest, bundle bool) (artifactInfo, error) {
 	if len(artifacts) == 0 {
 		return artifactInfo{}, fmt.Errorf("no artifacts found")
@@ -1261,6 +1263,8 @@ func parseVMID(value string) (int, error) {
 	return vmid, nil
 }
 
+// parseTTLMinutes parses a TTL value, accepting either minutes (int) or a duration string.
+// Returns nil if the value is empty.
 func parseTTLMinutes(value string) (*int, error) {
 	value = strings.TrimSpace(value)
 	if value == "" {
@@ -1286,6 +1290,7 @@ func parseTTLMinutes(value string) (*int, error) {
 	return &minutes, nil
 }
 
+// parseRequiredTTLMinutes parses a TTL value that must be provided and positive.
 func parseRequiredTTLMinutes(value string) (int, error) {
 	minutes, err := parseTTLMinutes(value)
 	if err != nil {
@@ -1297,6 +1302,7 @@ func parseRequiredTTLMinutes(value string) (int, error) {
 	return *minutes, nil
 }
 
+// parseSizeGB parses a disk size string (e.g., "80G", "80GB") into gigabytes.
 func parseSizeGB(value string) (int, error) {
 	value = strings.TrimSpace(value)
 	if value == "" {
