@@ -1,3 +1,22 @@
+// ABOUTME: HTTP client for communicating with agentlabd daemon over Unix socket.
+// ABOUTME: Provides type-safe request/response structures and JSON serialization.
+
+// Package main provides the HTTP client for communicating with agentlabd.
+//
+// The apiClient communicates with the agentlabd daemon over a Unix socket
+// using HTTP. All responses are JSON-encoded.
+//
+# API Client
+//
+// The client supports both JSON and raw HTTP operations:
+//
+//	- doJSON: For typical JSON request/response operations
+//	- doRequest: For operations requiring custom headers or streaming responses
+//
+# Error Handling
+//
+// API errors are returned as both HTTP status codes (>= 400) and JSON
+// responses with an "error" field.
 package main
 
 import (
@@ -16,19 +35,22 @@ import (
 const defaultSocketPath = "/run/agentlab/agentlabd.sock"
 
 const (
-	maxJSONOutputBytes = 4 << 20
+	maxJSONOutputBytes = 4 << 20 // 4MB maximum JSON response size
 )
 
+// apiClient is an HTTP client for communicating with agentlabd over a Unix socket.
 type apiClient struct {
 	socketPath string
 	httpClient *http.Client
 	timeout    time.Duration
 }
 
+// apiError represents an error response from the agentlabd API.
 type apiError struct {
 	Error string `json:"error"`
 }
 
+// jobCreateRequest contains parameters for creating a new job.
 type jobCreateRequest struct {
 	RepoURL    string `json:"repo_url"`
 	Ref        string `json:"ref,omitempty"`
@@ -39,6 +61,7 @@ type jobCreateRequest struct {
 	Keepalive  *bool  `json:"keepalive,omitempty"`
 }
 
+// jobResponse represents a job returned from the API.
 type jobResponse struct {
 	ID          string          `json:"id"`
 	RepoURL     string          `json:"repo_url"`
@@ -56,6 +79,7 @@ type jobResponse struct {
 	UpdatedAt   string          `json:"updated_at"`
 }
 
+// artifactInfo represents a single artifact uploaded from a sandbox.
 type artifactInfo struct {
 	Name      string `json:"name"`
 	Path      string `json:"path"`
@@ -65,11 +89,13 @@ type artifactInfo struct {
 	CreatedAt string `json:"created_at,omitempty"`
 }
 
+// artifactsResponse contains a list of artifacts for a job.
 type artifactsResponse struct {
 	JobID     string         `json:"job_id"`
 	Artifacts []artifactInfo `json:"artifacts"`
 }
 
+// sandboxCreateRequest contains parameters for creating a new sandbox.
 type sandboxCreateRequest struct {
 	Name       string  `json:"name,omitempty"`
 	Profile    string  `json:"profile"`
@@ -80,10 +106,12 @@ type sandboxCreateRequest struct {
 	JobID      string  `json:"job_id,omitempty"`
 }
 
+// sandboxDestroyRequest contains parameters for destroying a sandbox.
 type sandboxDestroyRequest struct {
 	Force bool `json:"force"`
 }
 
+// sandboxResponse represents a sandbox returned from the API.
 type sandboxResponse struct {
 	VMID          int     `json:"vmid"`
 	Name          string  `json:"name"`
@@ -97,39 +125,47 @@ type sandboxResponse struct {
 	LastUpdatedAt string  `json:"updated_at"`
 }
 
+// sandboxesResponse contains a list of sandboxes.
 type sandboxesResponse struct {
 	Sandboxes []sandboxResponse `json:"sandboxes"`
 }
 
+// leaseRenewRequest contains parameters for renewing a sandbox lease.
 type leaseRenewRequest struct {
 	TTLMinutes int `json:"ttl_minutes"`
 }
 
+// leaseRenewResponse contains the result of a lease renewal.
 type leaseRenewResponse struct {
 	VMID         int    `json:"vmid"`
 	LeaseExpires string `json:"lease_expires_at"`
 }
 
+// pruneResponse contains the result of a prune operation.
 type pruneResponse struct {
 	Count int `json:"count"`
 }
 
+// workspaceCreateRequest contains parameters for creating a workspace.
 type workspaceCreateRequest struct {
 	Name    string `json:"name"`
 	SizeGB  int    `json:"size_gb"`
 	Storage string `json:"storage,omitempty"`
 }
 
+// workspaceAttachRequest contains parameters for attaching a workspace.
 type workspaceAttachRequest struct {
 	VMID int `json:"vmid"`
 }
 
+// workspaceRebindRequest contains parameters for rebinding a workspace to a new sandbox.
 type workspaceRebindRequest struct {
 	Profile    string `json:"profile"`
 	TTLMinutes *int   `json:"ttl_minutes,omitempty"`
 	KeepOld    bool   `json:"keep_old,omitempty"`
 }
 
+// workspaceResponse represents a workspace returned from the API.
 type workspaceResponse struct {
 	ID           string `json:"id"`
 	Name         string `json:"name"`
@@ -141,16 +177,19 @@ type workspaceResponse struct {
 	UpdatedAt    string `json:"updated_at"`
 }
 
+// workspacesResponse contains a list of workspaces.
 type workspacesResponse struct {
 	Workspaces []workspaceResponse `json:"workspaces"`
 }
 
+// workspaceRebindResponse contains the result of a workspace rebind operation.
 type workspaceRebindResponse struct {
 	Workspace workspaceResponse `json:"workspace"`
 	Sandbox   sandboxResponse   `json:"sandbox"`
 	OldVMID   *int              `json:"old_vmid,omitempty"`
 }
 
+// eventResponse represents a single event from a sandbox.
 type eventResponse struct {
 	ID          int64           `json:"id"`
 	Timestamp   string          `json:"ts"`
@@ -161,11 +200,14 @@ type eventResponse struct {
 	Payload     json.RawMessage `json:"json,omitempty"`
 }
 
+// eventsResponse contains a list of sandbox events.
 type eventsResponse struct {
 	Events []eventResponse `json:"events"`
 	LastID int64           `json:"last_id,omitempty"`
 }
 
+// newAPIClient creates a new API client for communicating with agentlabd.
+// The client uses HTTP over a Unix socket to communicate with the daemon.
 func newAPIClient(socketPath string, timeout time.Duration) *apiClient {
 	path := socketPath
 	if path == "" {
@@ -184,6 +226,8 @@ func newAPIClient(socketPath string, timeout time.Duration) *apiClient {
 	}
 }
 
+// doJSON sends an HTTP request with a JSON payload and returns the JSON response.
+// It handles timeout, request serialization, and error parsing.
 func (c *apiClient) doJSON(ctx context.Context, method, path string, payload any) ([]byte, error) {
 	ctx, cancel := c.withTimeout(ctx)
 	defer cancel()
@@ -219,6 +263,8 @@ func (c *apiClient) doJSON(ctx context.Context, method, path string, payload any
 	return data, nil
 }
 
+// doRequest sends an HTTP request with a raw body and custom headers.
+// Returns the raw HTTP response for streaming operations.
 func (c *apiClient) doRequest(ctx context.Context, method, path string, body io.Reader, headers map[string]string) (*http.Response, error) {
 	ctx, cancel := c.withTimeout(ctx)
 	defer cancel()
@@ -247,6 +293,8 @@ func (c *apiClient) doRequest(ctx context.Context, method, path string, body io.
 	return resp, nil
 }
 
+// parseAPIError converts an HTTP error response into an error.
+// It attempts to parse the response as JSON and extract the error message.
 func parseAPIError(status int, data []byte) error {
 	if len(data) > 0 {
 		var apiErr apiError
@@ -257,6 +305,7 @@ func parseAPIError(status int, data []byte) error {
 	return fmt.Errorf("request failed with status %d", status)
 }
 
+// withTimeout adds the client's timeout to the context if configured.
 func (c *apiClient) withTimeout(ctx context.Context) (context.Context, context.CancelFunc) {
 	if c == nil || c.timeout <= 0 {
 		return ctx, func() {}
@@ -264,6 +313,7 @@ func (c *apiClient) withTimeout(ctx context.Context) (context.Context, context.C
 	return context.WithTimeout(ctx, c.timeout)
 }
 
+// prettyPrintJSON formats JSON data with indentation and writes it to the writer.
 func prettyPrintJSON(w io.Writer, data []byte) error {
 	var out bytes.Buffer
 	if err := json.Indent(&out, data, "", "  "); err != nil {

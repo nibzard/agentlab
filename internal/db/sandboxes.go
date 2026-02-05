@@ -1,3 +1,4 @@
+// ABOUTME: Sandbox database operations for managing VM sandbox state and metadata.
 package db
 
 import (
@@ -11,9 +12,19 @@ import (
 	"github.com/agentlab/agentlab/internal/models"
 )
 
+// timeLayout is the format used for storing timestamps in SQLite.
 const timeLayout = time.RFC3339Nano
 
 // CreateSandbox inserts a new sandbox row.
+//
+// The sandbox must have valid VMID, name, profile, and state fields.
+// Timestamps are set to current time if zero.
+//
+// Parameters:
+//   - ctx: Context for cancellation
+//   - sandbox: The sandbox to create
+//
+// Returns an error if validation fails or the insert fails.
 func (s *Store) CreateSandbox(ctx context.Context, sandbox models.Sandbox) error {
 	if s == nil || s.DB == nil {
 		return errors.New("db store is nil")
@@ -69,6 +80,13 @@ func (s *Store) CreateSandbox(ctx context.Context, sandbox models.Sandbox) error
 }
 
 // GetSandbox loads a sandbox by vmid.
+//
+// Parameters:
+//   - ctx: Context for cancellation
+//   - vmid: The VM ID of the sandbox to load
+//
+// Returns the sandbox and nil on success, or an error if not found
+// (sql.ErrNoRows) or on database error.
 func (s *Store) GetSandbox(ctx context.Context, vmid int) (models.Sandbox, error) {
 	if s == nil || s.DB == nil {
 		return models.Sandbox{}, errors.New("db store is nil")

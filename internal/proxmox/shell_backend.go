@@ -1,3 +1,6 @@
+// ABOUTME: This file implements the Backend interface using Proxmox CLI commands (qm, pvesh, pvesm).
+// The shell backend is provided as a fallback for environments where the API is unavailable.
+// Note: The ShellBackend may encounter Proxmox IPC issues; BashRunner can help work around these.
 package proxmox
 
 import (
@@ -17,6 +20,7 @@ import (
 )
 
 // BashRunner wraps commands in bash to provide interactive shell context.
+// ABOUTME: Using bash helps work around Proxmox IPC layer issues that can occur with direct exec.
 type BashRunner struct{}
 
 func (br BashRunner) Run(ctx context.Context, name string, args ...string) (string, error) {
@@ -38,6 +42,7 @@ func (br BashRunner) Run(ctx context.Context, name string, args ...string) (stri
 }
 
 // ExecRunner runs commands via os/exec.
+// ABOUTME: This is the default command runner for the ShellBackend.
 type ExecRunner struct{}
 
 func (er ExecRunner) Run(ctx context.Context, name string, args ...string) (string, error) {
@@ -57,20 +62,22 @@ func (er ExecRunner) Run(ctx context.Context, name string, args ...string) (stri
 }
 
 // ShellBackend implements Backend using qm and pvesh commands.
-type ShellBackend struct {
-	Node      string
-	AgentCIDR string
-	QmPath    string
-	PveShPath string
-	Runner    CommandRunner
+// ABOUTME: This backend uses Proxmox CLI tools instead of the REST API. It may encounter
+// IPC issues on some Proxmox configurations. Consider using BashRunner for better compatibility.
+	Node      string // Proxmox node name (empty for auto-detection)
+	AgentCIDR string // CIDR block for selecting guest IPs (e.g., "10.77.0.0/16")
+	QmPath    string // Path to qm command (defaults to "qm")
+	PveShPath string // Path to pvesh command (defaults to "pvesh")
+	Runner    CommandRunner // Command execution strategy (defaults to ExecRunner)
+
 	// Use BashRunner to work around Proxmox IPC issues
-	BashRunner         BashRunner
-	CommandTimeout     time.Duration
-	GuestIPAttempts    int
-	GuestIPInitialWait time.Duration
-	GuestIPMaxWait     time.Duration
-	DHCPLeasePaths     []string
-	Sleep              func(ctx context.Context, d time.Duration) error
+	BashRunner         BashRunner    // Bash runner for working around IPC issues
+	CommandTimeout     time.Duration // Timeout for command execution
+	GuestIPAttempts    int           // Number of attempts to query guest IP (defaults to 30)
+	GuestIPInitialWait time.Duration // Initial wait between guest IP attempts (defaults to 500ms)
+	GuestIPMaxWait     time.Duration // Maximum wait between guest IP attempts (defaults to 10s)
+	DHCPLeasePaths     []string      // Paths to DHCP lease files for fallback IP discovery
+	Sleep              func(ctx context.Context, d time.Duration) error // Custom sleep for testing
 }
 
 var _ Backend = (*ShellBackend)(nil)
@@ -200,7 +207,8 @@ func (b *ShellBackend) pvesmPath() string {
 }
 
 // NewShellBackendWithBashRunner creates a ShellBackend that uses BashRunner instead of ExecRunner.
-// This works around Proxmox IPC issues by running qm commands via bash shell.
+// ABOUTME: This works around Proxmox IPC issues by running qm commands via bash shell.
+// Recommended for production use with the shell backend.
 func NewShellBackendWithBashRunner(node string, agentCIDR string, qmPath string, pveShPath string, timeout time.Duration) *ShellBackend {
 	return &ShellBackend{
 		Node:           node,

@@ -1,3 +1,10 @@
+// ABOUTME: Package config provides configuration loading and validation for the AgentLab daemon.
+//
+// The configuration is loaded from a YAML file at /etc/agentlab/config.yaml by default.
+// Environment variables can override any configuration value by using the AGENTLAB_ prefix
+// (e.g., AGENTLAB_DATA_DIR for the data_dir field).
+//
+// Configuration values have sensible defaults and are validated on load.
 package config
 
 import (
@@ -13,6 +20,20 @@ import (
 )
 
 // Config holds daemon configuration paths and listener settings.
+//
+// It contains all runtime configuration for the agentlabd daemon, including
+// file paths, network listen addresses, Proxmox backend settings, and various
+// timeouts and limits.
+//
+// Use DefaultConfig() to get a configuration with all defaults set,
+// then Load() to read and apply overrides from a YAML file.
+//
+// Example:
+//
+//	cfg, err := config.Load("/etc/agentlab/config.yaml")
+//	if err != nil {
+//	    log.Fatal(err)
+//	}
 type Config struct {
 	ConfigPath              string
 	ProfilesDir             string
@@ -48,6 +69,14 @@ type Config struct {
 }
 
 // FileConfig represents supported YAML config overrides.
+//
+// This struct uses YAML tags to map configuration file fields to their
+// corresponding Config struct fields. Fields are loaded from the YAML
+// file and applied to the default configuration.
+//
+// Empty string fields in the YAML file are ignored, allowing partial
+// configuration overrides. Duration fields accept Go duration format
+// strings (e.g., "30s", "5m", "1h").
 type FileConfig struct {
 	ProfilesDir             string `yaml:"profiles_dir"`
 	DataDir                 string `yaml:"data_dir"`
@@ -80,6 +109,26 @@ type FileConfig struct {
 	ProxmoxNode             string `yaml:"proxmox_node"`
 }
 
+// DefaultConfig returns a Config struct with all default values set.
+//
+// The defaults use standard Linux filesystem paths and are suitable for
+// a typical Proxmox VE host installation. Key defaults include:
+//
+//   - ConfigPath: /etc/agentlab/config.yaml
+//   - DataDir: /var/lib/agentlab
+//   - RunDir: /run/agentlab
+//   - SocketPath: /run/agentlab/agentlabd.sock
+//   - BootstrapListen: 10.77.0.1:8844
+//   - ArtifactListen: 10.77.0.1:8846
+//   - MetricsListen: "" (disabled)
+//   - ArtifactMaxBytes: 256 MB
+//   - ArtifactTokenTTLMinutes: 1440 (24 hours)
+//   - ProxmoxBackend: "api"
+//   - ProxmoxCommandTimeout: 2 minutes
+//   - ProvisioningTimeout: 10 minutes
+//
+// The returned configuration is valid and ready to use without modification.
+// Use Load() to apply overrides from a configuration file.
 func DefaultConfig() Config {
 	dataDir := "/var/lib/agentlab"
 	runDir := "/run/agentlab"
@@ -113,6 +162,24 @@ func DefaultConfig() Config {
 }
 
 // Load reads the YAML config file and applies overrides to defaults.
+//
+// If path is empty, the default config path (/etc/agentlab/config.yaml) is used.
+// The file must exist and contain valid YAML. Any fields specified in the file
+// override the defaults; unspecified fields retain their default values.
+//
+// After loading, SSH public keys are read from files if specified by path,
+// derived paths are computed (e.g., socket_path from run_dir if not set),
+// and the full configuration is validated.
+//
+// Returns an error if the config file cannot be read, contains invalid YAML,
+// fails validation, or references inaccessible files (like SSH keys).
+//
+// Example:
+//
+//	cfg, err := config.Load("")  // uses default path
+//	if err != nil {
+//	    log.Fatal(err)
+//	}
 func Load(path string) (Config, error) {
 	cfg := DefaultConfig()
 	if path != "" {
@@ -251,6 +318,28 @@ func applyFileConfig(cfg *Config, fileCfg FileConfig) error {
 }
 
 // Validate performs basic validation without exposing secrets.
+//
+// It checks that all required fields are non-empty, that numeric values
+// are within valid ranges, and that network addresses and URLs are
+// properly formatted. It enforces security constraints like requiring
+// metrics_listen to be localhost-only.
+//
+// Validation rules include:
+//
+//   - All path fields (profiles_dir, run_dir, etc.) must be non-empty
+//   - Listen addresses must be in host:port format
+//   - artifact_max_bytes and artifact_token_ttl_minutes must be positive
+//   - Timeouts must be non-negative
+//   - agent_subnet must be valid CIDR if specified
+//   - When using wildcard listen addresses (0.0.0.0 or [::]),
+//     agent_subnet and appropriate controller URLs must be set
+//   - metrics_listen must bind to loopback only
+//   - proxmox_backend must be "shell" or "api"
+//   - proxmox_api_token is required when using "api" backend
+//   - URLs must use http or https schemes
+//
+// Returns an error describing the first validation failure encountered.
+func (c Config) Validate() error {
 func (c Config) Validate() error {
 	if c.ConfigPath == "" {
 		return fmt.Errorf("config_path is required")

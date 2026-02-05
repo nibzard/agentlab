@@ -1,3 +1,19 @@
+// Package daemon implements the core AgentLab daemon service.
+//
+// The daemon manages the lifecycle of sandboxes (Proxmox VMs), jobs, workspaces,
+// and artifacts. It exposes HTTP APIs over a Unix socket for local control
+// and over TCP for guest VM bootstrap and artifact upload.
+//
+// Main components:
+//   - Service: Main daemon structure that wires together all components
+//   - SandboxManager: Manages sandbox state transitions and lifecycle
+//   - JobOrchestrator: Handles job provisioning and execution
+//   - WorkspaceManager: Manages persistent workspace volumes
+//   - ControlAPI: HTTP API for local control over Unix socket
+//   - BootstrapAPI: HTTP API for guest VM bootstrap
+//   - ArtifactAPI: HTTP API for artifact upload and retrieval
+//
+// The daemon supports two Proxmox backends: API (preferred) and Shell (fallback).
 package daemon
 
 import (
@@ -20,13 +36,22 @@ import (
 )
 
 const (
-	shutdownTimeout  = 5 * time.Second
-	socketPerms      = 0o660
-	runDirPerms      = 0o750
-	artifactDirPerms = 0o750
+	shutdownTimeout  = 5 * time.Second // Graceful shutdown timeout
+	socketPerms      = 0o660           // Unix socket permissions (owner+group read/write)
+	runDirPerms      = 0o750           // Run directory permissions (owner full, group read+exec)
+	artifactDirPerms = 0o750           // Artifact directory permissions
 )
 
 // Service wires listeners for the local control socket and guest bootstrap.
+//
+// It manages multiple HTTP servers:
+//   - Unix socket server for local control API
+//   - TCP server for guest VM bootstrap
+//   - TCP server for artifact upload/download
+//   - Optional TCP server for Prometheus metrics
+//
+// The Service coordinates the lifecycle of all daemon components and ensures
+// graceful shutdown on context cancellation.
 type Service struct {
 	cfg               config.Config
 	profiles          map[string]models.Profile
@@ -46,6 +71,15 @@ type Service struct {
 }
 
 // Run loads profiles, binds listeners, and serves until ctx is canceled.
+//
+// This is the main entry point for starting the daemon. It performs the following:
+// 1. Validates the configuration
+// 2. Loads profile definitions from the profiles directory
+// 3. Opens the database
+// 4. Creates and wires the service with all listeners
+// 5. Serves until the context is canceled
+//
+// Returns any error that occurs during startup or serving.
 func Run(ctx context.Context, cfg config.Config) error {
 	if err := cfg.Validate(); err != nil {
 		return err
@@ -68,6 +102,18 @@ func Run(ctx context.Context, cfg config.Config) error {
 }
 
 // NewService constructs a service with bound listeners.
+//
+// It creates all necessary HTTP servers and binds their listeners:
+//   - Unix socket listener for local control API
+//   - TCP listener for guest VM bootstrap API
+//   - TCP listener for artifact upload/download
+//   - Optional TCP listener for Prometheus metrics
+//
+// The function also initializes all manager components (SandboxManager,
+// WorkspaceManager, JobOrchestrator, ArtifactGC) with their dependencies.
+//
+// Returns an error if any listener fails to bind or if required directories
+// cannot be created.
 func NewService(cfg config.Config, profiles map[string]models.Profile, store *db.Store) (*Service, error) {
 	if err := ensureDir(cfg.RunDir, runDirPerms); err != nil {
 		return nil, err
@@ -236,6 +282,15 @@ func NewService(cfg config.Config, profiles map[string]models.Profile, store *db
 }
 
 // Serve blocks until shutdown or a listener error occurs.
+//
+// It starts all HTTP servers in goroutines and waits for either:
+//   - Context cancellation (graceful shutdown)
+//   - A listener error (immediate shutdown)
+//
+// On shutdown, it gracefully closes all servers with a timeout, closes the
+// database, and removes the Unix socket file.
+//
+// Returns any error that occurred during serving (excluding http.ErrServerClosed).
 func (s *Service) Serve(ctx context.Context) error {
 	serverCount := 3
 	if s.metricsServer != nil {

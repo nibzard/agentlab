@@ -21,17 +21,39 @@ import (
 )
 
 const (
-	maxJSONBytes             = 1 << 20
-	defaultSandboxVMIDStart  = 1000
-	defaultJobRef            = "main"
+	maxJSONBytes             = 1 << 20 // Maximum size for JSON request bodies (1MB)
+	defaultSandboxVMIDStart  = 1000   // Default starting VM ID for sandboxes
+	defaultJobRef            = "main" // Default git reference for jobs
 	defaultJobMode           = "dangerous"
-	maxCreateJobIDIterations = 5
-	defaultEventsLimit       = 200
-	defaultJobEventsTail     = 50
-	maxEventsLimit           = 1000
+	maxCreateJobIDIterations = 5      // Max retries for unique job ID generation
+	defaultEventsLimit       = 200    // Default events returned per query
+	defaultJobEventsTail     = 50     // Default events tailed for job details
+	maxEventsLimit           = 1000   // Maximum events allowed per query
 )
 
 // ControlAPI handles local control plane HTTP requests over the Unix socket.
+//
+// It provides the v1 API for managing jobs, sandboxes, and workspaces. The API
+// is served over a Unix socket and is used by the agentlab CLI for local control.
+//
+// Endpoints:
+//   - POST   /v1/jobs                 - Create a new job
+//   - GET    /v1/jobs/{id}            - Get job details
+//   - GET    /v1/jobs/{id}/artifacts  - List job artifacts
+//   - GET    /v1/jobs/{id}/artifacts/download - Download job artifacts
+//   - POST   /v1/sandboxes            - Create a new sandbox
+//   - GET    /v1/sandboxes            - List all sandboxes
+//   - GET    /v1/sandboxes/{vmid}     - Get sandbox details
+//   - POST   /v1/sandboxes/{vmid}/destroy   - Destroy a sandbox
+//   - POST   /v1/sandboxes/{vmid}/lease/renew - Renew sandbox lease
+//   - GET    /v1/sandboxes/{vmid}/events - Get sandbox events
+//   - POST   /v1/sandboxes/prune      - Prune orphaned sandboxes
+//   - POST   /v1/workspaces           - Create a workspace
+//   - GET    /v1/workspaces           - List workspaces
+//   - GET    /v1/workspaces/{id}      - Get workspace details
+//   - POST   /v1/workspaces/{id}/attach  - Attach workspace to VM
+//   - POST   /v1/workspaces/{id}/detach  - Detach workspace from VM
+//   - POST   /v1/workspaces/{id}/rebind   - Rebind workspace to new VM
 type ControlAPI struct {
 	store           *db.Store
 	profiles        map[string]models.Profile
@@ -43,6 +65,18 @@ type ControlAPI struct {
 	now             func() time.Time
 }
 
+// NewControlAPI creates a new control API instance.
+//
+// Parameters:
+//   - store: Database store for persistence
+//   - profiles: Map of available profiles by name
+//   - manager: Sandbox manager for lifecycle operations
+//   - workspaceMgr: Workspace manager for volume operations (optional)
+//   - orchestrator: Job orchestrator for job execution (optional)
+//   - artifactRoot: Root directory for artifact storage
+//   - logger: Logger for operational output (uses log.Default if nil)
+//
+// Returns a configured ControlAPI ready for registration.
 func NewControlAPI(store *db.Store, profiles map[string]models.Profile, manager *SandboxManager, workspaceMgr *WorkspaceManager, orchestrator *JobOrchestrator, artifactRoot string, logger *log.Logger) *ControlAPI {
 	if logger == nil {
 		logger = log.Default()
@@ -59,6 +93,14 @@ func NewControlAPI(store *db.Store, profiles map[string]models.Profile, manager 
 	}
 }
 
+// Register registers all control API handlers with the provided mux.
+//
+// The mux will handle all v1 API endpoints. If mux is nil, this is a no-op.
+//
+// After registration, the following routes are available:
+//   - /v1/jobs - Job management
+//   - /v1/sandboxes - Sandbox management
+//   - /v1/workspaces - Workspace management
 func (api *ControlAPI) Register(mux *http.ServeMux) {
 	if mux == nil {
 		return

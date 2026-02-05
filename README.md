@@ -83,12 +83,69 @@ For full operator setup, see the runbook below.
 
 ## Documentation
 
+- **Architecture Diagrams**: `docs/architecture.md` - Comprehensive system architecture, state machines, and data flow diagrams
 - Runbook: `docs/runbook.md`
 - Secrets bundles: `docs/secrets.md`
 - Local control API: `docs/api.md`
 - Troubleshooting: `docs/troubleshooting.md`
 
+## Architecture Overview
+
+```mermaid
+graph TB
+    CLI[agentlab CLI] -->|Unix Socket| Daemon[agentlabd Daemon]
+    Daemon --> Manager[Sandbox/Workspace/Job Managers]
+    Manager --> Backend[Proxmox Backend]
+    Backend --> Proxmox[Proxmox VE]
+    Daemon --> DB[(SQLite Database)]
+    Manager --> Bootstrap[Bootstrap API]
+    Manager --> Artifacts[Artifact API]
+    VM[Sandbox VMs] -->|HTTP| Bootstrap
+    VM -->|HTTP| Artifacts
+    classDef client fill:#e1f5fe,stroke:#01579b,stroke-width:2px
+    classDef daemon fill:#f3e5f5,stroke:#4a148c,stroke-width:2px
+    classDef storage fill:#fff3e0,stroke:#e65100,stroke-width:2px
+    classDef proxmox fill:#e8f5e9,stroke:#1b5e20,stroke-width:2px
+    class CLI client
+    class Daemon,Manager,Backend,Bootstrap,Artifacts daemon
+    class DB storage
+    class Proxmox,VM proxmox
+```
+
+**For detailed architecture diagrams including:**
+- Complete system architecture with all components
+- Sandbox state machine with all transitions
+- Network topology and security rules
+- Job execution data flow
+- Database schema and relationships
+- Request lifecycle and error handling
+
+See [docs/architecture.md](docs/architecture.md)
+
 ## Sandbox States
+
+```mermaid
+stateDiagram-v2
+    [*] --> REQUESTED
+    REQUESTED --> PROVISIONING
+    PROVISIONING --> BOOTING
+    BOOTING --> READY
+    READY --> RUNNING
+    RUNNING --> COMPLETED
+    RUNNING --> FAILED
+    RUNNING --> TIMEOUT
+    RUNNING --> STOPPED
+    COMPLETED --> STOPPED
+    FAILED --> STOPPED
+    TIMEOUT --> STOPPED
+    STOPPED --> DESTROYED
+    REQUESTED --> DESTROYED
+    PROVISIONING --> DESTROYED
+    BOOTING --> DESTROYED
+    READY --> DESTROYED
+    RUNNING --> DESTROYED
+    DESTROYED --> [*]
+```
 
 | State | Description | Allowed Operations |
 |--------|-------------|-------------------|

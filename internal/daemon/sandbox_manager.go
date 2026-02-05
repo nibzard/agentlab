@@ -14,7 +14,7 @@ import (
 )
 
 const (
-	defaultLeaseGCInterval = 30 * time.Second
+	defaultLeaseGCInterval = 30 * time.Second // Interval between lease GC cycles
 )
 
 var (
@@ -23,7 +23,23 @@ var (
 	ErrLeaseNotRenewable = errors.New("sandbox lease is not renewable")
 )
 
-// SandboxManager enforces sandbox state transitions and lease GC.
+// SandboxManager enforces sandbox state transitions and lease garbage collection.
+//
+// It provides a state machine for sandbox lifecycle management, ensuring that
+// state transitions follow the allowed transitions defined in models.SandboxState.
+// The manager also handles lease expiration for keepalive sandboxes.
+//
+// Key responsibilities:
+//   - Enforce valid state transitions
+//   - Periodic garbage collection of expired leases
+//   - Reconciliation of sandbox state with Proxmox VM state
+//   - Workspace detachment on sandbox destroy
+//   - Cloud-init snippet cleanup on destroy
+//
+// The manager can be configured with optional dependencies:
+//   - WorkspaceManager: For workspace detachment on destroy
+//   - Snippet cleaner: For cloud-init snippet cleanup
+//   - Metrics: For Prometheus metrics collection
 type SandboxManager struct {
 	store      *db.Store
 	backend    proxmox.Backend
@@ -36,6 +52,17 @@ type SandboxManager struct {
 }
 
 // NewSandboxManager builds a sandbox manager with defaults.
+//
+// The manager is created with default time source (time.Now) and GC interval.
+// Use the With* methods to configure optional dependencies like WorkspaceManager,
+// snippet cleaner, and metrics.
+//
+// Parameters:
+//   - store: Database store for sandbox persistence
+//   - backend: Proxmox backend for VM operations
+//   - logger: Logger for operational output (uses log.Default if nil)
+//
+// Returns a configured SandboxManager ready for use.
 func NewSandboxManager(store *db.Store, backend proxmox.Backend, logger *log.Logger) *SandboxManager {
 	if logger == nil {
 		logger = log.Default()
@@ -50,6 +77,12 @@ func NewSandboxManager(store *db.Store, backend proxmox.Backend, logger *log.Log
 }
 
 // WithWorkspaceManager sets the workspace manager for detach-on-destroy.
+//
+// When a sandbox is destroyed, the workspace manager will be used to detach
+// any associated workspace volume. This is typically called during service
+// initialization.
+//
+// Returns the manager for method chaining.
 func (m *SandboxManager) WithWorkspaceManager(manager *WorkspaceManager) *SandboxManager {
 	if m == nil {
 		return m
@@ -59,6 +92,12 @@ func (m *SandboxManager) WithWorkspaceManager(manager *WorkspaceManager) *Sandbo
 }
 
 // WithSnippetCleaner sets a callback to clean up cloud-init snippets on destroy.
+//
+// The callback is invoked after a sandbox is successfully destroyed, receiving
+// the VMID of the destroyed sandbox. This allows cleanup of Proxmox cloud-init
+// snippet files associated with the sandbox.
+//
+// Returns the manager for method chaining.
 func (m *SandboxManager) WithSnippetCleaner(cleaner func(vmid int)) *SandboxManager {
 	if m == nil {
 		return m
@@ -68,6 +107,12 @@ func (m *SandboxManager) WithSnippetCleaner(cleaner func(vmid int)) *SandboxMana
 }
 
 // WithMetrics wires optional Prometheus metrics.
+//
+// When metrics are configured, the manager will record:
+//   - State transition counts (by from/to state)
+//   - Sandbox provisioning duration (time from creation to running)
+//
+// Returns the manager for method chaining.
 func (m *SandboxManager) WithMetrics(metrics *Metrics) *SandboxManager {
 	if m == nil {
 		return m
@@ -77,6 +122,13 @@ func (m *SandboxManager) WithMetrics(metrics *Metrics) *SandboxManager {
 }
 
 // StartLeaseGC runs lease GC immediately and then on an interval until ctx is done.
+//
+// Garbage collection finds all sandboxes with expired leases and transitions
+// them to TIMEOUT state, then stops and destroys them. The GC runs on the
+// configured interval (default 30 seconds) in a separate goroutine.
+//
+// The function returns immediately after starting the GC goroutine. Use context
+// cancellation to stop the GC loop.
 func (m *SandboxManager) StartLeaseGC(ctx context.Context) {
 	if m == nil || m.store == nil || m.gcInterval <= 0 {
 		return
@@ -97,6 +149,15 @@ func (m *SandboxManager) StartLeaseGC(ctx context.Context) {
 }
 
 // StartReconciler runs state reconciliation immediately and then on an interval until ctx is done.
+//
+// Reconciliation syncs the database state with the actual Proxmox VM state,
+// fixing inconsistencies such as:
+//   - VMs destroyed outside of AgentLab (marked as DESTROYED)
+//   - VMs stopped while in RUNNING state (marked as FAILED)
+//   - VMs running while in REQUESTED state (marked as READY)
+//
+// The reconciler runs on the GC interval in a separate goroutine. The function
+// returns immediately after starting the reconciler goroutine.
 func (m *SandboxManager) StartReconciler(ctx context.Context) {
 	if m == nil || m.store == nil || m.backend == nil {
 		return
@@ -117,6 +178,22 @@ func (m *SandboxManager) StartReconciler(ctx context.Context) {
 }
 
 // Transition moves a sandbox to the requested state if allowed.
+//
+// This method enforces the state machine defined by allowedTransition().
+// If the transition is not allowed, it returns ErrInvalidTransition.
+// The transition is atomic using database optimistic locking.
+//
+// Parameters:
+//   - ctx: Context for cancellation
+//   - vmid: The VM ID of the sandbox to transition
+//   - target: The desired target state
+//
+// Returns an error if:
+//   - The sandbox doesn't exist
+//   - The transition is not allowed
+//   - The database update fails (concurrent modification)
+//
+// On successful transition, records an event and optionally updates metrics.
 func (m *SandboxManager) Transition(ctx context.Context, vmid int, target models.SandboxState) error {
 	if m == nil || m.store == nil {
 		return errors.New("sandbox manager not configured")
@@ -153,6 +230,21 @@ func (m *SandboxManager) Transition(ctx context.Context, vmid int, target models
 }
 
 // RenewLease extends a keepalive sandbox lease.
+//
+// Only sandboxes with Keepalive=true can have their leases renewed. The new
+// expiration time is calculated as now + ttl.
+//
+// Parameters:
+//   - ctx: Context for cancellation
+//   - vmid: The VM ID of the sandbox
+//   - ttl: The time-to-live extension duration
+//
+// Returns the new lease expiration time in UTC.
+//
+// Returns an error if:
+//   - The sandbox doesn't exist or is destroyed
+//   - The sandbox is not a keepalive sandbox
+//   - The TTL is not positive
 func (m *SandboxManager) RenewLease(ctx context.Context, vmid int, ttl time.Duration) (time.Time, error) {
 	if m == nil || m.store == nil {
 		return time.Time{}, errors.New("sandbox manager not configured")
@@ -179,6 +271,23 @@ func (m *SandboxManager) RenewLease(ctx context.Context, vmid int, ttl time.Dura
 }
 
 // Destroy transitions a sandbox to destroyed after issuing a backend destroy.
+//
+// This is the normal destroy path that enforces state transitions. The sandbox
+// must be in a state that allows transition to DESTROYED (typically STOPPED).
+//
+// The destroy process:
+//   1. Detach any attached workspace (if configured)
+//   2. Stop the VM in Proxmox
+//   3. Destroy the VM in Proxmox
+//   4. Transition state to DESTROYED
+//   5. Clean up cloud-init snippets (if configured)
+//
+// Parameters:
+//   - ctx: Context for cancellation
+//   - vmid: The VM ID of the sandbox to destroy
+//
+// Returns an error if the sandbox state doesn't allow destruction or if any
+// step of the destroy process fails.
 func (m *SandboxManager) Destroy(ctx context.Context, vmid int) error {
 	if m == nil || m.store == nil {
 		return errors.New("sandbox manager not configured")
@@ -285,6 +394,23 @@ func (m *SandboxManager) destroySandbox(ctx context.Context, vmid int) error {
 	return nil
 }
 
+// ForceDestroy destroys a sandbox regardless of its current state.
+//
+// Unlike Destroy(), this method bypasses state transition validation and forces
+// destruction of the VM. Use this for recovery operations when a sandbox is in
+// an inconsistent state.
+//
+// The force destroy process:
+//   1. Detach any attached workspace (if configured)
+//   2. Destroy the VM in Proxmox (no stop first)
+//   3. Transition state to DESTROYED
+//   4. Clean up cloud-init snippets (if configured)
+//
+// Parameters:
+//   - ctx: Context for cancellation
+//   - vmid: The VM ID of the sandbox to destroy
+//
+// Returns an error if the sandbox doesn't exist or if backend operations fail.
 func (m *SandboxManager) ForceDestroy(ctx context.Context, vmid int) error {
 	if m == nil || m.store == nil {
 		return errors.New("sandbox manager not configured")
@@ -316,6 +442,18 @@ func (m *SandboxManager) ForceDestroy(ctx context.Context, vmid int) error {
 	return nil
 }
 
+// PruneOrphans destroys VMs for sandboxes stuck in TIMEOUT state.
+//
+// This is a recovery operation for sandboxes that timed out but their VMs
+// were not destroyed (e.g., due to a crash). It destroys the Proxmox VMs
+// and marks the sandboxes as DESTROYED.
+//
+// Parameters:
+//   - ctx: Context for cancellation
+//
+// Returns the count of sandboxes that were successfully pruned.
+//
+// This is typically called manually during maintenance operations.
 func (m *SandboxManager) PruneOrphans(ctx context.Context) (int, error) {
 	if m == nil || m.store == nil {
 		return 0, errors.New("sandbox manager not configured")
@@ -381,7 +519,22 @@ func allowedTransition(from, to models.SandboxState) bool {
 }
 
 // ReconcileState syncs sandbox states with actual VM states from Proxmox.
-// This fixes zombie sandboxes that are in an inconsistent state.
+//
+// This fixes "zombie" sandboxes that are in an inconsistent state due to:
+//   - VMs destroyed outside of AgentLab
+//   - VMs stopped/started while AgentLab was down
+//   - Previous crashes leaving inconsistent state
+//
+// Reconciliation rules:
+//   - VM not found in Proxmox → mark as DESTROYED
+//   - VM stopped but RUNNING → mark as FAILED
+//   - VM running but REQUESTED → mark as READY
+//
+// Parameters:
+//   - ctx: Context for cancellation
+//
+// Returns nil always; errors are logged rather than returned to allow
+// partial reconciliation.
 func (m *SandboxManager) ReconcileState(ctx context.Context) error {
 	if m == nil || m.store == nil || m.backend == nil {
 		return nil

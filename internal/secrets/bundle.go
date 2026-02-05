@@ -1,3 +1,16 @@
+// Package secrets provides secure secret bundle management for AgentLab.
+//
+// Secret bundles are encrypted files containing sensitive configuration that
+// needs to be delivered to guest VMs during bootstrap. The package supports:
+//
+//   - age encryption (default, bundled with AgentLab)
+//   - sops encryption (optional, requires sops binary)
+//   - Plaintext fallback for development
+//
+// Bundles are decrypted in-memory and never written to disk in plaintext.
+// They can contain git credentials, API tokens, SSH keys, and Claude settings.
+//
+// The bundle format is versioned for future compatibility.
 package secrets
 
 import (
@@ -17,9 +30,15 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-const BundleVersion = 1
+const (
+	// BundleVersion is the current bundle format version.
+	BundleVersion = 1
+)
 
 // Bundle describes decrypted secrets content.
+//
+// Bundles are delivered to guest VMs during bootstrap and contain
+// credentials and configuration needed for job execution.
 type Bundle struct {
 	Version  int               `json:"version" yaml:"version"`
 	Git      GitBundle         `json:"git,omitempty" yaml:"git,omitempty"`
@@ -30,6 +49,8 @@ type Bundle struct {
 }
 
 // GitBundle stores git-related credentials.
+//
+// These credentials are used by the guest VM to clone private repositories.
 type GitBundle struct {
 	Token         string `json:"token,omitempty" yaml:"token,omitempty"`
 	Username      string `json:"username,omitempty" yaml:"username,omitempty"`
@@ -39,18 +60,25 @@ type GitBundle struct {
 }
 
 // ClaudeBundle holds optional Claude Code settings fragments.
+//
+// These settings are used to configure Claude Code integration in the guest.
 type ClaudeBundle struct {
 	SettingsJSON string                 `json:"settings_json,omitempty" yaml:"settings_json,omitempty"`
 	Settings     map[string]interface{} `json:"settings,omitempty" yaml:"settings,omitempty"`
 }
 
 // ArtifactBundle holds artifact upload parameters.
+//
+// These parameters are used by the guest VM to upload job artifacts.
 type ArtifactBundle struct {
 	Endpoint string `json:"endpoint,omitempty" yaml:"endpoint,omitempty"`
 	Token    string `json:"token,omitempty" yaml:"token,omitempty"`
 }
 
 // ClaudeSettingsJSON returns the settings fragment as JSON.
+//
+// If SettingsJSON is set, it's returned directly. Otherwise, Settings
+// is marshaled to JSON. Returns empty string if neither is set.
 func (b Bundle) ClaudeSettingsJSON() (string, error) {
 	if strings.TrimSpace(b.Claude.SettingsJSON) != "" {
 		return b.Claude.SettingsJSON, nil
@@ -66,6 +94,12 @@ func (b Bundle) ClaudeSettingsJSON() (string, error) {
 }
 
 // Store locates and decrypts secrets bundles.
+//
+// The Store searches for bundle files in the configured directory and
+// decrypts them using the configured method (age, sops, or plaintext).
+//
+// Bundles are never written to disk in plaintext - decryption happens
+// entirely in memory.
 type Store struct {
 	Dir            string
 	AgeKeyPath     string
@@ -75,6 +109,22 @@ type Store struct {
 }
 
 // Load locates, decrypts, and parses the bundle by name or path.
+//
+// The name can be:
+//   - A bundle name (searched in the configured secrets directory)
+//   - An absolute path to a bundle file
+//   - A relative path (resolved from the current directory)
+//
+// The file is decrypted based on its extension:
+//   - .age: decrypted using age with the configured identity
+//   - .sops: decrypted using sops binary
+//   - .yaml/.json: loaded as plaintext (if AllowPlaintext is true)
+//
+// Parameters:
+//   - ctx: Context for cancellation
+//   - name: Bundle name, absolute path, or relative path
+//
+// Returns the decrypted bundle or an error if not found or decryption fails.
 func (s Store) Load(ctx context.Context, name string) (Bundle, error) {
 	name = strings.TrimSpace(name)
 	if name == "" {

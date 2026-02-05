@@ -1,3 +1,4 @@
+// ABOUTME: Workspace database operations for persistent storage volumes.
 package db
 
 import (
@@ -11,7 +12,7 @@ import (
 	"github.com/agentlab/agentlab/internal/models"
 )
 
-// CreateWorkspace inserts a new workspace row.
+// CreateWorkspace inserts a new workspace row into the database.
 func (s *Store) CreateWorkspace(ctx context.Context, workspace models.Workspace) error {
 	if s == nil || s.DB == nil {
 		return errors.New("db store is nil")
