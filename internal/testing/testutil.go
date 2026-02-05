@@ -134,6 +134,9 @@ func RequireEqual(t *testing.T, expected, actual any, msgAndArgs ...interface{})
 // ============================================================================
 
 // JobOpts holds optional parameters for creating test jobs.
+//
+// Used with NewTestJob to create test job data with specific values.
+// Empty fields use sensible defaults defined in NewTestJob.
 type JobOpts struct {
 	ID          string
 	RepoURL     string

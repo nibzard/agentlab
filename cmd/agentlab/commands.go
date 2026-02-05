@@ -1031,6 +1031,8 @@ func runLogsCommand(ctx context.Context, args []string, base commonFlags) error 
 	}
 }
 
+// fetchEvents retrieves sandbox events from the daemon.
+// If tail > 0, fetches the last N events. If after > 0, fetches events after the given ID.
 func fetchEvents(ctx context.Context, client *apiClient, vmid int, tail int, after int64) (eventsResponse, error) {
 	query := ""
 	limit := defaultEventLimit
@@ -1250,6 +1252,7 @@ func resolveArtifactOutPath(out, name string) (string, error) {
 	return out, nil
 }
 
+// parseVMID parses and validates a VM ID from a string.
 func parseVMID(value string) (int, error) {
 	vmid, err := strconv.Atoi(strings.TrimSpace(value))
 	if err != nil || vmid <= 0 {
