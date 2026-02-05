@@ -1,3 +1,27 @@
+// ABOUTME: Command implementations for job, sandbox, workspace, and logs operations.
+// ABOUTME: Handles flag parsing, API calls, and output formatting for all CLI commands.
+
+// Package main implements all CLI command handlers for agentlab.
+//
+# Command Structure
+//
+// Commands are organized hierarchically:
+//
+//	job:       Manage jobs (run, show, artifacts)
+//	sandbox:   Manage sandboxes (new, list, show, destroy, lease, prune)
+//	workspace: Manage workspaces (create, list, attach, detach, rebind)
+//	ssh:       Generate SSH connection parameters
+//	logs:      View sandbox event logs
+//
+# Output Formats
+//
+// By default, commands produce human-readable text output. With --json,
+// commands output JSON for programmatic consumption.
+//
+# Flag Parsing
+//
+// This package uses the standard flag package with custom error handling
+// to provide consistent error messages and usage output.
 package main
 
 import (
@@ -34,6 +58,7 @@ var (
 	errUsage = errors.New("invalid usage")
 )
 
+// usageError wraps an error with a flag indicating whether usage should be shown.
 type usageError struct {
 	err       error
 	showUsage bool
@@ -65,6 +90,7 @@ func usageErrorMessage(err error) (string, bool, bool) {
 	return "", false, false
 }
 
+// commonFlags contains flags shared by all commands.
 type commonFlags struct {
 	socketPath string
 	jsonOutput bool
@@ -83,6 +109,7 @@ func newFlagSet(name string) *flag.FlagSet {
 	return fs
 }
 
+// optionalBool is a bool flag that can track whether it was explicitly set.
 type optionalBool struct {
 	value bool
 	set   bool
@@ -135,6 +162,7 @@ func parseFlags(fs *flag.FlagSet, args []string, usage func(), help *bool, jsonO
 	return nil
 }
 
+// runJobCommand dispatches job subcommands (run, show, artifacts).
 func runJobCommand(ctx context.Context, args []string, base commonFlags) error {
 	if len(args) == 0 {
 		printJobUsage()
@@ -157,6 +185,7 @@ func runJobCommand(ctx context.Context, args []string, base commonFlags) error {
 	}
 }
 
+// runJobRun creates and starts a new job.
 func runJobRun(ctx context.Context, args []string, base commonFlags) error {
 	fs := newFlagSet("job run")
 	opts := base
@@ -215,6 +244,7 @@ func runJobRun(ctx context.Context, args []string, base commonFlags) error {
 	return nil
 }
 
+// runJobShow displays details of a single job.
 func runJobShow(ctx context.Context, args []string, base commonFlags) error {
 	fs := newFlagSet("job show")
 	opts := base
@@ -260,6 +290,7 @@ func runJobShow(ctx context.Context, args []string, base commonFlags) error {
 	return nil
 }
 
+// runJobArtifacts handles job artifacts subcommands.
 func runJobArtifacts(ctx context.Context, args []string, base commonFlags) error {
 	if len(args) == 0 {
 		printJobArtifactsUsage()
@@ -414,6 +445,7 @@ func runJobArtifactsDownload(ctx context.Context, args []string, base commonFlag
 	return nil
 }
 
+// runSandboxCommand dispatches sandbox subcommands.
 func runSandboxCommand(ctx context.Context, args []string, base commonFlags) error {
 	if len(args) == 0 {
 		printSandboxUsage()
@@ -442,6 +474,7 @@ func runSandboxCommand(ctx context.Context, args []string, base commonFlags) err
 	}
 }
 
+// runWorkspaceCommand dispatches workspace subcommands.
 func runWorkspaceCommand(ctx context.Context, args []string, base commonFlags) error {
 	if len(args) == 0 {
 		printWorkspaceUsage()
@@ -930,6 +963,7 @@ func runWorkspaceRebind(ctx context.Context, args []string, base commonFlags) er
 	return nil
 }
 
+// runLogsCommand displays sandbox event logs, with optional follow mode.
 func runLogsCommand(ctx context.Context, args []string, base commonFlags) error {
 	fs := newFlagSet("logs")
 	opts := base

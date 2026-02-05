@@ -1,3 +1,6 @@
+// ABOUTME: This file provides cloud-init snippet management for Proxmox VMs.
+// Snippets are used to inject SSH keys, bootstrap tokens, and controller configuration
+// into VMs during the provisioning process.
 package proxmox
 
 import (
@@ -13,36 +16,39 @@ import (
 )
 
 const (
+	// defaultSnippetStorage is the default Proxmox storage for snippets.
 	defaultSnippetStorage = "local"
-	defaultSnippetDir     = "/var/lib/vz/snippets"
+	// defaultSnippetDir is the default filesystem directory for snippet files.
+	defaultSnippetDir = "/var/lib/vz/snippets"
 )
 
 // SnippetInput describes the minimal data needed to build a cloud-init snippet.
-type SnippetInput struct {
-	VMID           VMID
-	Hostname       string
-	SSHPublicKey   string
-	BootstrapToken string
-	ControllerURL  string
+	VMID           VMID    // Target VM identifier
+	Hostname       string  // VM hostname (defaults to "sandbox-{vmid}" if empty)
+	SSHPublicKey   string  // SSH public key for agent user (required)
+	BootstrapToken string  // Authentication token for bootstrap API (required)
+	ControllerURL  string  // URL of the controller API endpoint (required)
 }
 
 // CloudInitSnippet represents a stored snippet file and its Proxmox reference.
-type CloudInitSnippet struct {
-	VMID        VMID
-	Filename    string
-	FullPath    string
-	Storage     string
-	StoragePath string
+	VMID        VMID    // Associated VM identifier
+	Filename    string  // Base filename of the snippet
+	FullPath    string  // Absolute filesystem path to the snippet file
+	Storage     string  // Proxmox storage name (e.g., "local")
+	StoragePath string  // Proxmox storage path (e.g., "local:snippets/agentlab-1000-abc123.yaml")
 }
 
 // SnippetStore manages cloud-init snippet files for Proxmox.
-type SnippetStore struct {
-	Storage string
-	Dir     string
-	Rand    io.Reader
+// ABOUTME: Snippets are stored as YAML files in Proxmox's snippets directory and
+// referenced during VM cloning via the cicustom parameter.
+	Storage string // Proxmox storage name for snippets (defaults to "local")
+	Dir     string // Filesystem directory for snippet files (defaults to "/var/lib/vz/snippets")
+	Rand    io.Reader // Random source for unique filename generation (defaults to crypto/rand)
 }
 
 // Create writes a cloud-init user-data snippet and returns its storage reference.
+// ABOUTME: The snippet configures SSH access, bootstrap credentials, and controller URL.
+// Returns an error if validation fails or file creation encounters issues.
 func (s SnippetStore) Create(input SnippetInput) (CloudInitSnippet, error) {
 	if input.VMID <= 0 {
 		return CloudInitSnippet{}, errors.New("vmid must be greater than zero")
@@ -125,6 +131,7 @@ func (s SnippetStore) Create(input SnippetInput) (CloudInitSnippet, error) {
 }
 
 // Delete removes the snippet file from disk.
+// ABOUTME: Silently succeeds if the file does not already exist.
 func (s SnippetStore) Delete(snippet CloudInitSnippet) error {
 	path := snippet.FullPath
 	if path == "" {

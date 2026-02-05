@@ -1,4 +1,16 @@
-// Package testing provides shared test utilities for agentlab.
+// ABOUTME: Package testing provides shared test utilities and helper functions for agentlab.
+//
+// This package contains test helpers, factory functions for creating test data,
+// and assertion utilities that promote consistent testing patterns across
+// the AgentLab codebase.
+//
+// Key utilities:
+//   - Model factories: NewTestJob, NewTestSandbox, NewTestWorkspace
+//   - Test helpers: TempFile, OpenTestDB, AssertJSONEqual
+//   - Test constants: FixedTime, TestRepoURL, TestProfile
+//
+// The package is designed to work with github.com/stretchr/testify for
+// assertions and follows Go testing best practices.
 package testing
 
 import (
@@ -15,10 +27,16 @@ import (
 	"github.com/agentlab/agentlab/internal/models"
 )
 
-// Fixed time for deterministic tests.
+// FixedTime is a fixed timestamp for deterministic tests.
+//
+// Using a fixed time ensures tests produce consistent results regardless of
+// when they run. Use this as the default time for test model creation.
 var FixedTime = time.Date(2024, 1, 1, 12, 0, 0, 0, time.UTC)
 
-// Common test constants.
+// Common test constants used across the test suite.
+//
+// These constants provide consistent default values for test data,
+// making tests more readable and reducing duplication.
 const (
 	TestRepoURL     = "https://github.com/example/repo"
 	TestProfile     = "default"
@@ -29,6 +47,11 @@ const (
 )
 
 // AssertJSONEqual asserts that two JSON values are semantically equal.
+//
+// This helper marshals both values to JSON and then compares the resulting
+// JSON objects semantically, ignoring differences in whitespace and key order.
+//
+// Useful for comparing API responses or configuration structures.
 func AssertJSONEqual(t *testing.T, want, got any, msgAndArgs ...interface{}) {
 	t.Helper()
 	wantBytes, err := json.Marshal(want)
@@ -44,7 +67,11 @@ func AssertJSONEqual(t *testing.T, want, got any, msgAndArgs ...interface{}) {
 }
 
 // TempFile creates a temporary file with the given content and returns its path.
-// The file is automatically cleaned up when the test completes.
+//
+// The file is created in the test's temporary directory and automatically
+// cleaned up when the test completes. Uses t.Helper() for correct line numbers.
+//
+// Returns the absolute path to the created file.
 func TempFile(t *testing.T, content string) string {
 	t.Helper()
 	tmpDir := t.TempDir()
@@ -55,7 +82,12 @@ func TempFile(t *testing.T, content string) string {
 }
 
 // MkdirTempInDir creates a temporary directory under the given parent directory.
-// Unlike t.TempDir(), this allows specifying the parent.
+//
+// Unlike t.TempDir(), which doesn't allow specifying the parent, this function
+// creates a temporary directory as a subdirectory of parentDir. The directory
+// is automatically cleaned up when the test completes.
+//
+// Returns the path to the created directory.
 func MkdirTempInDir(t *testing.T, parentDir string) string {
 	t.Helper()
 	path, err := os.MkdirTemp(parentDir, "testdir*")
@@ -67,6 +99,11 @@ func MkdirTempInDir(t *testing.T, parentDir string) string {
 }
 
 // ParseTime parses an RFC3339 timestamp.
+//
+// This is a convenience wrapper around time.Parse that uses t.Helper()
+// for correct line numbers in test failures.
+//
+// Returns the parsed time or fails the test if parsing fails.
 func ParseTime(t *testing.T, s string) time.Time {
 	t.Helper()
 	ts, err := time.Parse(time.RFC3339, s)
@@ -75,12 +112,18 @@ func ParseTime(t *testing.T, s string) time.Time {
 }
 
 // RequireNoError asserts that err is nil, with a more descriptive message.
+//
+// This is a thin wrapper around require.NoError that adds t.Helper()
+// for correct line numbers in test failures.
 func RequireNoError(t *testing.T, err error, msgAndArgs ...interface{}) {
 	t.Helper()
 	require.NoError(t, err, msgAndArgs...)
 }
 
 // RequireEqual asserts that two values are equal, with a more descriptive message.
+//
+// This is a thin wrapper around require.Equal that adds t.Helper()
+// for correct line numbers in test failures.
 func RequireEqual(t *testing.T, expected, actual any, msgAndArgs ...interface{}) {
 	t.Helper()
 	require.Equal(t, expected, actual, msgAndArgs...)

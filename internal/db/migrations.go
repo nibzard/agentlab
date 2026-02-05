@@ -1,3 +1,4 @@
+// ABOUTME: Database schema migrations and version management.
 package db
 
 import (
@@ -8,6 +9,7 @@ import (
 	"time"
 )
 
+// migration represents a single schema migration with version, name, and SQL statements.
 type migration struct {
 	version    int
 	name       string
@@ -130,6 +132,17 @@ var migrations = []migration{
 }
 
 // Migrate runs any pending migrations against the provided database.
+//
+// This function:
+//   - Enables foreign key constraints
+//   - Validates migration definitions (no duplicates, ordered versions)
+//   - Ensures schema_migrations table exists
+//   - Loads previously applied migration versions
+//   - Verifies applied migrations are still known
+//   - Applies any pending migrations in transaction
+//
+// Migrations are applied in version order. Each migration runs in a
+// separate transaction for atomicity. Returns an error if any step fails.
 func Migrate(db *sql.DB) error {
 	if db == nil {
 		return errors.New("db is nil")
@@ -162,6 +175,11 @@ func Migrate(db *sql.DB) error {
 	return nil
 }
 
+// ensureSchemaMigrations creates the schema_migrations tracking table if it doesn't exist.
+//
+// The schema_migrations table stores which migrations have been applied,
+// ensuring each migration is only run once even if Migrate() is called
+// multiple times.
 func ensureSchemaMigrations(db *sql.DB) error {
 	_, err := db.Exec(`CREATE TABLE IF NOT EXISTS schema_migrations (
 		version INTEGER PRIMARY KEY,
@@ -174,6 +192,10 @@ func ensureSchemaMigrations(db *sql.DB) error {
 	return nil
 }
 
+// loadAppliedVersions returns a set of migration versions that have been applied.
+//
+// Queries the schema_migrations table to determine which migrations have
+// already been run, returning them as a set for fast lookup.
 func loadAppliedVersions(db *sql.DB) (map[int]struct{}, error) {
 	rows, err := db.Query(`SELECT version FROM schema_migrations ORDER BY version`)
 	if err != nil {
@@ -194,6 +216,11 @@ func loadAppliedVersions(db *sql.DB) (map[int]struct{}, error) {
 	return applied, nil
 }
 
+// verifyKnownMigrations ensures all applied migrations still exist in the codebase.
+//
+// This prevents a scenario where a migration was applied but then removed
+// from the code, which would cause database schema drift. Returns an error
+// if an applied migration version is not found in the defined migrations.
 func verifyKnownMigrations(applied map[int]struct{}) error {
 	known := make(map[int]struct{}, len(migrations))
 	for _, m := range migrations {
@@ -207,6 +234,11 @@ func verifyKnownMigrations(applied map[int]struct{}) error {
 	return nil
 }
 
+// applyMigration executes a single migration within a transaction.
+//
+// Runs all SQL statements for the migration in order. If any statement
+// fails, the transaction is rolled back. On success, records the migration
+// in schema_migrations before committing. Returns an error on failure.
 func applyMigration(db *sql.DB, m migration) error {
 	if len(m.statements) == 0 {
 		return fmt.Errorf("migration %d has no statements", m.version)
@@ -236,6 +268,16 @@ func applyMigration(db *sql.DB, m migration) error {
 	return nil
 }
 
+// validateMigrations checks that all migrations are properly defined.
+//
+// Validates:
+//   - At least one migration exists
+//   - All version numbers are positive
+//   - No duplicate version numbers
+//   - Versions are in ascending order
+//   - All migrations have names
+//
+// Returns an error if any validation fails.
 func validateMigrations() error {
 	if len(migrations) == 0 {
 		return errors.New("no migrations defined")

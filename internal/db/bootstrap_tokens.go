@@ -1,3 +1,4 @@
+// ABOUTME: Bootstrap token database operations for VM authentication.
 package db
 
 import (
@@ -12,6 +13,10 @@ import (
 )
 
 // HashBootstrapToken returns the SHA-256 hex digest of a bootstrap token.
+//
+// Bootstrap tokens are one-time use credentials delivered to VMs at boot
+// via cloud-init. Hashing ensures tokens are stored securely in the database
+// for validation without storing the plaintext value.
 func HashBootstrapToken(token string) (string, error) {
 	trimmed := strings.TrimSpace(token)
 	if trimmed == "" {
@@ -22,6 +27,10 @@ func HashBootstrapToken(token string) (string, error) {
 }
 
 // CreateBootstrapToken inserts a bootstrap token record keyed by hash.
+//
+// The token hash (from HashBootstrapToken) is stored along with the VMID
+// it's valid for and an expiration time. Tokens can only be used once
+// (see ConsumeBootstrapToken) and must be consumed before expiration.
 func (s *Store) CreateBootstrapToken(ctx context.Context, tokenHash string, vmid int, expiresAt time.Time) error {
 	if s == nil || s.DB == nil {
 		return errors.New("db store is nil")
@@ -50,6 +59,9 @@ func (s *Store) CreateBootstrapToken(ctx context.Context, tokenHash string, vmid
 }
 
 // ValidateBootstrapToken reports whether a token is valid and unconsumed.
+//
+// Returns true if the token hash exists for the given VMID, has not been
+// consumed yet, and has not expired. Returns false otherwise or on error.
 func (s *Store) ValidateBootstrapToken(ctx context.Context, tokenHash string, vmid int, now time.Time) (bool, error) {
 	if s == nil || s.DB == nil {
 		return false, errors.New("db store is nil")
@@ -82,6 +94,10 @@ func (s *Store) ValidateBootstrapToken(ctx context.Context, tokenHash string, vm
 }
 
 // ConsumeBootstrapToken marks a token as consumed if it is valid and unexpired.
+//
+// Returns true if the token was successfully consumed (i.e., it existed,
+// was unconsumed, and unexpired). Returns false if the token was not found
+// or was already consumed/expired. This is a one-time operation per token.
 func (s *Store) ConsumeBootstrapToken(ctx context.Context, tokenHash string, vmid int, now time.Time) (bool, error) {
 	if s == nil || s.DB == nil {
 		return false, errors.New("db store is nil")

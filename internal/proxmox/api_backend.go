@@ -1,3 +1,6 @@
+// ABOUTME: This file implements the Backend interface using Proxmox's REST API.
+// The API backend is recommended for production use due to better reliability,
+// error handling, and avoidance of Proxmox IPC layer issues.
 package proxmox
 
 import (
@@ -18,34 +21,35 @@ import (
 )
 
 // APIBackend implements Backend using Proxmox REST API.
-type APIBackend struct {
+// ABOUTME: This backend uses HTTP requests to Proxmox's API at /api2/json.
+// It requires an API token for authentication and supports automatic node detection.
 	// HTTP client configuration
-	HTTPClient    *http.Client
-	BaseURL       string // e.g., "https://localhost:8006/api2/json"
-	APIToken      string // format: "USER@REALM!TOKENID=TOKEN"
-	APITokenID    string // extracted from APIToken
-	APITokenValue string // extracted from APIToken
+	HTTPClient    *http.Client // Custom HTTP client (optional, defaults to insecure TLS client)
+	BaseURL       string       // Proxmox API base URL (e.g., "https://localhost:8006/api2/json")
+	APIToken      string       // Full API token in format "USER@REALM!TOKENID=TOKEN"
+	APITokenID    string       // Extracted token ID from APIToken
+	APITokenValue string       // Extracted token value from APIToken
 
 	// Proxmox configuration
-	Node           string
-	AgentCIDR      string
-	CommandTimeout time.Duration
+	Node           string        // Proxmox node name (empty for auto-detection)
+	AgentCIDR      string        // CIDR block for selecting guest IPs (e.g., "10.77.0.0/16")
+	CommandTimeout time.Duration // Timeout for API commands (defaults to 2 minutes)
 
 	// DHCP configuration for GuestIP fallback
-	DHCPLeasePaths []string
+	DHCPLeasePaths []string // Paths to DHCP lease files for fallback IP discovery
 
 	// Testing hooks
-	Sleep func(ctx context.Context, d time.Duration) error
+	Sleep func(ctx context.Context, d time.Duration) error // Custom sleep function for testing
 }
 
 var _ Backend = (*APIBackend)(nil)
 
 // APIResponse represents the standard Proxmox API response structure.
-type APIResponse struct {
 	Data interface{} `json:"data"`
 }
 
 // Clone creates a new VM by cloning a template.
+// ABOUTME: Performs a full clone of the template VM to create a new VM with the target ID.
 func (b *APIBackend) Clone(ctx context.Context, template VMID, target VMID, name string) error {
 	node, err := b.ensureNode(ctx)
 	if err != nil {
@@ -65,6 +69,7 @@ func (b *APIBackend) Clone(ctx context.Context, template VMID, target VMID, name
 }
 
 // Configure updates VM configuration.
+// ABOUTME: Only non-zero/non-empty fields are applied. Network config requires both bridge and model.
 func (b *APIBackend) Configure(ctx context.Context, vmid VMID, cfg VMConfig) error {
 	node, err := b.ensureNode(ctx)
 	if err != nil {
@@ -102,6 +107,7 @@ func (b *APIBackend) Configure(ctx context.Context, vmid VMID, cfg VMConfig) err
 }
 
 // Start starts a VM.
+// ABOUTME: Sends a start command to the Proxmox API for the specified VM.
 func (b *APIBackend) Start(ctx context.Context, vmid VMID) error {
 	node, err := b.ensureNode(ctx)
 	if err != nil {
@@ -114,6 +120,7 @@ func (b *APIBackend) Start(ctx context.Context, vmid VMID) error {
 }
 
 // Stop stops a VM.
+// ABOUTME: Sends a stop command to the Proxmox API. Returns ErrVMNotFound if the VM doesn't exist.
 func (b *APIBackend) Stop(ctx context.Context, vmid VMID) error {
 	node, err := b.ensureNode(ctx)
 	if err != nil {
@@ -132,6 +139,7 @@ func (b *APIBackend) Stop(ctx context.Context, vmid VMID) error {
 }
 
 // Destroy deletes a VM.
+// ABOUTME: Permanently deletes the VM and purges associated disks. Returns ErrVMNotFound if the VM doesn't exist.
 func (b *APIBackend) Destroy(ctx context.Context, vmid VMID) error {
 	node, err := b.ensureNode(ctx)
 	if err != nil {
@@ -153,6 +161,7 @@ func (b *APIBackend) Destroy(ctx context.Context, vmid VMID) error {
 }
 
 // Status retrieves VM status.
+// ABOUTME: Returns StatusRunning, StatusStopped, or StatusUnknown.
 func (b *APIBackend) Status(ctx context.Context, vmid VMID) (Status, error) {
 	node, err := b.ensureNode(ctx)
 	if err != nil {
@@ -183,6 +192,8 @@ func (b *APIBackend) Status(ctx context.Context, vmid VMID) (Status, error) {
 }
 
 // GuestIP retrieves the guest IP address.
+// ABOUTME: First attempts to query the guest agent, then falls back to DHCP lease lookup.
+// Returns ErrGuestIPNotFound if no IP can be determined.
 func (b *APIBackend) GuestIP(ctx context.Context, vmid VMID) (string, error) {
 	node, err := b.ensureNode(ctx)
 	if err != nil {
@@ -210,6 +221,8 @@ func (b *APIBackend) GuestIP(ctx context.Context, vmid VMID) (string, error) {
 }
 
 // CreateVolume creates a new volume.
+// ABOUTME: Creates a disk volume in the specified storage with the given size.
+// Returns the volume ID (e.g., "local-zfs:vm-0-disk-0").
 func (b *APIBackend) CreateVolume(ctx context.Context, storage, name string, sizeGB int) (string, error) {
 	storage = strings.TrimSpace(storage)
 	if storage == "" {
@@ -254,6 +267,7 @@ func (b *APIBackend) CreateVolume(ctx context.Context, storage, name string, siz
 }
 
 // AttachVolume attaches a volume to a VM.
+// ABOUTME: Attaches the specified volume to the VM at the given slot (e.g., "scsi1").
 func (b *APIBackend) AttachVolume(ctx context.Context, vmid VMID, volumeID, slot string) error {
 	volumeID = strings.TrimSpace(volumeID)
 	if volumeID == "" {
@@ -278,6 +292,7 @@ func (b *APIBackend) AttachVolume(ctx context.Context, vmid VMID, volumeID, slot
 }
 
 // DetachVolume detaches a volume from a VM.
+// ABOUTME: Detaches the volume from the VM slot. The volume is not deleted.
 func (b *APIBackend) DetachVolume(ctx context.Context, vmid VMID, slot string) error {
 	slot = strings.TrimSpace(slot)
 	if slot == "" {
@@ -304,6 +319,7 @@ func (b *APIBackend) DetachVolume(ctx context.Context, vmid VMID, slot string) e
 }
 
 // DeleteVolume deletes a volume.
+// ABOUTME: Permanently deletes the volume from storage.
 func (b *APIBackend) DeleteVolume(ctx context.Context, volumeID string) error {
 	volumeID = strings.TrimSpace(volumeID)
 	if volumeID == "" {
@@ -329,6 +345,7 @@ func (b *APIBackend) DeleteVolume(ctx context.Context, volumeID string) error {
 }
 
 // ValidateTemplate checks if a template VM is suitable for provisioning.
+// ABOUTME: Returns an error if the template doesn't exist or doesn't have qemu-guest-agent enabled.
 func (b *APIBackend) ValidateTemplate(ctx context.Context, template VMID) error {
 	node, err := b.ensureNode(ctx)
 	if err != nil {
@@ -731,6 +748,8 @@ func (b *APIBackend) sleep(ctx context.Context, d time.Duration) error {
 }
 
 // NewAPIBackend creates a new APIBackend.
+// ABOUTME: The baseURL should be the Proxmox API URL (e.g., "https://localhost:8006").
+// The apiToken must be in format "USER@REALM!TOKENID=TOKEN". If node is empty, it will be auto-detected.
 func NewAPIBackend(baseURL, apiToken, node, agentCIDR string, timeout time.Duration) (*APIBackend, error) {
 	// Parse API token
 	var tokenID, tokenValue string

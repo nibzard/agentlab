@@ -1,3 +1,4 @@
+// ABOUTME: Job database operations for creating, retrieving, and updating jobs.
 package db
 
 import (
@@ -10,7 +11,7 @@ import (
 	"github.com/agentlab/agentlab/internal/models"
 )
 
-// CreateJob inserts a new job row.
+// CreateJob inserts a new job row into the database.
 func (s *Store) CreateJob(ctx context.Context, job models.Job) error {
 	if s == nil || s.DB == nil {
 		return errors.New("db store is nil")

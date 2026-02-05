@@ -1,22 +1,61 @@
+// Package models provides data structures and constants for AgentLab.
+//
+// This package contains the core domain models used throughout AgentLab:
+//   - Sandbox: Represents a Proxmox VM and its lifecycle state
+//   - Job: Represents a job to be executed in a sandbox
+//   - Profile: Configuration template for sandbox provisioning
+//   - Workspace: Persistent storage volume that can be attached to sandboxes
+//
+// All models are designed for database persistence and JSON serialization.
 package models
 
 import "time"
 
+// SandboxState represents the current state of a sandbox in its lifecycle.
+//
+// The state machine enforces valid transitions:
+//   REQUESTED → PROVISIONING → BOOTING → READY → RUNNING → (COMPLETED|FAILED|TIMEOUT) → STOPPED → DESTROYED
+//
+// States can also transition to TIMEOUT at any point before COMPLETED/FAILED/STOPPED,
+// and to DESTROYED from most states (via force destroy).
 type SandboxState string
 
 const (
-	SandboxRequested    SandboxState = "REQUESTED"
+	// SandboxRequested is the initial state when a sandbox is requested but not yet created.
+	SandboxRequested SandboxState = "REQUESTED"
+	// SandboxProvisioning indicates the VM is being created in Proxmox.
 	SandboxProvisioning SandboxState = "PROVISIONING"
-	SandboxBooting      SandboxState = "BOOTING"
-	SandboxReady        SandboxState = "READY"
-	SandboxRunning      SandboxState = "RUNNING"
-	SandboxCompleted    SandboxState = "COMPLETED"
-	SandboxFailed       SandboxState = "FAILED"
-	SandboxTimeout      SandboxState = "TIMEOUT"
-	SandboxStopped      SandboxState = "STOPPED"
-	SandboxDestroyed    SandboxState = "DESTROYED"
+	// SandboxBooting indicates the VM has been created and is booting.
+	SandboxBooting SandboxState = "BOOTING"
+	// SandboxReady indicates the VM is running and ready to accept jobs.
+	SandboxReady SandboxState = "READY"
+	// SandboxRunning indicates a job is actively executing in the sandbox.
+	SandboxRunning SandboxState = "RUNNING"
+	// SandboxCompleted indicates the job finished successfully.
+	SandboxCompleted SandboxState = "COMPLETED"
+	// SandboxFailed indicates the job failed.
+	SandboxFailed SandboxState = "FAILED"
+	// SandboxTimeout indicates the sandbox lease expired.
+	SandboxTimeout SandboxState = "TIMEOUT"
+	// SandboxStopped indicates the VM has been stopped but not destroyed.
+	SandboxStopped SandboxState = "STOPPED"
+	// SandboxDestroyed indicates the VM has been destroyed and resources released.
+	SandboxDestroyed SandboxState = "DESTROYED"
 )
 
+// Sandbox represents a Proxmox VM managed by AgentLab.
+//
+// Fields:
+//   - VMID: The Proxmox VM ID (unique identifier)
+//   - Name: Human-readable name for the sandbox
+//   - Profile: Name of the profile used to create the sandbox
+//   - State: Current state in the sandbox lifecycle
+//   - IP: IP address of the VM in the agent subnet
+//   - WorkspaceID: ID of attached workspace volume (optional)
+//   - Keepalive: Whether the sandbox lease auto-renews
+//   - LeaseExpires: When the sandbox lease expires (zero if no TTL)
+//   - CreatedAt: When the sandbox was first created
+//   - LastUpdatedAt: When the sandbox state was last updated
 type Sandbox struct {
 	VMID          int
 	Name          string
@@ -30,16 +69,48 @@ type Sandbox struct {
 	LastUpdatedAt time.Time
 }
 
+// JobStatus represents the current status of a job in its lifecycle.
+//
+// Job state transitions:
+//   QUEUED → RUNNING → (COMPLETED|FAILED|TIMEOUT)
 type JobStatus string
 
 const (
-	JobQueued    JobStatus = "QUEUED"
-	JobRunning   JobStatus = "RUNNING"
+	// JobQueued is the initial state when a job is created and waiting to run.
+	JobQueued JobStatus = "QUEUED"
+	// JobRunning indicates the job is actively executing in a sandbox.
+	JobRunning JobStatus = "RUNNING"
+	// JobCompleted indicates the job finished successfully.
 	JobCompleted JobStatus = "COMPLETED"
-	JobFailed    JobStatus = "FAILED"
-	JobTimeout   JobStatus = "TIMEOUT"
+	// JobFailed indicates the job execution failed.
+	JobFailed JobStatus = "FAILED"
+	// JobTimeout indicates the job or sandbox lease expired.
+	JobTimeout JobStatus = "TIMEOUT"
 )
 
+// Job represents a unit of work to be executed in a sandbox.
+//
+// A job specifies:
+//   - A git repository to clone
+//   - A git ref (branch, tag, or commit) to checkout
+//   - A profile for sandbox provisioning
+//   - A task/command to execute
+//   - Optional TTL and keepalive settings
+//
+// Fields:
+//   - ID: Unique job identifier (job_<hex>)
+//   - RepoURL: Git repository URL
+//   - Ref: Git reference (branch, tag, commit)
+//   - Profile: Profile name for sandbox provisioning
+//   - Task: Task/command to execute
+//   - Mode: Execution mode (e.g., "dangerous")
+//   - TTLMinutes: Time-to-live in minutes (0 for no expiry)
+//   - Keepalive: Whether to auto-renew the lease
+//   - Status: Current job status
+//   - SandboxVMID: VM ID of the assigned sandbox (set when RUNNING)
+//   - CreatedAt: When the job was created
+//   - UpdatedAt: When the job was last updated
+//   - ResultJSON: JSON-encoded result (set when COMPLETED)
 type Job struct {
 	ID          string
 	RepoURL     string
@@ -56,6 +127,19 @@ type Job struct {
 	ResultJSON  string
 }
 
+// Profile defines the configuration template for sandbox provisioning.
+//
+// Profiles are loaded from YAML files in /etc/agentlab/profiles/ and define:
+//   - Which VM template to use
+//   - Resource allocation (CPU, memory, disk)
+//   - Behavior defaults (TTL, keepalive)
+//   - Inner sandbox configuration
+//
+// Fields:
+//   - Name: Profile identifier (matches filename)
+//   - TemplateVM: Proxmox VM ID of the template to clone
+//   - UpdatedAt: When the profile was last loaded from disk
+//   - RawYAML: The raw YAML configuration for debugging
 type Profile struct {
 	Name       string
 	TemplateVM int
@@ -63,6 +147,21 @@ type Profile struct {
 	RawYAML    string
 }
 
+// Workspace represents a persistent storage volume that can be attached to sandboxes.
+//
+// Workspaces provide durable storage that survives sandbox destruction. A workspace
+// can be attached to one sandbox at a time, and can be reattached to different
+// sandboxes over time.
+//
+// Fields:
+//   - ID: Unique workspace identifier (matches name)
+//   - Name: Human-readable name (also the ID)
+//   - Storage: Proxmox storage backend name
+//   - VolumeID: Proxmox volume identifier
+//   - SizeGB: Size in gigabytes
+//   - AttachedVM: VM ID of currently attached sandbox (nil if detached)
+//   - CreatedAt: When the workspace was created
+//   - LastUpdated: When the workspace was last attached/detached
 type Workspace struct {
 	ID          string
 	Name        string

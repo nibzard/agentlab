@@ -1,3 +1,4 @@
+// ABOUTME: Artifact token database operations for file upload authentication.
 package db
 
 import (
@@ -12,6 +13,10 @@ import (
 )
 
 // ArtifactToken stores hashed upload token metadata.
+//
+// Artifact tokens are one-time use credentials generated when a job starts
+// that authorize sandboxes to upload output files. The hash ensures tokens
+// are stored securely without exposing the plaintext value.
 type ArtifactToken struct {
 	TokenHash  string
 	JobID      string
@@ -22,6 +27,10 @@ type ArtifactToken struct {
 }
 
 // HashArtifactToken returns the SHA-256 hex digest of an artifact token.
+//
+// Tokens are hashed before storage to prevent plaintext token leakage
+// from the database. The hash is used for token validation during
+// artifact upload operations.
 func HashArtifactToken(token string) (string, error) {
 	trimmed := strings.TrimSpace(token)
 	if trimmed == "" {
@@ -32,6 +41,10 @@ func HashArtifactToken(token string) (string, error) {
 }
 
 // CreateArtifactToken inserts an artifact token record keyed by hash.
+//
+// Creates a token associated with a specific job and optional VMID.
+// The token can be used to upload artifacts until it expires.
+// Tokens are tied to jobs for cleanup via foreign key constraints.
 func (s *Store) CreateArtifactToken(ctx context.Context, tokenHash, jobID string, vmid int, expiresAt time.Time) error {
 	if s == nil || s.DB == nil {
 		return errors.New("db store is nil")
@@ -65,6 +78,9 @@ func (s *Store) CreateArtifactToken(ctx context.Context, tokenHash, jobID string
 }
 
 // GetArtifactToken loads an artifact token by hash.
+//
+// Retrieves the token metadata including job association, expiration,
+// and usage tracking. Returns an error if the token doesn't exist.
 func (s *Store) GetArtifactToken(ctx context.Context, tokenHash string) (ArtifactToken, error) {
 	if s == nil || s.DB == nil {
 		return ArtifactToken{}, errors.New("db store is nil")
@@ -79,6 +95,10 @@ func (s *Store) GetArtifactToken(ctx context.Context, tokenHash string) (Artifac
 }
 
 // TouchArtifactToken updates last_used_at for a token.
+//
+// Updates the timestamp tracking when a token was last used for
+// upload operations. This is useful for token lifecycle management
+// and cleanup decisions.
 func (s *Store) TouchArtifactToken(ctx context.Context, tokenHash string, now time.Time) error {
 	if s == nil || s.DB == nil {
 		return errors.New("db store is nil")

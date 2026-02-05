@@ -1,3 +1,32 @@
+// ABOUTME: SSH command for connecting to sandbox VMs via agent subnet.
+// ABOUTME: Provides connection details with route detection for Tailscale networks.
+
+// Package main provides SSH connectivity to AgentLab sandboxes.
+//
+// The ssh command generates SSH connection parameters for connecting to
+// sandbox VMs via the agent subnet. It includes route detection to warn
+// when connecting to sandboxes over Tailscale without proper subnet routing.
+//
+# Usage
+//
+//	# Print SSH command (default)
+//	agentlab ssh 1001
+//
+//	# Execute SSH directly (replaces CLI process)
+//	agentlab ssh 1001 --exec
+//
+//	# Custom user and port
+//	agentlab ssh 1001 --user ubuntu --port 2222
+//
+//	# Output JSON for scripting
+//	agentlab ssh 1001 --json
+//
+# Route Detection
+//
+// On Linux, the command uses "ip route get" to verify that the route to
+// the sandbox IP goes through the Tailscale interface. If not, it warns
+// that the agent subnet route may need to be enabled in the Tailscale admin
+# console.
 package main
 
 import (
@@ -25,6 +54,7 @@ const (
 	tailscaleInterfaceID = "tailscale"
 )
 
+// sshOutput contains the SSH connection details for a sandbox.
 type sshOutput struct {
 	VMID     int      `json:"vmid"`
 	IP       string   `json:"ip"`
@@ -36,11 +66,15 @@ type sshOutput struct {
 	Warning  string   `json:"warning,omitempty"`
 }
 
+// routeInfo contains information about the network route to an IP address.
 type routeInfo struct {
 	Device string
 	Via    string
 }
 
+// runSSHCommand handles the 'agentlab ssh' command.
+// It fetches sandbox details, validates the IP, and either prints the SSH command
+// or executes SSH directly with --exec.
 func runSSHCommand(ctx context.Context, args []string, base commonFlags) error {
 	fs := newFlagSet("ssh")
 	opts := base
@@ -141,6 +175,7 @@ func runSSHCommand(ctx context.Context, args []string, base commonFlags) error {
 	return nil
 }
 
+// buildSSHArgs constructs the SSH argument list for connecting to a target.
 func buildSSHArgs(target string, port int, identity string) []string {
 	args := []string{}
 	if identity != "" {
@@ -153,6 +188,8 @@ func buildSSHArgs(target string, port int, identity string) []string {
 	return args
 }
 
+// execSSH replaces the current process with SSH.
+// This provides a seamless SSH experience by exec'ing the ssh binary.
 func execSSH(args []string) error {
 	path, err := exec.LookPath("ssh")
 	if err != nil {
@@ -162,6 +199,8 @@ func execSSH(args []string) error {
 	return syscall.Exec(path, argv, os.Environ())
 }
 
+// tailnetWarning checks if the route to the IP goes through Tailscale.
+// Returns a warning message if the route is not via Tailscale.
 func tailnetWarning(ctx context.Context, ip net.IP) string {
 	if ip == nil || !ip.IsPrivate() {
 		return ""
@@ -196,6 +235,7 @@ func tailnetWarning(ctx context.Context, ip net.IP) string {
 	return ""
 }
 
+// parseIPRouteGet parses the output of 'ip route get' to extract route information.
 func parseIPRouteGet(output string) routeInfo {
 	fields := strings.Fields(output)
 	info := routeInfo{}
@@ -214,6 +254,7 @@ func parseIPRouteGet(output string) routeInfo {
 	return info
 }
 
+// formatShellCommand formats command arguments as a shell-escaped string.
 func formatShellCommand(args []string) string {
 	if len(args) == 0 {
 		return ""
@@ -225,6 +266,8 @@ func formatShellCommand(args []string) string {
 	return strings.Join(quoted, " ")
 }
 
+// shellQuote quotes a string for safe use in a shell command.
+// It uses single quotes and escapes any embedded single quotes.
 func shellQuote(value string) string {
 	if value == "" {
 		return "''"
@@ -235,6 +278,7 @@ func shellQuote(value string) string {
 	return "'" + strings.ReplaceAll(value, "'", "'\\''") + "'"
 }
 
+// isShellSpecial returns true if the rune is a shell special character.
 func isShellSpecial(r rune) bool {
 	switch r {
 	case ' ', '\t', '\n', '\r', '\v', '\f', '\\', '\'', '"', '$', '`':
@@ -244,6 +288,7 @@ func isShellSpecial(r rune) bool {
 	}
 }
 
+// isInteractive returns true if both stdin and stdout are terminals.
 func isInteractive() bool {
 	return isatty.IsTerminal(os.Stdin.Fd()) && isatty.IsTerminal(os.Stdout.Fd())
 }

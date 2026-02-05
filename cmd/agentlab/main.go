@@ -1,3 +1,33 @@
+// ABOUTME: Main CLI entry point for the agentlab command-line tool.
+// ABOUTME: Provides commands for job management, sandbox control, workspace operations, SSH access, and log viewing.
+
+// Package main implements the agentlab CLI for controlling agentlabd.
+//
+// The agentlab CLI communicates with the agentlabd daemon over a Unix socket
+// to manage sandboxes, jobs, workspaces, and view logs.
+//
+# Global Flags
+//
+// The following global flags are available for all commands:
+//
+//	--socket PATH   Path to agentlabd socket (default /run/agentlab/agentlabd.sock)
+//	--json          Output JSON instead of formatted text
+//	--timeout       Request timeout (e.g., 30s, 2m)
+//	--version       Print version and exit
+//
+# Usage Examples
+//
+//	Run a job:
+//	  agentlab job run --repo https://github.com/user/repo --task "test all" --profile yolo-ephemeral
+//
+//	List sandboxes:
+//	  agentlab sandbox list
+//
+//	SSH into a sandbox:
+//	  agentlab ssh 1001
+//
+//	View logs:
+//	  agentlab logs 1001 --follow
 package main
 
 import (

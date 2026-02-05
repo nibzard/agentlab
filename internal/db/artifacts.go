@@ -1,3 +1,4 @@
+// ABOUTME: Artifact database operations for job output storage and retention.
 package db
 
 import (
@@ -11,7 +12,9 @@ import (
 	"github.com/agentlab/agentlab/internal/models"
 )
 
-// Artifact stores artifact metadata.
+// Artifact stores artifact metadata for files uploaded from sandboxes.
+// The actual file contents are stored on disk; this struct tracks
+// metadata for retention and retrieval purposes.
 type Artifact struct {
 	ID        int64
 	JobID     string
@@ -24,7 +27,10 @@ type Artifact struct {
 	CreatedAt time.Time
 }
 
-// ArtifactRetentionRecord combines artifact metadata with job and sandbox state.
+// ArtifactRetentionRecord combines artifact metadata with job and sandbox state
+// for garbage collection decisions. This is used by the artifact GC process
+// to determine which artifacts can be deleted based on job completion,
+// sandbox destruction, and profile-specific retention policies.
 type ArtifactRetentionRecord struct {
 	Artifact     Artifact
 	JobProfile   string

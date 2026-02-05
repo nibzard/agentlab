@@ -1,4 +1,18 @@
-// Package testing provides shared test utilities for agentlab.
+// ABOUTME: Package testing provides shared test utilities and mock implementations for agentlab.
+//
+// This package contains test doubles and helper functions that support testing
+// across the AgentLab codebase without requiring actual Proxmox infrastructure.
+//
+// The mocks are intentionally simple and deterministic, making them ideal for:
+//   - Unit testing of business logic
+//   - Integration testing without external dependencies
+//   - CI/CD pipelines where Proxmox is unavailable
+//   - Reproducing specific scenarios (failures, delays, etc.)
+//
+// Key components:
+//   - MockProxmoxBackend: Simulates Proxmox VM operations
+//   - MockSecretsStore: In-memory secret storage
+//   - MockHTTPHandler: HTTP request/response mocking
 package testing
 
 import (
@@ -15,6 +29,22 @@ import (
 )
 
 // MockProxmoxBackend is a mock implementation of a Proxmox backend for testing.
+//
+// It simulates VM lifecycle operations (create, start, stop, destroy) entirely
+// in memory without requiring a Proxmox instance. The mock is thread-safe and
+// can simulate various failure conditions for testing error handling.
+//
+// Example usage:
+//
+//	mock := NewMockProxmoxBackend()
+//	vmid, err := mock.CreateVM(ctx, "test-vm", "default")
+//	require.NoError(t, err)
+//
+//	err = mock.StartVM(ctx, vmid)
+//	require.NoError(t, err)
+//
+//	vm := mock.GetVM(vmid)
+//	assert.Equal(t, "test-vm", vm.Name)
 type MockProxmoxBackend struct {
 	mu                sync.Mutex
 	VMs               map[int]*MockVM
@@ -27,6 +57,9 @@ type MockProxmoxBackend struct {
 }
 
 // MockVM represents a mock virtual machine.
+//
+// It holds the state and metadata of a VM created by MockProxmoxBackend.
+// Times are recorded for testing timing-sensitive logic.
 type MockVM struct {
 	VMID        int
 	Name        string
@@ -39,6 +72,9 @@ type MockVM struct {
 }
 
 // NewMockProxmoxBackend creates a new mock Proxmox backend.
+//
+// The returned backend is initialized with an empty VM map and starts
+// VMID allocation at 100. It's safe for concurrent use.
 func NewMockProxmoxBackend() *MockProxmoxBackend {
 	return &MockProxmoxBackend{
 		VMs:      make(map[int]*MockVM),
@@ -47,6 +83,11 @@ func NewMockProxmoxBackend() *MockProxmoxBackend {
 }
 
 // CreateVM simulates creating a VM.
+//
+// It allocates a new VMID, creates a MockVM in PROVISIONING state, and
+// optionally applies configured delays or errors. Respects context cancellation.
+//
+// Returns the allocated VMID or an error if creation is configured to fail.
 func (m *MockProxmoxBackend) CreateVM(ctx context.Context, name string, profile string) (int, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -78,6 +119,11 @@ func (m *MockProxmoxBackend) CreateVM(ctx context.Context, name string, profile 
 }
 
 // StartVM simulates starting a VM.
+//
+// It transitions the VM to READY state, assigns an IP address in the
+// 10.77.0.0/24 subnet, and records the start time.
+//
+// Returns an error if the VM doesn't exist or if ShouldFailStart is true.
 func (m *MockProxmoxBackend) StartVM(ctx context.Context, vmid int) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -100,6 +146,10 @@ func (m *MockProxmoxBackend) StartVM(ctx context.Context, vmid int) error {
 }
 
 // StopVM simulates stopping a VM.
+//
+// It transitions the VM to STOPPED state without destroying it.
+//
+// Returns an error if the VM doesn't exist.
 func (m *MockProxmoxBackend) StopVM(ctx context.Context, vmid int) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -114,6 +164,11 @@ func (m *MockProxmoxBackend) StopVM(ctx context.Context, vmid int) error {
 }
 
 // DestroyVM simulates destroying a VM.
+//
+// It transitions the VM to DESTROYED state and records the destruction time.
+// The VM record remains accessible via GetVM for verification.
+//
+// Returns an error if the VM doesn't exist or if ShouldFailDestroy is true.
 func (m *MockProxmoxBackend) DestroyVM(ctx context.Context, vmid int) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -135,6 +190,9 @@ func (m *MockProxmoxBackend) DestroyVM(ctx context.Context, vmid int) error {
 }
 
 // GetVM returns a VM by ID.
+//
+// Returns nil if the VM doesn't exist. The returned MockVM points to the
+// internal state and should not be modified.
 func (m *MockProxmoxBackend) GetVM(vmid int) *MockVM {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -143,6 +201,23 @@ func (m *MockProxmoxBackend) GetVM(vmid int) *MockVM {
 }
 
 // MockSecretsStore is a mock implementation of a secrets store for testing.
+//
+// It provides in-memory key-value storage with configurable error injection
+// and artificial lag for testing timeouts and error handling.
+//
+// Example usage:
+//
+//	store := NewMockSecretsStore()
+//	store.Put(ctx, "key", "value")
+//
+//	val, err := store.Get(ctx, "key")
+//	require.NoError(t, err)
+//	assert.Equal(t, "value", val)
+//
+//	// Test error handling
+//	store.SetGetError(errors.New("failed"))
+//	_, err = store.Get(ctx, "key")
+//	assert.Error(t, err)
 type MockSecretsStore struct {
 	mu        sync.Mutex
 	secrets   map[string]string
@@ -152,6 +227,9 @@ type MockSecretsStore struct {
 }
 
 // NewMockSecretsStore creates a new mock secrets store.
+//
+// The returned store is initialized with an empty secrets map and is safe
+// for concurrent use.
 func NewMockSecretsStore() *MockSecretsStore {
 	return &MockSecretsStore{
 		secrets: make(map[string]string),
@@ -159,6 +237,12 @@ func NewMockSecretsStore() *MockSecretsStore {
 }
 
 // Get retrieves a secret value by key.
+//
+// If SetShouldLag(true) was called, it adds 10ms of delay before returning.
+// If SetGetError() was called with an error, it returns that error.
+//
+// Returns the stored value or an error if the key doesn't exist or an error
+// was configured.
 func (m *MockSecretsStore) Get(ctx context.Context, key string) (string, error) {
 	if m.shouldLag {
 		time.Sleep(10 * time.Millisecond)
@@ -179,6 +263,10 @@ func (m *MockSecretsStore) Get(ctx context.Context, key string) (string, error) 
 }
 
 // Put stores a secret value by key.
+//
+// If SetPutError() was called with an error, it returns that error without
+// storing the value. Otherwise, the value is stored and can be retrieved
+// via Get().
 func (m *MockSecretsStore) Put(ctx context.Context, key, value string) error {
 	if m.putError != nil {
 		return m.putError
@@ -192,6 +280,8 @@ func (m *MockSecretsStore) Put(ctx context.Context, key, value string) error {
 }
 
 // Delete removes a secret by key.
+//
+// Deleting a non-existent key is a no-op and returns nil.
 func (m *MockSecretsStore) Delete(ctx context.Context, key string) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -216,6 +306,24 @@ func (m *MockSecretsStore) SetShouldLag(lag bool) {
 }
 
 // MockHTTPHandler is a mock HTTP handler for testing API clients.
+//
+// It provides flexible HTTP mocking with request capture, custom responses,
+// delays, and multiple responses for the same endpoint. Ideal for testing
+// HTTP clients without starting real servers.
+//
+// Example usage:
+//
+//	mock := NewMockHTTPHandler()
+//	mock.AddResponse("GET", "/api/vm/100", 200, map[string]interface{}{
+//	    "vmid": 100,
+//	    "name": "test-vm",
+//	})
+//
+//	srv := mock.NewTestServer(t)
+//	defer srv.Close()
+//
+//	resp, err := http.Get(srv.URL + "/api/vm/100")
+//	require.NoError(t, err)
 type MockHTTPHandler struct {
 	mu            sync.Mutex
 	responses     map[string][]*MockResponse

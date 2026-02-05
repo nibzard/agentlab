@@ -20,10 +20,10 @@ import (
 )
 
 const (
-	defaultBootstrapTTL     = 10 * time.Minute
-	bootstrapTokenBytes     = 16
-	defaultProvisionTimeout = 10 * time.Minute
-	defaultFailureTimeout   = 30 * time.Second
+	defaultBootstrapTTL     = 10 * time.Minute // Default TTL for bootstrap tokens
+	bootstrapTokenBytes     = 16               // Bytes of randomness for bootstrap tokens
+	defaultProvisionTimeout = 10 * time.Minute // Timeout for sandbox provisioning
+	defaultFailureTimeout   = 30 * time.Second // Timeout for cleanup after failure
 )
 
 var (
@@ -32,6 +32,9 @@ var (
 	ErrJobFinalized       = errors.New("job already finalized")
 )
 
+// JobReport contains the final status and artifacts of a completed job.
+//
+// This struct is used to communicate job completion results back to clients.
 type JobReport struct {
 	JobID     string
 	VMID      int
@@ -41,6 +44,22 @@ type JobReport struct {
 	Result    json.RawMessage
 }
 
+// JobOrchestrator manages the lifecycle of jobs from creation to completion.
+//
+// The orchestrator coordinates:
+//   - Job queue processing and execution
+//   - Sandbox provisioning for jobs
+//   - Bootstrap token generation for guest authentication
+//   - Cloud-init snippet management
+//   - Workspace attachment/detachment
+//   - Artifact collection
+//   - Job status transitions
+//
+// Jobs run asynchronously in goroutines started by the Start() method. The
+// Run() method contains the main job execution logic.
+//
+// The orchestrator maintains in-memory state for active cloud-init snippets
+// to enable cleanup on sandbox destroy.
 type JobOrchestrator struct {
 	store            *db.Store
 	profiles         map[string]models.Profile
@@ -62,6 +81,22 @@ type JobOrchestrator struct {
 	snippets         map[int]proxmox.CloudInitSnippet
 }
 
+// NewJobOrchestrator creates a new job orchestrator with all dependencies.
+//
+// Parameters:
+//   - store: Database store for persistence
+//   - profiles: Map of available profiles by name
+//   - backend: Proxmox backend for VM operations
+//   - manager: Sandbox manager for lifecycle management
+//   - workspaceMgr: Workspace manager for volume operations (optional)
+//   - snippetStore: Storage for cloud-init snippets
+//   - sshPublicKey: SSH public key for guest VM access
+//   - controllerURL: URL for guest VM to contact controller
+//   - logger: Logger for operational output (uses log.Default if nil)
+//   - redactor: Redactor for sensitive data in logs (uses default if nil)
+//   - metrics: Prometheus metrics collector (optional)
+//
+// Returns a configured JobOrchestrator ready for use.
 func NewJobOrchestrator(store *db.Store, profiles map[string]models.Profile, backend proxmox.Backend, manager *SandboxManager, workspaceMgr *WorkspaceManager, snippetStore proxmox.SnippetStore, sshPublicKey, controllerURL string, logger *log.Logger, redactor *Redactor, metrics *Metrics) *JobOrchestrator {
 	if logger == nil {
 		logger = log.Default()
@@ -90,6 +125,13 @@ func NewJobOrchestrator(store *db.Store, profiles map[string]models.Profile, bac
 	}
 }
 
+// Start begins asynchronous execution of a job.
+//
+// The job runs in a separate goroutine. Any errors during execution are logged.
+// Use Run() for synchronous execution or to handle errors directly.
+//
+// Parameters:
+//   - jobID: The ID of the job to start
 func (o *JobOrchestrator) Start(jobID string) {
 	if o == nil {
 		return
