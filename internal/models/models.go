@@ -14,7 +14,8 @@ import "time"
 // SandboxState represents the current state of a sandbox in its lifecycle.
 //
 // The state machine enforces valid transitions:
-//   REQUESTED → PROVISIONING → BOOTING → READY → RUNNING → (COMPLETED|FAILED|TIMEOUT) → STOPPED → DESTROYED
+//
+//	REQUESTED → PROVISIONING → BOOTING → READY → RUNNING → (COMPLETED|FAILED|TIMEOUT) → STOPPED → DESTROYED
 //
 // States can also transition to TIMEOUT at any point before COMPLETED/FAILED/STOPPED,
 // and to DESTROYED from most states (via force destroy).
@@ -72,7 +73,8 @@ type Sandbox struct {
 // JobStatus represents the current status of a job in its lifecycle.
 //
 // Job state transitions:
-//   QUEUED → RUNNING → (COMPLETED|FAILED|TIMEOUT)
+//
+//	QUEUED → RUNNING → (COMPLETED|FAILED|TIMEOUT)
 type JobStatus string
 
 const (

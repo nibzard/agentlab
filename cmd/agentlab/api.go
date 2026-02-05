@@ -6,14 +6,14 @@
 // The apiClient communicates with the agentlabd daemon over a Unix socket
 // using HTTP. All responses are JSON-encoded.
 //
-# API Client
+// # API Client
 //
 // The client supports both JSON and raw HTTP operations:
 //
-//	- doJSON: For typical JSON request/response operations
-//	- doRequest: For operations requiring custom headers or streaming responses
+//   - doJSON: For typical JSON request/response operations
+//   - doRequest: For operations requiring custom headers or streaming responses
 //
-# Error Handling
+// # Error Handling
 //
 // API errors are returned as both HTTP status codes (>= 400) and JSON
 // responses with an "error" field.

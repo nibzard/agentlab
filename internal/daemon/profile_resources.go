@@ -9,8 +9,8 @@ import (
 )
 
 type profileProvisionSpec struct {
-	Network   profileNetworkSpec   `yaml:"network"`
-	Resources profileResourceSpec  `yaml:"resources"`
+	Network   profileNetworkSpec  `yaml:"network"`
+	Resources profileResourceSpec `yaml:"resources"`
 }
 
 type profileNetworkSpec struct {

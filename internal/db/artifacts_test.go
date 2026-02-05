@@ -469,25 +469,25 @@ func TestListArtifactRetentionCandidates(t *testing.T) {
 		// Create job with sandbox
 		vmid := 100
 		job := models.Job{
-			ID:        "job-1",
-			RepoURL:   "https://github.com/example/repo",
-			Ref:       "main",
-			Profile:   "default",
-			Status:    models.JobCompleted,
+			ID:          "job-1",
+			RepoURL:     "https://github.com/example/repo",
+			Ref:         "main",
+			Profile:     "default",
+			Status:      models.JobCompleted,
 			SandboxVMID: &vmid,
-			CreatedAt: time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC),
-			UpdatedAt: time.Date(2024, 1, 2, 0, 0, 0, 0, time.UTC),
+			CreatedAt:   time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC),
+			UpdatedAt:   time.Date(2024, 1, 2, 0, 0, 0, 0, time.UTC),
 		}
 		err := store.CreateJob(ctx, job)
 		require.NoError(t, err)
 
 		// Create sandbox
 		sb := models.Sandbox{
-			VMID:        100,
-			Name:        "test-sandbox",
-			Profile:     "default",
-			State:       models.SandboxCompleted,
-			CreatedAt:   time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC),
+			VMID:          100,
+			Name:          "test-sandbox",
+			Profile:       "default",
+			State:         models.SandboxCompleted,
+			CreatedAt:     time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC),
 			LastUpdatedAt: time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC),
 		}
 		err = store.CreateSandbox(ctx, sb)

@@ -210,15 +210,15 @@ func NewTestJob(opts JobOpts) models.Job {
 // Used with NewTestSandbox to create test sandbox data with specific values.
 // Empty fields use sensible defaults defined in NewTestSandbox.
 type SandboxOpts struct {
-	VMID         int
-	Name         string
-	Profile      string
-	WorkspaceID  *string
-	State        models.SandboxState
-	IP           string
-	Keepalive    bool
-	LeaseExpires time.Time
-	CreatedAt    time.Time
+	VMID          int
+	Name          string
+	Profile       string
+	WorkspaceID   *string
+	State         models.SandboxState
+	IP            string
+	Keepalive     bool
+	LeaseExpires  time.Time
+	CreatedAt     time.Time
 	LastUpdatedAt time.Time
 }
 
@@ -311,10 +311,10 @@ func NewTestWorkspace(opts WorkspaceOpts) models.Workspace {
 
 // ProfileOpts holds optional parameters for creating test profiles.
 type ProfileOpts struct {
-	Name        string
-	TemplateVM  int
-	RawYAML     string
-	UpdatedAt   time.Time
+	Name       string
+	TemplateVM int
+	RawYAML    string
+	UpdatedAt  time.Time
 }
 
 // NewTestProfile creates a test profile with default values, applying optional overrides.

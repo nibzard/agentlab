@@ -249,10 +249,10 @@ func TestValidateCIDR(t *testing.T) {
 
 func TestValidateMetricsListen(t *testing.T) {
 	tests := []struct {
-		name        string
+		name          string
 		metricsListen string
-		wantErr     bool
-		errContains string
+		wantErr       bool
+		errContains   string
 	}{
 		{
 			name:          "localhost is allowed",
@@ -319,7 +319,7 @@ func TestValidateRequiredFields(t *testing.T) {
 		errContains string
 	}{
 		{
-			name: "empty config_path",
+			name:  "empty config_path",
 			field: "config_path",
 			clearValue: func(c *Config) {
 				c.ConfigPath = ""
@@ -328,7 +328,7 @@ func TestValidateRequiredFields(t *testing.T) {
 			errContains: "config_path",
 		},
 		{
-			name: "empty profiles_dir",
+			name:  "empty profiles_dir",
 			field: "profiles_dir",
 			clearValue: func(c *Config) {
 				c.ProfilesDir = ""
@@ -337,7 +337,7 @@ func TestValidateRequiredFields(t *testing.T) {
 			errContains: "profiles_dir",
 		},
 		{
-			name: "empty run_dir",
+			name:  "empty run_dir",
 			field: "run_dir",
 			clearValue: func(c *Config) {
 				c.RunDir = ""
@@ -346,7 +346,7 @@ func TestValidateRequiredFields(t *testing.T) {
 			errContains: "run_dir",
 		},
 		{
-			name: "empty socket_path",
+			name:  "empty socket_path",
 			field: "socket_path",
 			clearValue: func(c *Config) {
 				c.SocketPath = ""
@@ -355,7 +355,7 @@ func TestValidateRequiredFields(t *testing.T) {
 			errContains: "socket_path",
 		},
 		{
-			name: "empty bootstrap_listen",
+			name:  "empty bootstrap_listen",
 			field: "bootstrap_listen",
 			clearValue: func(c *Config) {
 				c.BootstrapListen = ""
@@ -364,7 +364,7 @@ func TestValidateRequiredFields(t *testing.T) {
 			errContains: "bootstrap_listen",
 		},
 		{
-			name: "empty artifact_listen",
+			name:  "empty artifact_listen",
 			field: "artifact_listen",
 			clearValue: func(c *Config) {
 				c.ArtifactListen = ""
@@ -373,7 +373,7 @@ func TestValidateRequiredFields(t *testing.T) {
 			errContains: "artifact_listen",
 		},
 		{
-			name: "empty artifact_dir",
+			name:  "empty artifact_dir",
 			field: "artifact_dir",
 			clearValue: func(c *Config) {
 				c.ArtifactDir = ""
@@ -382,7 +382,7 @@ func TestValidateRequiredFields(t *testing.T) {
 			errContains: "artifact_dir",
 		},
 		{
-			name: "zero artifact_max_bytes",
+			name:  "zero artifact_max_bytes",
 			field: "artifact_max_bytes",
 			clearValue: func(c *Config) {
 				c.ArtifactMaxBytes = 0
@@ -391,7 +391,7 @@ func TestValidateRequiredFields(t *testing.T) {
 			errContains: "artifact_max_bytes",
 		},
 		{
-			name: "negative artifact_max_bytes",
+			name:  "negative artifact_max_bytes",
 			field: "artifact_max_bytes",
 			clearValue: func(c *Config) {
 				c.ArtifactMaxBytes = -1
@@ -400,7 +400,7 @@ func TestValidateRequiredFields(t *testing.T) {
 			errContains: "artifact_max_bytes",
 		},
 		{
-			name: "zero artifact_token_ttl_minutes",
+			name:  "zero artifact_token_ttl_minutes",
 			field: "artifact_token_ttl_minutes",
 			clearValue: func(c *Config) {
 				c.ArtifactTokenTTLMinutes = 0
@@ -409,7 +409,7 @@ func TestValidateRequiredFields(t *testing.T) {
 			errContains: "artifact_token_ttl_minutes",
 		},
 		{
-			name: "negative artifact_token_ttl_minutes",
+			name:  "negative artifact_token_ttl_minutes",
 			field: "artifact_token_ttl_minutes",
 			clearValue: func(c *Config) {
 				c.ArtifactTokenTTLMinutes = -1
@@ -418,7 +418,7 @@ func TestValidateRequiredFields(t *testing.T) {
 			errContains: "artifact_token_ttl_minutes",
 		},
 		{
-			name: "empty secrets_dir",
+			name:  "empty secrets_dir",
 			field: "secrets_dir",
 			clearValue: func(c *Config) {
 				c.SecretsDir = ""
@@ -522,7 +522,7 @@ func TestValidateTimeouts(t *testing.T) {
 			name: "valid timeouts",
 			setup: func(c *Config) {
 				c.ProxmoxCommandTimeout = 2 * 60 * 1000000000 // 2 minutes
-				c.ProvisioningTimeout = 10 * 60 * 1000000000 // 10 minutes
+				c.ProvisioningTimeout = 10 * 60 * 1000000000  // 10 minutes
 			},
 			wantErr: false,
 		},
@@ -696,9 +696,9 @@ func TestIsWildcardHost(t *testing.T) {
 		{"localhost", false},
 		{"10.77.0.1", false},
 		{"example.com", false},
-		{"0.0.0.0%eth0", true}, // IPv4 zone ID doesn't make sense but our code handles it
-		{"fe80::1", false},      // Link-local is not wildcard
-		{"10.0.0.0", false},     // Not the wildcard
+		{"0.0.0.0%eth0", true},     // IPv4 zone ID doesn't make sense but our code handles it
+		{"fe80::1", false},         // Link-local is not wildcard
+		{"10.0.0.0", false},        // Not the wildcard
 		{"255.255.255.255", false}, // Broadcast is not wildcard
 	}
 	for _, tt := range tests {

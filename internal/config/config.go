@@ -123,7 +123,7 @@ type FileConfig struct {
 //   - MetricsListen: "" (disabled)
 //   - ArtifactMaxBytes: 256 MB
 //   - ArtifactTokenTTLMinutes: 1440 (24 hours)
-//   - ProxmoxBackend: "api"
+//   - ProxmoxBackend: "shell"
 //   - ProxmoxCommandTimeout: 2 minutes
 //   - ProvisioningTimeout: 10 minutes
 //
@@ -154,7 +154,7 @@ func DefaultConfig() Config {
 		SnippetStorage:          "local",
 		ProxmoxCommandTimeout:   2 * time.Minute,
 		ProvisioningTimeout:     10 * time.Minute,
-		ProxmoxBackend:          "api", // Default to API backend (more robust)
+		ProxmoxBackend:          "shell",
 		ProxmoxAPIURL:           "https://localhost:8006",
 		ProxmoxAPIToken:         "", // Must be configured
 		ProxmoxNode:             "", // Auto-detected if empty
@@ -339,7 +339,6 @@ func applyFileConfig(cfg *Config, fileCfg FileConfig) error {
 //   - URLs must use http or https schemes
 //
 // Returns an error describing the first validation failure encountered.
-func (c Config) Validate() error {
 func (c Config) Validate() error {
 	if c.ConfigPath == "" {
 		return fmt.Errorf("config_path is required")

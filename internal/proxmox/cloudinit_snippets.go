@@ -23,26 +23,29 @@ const (
 )
 
 // SnippetInput describes the minimal data needed to build a cloud-init snippet.
-	VMID           VMID    // Target VM identifier
-	Hostname       string  // VM hostname (defaults to "sandbox-{vmid}" if empty)
-	SSHPublicKey   string  // SSH public key for agent user (required)
-	BootstrapToken string  // Authentication token for bootstrap API (required)
-	ControllerURL  string  // URL of the controller API endpoint (required)
+type SnippetInput struct {
+	VMID           VMID   // Target VM identifier
+	Hostname       string // VM hostname (defaults to "sandbox-{vmid}" if empty)
+	SSHPublicKey   string // SSH public key for agent user (required)
+	BootstrapToken string // Authentication token for bootstrap API (required)
+	ControllerURL  string // URL of the controller API endpoint (required)
 }
 
 // CloudInitSnippet represents a stored snippet file and its Proxmox reference.
-	VMID        VMID    // Associated VM identifier
-	Filename    string  // Base filename of the snippet
-	FullPath    string  // Absolute filesystem path to the snippet file
-	Storage     string  // Proxmox storage name (e.g., "local")
-	StoragePath string  // Proxmox storage path (e.g., "local:snippets/agentlab-1000-abc123.yaml")
+type CloudInitSnippet struct {
+	VMID        VMID   // Associated VM identifier
+	Filename    string // Base filename of the snippet
+	FullPath    string // Absolute filesystem path to the snippet file
+	Storage     string // Proxmox storage name (e.g., "local")
+	StoragePath string // Proxmox storage path (e.g., "local:snippets/agentlab-1000-abc123.yaml")
 }
 
 // SnippetStore manages cloud-init snippet files for Proxmox.
 // ABOUTME: Snippets are stored as YAML files in Proxmox's snippets directory and
 // referenced during VM cloning via the cicustom parameter.
-	Storage string // Proxmox storage name for snippets (defaults to "local")
-	Dir     string // Filesystem directory for snippet files (defaults to "/var/lib/vz/snippets")
+type SnippetStore struct {
+	Storage string    // Proxmox storage name for snippets (defaults to "local")
+	Dir     string    // Filesystem directory for snippet files (defaults to "/var/lib/vz/snippets")
 	Rand    io.Reader // Random source for unique filename generation (defaults to crypto/rand)
 }
 

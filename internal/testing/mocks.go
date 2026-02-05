@@ -341,11 +341,11 @@ type MockResponse struct {
 
 // MockRequest represents a captured HTTP request.
 type MockRequest struct {
-	Method  string
-	Path    string
-	Header  http.Header
-	Body    []byte
-	At      time.Time
+	Method string
+	Path   string
+	Header http.Header
+	Body   []byte
+	At     time.Time
 }
 
 // NewMockHTTPHandler creates a new mock HTTP handler.

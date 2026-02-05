@@ -29,7 +29,7 @@ func TestJobCreateAppliesProfileDefaults(t *testing.T) {
 		},
 	}
 
-	api := NewControlAPI(store, profiles, nil, nil, &JobOrchestrator{}, "")
+	api := NewControlAPI(store, profiles, nil, nil, &JobOrchestrator{}, "", nil)
 	req := V1JobCreateRequest{
 		RepoURL: "https://example.com/repo.git",
 		Profile: "default",
@@ -85,7 +85,7 @@ func TestSandboxCreateAppliesProfileDefaults(t *testing.T) {
 	}
 	snippetStore := proxmox.SnippetStore{Storage: "local", Dir: t.TempDir()}
 	orchestrator := NewJobOrchestrator(store, profiles, backend, manager, nil, snippetStore, "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIBtestkey agent@test", "http://10.77.0.1:8844", log.New(io.Discard, "", 0), nil, nil)
-	api := NewControlAPI(store, profiles, manager, nil, orchestrator, "")
+	api := NewControlAPI(store, profiles, manager, nil, orchestrator, "", nil)
 	fixed := time.Date(2026, 1, 30, 12, 0, 0, 0, time.UTC)
 	api.now = func() time.Time { return fixed }
 

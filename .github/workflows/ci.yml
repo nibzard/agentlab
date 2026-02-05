@@ -8,6 +8,9 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -21,6 +24,16 @@ jobs:
         run: go test -coverprofile=coverage.out -covermode=atomic ./...
       - name: Generate Coverage HTML
         run: go tool cover -html=coverage.out -o coverage.html
+      - name: Coverage Summary
+        id: coverage
+        run: |
+          total="$(go tool cover -func=coverage.out | awk '/^total:/{print $3}')"
+          echo "total=${total}" >> "$GITHUB_OUTPUT"
+          {
+            echo "### Go coverage"
+            echo ""
+            echo "**Total:** ${total}"
+          } >> "$GITHUB_STEP_SUMMARY"
       - name: Upload Coverage to Codecov
         uses: codecov/codecov-action@v4
         with:
@@ -28,10 +41,14 @@ jobs:
           fail_ci_if_error: false
           token: ${{ secrets.CODECOV_TOKEN }}
       - name: Comment Coverage on PR
-        if: github.event_name == 'pull_request'
-        uses: romeovs/coverage-report-action@v0
+        if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
+        uses: marocchino/sticky-pull-request-comment@v2
         with:
-          github-token: ${{ secrets.GITHUB_TOKEN }}
+          header: go-coverage
+          message: |
+            ### Go coverage
+
+            **Total:** ${{ steps.coverage.outputs.total }}
       - name: Upload Coverage Artifacts
         uses: actions/upload-artifact@v4
         with:

@@ -44,10 +44,10 @@ func TestCreateJob(t *testing.T) {
 	t.Run("missing id", func(t *testing.T) {
 		store := openTestStore(t)
 		job := models.Job{
-			RepoURL:  testutil.TestRepoURL,
-			Ref:      testutil.TestRef,
-			Profile:  testutil.TestProfile,
-			Status:   models.JobQueued,
+			RepoURL: testutil.TestRepoURL,
+			Ref:     testutil.TestRef,
+			Profile: testutil.TestProfile,
+			Status:  models.JobQueued,
 		}
 		err := store.CreateJob(ctx, job)
 		assert.EqualError(t, err, "job id is required")
@@ -203,7 +203,7 @@ func TestGetJobBySandboxVMID(t *testing.T) {
 		store := openTestStore(t)
 		vmid := 123
 		job := testutil.NewTestJob(testutil.JobOpts{
-			ID:        "job-1",
+			ID:          "job-1",
 			SandboxVMID: &vmid,
 		})
 		err := store.CreateJob(ctx, job)
@@ -239,9 +239,9 @@ func TestGetJobBySandboxVMID(t *testing.T) {
 
 		// Create older job
 		oldJob := testutil.NewTestJob(testutil.JobOpts{
-			ID:        "job-old",
-			Ref:       "old",
-			Status:    models.JobCompleted,
+			ID:          "job-old",
+			Ref:         "old",
+			Status:      models.JobCompleted,
 			SandboxVMID: &vmid,
 		})
 		err := store.CreateJob(ctx, oldJob)
@@ -249,12 +249,12 @@ func TestGetJobBySandboxVMID(t *testing.T) {
 
 		// Create newer job
 		newJob := testutil.NewTestJob(testutil.JobOpts{
-			ID:        "job-new",
-			Ref:       "new",
-			Status:    models.JobRunning,
+			ID:          "job-new",
+			Ref:         "new",
+			Status:      models.JobRunning,
 			SandboxVMID: &vmid,
-			CreatedAt: testutil.FixedTime.Add(time.Hour * 24),
-			UpdatedAt: testutil.FixedTime.Add(time.Hour * 24),
+			CreatedAt:   testutil.FixedTime.Add(time.Hour * 24),
+			UpdatedAt:   testutil.FixedTime.Add(time.Hour * 24),
 		})
 		err = store.CreateJob(ctx, newJob)
 		require.NoError(t, err)

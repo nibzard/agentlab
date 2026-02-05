@@ -23,6 +23,7 @@ import (
 // APIBackend implements Backend using Proxmox REST API.
 // ABOUTME: This backend uses HTTP requests to Proxmox's API at /api2/json.
 // It requires an API token for authentication and supports automatic node detection.
+type APIBackend struct {
 	// HTTP client configuration
 	HTTPClient    *http.Client // Custom HTTP client (optional, defaults to insecure TLS client)
 	BaseURL       string       // Proxmox API base URL (e.g., "https://localhost:8006/api2/json")
@@ -45,6 +46,7 @@ import (
 var _ Backend = (*APIBackend)(nil)
 
 // APIResponse represents the standard Proxmox API response structure.
+type APIResponse struct {
 	Data interface{} `json:"data"`
 }
 

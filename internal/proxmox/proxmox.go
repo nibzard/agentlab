@@ -42,6 +42,7 @@ type VMConfig struct {
 // Backend defines the interface for Proxmox operations.
 // ABOUTME: Both APIBackend and ShellBackend implement this interface, allowing
 // runtime backend selection and easy testing with mock implementations.
+type Backend interface {
 	// Clone creates a new VM by cloning a template.
 	// ABOUTME: The target VMID must be unique and not already exist in Proxmox.
 	Clone(ctx context.Context, template VMID, target VMID, name string) error

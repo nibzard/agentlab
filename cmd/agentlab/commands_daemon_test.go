@@ -10,8 +10,8 @@ import (
 	"time"
 
 	"github.com/agentlab/agentlab/internal/config"
-	"github.com/agentlab/agentlab/internal/db"
 	"github.com/agentlab/agentlab/internal/daemon"
+	"github.com/agentlab/agentlab/internal/db"
 	"github.com/agentlab/agentlab/internal/models"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -525,17 +525,17 @@ func TestCLIReadOnly_FullFlow(t *testing.T) {
 	t.Run("create job then query", func(t *testing.T) {
 		// Create a job directly in the DB
 		job := models.Job{
-			ID:          "flow-job-123",
-			RepoURL:     "https://github.com/example/test",
-			Ref:         "main",
-			Profile:     "test",
-			Task:        "test task",
-			Mode:        "dangerous",
-			TTLMinutes:  60,
-			Keepalive:   false,
-			Status:      models.JobQueued,
-			CreatedAt:   now,
-			UpdatedAt:   now,
+			ID:         "flow-job-123",
+			RepoURL:    "https://github.com/example/test",
+			Ref:        "main",
+			Profile:    "test",
+			Task:       "test task",
+			Mode:       "dangerous",
+			TTLMinutes: 60,
+			Keepalive:  false,
+			Status:     models.JobQueued,
+			CreatedAt:  now,
+			UpdatedAt:  now,
 		}
 		err = store.CreateJob(ctx, job)
 		require.NoError(t, err)

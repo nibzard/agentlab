@@ -22,13 +22,13 @@ import (
 
 const (
 	maxJSONBytes             = 1 << 20 // Maximum size for JSON request bodies (1MB)
-	defaultSandboxVMIDStart  = 1000   // Default starting VM ID for sandboxes
-	defaultJobRef            = "main" // Default git reference for jobs
+	defaultSandboxVMIDStart  = 1000    // Default starting VM ID for sandboxes
+	defaultJobRef            = "main"  // Default git reference for jobs
 	defaultJobMode           = "dangerous"
-	maxCreateJobIDIterations = 5      // Max retries for unique job ID generation
-	defaultEventsLimit       = 200    // Default events returned per query
-	defaultJobEventsTail     = 50     // Default events tailed for job details
-	maxEventsLimit           = 1000   // Maximum events allowed per query
+	maxCreateJobIDIterations = 5    // Max retries for unique job ID generation
+	defaultEventsLimit       = 200  // Default events returned per query
+	defaultJobEventsTail     = 50   // Default events tailed for job details
+	maxEventsLimit           = 1000 // Maximum events allowed per query
 )
 
 // ControlAPI handles local control plane HTTP requests over the Unix socket.

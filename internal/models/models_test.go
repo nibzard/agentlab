@@ -189,10 +189,10 @@ func TestJobJSONWithNilSandboxVMID(t *testing.T) {
 func TestProfileJSONSerialization(t *testing.T) {
 	rawYAML := "key: value\nnested:\n  item: 1"
 	p := Profile{
-		Name:      "default",
+		Name:       "default",
 		TemplateVM: 9000,
-		UpdatedAt: time.Now(),
-		RawYAML:   rawYAML,
+		UpdatedAt:  time.Now(),
+		RawYAML:    rawYAML,
 	}
 
 	data, err := json.Marshal(p)
@@ -407,17 +407,17 @@ func BenchmarkSandboxJSONMarshal(b *testing.B) {
 
 func BenchmarkJobJSONMarshal(b *testing.B) {
 	j := Job{
-		ID:          "job-123",
-		RepoURL:     "https://github.com/example/repo",
-		Ref:         "main",
-		Profile:     "default",
-		Task:        "test task",
-		Mode:        "dangerous",
-		TTLMinutes:  120,
-		Keepalive:   true,
-		Status:      JobRunning,
-		CreatedAt:   time.Now(),
-		UpdatedAt:   time.Now(),
+		ID:         "job-123",
+		RepoURL:    "https://github.com/example/repo",
+		Ref:        "main",
+		Profile:    "default",
+		Task:       "test task",
+		Mode:       "dangerous",
+		TTLMinutes: 120,
+		Keepalive:  true,
+		Status:     JobRunning,
+		CreatedAt:  time.Now(),
+		UpdatedAt:  time.Now(),
 	}
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {

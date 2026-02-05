@@ -214,10 +214,10 @@ func TestListSandboxes(t *testing.T) {
 			State: models.SandboxRunning,
 		})
 		sb2 := testutil.NewTestSandbox(testutil.SandboxOpts{
-			VMID:  testutil.TestVMID + 1,
-			Name:  "sandbox-2",
-			State: models.SandboxProvisioning,
-			CreatedAt: testutil.FixedTime.Add(time.Hour * 24),
+			VMID:          testutil.TestVMID + 1,
+			Name:          "sandbox-2",
+			State:         models.SandboxProvisioning,
+			CreatedAt:     testutil.FixedTime.Add(time.Hour * 24),
 			LastUpdatedAt: testutil.FixedTime.Add(time.Hour * 24),
 		})
 		err := store.CreateSandbox(ctx, sb1)

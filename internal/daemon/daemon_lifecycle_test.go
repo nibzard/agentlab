@@ -431,6 +431,7 @@ func TestServe_ConcurrentSignals(t *testing.T) {
 	})
 
 	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
 
 	// Simulate multiple rapid signals
 	for i := 0; i < 5; i++ {

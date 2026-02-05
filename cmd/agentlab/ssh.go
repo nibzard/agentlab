@@ -7,7 +7,7 @@
 // sandbox VMs via the agent subnet. It includes route detection to warn
 // when connecting to sandboxes over Tailscale without proper subnet routing.
 //
-# Usage
+// Usage
 //
 //	# Print SSH command (default)
 //	agentlab ssh 1001
@@ -21,12 +21,12 @@
 //	# Output JSON for scripting
 //	agentlab ssh 1001 --json
 //
-# Route Detection
+// # Route Detection
 //
 // On Linux, the command uses "ip route get" to verify that the route to
 // the sandbox IP goes through the Tailscale interface. If not, it warns
 // that the agent subnet route may need to be enabled in the Tailscale admin
-# console.
+// console.
 package main
 
 import (

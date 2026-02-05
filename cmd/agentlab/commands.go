@@ -3,7 +3,7 @@
 
 // Package main implements all CLI command handlers for agentlab.
 //
-# Command Structure
+// # Command Structure
 //
 // Commands are organized hierarchically:
 //
@@ -13,12 +13,12 @@
 //	ssh:       Generate SSH connection parameters
 //	logs:      View sandbox event logs
 //
-# Output Formats
+// # Output Formats
 //
 // By default, commands produce human-readable text output. With --json,
 // commands output JSON for programmatic consumption.
 //
-# Flag Parsing
+// # Flag Parsing
 //
 // This package uses the standard flag package with custom error handling
 // to provide consistent error messages and usage output.

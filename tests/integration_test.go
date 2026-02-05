@@ -12,8 +12,8 @@ import (
 	"time"
 
 	"github.com/agentlab/agentlab/internal/config"
-	"github.com/agentlab/agentlab/internal/db"
 	"github.com/agentlab/agentlab/internal/daemon"
+	"github.com/agentlab/agentlab/internal/db"
 	"github.com/agentlab/agentlab/internal/models"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -116,11 +116,11 @@ func TestCompleteJobLifecycle(t *testing.T) {
 
 	// Step 3: Create a sandbox for the job
 	sandbox := models.Sandbox{
-		VMID:        1000,
-		Name:        "integration-test-sandbox",
-		Profile:     "default",
-		State:       models.SandboxRunning,
-		CreatedAt:   time.Now().UTC(),
+		VMID:          1000,
+		Name:          "integration-test-sandbox",
+		Profile:       "default",
+		State:         models.SandboxRunning,
+		CreatedAt:     time.Now().UTC(),
 		LastUpdatedAt: time.Now().UTC(),
 	}
 	err = store.CreateSandbox(ctx, sandbox)
@@ -186,12 +186,12 @@ func TestLeaseRenewal(t *testing.T) {
 
 	// Step 1: Create sandbox with TTL
 	sandbox := models.Sandbox{
-		VMID:         1001,
-		Name:         "lease-test-sandbox",
-		Profile:      "default",
-		State:        models.SandboxRunning,
-		LeaseExpires: now.Add(1 * time.Hour),
-		CreatedAt:    now,
+		VMID:          1001,
+		Name:          "lease-test-sandbox",
+		Profile:       "default",
+		State:         models.SandboxRunning,
+		LeaseExpires:  now.Add(1 * time.Hour),
+		CreatedAt:     now,
 		LastUpdatedAt: now,
 	}
 	err := store.CreateSandbox(ctx, sandbox)
@@ -253,11 +253,11 @@ func TestWorkspaceAttachDetach(t *testing.T) {
 
 	// Step 2: Create sandbox A
 	sandboxA := models.Sandbox{
-		VMID:        2000,
-		Name:        "sandbox-a",
-		Profile:     "default",
-		State:       models.SandboxRunning,
-		CreatedAt:   time.Now().UTC(),
+		VMID:          2000,
+		Name:          "sandbox-a",
+		Profile:       "default",
+		State:         models.SandboxRunning,
+		CreatedAt:     time.Now().UTC(),
 		LastUpdatedAt: time.Now().UTC(),
 	}
 	err = store.CreateSandbox(ctx, sandboxA)
@@ -286,11 +286,11 @@ func TestWorkspaceAttachDetach(t *testing.T) {
 
 	// Step 5: Create sandbox B
 	sandboxB := models.Sandbox{
-		VMID:        2001,
-		Name:        "sandbox-b",
-		Profile:     "default",
-		State:       models.SandboxRunning,
-		CreatedAt:   time.Now().UTC(),
+		VMID:          2001,
+		Name:          "sandbox-b",
+		Profile:       "default",
+		State:         models.SandboxRunning,
+		CreatedAt:     time.Now().UTC(),
 		LastUpdatedAt: time.Now().UTC(),
 	}
 	err = store.CreateSandbox(ctx, sandboxB)
@@ -342,11 +342,11 @@ func TestErrorRecovery(t *testing.T) {
 
 	// Step 3: Create a sandbox in FAILED state (simulating cleanup)
 	sandbox := models.Sandbox{
-		VMID:        3000,
-		Name:        "failed-sandbox",
-		Profile:     "default",
-		State:       models.SandboxFailed,
-		CreatedAt:   time.Now().UTC(),
+		VMID:          3000,
+		Name:          "failed-sandbox",
+		Profile:       "default",
+		State:         models.SandboxFailed,
+		CreatedAt:     time.Now().UTC(),
 		LastUpdatedAt: time.Now().UTC(),
 	}
 	err = store.CreateSandbox(ctx, sandbox)
@@ -383,12 +383,12 @@ func TestDaemonStartup(t *testing.T) {
 
 	// Create an active sandbox with lease
 	sandbox := models.Sandbox{
-		VMID:         4000,
-		Name:         "existing-sandbox",
-		Profile:      "default",
-		State:        models.SandboxRunning,
-		LeaseExpires: now.Add(1 * time.Hour),
-		CreatedAt:    now.Add(-1 * time.Hour),
+		VMID:          4000,
+		Name:          "existing-sandbox",
+		Profile:       "default",
+		State:         models.SandboxRunning,
+		LeaseExpires:  now.Add(1 * time.Hour),
+		CreatedAt:     now.Add(-1 * time.Hour),
 		LastUpdatedAt: now,
 	}
 	err = store.CreateSandbox(ctx, sandbox)
@@ -471,11 +471,11 @@ func TestConcurrentOperations(t *testing.T) {
 	for i := 0; i < numJobs; i++ {
 		vmid := 5000 + i
 		sandboxes[i] = models.Sandbox{
-			VMID:        vmid,
-			Name:        fmt.Sprintf("concurrent-sandbox-%d", i),
-			Profile:     "default",
-			State:       models.SandboxRunning,
-			CreatedAt:   now,
+			VMID:          vmid,
+			Name:          fmt.Sprintf("concurrent-sandbox-%d", i),
+			Profile:       "default",
+			State:         models.SandboxRunning,
+			CreatedAt:     now,
 			LastUpdatedAt: now,
 		}
 		err := store.CreateSandbox(ctx, sandboxes[i])
@@ -533,24 +533,24 @@ func TestArtifactRetentionCandidateQuery(t *testing.T) {
 	// Step 1: Create a completed job with sandbox
 	vmid := 6000
 	job := models.Job{
-		ID:        "retention-test-job",
-		RepoURL:   "https://github.com/example/repo",
-		Ref:       "main",
-		Profile:   "default",
-		Status:    models.JobCompleted,
+		ID:          "retention-test-job",
+		RepoURL:     "https://github.com/example/repo",
+		Ref:         "main",
+		Profile:     "default",
+		Status:      models.JobCompleted,
 		SandboxVMID: &vmid,
-		CreatedAt: now.Add(-24 * time.Hour),
-		UpdatedAt: now.Add(-1 * time.Hour),
+		CreatedAt:   now.Add(-24 * time.Hour),
+		UpdatedAt:   now.Add(-1 * time.Hour),
 	}
 	err := store.CreateJob(ctx, job)
 	require.NoError(t, err)
 
 	sandbox := models.Sandbox{
-		VMID:        vmid,
-		Name:        "retention-sandbox",
-		Profile:     "default",
-		State:       models.SandboxDestroyed,
-		CreatedAt:   now.Add(-24 * time.Hour),
+		VMID:          vmid,
+		Name:          "retention-sandbox",
+		Profile:       "default",
+		State:         models.SandboxDestroyed,
+		CreatedAt:     now.Add(-24 * time.Hour),
 		LastUpdatedAt: now.Add(-1 * time.Hour),
 	}
 	err = store.CreateSandbox(ctx, sandbox)

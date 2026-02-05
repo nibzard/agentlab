@@ -49,52 +49,52 @@ func TestRedactorEmptyInput(t *testing.T) {
 
 func TestRedactorAddKeys(t *testing.T) {
 	tests := []struct {
-		name     string
-		initial  []string
-		add      []string
-		input    string
+		name         string
+		initial      []string
+		add          []string
+		input        string
 		wantRedacted bool
 	}{
 		{
-			name:     "default keys redact common tokens",
-			initial:  nil,
-			add:      nil,
-			input:    "access_token=abc123",
+			name:         "default keys redact common tokens",
+			initial:      nil,
+			add:          nil,
+			input:        "access_token=abc123",
 			wantRedacted: true,
 		},
 		{
-			name:     "custom key is redacted",
-			initial:  nil,
-			add:      []string{"custom_key"},
-			input:    "custom_key=value123",
+			name:         "custom key is redacted",
+			initial:      nil,
+			add:          []string{"custom_key"},
+			input:        "custom_key=value123",
 			wantRedacted: true,
 		},
 		{
-			name:     "case insensitive key matching",
-			initial:  nil,
-			add:      []string{"API_KEY"},
-			input:    "api_key=secret",
+			name:         "case insensitive key matching",
+			initial:      nil,
+			add:          []string{"API_KEY"},
+			input:        "api_key=secret",
 			wantRedacted: true,
 		},
 		{
-			name:     "key with whitespace is normalized",
-			initial:  nil,
-			add:      []string{"  key  "},
-			input:    "key=value",
+			name:         "key with whitespace is normalized",
+			initial:      nil,
+			add:          []string{"  key  "},
+			input:        "key=value",
 			wantRedacted: true,
 		},
 		{
-			name:     "empty key is ignored",
-			initial:  nil,
-			add:      []string{""},
-			input:    "key=value",
+			name:         "empty key is ignored",
+			initial:      nil,
+			add:          []string{""},
+			input:        "key=value",
 			wantRedacted: false,
 		},
 		{
-			name:     "duplicate key is ignored",
-			initial:  nil,
-			add:      []string{"secret", "secret"},
-			input:    "secret=value",
+			name:         "duplicate key is ignored",
+			initial:      nil,
+			add:          []string{"secret", "secret"},
+			input:        "secret=value",
 			wantRedacted: true,
 		},
 	}
@@ -112,45 +112,45 @@ func TestRedactorAddKeys(t *testing.T) {
 
 func TestRedactorAddValues(t *testing.T) {
 	tests := []struct {
-		name     string
-		values   []string
-		input    string
+		name         string
+		values       []string
+		input        string
 		wantRedacted bool
 	}{
 		{
-			name:     "value is redacted",
-			values:   []string{"secret123"},
-			input:    "my password is secret123",
+			name:         "value is redacted",
+			values:       []string{"secret123"},
+			input:        "my password is secret123",
 			wantRedacted: true,
 		},
 		{
-			name:     "short value is ignored",
-			values:   []string{"abc"},
-			input:    "value is abc",
+			name:         "short value is ignored",
+			values:       []string{"abc"},
+			input:        "value is abc",
 			wantRedacted: false,
 		},
 		{
-			name:     "whitespace-only value is ignored",
-			values:   []string{"   "},
-			input:    "some text",
+			name:         "whitespace-only value is ignored",
+			values:       []string{"   "},
+			input:        "some text",
 			wantRedacted: false,
 		},
 		{
-			name:     "empty value is ignored",
-			values:   []string{""},
-			input:    "some text",
+			name:         "empty value is ignored",
+			values:       []string{""},
+			input:        "some text",
 			wantRedacted: false,
 		},
 		{
-			name:     "value with whitespace is trimmed",
-			values:   []string{"  secret123  "},
-			input:    "password is secret123",
+			name:         "value with whitespace is trimmed",
+			values:       []string{"  secret123  "},
+			input:        "password is secret123",
 			wantRedacted: true,
 		},
 		{
-			name:     "duplicate value is ignored",
-			values:   []string{"secret", "secret"},
-			input:    "the secret is out",
+			name:         "duplicate value is ignored",
+			values:       []string{"secret", "secret"},
+			input:        "the secret is out",
 			wantRedacted: true,
 		},
 	}
@@ -248,68 +248,68 @@ func TestRedactorDefaultKeys(t *testing.T) {
 	redactor := NewRedactor(nil)
 
 	tests := []struct {
-		name  string
-		input string
+		name         string
+		input        string
 		wantRedacted bool
 	}{
 		{
-			name:  "token",
-			input:  "token=abc123",
+			name:         "token",
+			input:        "token=abc123",
 			wantRedacted: true,
 		},
 		{
-			name:  "access_token",
-			input:  "access_token=xyz",
+			name:         "access_token",
+			input:        "access_token=xyz",
 			wantRedacted: true,
 		},
 		{
-			name:  "refresh_token",
-			input:  "refresh_token=xyz",
+			name:         "refresh_token",
+			input:        "refresh_token=xyz",
 			wantRedacted: true,
 		},
 		{
-			name:  "bootstrap_token",
-			input:  "bootstrap_token=xyz",
+			name:         "bootstrap_token",
+			input:        "bootstrap_token=xyz",
 			wantRedacted: true,
 		},
 		{
-			name:  "artifact_token",
-			input:  "artifact_token=xyz",
+			name:         "artifact_token",
+			input:        "artifact_token=xyz",
 			wantRedacted: true,
 		},
 		{
-			name:  "openai_api_key",
-			input:  "openai_api_key=sk-xyz",
+			name:         "openai_api_key",
+			input:        "openai_api_key=sk-xyz",
 			wantRedacted: true,
 		},
 		{
-			name:  "anthropic_api_key",
-			input:  "anthropic_api_key=sk-ant",
+			name:         "anthropic_api_key",
+			input:        "anthropic_api_key=sk-ant",
 			wantRedacted: true,
 		},
 		{
-			name:  "claude_api_key",
-			input:  "claude_api_key=sk-ant",
+			name:         "claude_api_key",
+			input:        "claude_api_key=sk-ant",
 			wantRedacted: true,
 		},
 		{
-			name:  "github_token",
-			input:  "github_token=ghp_xyz",
+			name:         "github_token",
+			input:        "github_token=ghp_xyz",
 			wantRedacted: true,
 		},
 		{
-			name:  "ssh_private_key",
-			input:  "ssh_private_key=xyz",
+			name:         "ssh_private_key",
+			input:        "ssh_private_key=xyz",
 			wantRedacted: true,
 		},
 		{
-			name:  "private_key",
-			input:  "private_key=xyz",
+			name:         "private_key",
+			input:        "private_key=xyz",
 			wantRedacted: true,
 		},
 		{
-			name:  "non-sensitive key",
-			input:  "username=john",
+			name:         "non-sensitive key",
+			input:        "username=john",
 			wantRedacted: false,
 		},
 	}

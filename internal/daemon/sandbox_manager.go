@@ -276,11 +276,11 @@ func (m *SandboxManager) RenewLease(ctx context.Context, vmid int, ttl time.Dura
 // must be in a state that allows transition to DESTROYED (typically STOPPED).
 //
 // The destroy process:
-//   1. Detach any attached workspace (if configured)
-//   2. Stop the VM in Proxmox
-//   3. Destroy the VM in Proxmox
-//   4. Transition state to DESTROYED
-//   5. Clean up cloud-init snippets (if configured)
+//  1. Detach any attached workspace (if configured)
+//  2. Stop the VM in Proxmox
+//  3. Destroy the VM in Proxmox
+//  4. Transition state to DESTROYED
+//  5. Clean up cloud-init snippets (if configured)
 //
 // Parameters:
 //   - ctx: Context for cancellation
@@ -401,10 +401,10 @@ func (m *SandboxManager) destroySandbox(ctx context.Context, vmid int) error {
 // an inconsistent state.
 //
 // The force destroy process:
-//   1. Detach any attached workspace (if configured)
-//   2. Destroy the VM in Proxmox (no stop first)
-//   3. Transition state to DESTROYED
-//   4. Clean up cloud-init snippets (if configured)
+//  1. Detach any attached workspace (if configured)
+//  2. Destroy the VM in Proxmox (no stop first)
+//  3. Transition state to DESTROYED
+//  4. Clean up cloud-init snippets (if configured)
 //
 // Parameters:
 //   - ctx: Context for cancellation
