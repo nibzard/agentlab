@@ -66,10 +66,10 @@ func (er ExecRunner) Run(ctx context.Context, name string, args ...string) (stri
 // ABOUTME: This backend uses Proxmox CLI tools instead of the REST API. It may encounter
 // IPC issues on some Proxmox configurations. Consider using BashRunner for better compatibility.
 type ShellBackend struct {
-	Node      string        // Proxmox node name (empty for auto-detection)
-	AgentCIDR string        // CIDR block for selecting guest IPs (e.g., "10.77.0.0/16")
-	QmPath    string        // Path to qm command (defaults to "qm")
-	PveShPath string        // Path to pvesh command (defaults to "pvesh")
+	Node      string // Proxmox node name (empty for auto-detection)
+	AgentCIDR string // CIDR block for selecting guest IPs (e.g., "10.77.0.0/16")
+	QmPath    string // Path to qm command (defaults to "qm")
+	PveShPath string // Path to pvesh command (defaults to "pvesh")
 	Runner    CommandRunner // Command execution strategy (defaults to ExecRunner)
 
 	// Use BashRunner to work around Proxmox IPC issues

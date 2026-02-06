@@ -7,7 +7,7 @@
 // sandbox VMs via the agent subnet. It includes route detection to warn
 // when connecting to sandboxes over Tailscale without proper subnet routing.
 //
-// Usage
+// # Usage
 //
 //	# Print SSH command (default)
 //	agentlab ssh 1001

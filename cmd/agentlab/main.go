@@ -15,7 +15,7 @@
 //	--timeout       Request timeout (e.g., 30s, 2m)
 //	--version       Print version and exit
 //
-// Usage Examples
+// # Usage Examples
 //
 //	Run a job:
 //	  agentlab job run --repo https://github.com/user/repo --task "test all" --profile yolo-ephemeral
