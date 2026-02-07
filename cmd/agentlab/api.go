@@ -310,6 +310,14 @@ func (c *apiClient) withTimeout(ctx context.Context) (context.Context, context.C
 	if c == nil || c.timeout <= 0 {
 		return ctx, func() {}
 	}
+	if deadline, ok := ctx.Deadline(); ok {
+		// Respect existing deadlines by taking the earlier of the current deadline and (now + c.timeout).
+		timeoutDeadline := time.Now().Add(c.timeout)
+		if timeoutDeadline.Before(deadline) {
+			return context.WithDeadline(ctx, timeoutDeadline)
+		}
+		return ctx, func() {}
+	}
 	return context.WithTimeout(ctx, c.timeout)
 }
 

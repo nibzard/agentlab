@@ -11,6 +11,7 @@ import (
 type profileProvisionSpec struct {
 	Network   profileNetworkSpec  `yaml:"network"`
 	Resources profileResourceSpec `yaml:"resources"`
+	Storage   profileStorageSpec  `yaml:"storage"`
 }
 
 type profileNetworkSpec struct {
@@ -24,9 +25,19 @@ type profileResourceSpec struct {
 	CPUPinning string `yaml:"cpulist"`
 }
 
+type profileStorageSpec struct {
+	RootSizeGB int    `yaml:"root_size_gb"`
+	SCSIHW     string `yaml:"scsihw"`
+}
+
 func applyProfileVMConfig(profile models.Profile, cfg proxmox.VMConfig) (proxmox.VMConfig, error) {
 	raw := strings.TrimSpace(profile.RawYAML)
 	if raw == "" {
+		if strings.TrimSpace(cfg.SCSIHW) == "" {
+			// Many cloud images do not include legacy LSI SCSI drivers in the initramfs.
+			// Default to virtio-scsi so cloned sandboxes reliably boot.
+			cfg.SCSIHW = "virtio-scsi-pci"
+		}
 		return cfg, nil
 	}
 	var spec profileProvisionSpec
@@ -47,6 +58,17 @@ func applyProfileVMConfig(profile models.Profile, cfg proxmox.VMConfig) (proxmox
 	}
 	if strings.TrimSpace(spec.Network.Model) != "" {
 		cfg.NetModel = strings.TrimSpace(spec.Network.Model)
+	}
+	if spec.Storage.RootSizeGB > 0 {
+		cfg.RootDiskGB = spec.Storage.RootSizeGB
+	}
+	if strings.TrimSpace(spec.Storage.SCSIHW) != "" {
+		cfg.SCSIHW = strings.TrimSpace(spec.Storage.SCSIHW)
+	}
+	if strings.TrimSpace(cfg.SCSIHW) == "" {
+		// Many cloud images do not include legacy LSI SCSI drivers in the initramfs.
+		// Default to virtio-scsi so cloned sandboxes reliably boot.
+		cfg.SCSIHW = "virtio-scsi-pci"
 	}
 	return cfg, nil
 }

@@ -41,16 +41,20 @@ func LoadProfiles(dir string) (map[string]models.Profile, error) {
 			return nil, fmt.Errorf("read profile %s: %w", path, err)
 		}
 
-		// Use decoder to handle multi-document YAML files
+		// Use decoder to handle multi-document YAML files and preserve per-document YAML.
 		decoder := yaml.NewDecoder(bytes.NewReader(data))
 		docIndex := 0
 		for {
-			var spec profileSpec
-			err := decoder.Decode(&spec)
+			var node yaml.Node
+			err := decoder.Decode(&node)
 			if err != nil {
 				if errors.Is(err, io.EOF) {
 					break // End of documents
 				}
+				return nil, fmt.Errorf("parse profile %s (document %d): %w", path, docIndex, err)
+			}
+			var spec profileSpec
+			if err := node.Decode(&spec); err != nil {
 				return nil, fmt.Errorf("parse profile %s (document %d): %w", path, docIndex, err)
 			}
 			if spec.Name == "" {
@@ -66,11 +70,15 @@ func LoadProfiles(dir string) (map[string]models.Profile, error) {
 			if info, err := os.Stat(path); err == nil {
 				modTime = info.ModTime().UTC()
 			}
+			rawDoc, err := yaml.Marshal(&node)
+			if err != nil {
+				return nil, fmt.Errorf("encode profile %s (document %d): %w", path, docIndex, err)
+			}
 			profiles[spec.Name] = models.Profile{
 				Name:       spec.Name,
 				TemplateVM: spec.TemplateVM,
 				UpdatedAt:  modTime,
-				RawYAML:    string(data), // Store full file for multi-doc
+				RawYAML:    string(rawDoc),
 			}
 			docIndex++
 		}

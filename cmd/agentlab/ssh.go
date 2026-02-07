@@ -52,6 +52,7 @@ const (
 	routeCheckTimeout    = 500 * time.Millisecond
 	defaultAgentSubnet   = "10.77.0.0/16"
 	tailscaleInterfaceID = "tailscale"
+	defaultIdentityPath  = "/etc/agentlab/keys/agentlab_id_ed25519"
 )
 
 // sshOutput contains the SSH connection details for a sandbox.
@@ -94,21 +95,29 @@ func runSSHCommand(ctx context.Context, args []string, base commonFlags) error {
 	fs.BoolVar(&execFlag, "e", false, "exec ssh instead of printing the command")
 	fs.BoolVar(&help, "help", false, "show help")
 	fs.BoolVar(&help, "h", false, "show help")
-	if err := parseFlags(fs, args, printSSHUsage, &help, opts.jsonOutput); err != nil {
-		return err
-	}
-	if fs.NArg() < 1 {
+
+	preArgs, explicitRemoteCmd, hasExplicitRemoteCmd := splitDoubleDash(args)
+	vmidToken, parseArgs := extractVMIDArg(preArgs)
+	if vmidToken == "" {
 		printSSHUsage()
 		return fmt.Errorf("vmid is required")
 	}
-	if fs.NArg() > 1 {
-		printSSHUsage()
-		return fmt.Errorf("unexpected extra arguments")
+	// Parse flags from the remaining args (supports flags appearing before or after <vmid>).
+	if err := parseFlags(fs, parseArgs, printSSHUsage, &help, opts.jsonOutput); err != nil {
+		return err
 	}
-	vmid, err := parseVMID(fs.Arg(0))
+	vmid, err := parseVMID(vmidToken)
 	if err != nil {
 		return err
 	}
+
+	remoteCmd := []string{}
+	if hasExplicitRemoteCmd {
+		remoteCmd = explicitRemoteCmd
+	} else {
+		remoteCmd = fs.Args()
+	}
+
 	user = strings.TrimSpace(user)
 	if user == "" {
 		return fmt.Errorf("user is required")
@@ -119,31 +128,69 @@ func runSSHCommand(ctx context.Context, args []string, base commonFlags) error {
 	if opts.jsonOutput && execFlag {
 		return fmt.Errorf("cannot use --json with --exec")
 	}
-	if execFlag && !isInteractive() {
-		return fmt.Errorf("--exec requires an interactive terminal")
+	if execFlag && len(remoteCmd) == 0 && !isInteractive() {
+		return fmt.Errorf("--exec requires an interactive terminal (or pass a remote command after <vmid> with --)")
 	}
 
 	client := newAPIClient(opts.socketPath, opts.timeout)
-	payload, err := client.doJSON(ctx, http.MethodGet, fmt.Sprintf("/v1/sandboxes/%d", vmid), nil)
-	if err != nil {
-		return err
+
+	waitCtx := ctx
+	cancel := func() {}
+	if opts.timeout > 0 {
+		waitCtx, cancel = context.WithTimeout(ctx, opts.timeout)
 	}
+	defer cancel()
+
 	var resp sandboxResponse
-	if err := json.Unmarshal(payload, &resp); err != nil {
-		return err
+	var ip string
+	wait := 250 * time.Millisecond
+	maxWait := 2 * time.Second
+	for {
+		payload, err := client.doJSON(waitCtx, http.MethodGet, fmt.Sprintf("/v1/sandboxes/%d", vmid), nil)
+		if err != nil {
+			return err
+		}
+		if err := json.Unmarshal(payload, &resp); err != nil {
+			return err
+		}
+		ip = strings.TrimSpace(resp.IP)
+		if ip != "" {
+			break
+		}
+		if waitCtx.Err() != nil {
+			return fmt.Errorf("sandbox %d has no IP yet", vmid)
+		}
+		timer := time.NewTimer(wait)
+		select {
+		case <-waitCtx.Done():
+			timer.Stop()
+			return fmt.Errorf("sandbox %d has no IP yet", vmid)
+		case <-timer.C:
+		}
+		wait *= 2
+		if wait > maxWait {
+			wait = maxWait
+		}
 	}
-	ip := strings.TrimSpace(resp.IP)
-	if ip == "" {
-		return fmt.Errorf("sandbox %d has no IP yet", vmid)
-	}
+
 	parsedIP := net.ParseIP(ip)
 	if parsedIP == nil {
 		return fmt.Errorf("sandbox %d returned invalid IP %q", vmid, ip)
 	}
 
 	identity = strings.TrimSpace(identity)
+	if identity == "" {
+		if env := strings.TrimSpace(os.Getenv("AGENTLAB_SSH_IDENTITY")); env != "" {
+			identity = env
+		} else if isReadableFile(defaultIdentityPath) {
+			identity = defaultIdentityPath
+		}
+	}
 	target := fmt.Sprintf("%s@%s", user, ip)
 	sshArgs := buildSSHArgs(target, port, identity)
+	if len(remoteCmd) > 0 {
+		sshArgs = append(sshArgs, remoteCmd...)
+	}
 	fullArgs := append([]string{"ssh"}, sshArgs...)
 	warning := tailnetWarning(ctx, parsedIP)
 
@@ -177,8 +224,16 @@ func runSSHCommand(ctx context.Context, args []string, base commonFlags) error {
 
 // buildSSHArgs constructs the SSH argument list for connecting to a target.
 func buildSSHArgs(target string, port int, identity string) []string {
-	args := []string{}
+	args := []string{
+		// Avoid prompts so AI agents can run reliably in non-interactive contexts.
+		"-o", "StrictHostKeyChecking=no",
+		"-o", "UserKnownHostsFile=/dev/null",
+		"-o", "LogLevel=ERROR",
+		"-o", "BatchMode=yes",
+		"-o", "ConnectTimeout=10",
+	}
 	if identity != "" {
+		args = append(args, "-o", "IdentitiesOnly=yes")
 		args = append(args, "-i", identity)
 	}
 	if port != defaultSSHPort {
@@ -186,6 +241,49 @@ func buildSSHArgs(target string, port int, identity string) []string {
 	}
 	args = append(args, target)
 	return args
+}
+
+func splitDoubleDash(args []string) (before []string, after []string, ok bool) {
+	for i, v := range args {
+		if v == "--" {
+			return args[:i], args[i+1:], true
+		}
+	}
+	return args, nil, false
+}
+
+func extractVMIDArg(args []string) (vmid string, rest []string) {
+	for i, v := range args {
+		trimmed := strings.TrimSpace(v)
+		if trimmed == "" {
+			continue
+		}
+		if strings.HasPrefix(trimmed, "-") {
+			continue
+		}
+		vmid = trimmed
+		rest = append([]string{}, args[:i]...)
+		rest = append(rest, args[i+1:]...)
+		return vmid, rest
+	}
+	return "", args
+}
+
+func isReadableFile(path string) bool {
+	path = strings.TrimSpace(path)
+	if path == "" {
+		return false
+	}
+	info, err := os.Stat(path)
+	if err != nil || info.IsDir() {
+		return false
+	}
+	f, err := os.Open(path)
+	if err != nil {
+		return false
+	}
+	_ = f.Close()
+	return true
 }
 
 // execSSH replaces the current process with SSH.

@@ -60,14 +60,30 @@ func (b *APIBackend) Clone(ctx context.Context, template VMID, target VMID, name
 
 	params := url.Values{}
 	params.Set("newid", strconv.Itoa(int(target)))
-	params.Set("full", "1")
+	// Use linked clones for speed and to match the shell backend's behavior.
+	// Full clones are slower and can trigger provisioning timeouts on busy storage.
+	params.Set("full", "0")
 	if name != "" {
 		params.Set("name", name)
 	}
 
 	endpoint := fmt.Sprintf("/nodes/%s/qemu/%d/clone", node, template)
-	_, err = b.doPost(ctx, endpoint, params)
-	return err
+	task, err := b.doPost(ctx, endpoint, params)
+	if err != nil {
+		if !shouldRetryFullClone(err) {
+			return err
+		}
+		linkedErr := err
+		params.Set("full", "1")
+		task, err = b.doPost(ctx, endpoint, params)
+		if err != nil {
+			return fmt.Errorf("linked clone failed: %w; full clone retry failed: %v", linkedErr, err)
+		}
+	}
+	if upid := parseTaskUPID(task); upid != "" {
+		return b.waitForTask(ctx, node, upid)
+	}
+	return nil
 }
 
 // Configure updates VM configuration.
@@ -88,8 +104,11 @@ func (b *APIBackend) Configure(ctx context.Context, vmid VMID, cfg VMConfig) err
 	if cfg.MemoryMB > 0 {
 		params.Set("memory", strconv.Itoa(cfg.MemoryMB))
 	}
+	if cfg.SCSIHW != "" {
+		params.Set("scsihw", cfg.SCSIHW)
+	}
 	if cfg.CPUPinning != "" {
-		params.Set("cpulimit", cfg.CPUPinning)
+		params.Set("cpulist", cfg.CPUPinning)
 	}
 	if cfg.Bridge != "" || cfg.NetModel != "" {
 		net0 := buildNet0(cfg.NetModel, cfg.Bridge)
@@ -99,13 +118,19 @@ func (b *APIBackend) Configure(ctx context.Context, vmid VMID, cfg VMConfig) err
 		params.Set("cicustom", formatCICustom(cfg.CloudInit))
 	}
 
-	if len(params) == 0 {
-		return nil
+	if len(params) > 0 {
+		endpoint := fmt.Sprintf("/nodes/%s/qemu/%d/config", node, vmid)
+		if _, err := b.doPut(ctx, endpoint, params); err != nil {
+			return err
+		}
 	}
 
-	endpoint := fmt.Sprintf("/nodes/%s/qemu/%d/config", node, vmid)
-	_, err = b.doPut(ctx, endpoint, params)
-	return err
+	if cfg.RootDiskGB > 0 {
+		if err := b.ensureRootDiskSize(ctx, node, vmid, cfg.RootDisk, cfg.RootDiskGB); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // Start starts a VM.
@@ -117,8 +142,14 @@ func (b *APIBackend) Start(ctx context.Context, vmid VMID) error {
 	}
 
 	endpoint := fmt.Sprintf("/nodes/%s/qemu/%d/status/start", node, vmid)
-	_, err = b.doPost(ctx, endpoint, nil)
-	return err
+	task, err := b.doPost(ctx, endpoint, nil)
+	if err != nil {
+		return err
+	}
+	if upid := parseTaskUPID(task); upid != "" {
+		return b.waitForTask(ctx, node, upid)
+	}
+	return nil
 }
 
 // Stop stops a VM.
@@ -130,12 +161,15 @@ func (b *APIBackend) Stop(ctx context.Context, vmid VMID) error {
 	}
 
 	endpoint := fmt.Sprintf("/nodes/%s/qemu/%d/status/stop", node, vmid)
-	_, err = b.doPost(ctx, endpoint, nil)
+	task, err := b.doPost(ctx, endpoint, nil)
 	if err != nil {
 		if isAPIVMNotFound(err) {
 			return fmt.Errorf("%w: %v", ErrVMNotFound, err)
 		}
 		return err
+	}
+	if upid := parseTaskUPID(task); upid != "" {
+		return b.waitForTask(ctx, node, upid)
 	}
 	return nil
 }
@@ -152,12 +186,15 @@ func (b *APIBackend) Destroy(ctx context.Context, vmid VMID) error {
 	params.Set("purge", "1")
 
 	endpoint := fmt.Sprintf("/nodes/%s/qemu/%d", node, vmid)
-	_, err = b.doDelete(ctx, endpoint, params)
+	task, err := b.doDelete(ctx, endpoint, params)
 	if err != nil {
 		if isAPIVMNotFound(err) {
 			return fmt.Errorf("%w: %v", ErrVMNotFound, err)
 		}
 		return err
+	}
+	if upid := parseTaskUPID(task); upid != "" {
+		return b.waitForTask(ctx, node, upid)
 	}
 	return nil
 }
@@ -194,7 +231,8 @@ func (b *APIBackend) Status(ctx context.Context, vmid VMID) (Status, error) {
 }
 
 // GuestIP retrieves the guest IP address.
-// ABOUTME: First attempts to query the guest agent, then falls back to DHCP lease lookup.
+// ABOUTME: Polls for an IP via DHCP lease lookup and the guest agent in parallel (interleaved),
+// since DHCP commonly arrives before the guest agent is installed/started by cloud-init.
 // Returns ErrGuestIPNotFound if no IP can be determined.
 func (b *APIBackend) GuestIP(ctx context.Context, vmid VMID) (string, error) {
 	node, err := b.ensureNode(ctx)
@@ -202,24 +240,106 @@ func (b *APIBackend) GuestIP(ctx context.Context, vmid VMID) (string, error) {
 		return "", err
 	}
 
-	ip, err := b.pollGuestAgentIP(ctx, node, vmid)
-	if err == nil {
-		return ip, nil
+	var netblock *net.IPNet
+	if b.AgentCIDR != "" {
+		_, parsed, err := net.ParseCIDR(b.AgentCIDR)
+		if err != nil {
+			return "", fmt.Errorf("invalid agent CIDR %q: %w", b.AgentCIDR, err)
+		}
+		netblock = parsed
 	}
+
+	dhcpErr := ErrGuestIPNotFound
+	macs := []string{}
+	leaseFiles := b.leasePaths()
+	if len(leaseFiles) == 0 {
+		dhcpErr = fmt.Errorf("%w: no DHCP lease files configured", ErrGuestIPNotFound)
+	} else {
+		endpoint := fmt.Sprintf("/nodes/%s/qemu/%d/config", node, vmid)
+		data, err := b.doGet(ctx, endpoint)
+		if err != nil {
+			dhcpErr = err
+		} else {
+			// Proxmox config values can be strings, numbers, etc. We only care about "net*" keys.
+			var config map[string]interface{}
+			if err := json.Unmarshal(data, &config); err != nil {
+				dhcpErr = fmt.Errorf("parse vm config: %w", err)
+			} else {
+				for k, v := range config {
+					if !strings.HasPrefix(k, "net") {
+						continue
+					}
+					s, ok := v.(string)
+					if !ok {
+						continue
+					}
+					if mac := extractMAC(s); mac != "" {
+						macs = append(macs, normalizeMAC(mac))
+					}
+				}
+				macs = uniqueStrings(macs)
+				if len(macs) == 0 {
+					dhcpErr = fmt.Errorf("%w: no MAC addresses found", ErrGuestIPNotFound)
+				}
+			}
+		}
+	}
+
+	attempts := 0
+	if _, ok := ctx.Deadline(); !ok {
+		// Avoid infinite polling with a background context.
+		attempts = 30
+	}
+	wait := 250 * time.Millisecond
+	maxWait := 2 * time.Second
+
+	qgaErr := ErrGuestIPNotFound
+	for i := 0; ; i++ {
+		if len(macs) > 0 && len(leaseFiles) > 0 {
+			var readErr error
+			for _, path := range leaseFiles {
+				content, err := os.ReadFile(path)
+				if err != nil {
+					if os.IsNotExist(err) {
+						continue
+					}
+					readErr = err
+					continue
+				}
+				if ip := findLeaseIP(content, macs, netblock); ip != "" {
+					return ip, nil
+				}
+			}
+			if readErr != nil {
+				dhcpErr = readErr
+			} else {
+				dhcpErr = ErrGuestIPNotFound
+			}
+		}
+
+		ip, err := b.guestAgentIP(ctx, node, vmid)
+		if err == nil && strings.TrimSpace(ip) != "" {
+			return strings.TrimSpace(ip), nil
+		}
+		if err != nil {
+			qgaErr = err
+		} else {
+			qgaErr = ErrGuestIPNotFound
+		}
+
+		if attempts > 0 && i >= attempts-1 {
+			break
+		}
+		if err := b.sleep(ctx, wait); err != nil {
+			return "", err
+		}
+		wait = nextBackoff(wait, maxWait)
+	}
+
 	if ctx.Err() != nil {
 		return "", ctx.Err()
 	}
-	qgaErr := err
-
-	ip, dhcpErr := b.dhcpLeaseIP(ctx, vmid)
-	if dhcpErr == nil {
-		return ip, nil
-	}
-
-	if dhcpErr == ErrGuestIPNotFound {
-		return "", fmt.Errorf("%w: qemu-guest-agent=%v dhcp=%v", ErrGuestIPNotFound, qgaErr, dhcpErr)
-	}
-	return "", dhcpErr
+	return "", fmt.Errorf("%w: dhcp=%v qemu-guest-agent=%v", ErrGuestIPNotFound, dhcpErr, qgaErr)
 }
 
 // CreateVolume creates a new volume.
@@ -375,28 +495,22 @@ func (b *APIBackend) ValidateTemplate(ctx context.Context, template VMID) error 
 		return fmt.Errorf("template VM %d does not have qemu-guest-agent enabled (missing 'agent:' config)", template)
 	}
 
-	// Check if agent is disabled
-	agentStr := ""
-	switch v := agentConfig.(type) {
-	case string:
-		agentStr = v
-	case float64:
-		if v == 0 {
-			return fmt.Errorf("template VM %d has qemu-guest-agent explicitly disabled (agent: 0)", template)
-		}
-		// agent: 1 means enabled
-		return nil
-	case int:
-		if v == 0 {
-			return fmt.Errorf("template VM %d has qemu-guest-agent explicitly disabled (agent: 0)", template)
-		}
-		return nil
-	default:
-		return fmt.Errorf("template VM %d has unknown agent config type", template)
+	enabled, err := agentConfigEnabled(agentConfig)
+	if err != nil {
+		return fmt.Errorf("template VM %d has invalid agent config: %w", template, err)
+	}
+	if !enabled {
+		return fmt.Errorf("template VM %d has qemu-guest-agent explicitly disabled", template)
 	}
 
-	if strings.Contains(agentStr, "0") || strings.Contains(agentStr, "disabled=1") {
-		return fmt.Errorf("template VM %d has qemu-guest-agent explicitly disabled", template)
+	stringCfg := make(map[string]string, len(config))
+	for k, v := range config {
+		if s, ok := v.(string); ok {
+			stringCfg[k] = s
+		}
+	}
+	if !hasCloudInitDrive(stringCfg) {
+		return fmt.Errorf("template VM %d does not have a cloud-init drive configured", template)
 	}
 
 	return nil
@@ -553,14 +667,70 @@ func (b *APIBackend) ensureNode(ctx context.Context) (string, error) {
 	return b.Node, nil
 }
 
+func parseTaskUPID(data []byte) string {
+	if len(data) == 0 {
+		return ""
+	}
+	var upid string
+	if err := json.Unmarshal(data, &upid); err != nil {
+		return ""
+	}
+	upid = strings.TrimSpace(upid)
+	if strings.HasPrefix(upid, "UPID:") {
+		return upid
+	}
+	return ""
+}
+
+func (b *APIBackend) waitForTask(ctx context.Context, node, upid string) error {
+	node = strings.TrimSpace(node)
+	upid = strings.TrimSpace(upid)
+	if node == "" || upid == "" {
+		return nil
+	}
+	wait := 500 * time.Millisecond
+	maxWait := 5 * time.Second
+
+	for {
+		endpoint := fmt.Sprintf("/nodes/%s/tasks/%s/status", node, url.PathEscape(upid))
+		data, err := b.doGet(ctx, endpoint)
+		if err != nil {
+			if ctx.Err() != nil {
+				return ctx.Err()
+			}
+			return err
+		}
+		var status struct {
+			Status     string `json:"status"`
+			ExitStatus string `json:"exitstatus"`
+		}
+		if err := json.Unmarshal(data, &status); err != nil {
+			return fmt.Errorf("parse task status: %w", err)
+		}
+		if strings.EqualFold(status.Status, "stopped") {
+			if status.ExitStatus != "" && !strings.EqualFold(status.ExitStatus, "OK") {
+				return fmt.Errorf("task %s failed: exitstatus=%s", upid, status.ExitStatus)
+			}
+			return nil
+		}
+		if err := b.sleep(ctx, wait); err != nil {
+			return err
+		}
+		wait = nextBackoff(wait, maxWait)
+	}
+}
+
 func (b *APIBackend) pollGuestAgentIP(ctx context.Context, node string, vmid VMID) (string, error) {
-	attempts := 30
-	initialWait := 500 * time.Millisecond
+	attempts := 0
+	if _, ok := ctx.Deadline(); !ok {
+		// Avoid infinite polling with a background context.
+		attempts = 30
+	}
+	wait := 500 * time.Millisecond
 	maxWait := 10 * time.Second
-	wait := initialWait
 
 	var lastErr error
-	for i := 0; i < attempts; i++ {
+	for i := 0; ; i++ {
 		ip, err := b.guestAgentIP(ctx, node, vmid)
 		if err == nil && ip != "" {
 			return ip, nil
@@ -570,7 +740,7 @@ func (b *APIBackend) pollGuestAgentIP(ctx context.Context, node string, vmid VMI
 		} else {
 			lastErr = ErrGuestIPNotFound
 		}
-		if i == attempts-1 {
+		if attempts > 0 && i >= attempts-1 {
 			break
 		}
 		if err := b.sleep(ctx, wait); err != nil {
@@ -589,6 +759,9 @@ func (b *APIBackend) guestAgentIP(ctx context.Context, node string, vmid VMID) (
 	endpoint := fmt.Sprintf("/nodes/%s/qemu/%d/agent/network-get-interfaces", node, vmid)
 	data, err := b.doGet(ctx, endpoint)
 	if err != nil {
+		if isGuestAgentNotRunningError(err) {
+			return "", ErrGuestIPNotFound
+		}
 		return "", err
 	}
 
@@ -614,12 +787,26 @@ func (b *APIBackend) selectIP(ips []net.IP) (string, error) {
 		if err != nil {
 			return "", err
 		}
-		if ip == "" {
-			return "", ErrGuestIPNotFound
+		if ip != "" {
+			return ip, nil
 		}
-		return ip, nil
+	}
+	for _, ip := range ips {
+		if ip != nil && ip.IsPrivate() {
+			return ip.String(), nil
+		}
 	}
 	return ips[0].String(), nil
+}
+
+func isGuestAgentNotRunningError(err error) bool {
+	if err == nil {
+		return false
+	}
+	// Proxmox returns status=500 for agent calls when the GA socket is present but not responding.
+	// Treat this as "not found" so callers can fall back to other IP discovery mechanisms.
+	msg := strings.ToLower(err.Error())
+	return strings.Contains(msg, "qemu guest agent is not running") || strings.Contains(msg, "guest agent is not running")
 }
 
 func (b *APIBackend) dhcpLeaseIP(ctx context.Context, vmid VMID) (string, error) {
@@ -644,7 +831,8 @@ func (b *APIBackend) dhcpLeaseIP(ctx context.Context, vmid VMID) (string, error)
 		return "", err
 	}
 
-	var config map[string]string
+	// Proxmox config values can be strings, numbers, etc. We only care about "net*" keys.
+	var config map[string]interface{}
 	if err := json.Unmarshal(data, &config); err != nil {
 		return "", fmt.Errorf("parse vm config: %w", err)
 	}
@@ -652,7 +840,11 @@ func (b *APIBackend) dhcpLeaseIP(ctx context.Context, vmid VMID) (string, error)
 	macs := []string{}
 	for k, v := range config {
 		if strings.HasPrefix(k, "net") {
-			if mac := extractMAC(v); mac != "" {
+			s, ok := v.(string)
+			if !ok {
+				continue
+			}
+			if mac := extractMAC(s); mac != "" {
 				macs = append(macs, normalizeMAC(mac))
 			}
 		}
@@ -686,6 +878,69 @@ func (b *APIBackend) dhcpLeaseIP(ctx context.Context, vmid VMID) (string, error)
 		return "", readErr
 	}
 	return "", ErrGuestIPNotFound
+}
+
+func (b *APIBackend) ensureRootDiskSize(ctx context.Context, node string, vmid VMID, disk string, targetGB int) error {
+	if targetGB <= 0 {
+		return nil
+	}
+
+	endpoint := fmt.Sprintf("/nodes/%s/qemu/%d/config", node, vmid)
+	data, err := b.doGet(ctx, endpoint)
+	if err != nil {
+		return err
+	}
+
+	var config map[string]interface{}
+	if err := json.Unmarshal(data, &config); err != nil {
+		return fmt.Errorf("parse vm config: %w", err)
+	}
+
+	stringCfg := make(map[string]string, len(config))
+	for k, v := range config {
+		if s, ok := v.(string); ok {
+			stringCfg[k] = s
+		}
+	}
+
+	disk = strings.TrimSpace(disk)
+	if disk == "" {
+		disk = detectRootDisk(stringCfg)
+	}
+	if disk == "" {
+		return fmt.Errorf("unable to determine root disk for vm %d", vmid)
+	}
+	diskCfg, ok := stringCfg[disk]
+	if !ok {
+		return fmt.Errorf("root disk %q missing from vm %d config", disk, vmid)
+	}
+	token := extractDiskSizeToken(diskCfg)
+	if token == "" {
+		return fmt.Errorf("unable to determine current size for vm %d disk %q", vmid, disk)
+	}
+	currentGB, err := parseSizeGB(token)
+	if err != nil {
+		return fmt.Errorf("parse vm %d disk %q size %q: %w", vmid, disk, token, err)
+	}
+	delta := resizeDeltaGB(currentGB, targetGB)
+	if delta <= 0 {
+		return nil
+	}
+
+	params := url.Values{}
+	params.Set("disk", disk)
+	params.Set("size", fmt.Sprintf("+%dG", delta))
+	resizeEndpoint := fmt.Sprintf("/nodes/%s/qemu/%d/resize", node, vmid)
+	task, err := b.doPut(ctx, resizeEndpoint, params)
+	if err != nil {
+		return err
+	}
+	if upid := parseTaskUPID(task); upid != "" {
+		if err := b.waitForTask(ctx, node, upid); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func (b *APIBackend) leasePaths() []string {

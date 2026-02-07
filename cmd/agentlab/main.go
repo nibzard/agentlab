@@ -64,7 +64,7 @@ Usage:
   agentlab [--socket PATH] [--json] [--timeout DURATION] workspace attach <workspace> <vmid>
   agentlab [--socket PATH] [--json] [--timeout DURATION] workspace detach <workspace>
   agentlab [--socket PATH] [--json] [--timeout DURATION] workspace rebind <workspace> --profile <profile> [--ttl <ttl>] [--keep-old]
-  agentlab [--socket PATH] [--json] [--timeout DURATION] ssh <vmid> [--user <user>] [--port <port>] [--identity <path>] [--exec]
+  agentlab [--socket PATH] [--json] [--timeout DURATION] ssh <vmid> [--user <user>] [--port <port>] [--identity <path>] [--exec] [-- <remote command>...]
   agentlab [--socket PATH] [--json] [--timeout DURATION] logs <vmid> [--follow] [--tail <n>]
 
 Global Flags:
@@ -308,8 +308,9 @@ func printLogsUsage() {
 }
 
 func printSSHUsage() {
-	fmt.Fprintln(os.Stdout, "Usage: agentlab ssh <vmid> [--user <user>] [--port <port>] [--identity <path>] [--exec]")
-	fmt.Fprintln(os.Stdout, "Note: --exec replaces the CLI with ssh when run in a terminal.")
+	fmt.Fprintln(os.Stdout, "Usage: agentlab ssh <vmid> [--user <user>] [--port <port>] [--identity <path>] [--exec] [-- <remote command...>]")
+	fmt.Fprintln(os.Stdout, "Usage: agentlab ssh [flags] <vmid> [-- <remote command...>]")
+	fmt.Fprintln(os.Stdout, "Note: --exec replaces the CLI with ssh when run in a terminal (unless a remote command is provided).")
 }
 
 func isHelpToken(value string) bool {

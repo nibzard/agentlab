@@ -96,10 +96,20 @@ func TestNewServicePropagatesAgentSubnetToShellBackend(t *testing.T) {
 		t.Fatalf("backend.AgentCIDR = %q, want %q", backend.AgentCIDR, cfg.AgentSubnet)
 	}
 
+	leaseDir := t.TempDir()
+	leasePath := filepath.Join(leaseDir, "dnsmasq.leases")
+	if err := os.WriteFile(leasePath, []byte(""), 0o600); err != nil {
+		t.Fatalf("write lease: %v", err)
+	}
+
 	agentJSON := `{"result":[{"name":"eth0","ip-addresses":[{"ip-address":"192.168.1.10","ip-address-type":"ipv4"},{"ip-address":"10.77.0.9","ip-address-type":"ipv4"}]}]}`
-	backend.Runner = &fakeRunner{responses: []runnerResponse{{stdout: agentJSON}}}
+	backend.Runner = &fakeRunner{responses: []runnerResponse{
+		{stdout: "net0: virtio=52:54:00:aa:bb:cc,bridge=vmbr1\n"}, // qm config (DHCP fallback)
+		{stdout: agentJSON}, // pvesh get .../agent/network-get-interfaces
+	}}
 	backend.Node = "pve"
 	backend.GuestIPAttempts = 1
+	backend.DHCPLeasePaths = []string{leasePath}
 
 	ip, err := backend.GuestIP(context.Background(), 123)
 	if err != nil {

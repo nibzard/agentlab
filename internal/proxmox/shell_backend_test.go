@@ -53,6 +53,33 @@ func TestShellBackendClone(t *testing.T) {
 	}
 }
 
+func TestShellBackendCloneRetriesFullCloneOnLinkedCloneFailure(t *testing.T) {
+	runner := &fakeRunner{responses: []runnerResponse{
+		{err: errors.New("linked clone not possible: storage does not support snapshots")},
+		{},
+	}}
+	backend := &ShellBackend{Runner: runner}
+
+	err := backend.Clone(context.Background(), 9000, 101, "sandbox-101")
+	if err != nil {
+		t.Fatalf("Clone() error = %v", err)
+	}
+
+	want := []runnerCall{
+		{
+			name: "qm",
+			args: []string{"clone", "9000", "101", "--full", "0", "--name", "sandbox-101"},
+		},
+		{
+			name: "qm",
+			args: []string{"clone", "9000", "101", "--full", "1", "--name", "sandbox-101"},
+		},
+	}
+	if !reflect.DeepEqual(runner.calls, want) {
+		t.Fatalf("Clone() calls = %#v, want %#v", runner.calls, want)
+	}
+}
+
 func TestShellBackendConfigure(t *testing.T) {
 	runner := &fakeRunner{responses: []runnerResponse{{}}}
 	backend := &ShellBackend{Runner: runner}
@@ -89,6 +116,44 @@ func TestShellBackendConfigure(t *testing.T) {
 	}
 }
 
+func TestShellBackendConfigureResizesRootDisk(t *testing.T) {
+	runner := &fakeRunner{responses: []runnerResponse{
+		{}, // qm set
+		{stdout: "bootdisk: scsi0\nscsi0: local-zfs:vm-101-disk-0,size=2.8G\n"}, // qm config
+		{}, // qm resize
+	}}
+	backend := &ShellBackend{Runner: runner}
+
+	cfg := VMConfig{
+		Name:       "sandbox-101",
+		CloudInit:  "local:snippets/ci.yaml",
+		RootDiskGB: 40,
+	}
+
+	err := backend.Configure(context.Background(), 101, cfg)
+	if err != nil {
+		t.Fatalf("Configure() error = %v", err)
+	}
+
+	want := []runnerCall{
+		{
+			name: "qm",
+			args: []string{"set", "101", "--name", "sandbox-101", "--cicustom", "user=local:snippets/ci.yaml"},
+		},
+		{
+			name: "qm",
+			args: []string{"config", "101"},
+		},
+		{
+			name: "qm",
+			args: []string{"resize", "101", "scsi0", "+38G"},
+		},
+	}
+	if !reflect.DeepEqual(runner.calls, want) {
+		t.Fatalf("Configure() calls = %#v, want %#v", runner.calls, want)
+	}
+}
+
 func TestShellBackendStatus(t *testing.T) {
 	runner := &fakeRunner{responses: []runnerResponse{{stdout: "status: running\n"}}}
 	backend := &ShellBackend{Runner: runner}
@@ -103,11 +168,26 @@ func TestShellBackendStatus(t *testing.T) {
 }
 
 func TestShellBackendGuestIPWithNodeDiscovery(t *testing.T) {
+	leaseDir := t.TempDir()
+	leasePath := filepath.Join(leaseDir, "dnsmasq.leases")
+	if err := os.WriteFile(leasePath, []byte(""), 0o600); err != nil {
+		t.Fatalf("write lease: %v", err)
+	}
+
 	nodeJSON := `{"data":[{"node":"pve"}]}`
 	agentJSON := `{"result":[{"name":"lo","ip-addresses":[{"ip-address":"127.0.0.1","ip-address-type":"ipv4"}]},{"name":"eth0","ip-addresses":[{"ip-address":"10.77.0.5","ip-address-type":"ipv4"}]}]}`
-	responses := []runnerResponse{{stdout: nodeJSON}, {stdout: agentJSON}}
+	responses := []runnerResponse{
+		{stdout: "net0: virtio=52:54:00:aa:bb:cc,bridge=vmbr1\n"}, // qm config (DHCP fallback)
+		{stdout: nodeJSON},  // pvesh get /nodes
+		{stdout: agentJSON}, // pvesh get .../agent/network-get-interfaces
+	}
 	runner := &fakeRunner{responses: responses}
-	backend := &ShellBackend{Runner: runner, AgentCIDR: "10.77.0.0/16", GuestIPAttempts: 1}
+	backend := &ShellBackend{
+		Runner:          runner,
+		AgentCIDR:       "10.77.0.0/16",
+		GuestIPAttempts: 1,
+		DHCPLeasePaths:  []string{leasePath},
+	}
 
 	ip, err := backend.GuestIP(context.Background(), 101)
 	if err != nil {
@@ -118,6 +198,7 @@ func TestShellBackendGuestIPWithNodeDiscovery(t *testing.T) {
 	}
 
 	wantCalls := []runnerCall{
+		{name: "qm", args: []string{"config", "101"}},
 		{name: "pvesh", args: []string{"get", "/nodes", "--output-format", "json"}},
 		{name: "pvesh", args: []string{"get", "/nodes/pve/qemu/101/agent/network-get-interfaces", "--output-format", "json"}},
 	}
@@ -128,8 +209,22 @@ func TestShellBackendGuestIPWithNodeDiscovery(t *testing.T) {
 
 func TestShellBackendGuestIPPrefersCIDR(t *testing.T) {
 	agentJSON := `{"result":[{"name":"eth0","ip-addresses":[{"ip-address":"192.168.1.10","ip-address-type":"ipv4"},{"ip-address":"10.77.0.9","ip-address-type":"ipv4"}]}]}`
-	runner := &fakeRunner{responses: []runnerResponse{{stdout: agentJSON}}}
-	backend := &ShellBackend{Runner: runner, Node: "pve", AgentCIDR: "10.77.0.0/16", GuestIPAttempts: 1}
+	leaseDir := t.TempDir()
+	leasePath := filepath.Join(leaseDir, "dnsmasq.leases")
+	if err := os.WriteFile(leasePath, []byte(""), 0o600); err != nil {
+		t.Fatalf("write lease: %v", err)
+	}
+	runner := &fakeRunner{responses: []runnerResponse{
+		{stdout: "net0: virtio=52:54:00:aa:bb:cc,bridge=vmbr1\n"}, // qm config (DHCP fallback)
+		{stdout: agentJSON}, // pvesh get .../agent/network-get-interfaces
+	}}
+	backend := &ShellBackend{
+		Runner:          runner,
+		Node:            "pve",
+		AgentCIDR:       "10.77.0.0/16",
+		GuestIPAttempts: 1,
+		DHCPLeasePaths:  []string{leasePath},
+	}
 
 	ip, err := backend.GuestIP(context.Background(), 222)
 	if err != nil {
@@ -141,10 +236,17 @@ func TestShellBackendGuestIPPrefersCIDR(t *testing.T) {
 }
 
 func TestShellBackendGuestIPPollsAgent(t *testing.T) {
+	leaseDir := t.TempDir()
+	leasePath := filepath.Join(leaseDir, "dnsmasq.leases")
+	if err := os.WriteFile(leasePath, []byte(""), 0o600); err != nil {
+		t.Fatalf("write lease: %v", err)
+	}
+
 	nodeJSON := `{"data":[{"node":"pve"}]}`
 	agentNoIP := `{"result":[{"name":"lo","ip-addresses":[{"ip-address":"127.0.0.1","ip-address-type":"ipv4"}]}]}`
 	agentIP := `{"result":[{"name":"eth0","ip-addresses":[{"ip-address":"10.77.0.42","ip-address-type":"ipv4"}]}]}`
 	responses := []runnerResponse{
+		{stdout: "net0: virtio=52:54:00:aa:bb:cc,bridge=vmbr1\n"}, // qm config (DHCP fallback)
 		{stdout: nodeJSON},
 		{stdout: agentNoIP},
 		{stdout: agentNoIP},
@@ -160,6 +262,7 @@ func TestShellBackendGuestIPPollsAgent(t *testing.T) {
 		Sleep: func(_ context.Context, _ time.Duration) error {
 			return nil
 		},
+		DHCPLeasePaths: []string{leasePath},
 	}
 
 	ip, err := backend.GuestIP(context.Background(), 101)
@@ -171,6 +274,7 @@ func TestShellBackendGuestIPPollsAgent(t *testing.T) {
 	}
 
 	wantCalls := []runnerCall{
+		{name: "qm", args: []string{"config", "101"}},
 		{name: "pvesh", args: []string{"get", "/nodes", "--output-format", "json"}},
 		{name: "pvesh", args: []string{"get", "/nodes/pve/qemu/101/agent/network-get-interfaces", "--output-format", "json"}},
 		{name: "pvesh", args: []string{"get", "/nodes/pve/qemu/101/agent/network-get-interfaces", "--output-format", "json"}},
@@ -189,10 +293,7 @@ func TestShellBackendGuestIPDHCPFallback(t *testing.T) {
 		t.Fatalf("write lease: %v", err)
 	}
 
-	responses := []runnerResponse{
-		{err: errors.New("guest agent unavailable")},
-		{stdout: "net0: virtio=52:54:00:aa:bb:cc,bridge=vmbr1\n"},
-	}
+	responses := []runnerResponse{{stdout: "net0: virtio=52:54:00:aa:bb:cc,bridge=vmbr1\n"}}
 	runner := &fakeRunner{responses: responses}
 	backend := &ShellBackend{
 		Runner:          runner,
@@ -210,10 +311,7 @@ func TestShellBackendGuestIPDHCPFallback(t *testing.T) {
 		t.Fatalf("GuestIP() = %q, want %q", ip, "10.77.0.55")
 	}
 
-	wantCalls := []runnerCall{
-		{name: "pvesh", args: []string{"get", "/nodes/pve/qemu/101/agent/network-get-interfaces", "--output-format", "json"}},
-		{name: "qm", args: []string{"config", "101"}},
-	}
+	wantCalls := []runnerCall{{name: "qm", args: []string{"config", "101"}}}
 	if !reflect.DeepEqual(runner.calls, wantCalls) {
 		t.Fatalf("GuestIP() calls = %#v, want %#v", runner.calls, wantCalls)
 	}

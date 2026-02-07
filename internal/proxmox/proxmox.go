@@ -1,17 +1,20 @@
 // Package proxmox provides a backend abstraction for interacting with Proxmox VE.
 //
-// ABOUTME: This package defines the Backend interface and common types for VM management,
+// ABOUTME: This package defines a Backend interface and common types for VM management,
 // including two implementations: APIBackend (using Proxmox REST API) and ShellBackend
 // (using qm/pvesh CLI commands).
 //
 // ABOUTME: The package supports VM lifecycle operations (clone, configure, start, stop,
-// destroy), status queries, guest IP discovery, and volume management for workspace storage.
+// destroy), status queries, guest IP discovery, volume management for workspace storage,
+// and system health monitoring.
 //
 // ABOUTME: Backends are pluggable and can be selected at runtime based on configuration.
 // The API backend is recommended for production due to better reliability and error handling.
 package proxmox
 
-import "context"
+import (
+	"context"
+)
 
 // VMID represents a Proxmox virtual machine identifier.
 type VMID int
@@ -37,6 +40,15 @@ type VMConfig struct {
 	NetModel   string // Network device model (e.g., "virtio")
 	CloudInit  string // Cloud-init snippet path
 	CPUPinning string // CPU pinning configuration
+	SCSIHW     string // Proxmox scsihw (e.g., "virtio-scsi-pci")
+
+	// RootDiskGB is the desired minimum size (in GB) for the VM's root disk.
+	// ABOUTME: AgentLab uses this to ensure templates with small root disks are resized
+	// during provisioning. The backend will only grow disks; shrinking is not supported.
+	RootDiskGB int
+	// RootDisk optionally selects a specific disk to resize (e.g., "scsi0").
+	// ABOUTME: When empty, the backend will auto-detect the boot/root disk.
+	RootDisk string
 }
 
 // Backend defines the interface for Proxmox operations.

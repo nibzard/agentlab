@@ -66,10 +66,10 @@ func (er ExecRunner) Run(ctx context.Context, name string, args ...string) (stri
 // ABOUTME: This backend uses Proxmox CLI tools instead of the REST API. It may encounter
 // IPC issues on some Proxmox configurations. Consider using BashRunner for better compatibility.
 type ShellBackend struct {
-	Node      string // Proxmox node name (empty for auto-detection)
-	AgentCIDR string // CIDR block for selecting guest IPs (e.g., "10.77.0.0/16")
-	QmPath    string // Path to qm command (defaults to "qm")
-	PveShPath string // Path to pvesh command (defaults to "pvesh")
+	Node      string        // Proxmox node name (empty for auto-detection)
+	AgentCIDR string        // CIDR block for selecting guest IPs (e.g., "10.77.0.0/16")
+	QmPath    string        // Path to qm command (defaults to "qm")
+	PveShPath string        // Path to pvesh command (defaults to "pvesh")
 	Runner    CommandRunner // Command execution strategy (defaults to ExecRunner)
 
 	// Use BashRunner to work around Proxmox IPC issues
@@ -90,7 +90,21 @@ func (b *ShellBackend) Clone(ctx context.Context, template VMID, target VMID, na
 		args = append(args, "--name", name)
 	}
 	_, err := b.run(ctx, b.qmPath(), args...)
-	return err
+	if err == nil {
+		return nil
+	}
+	if !shouldRetryFullClone(err) {
+		return err
+	}
+	fullArgs := []string{"clone", strconv.Itoa(int(template)), strconv.Itoa(int(target)), "--full", "1"}
+	if name != "" {
+		fullArgs = append(fullArgs, "--name", name)
+	}
+	_, retryErr := b.run(ctx, b.qmPath(), fullArgs...)
+	if retryErr != nil {
+		return fmt.Errorf("linked clone failed: %w; full clone retry failed: %v", err, retryErr)
+	}
+	return nil
 }
 
 func (b *ShellBackend) Configure(ctx context.Context, vmid VMID, cfg VMConfig) error {
@@ -104,6 +118,9 @@ func (b *ShellBackend) Configure(ctx context.Context, vmid VMID, cfg VMConfig) e
 	if cfg.MemoryMB > 0 {
 		args = append(args, "--memory", strconv.Itoa(cfg.MemoryMB))
 	}
+	if cfg.SCSIHW != "" {
+		args = append(args, "--scsihw", cfg.SCSIHW)
+	}
 	if cfg.CPUPinning != "" {
 		args = append(args, "--cpulist", cfg.CPUPinning)
 	}
@@ -115,9 +132,56 @@ func (b *ShellBackend) Configure(ctx context.Context, vmid VMID, cfg VMConfig) e
 		args = append(args, "--cicustom", formatCICustom(cfg.CloudInit))
 	}
 	if len(args) == 2 {
+		if cfg.RootDiskGB > 0 {
+			return b.ensureRootDiskSize(ctx, vmid, cfg.RootDisk, cfg.RootDiskGB)
+		}
 		return nil
 	}
-	_, err := b.run(ctx, b.qmPath(), args...)
+	if _, err := b.run(ctx, b.qmPath(), args...); err != nil {
+		return err
+	}
+	if cfg.RootDiskGB > 0 {
+		if err := b.ensureRootDiskSize(ctx, vmid, cfg.RootDisk, cfg.RootDiskGB); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (b *ShellBackend) ensureRootDiskSize(ctx context.Context, vmid VMID, disk string, targetGB int) error {
+	if targetGB <= 0 {
+		return nil
+	}
+	// Query config to determine current disk size and boot disk.
+	out, err := b.run(ctx, b.qmPath(), "config", strconv.Itoa(int(vmid)))
+	if err != nil {
+		return err
+	}
+	cfg := parseQMConfigMap(out)
+	disk = strings.TrimSpace(disk)
+	if disk == "" {
+		disk = detectRootDisk(cfg)
+	}
+	if disk == "" {
+		return fmt.Errorf("unable to determine root disk for vm %d", vmid)
+	}
+	diskCfg, ok := cfg[disk]
+	if !ok {
+		return fmt.Errorf("root disk %q missing from vm %d config", disk, vmid)
+	}
+	token := extractDiskSizeToken(diskCfg)
+	if token == "" {
+		return fmt.Errorf("unable to determine current size for vm %d disk %q", vmid, disk)
+	}
+	currentGB, err := parseSizeGB(token)
+	if err != nil {
+		return fmt.Errorf("parse vm %d disk %q size %q: %w", vmid, disk, token, err)
+	}
+	delta := resizeDeltaGB(currentGB, targetGB)
+	if delta <= 0 {
+		return nil
+	}
+	_, err = b.run(ctx, b.qmPath(), "resize", strconv.Itoa(int(vmid)), disk, fmt.Sprintf("+%dG", delta))
 	return err
 }
 
@@ -161,26 +225,98 @@ func (b *ShellBackend) Status(ctx context.Context, vmid VMID) (Status, error) {
 }
 
 func (b *ShellBackend) GuestIP(ctx context.Context, vmid VMID) (string, error) {
-	node, err := b.ensureNode(ctx)
-	if err != nil {
-		return "", err
+	var netblock *net.IPNet
+	if b.AgentCIDR != "" {
+		_, parsed, err := net.ParseCIDR(b.AgentCIDR)
+		if err != nil {
+			return "", fmt.Errorf("invalid agent CIDR %q: %w", b.AgentCIDR, err)
+		}
+		netblock = parsed
 	}
-	ip, err := b.pollGuestAgentIP(ctx, node, vmid)
-	if err == nil {
-		return ip, nil
+
+	dhcpErr := ErrGuestIPNotFound
+	macs := []string{}
+	leaseFiles := b.leasePaths()
+	if len(leaseFiles) == 0 {
+		dhcpErr = fmt.Errorf("%w: no DHCP lease files configured", ErrGuestIPNotFound)
+	} else {
+		out, err := b.run(ctx, b.qmPath(), "config", strconv.Itoa(int(vmid)))
+		if err != nil {
+			dhcpErr = err
+		} else {
+			macs = parseNetMACs(out)
+			if len(macs) == 0 {
+				dhcpErr = fmt.Errorf("%w: no MAC addresses found", ErrGuestIPNotFound)
+			}
+		}
 	}
+
+	attempts := 0
+	if _, ok := ctx.Deadline(); !ok {
+		// Avoid infinite polling with a background context.
+		attempts = b.guestIPAttempts()
+	}
+	wait := b.guestIPInitialWait()
+	maxWait := b.guestIPMaxWait()
+
+	qgaErr := ErrGuestIPNotFound
+	node := ""
+	for i := 0; ; i++ {
+		if len(macs) > 0 && len(leaseFiles) > 0 {
+			var readErr error
+			for _, path := range leaseFiles {
+				content, err := os.ReadFile(path)
+				if err != nil {
+					if os.IsNotExist(err) {
+						continue
+					}
+					readErr = err
+					continue
+				}
+				if ip := findLeaseIP(content, macs, netblock); ip != "" {
+					return ip, nil
+				}
+			}
+			if readErr != nil {
+				dhcpErr = readErr
+			} else {
+				dhcpErr = ErrGuestIPNotFound
+			}
+		}
+
+		if node == "" {
+			resolved, err := b.ensureNode(ctx)
+			if err != nil {
+				qgaErr = err
+			} else {
+				node = resolved
+			}
+		}
+		if node != "" {
+			ip, err := b.guestAgentIP(ctx, node, vmid)
+			if err == nil && strings.TrimSpace(ip) != "" {
+				return strings.TrimSpace(ip), nil
+			}
+			if err != nil {
+				qgaErr = err
+			} else {
+				qgaErr = ErrGuestIPNotFound
+			}
+		}
+
+		if attempts > 0 && i >= attempts-1 {
+			break
+		}
+		if err := b.sleep(ctx, wait); err != nil {
+			return "", err
+		}
+		wait = nextBackoff(wait, maxWait)
+	}
+
 	if ctx.Err() != nil {
 		return "", ctx.Err()
 	}
-	qgaErr := err
-	ip, dhcpErr := b.dhcpLeaseIP(ctx, vmid)
-	if dhcpErr == nil {
-		return ip, nil
-	}
-	if errors.Is(dhcpErr, ErrGuestIPNotFound) {
-		return "", fmt.Errorf("%w: qemu-guest-agent=%v dhcp=%v", ErrGuestIPNotFound, qgaErr, dhcpErr)
-	}
-	return "", dhcpErr
+	return "", fmt.Errorf("%w: dhcp=%v qemu-guest-agent=%v", ErrGuestIPNotFound, dhcpErr, qgaErr)
 }
 
 func (b *ShellBackend) runner() CommandRunner {
@@ -223,11 +359,15 @@ func NewShellBackendWithBashRunner(node string, agentCIDR string, qmPath string,
 }
 
 func (b *ShellBackend) pollGuestAgentIP(ctx context.Context, node string, vmid VMID) (string, error) {
-	attempts := b.guestIPAttempts()
+	attempts := 0
+	if _, ok := ctx.Deadline(); !ok {
+		// Avoid infinite polling with a background context.
+		attempts = b.guestIPAttempts()
+	}
 	wait := b.guestIPInitialWait()
 	maxWait := b.guestIPMaxWait()
 	var lastErr error
-	for i := 0; i < attempts; i++ {
+	for i := 0; ; i++ {
 		ip, err := b.guestAgentIP(ctx, node, vmid)
 		if err == nil && ip != "" {
 			return ip, nil
@@ -237,7 +377,7 @@ func (b *ShellBackend) pollGuestAgentIP(ctx context.Context, node string, vmid V
 		} else {
 			lastErr = ErrGuestIPNotFound
 		}
-		if i == attempts-1 {
+		if attempts > 0 && i >= attempts-1 {
 			break
 		}
 		if err := b.sleep(ctx, wait); err != nil {
@@ -255,6 +395,9 @@ func (b *ShellBackend) guestAgentIP(ctx context.Context, node string, vmid VMID)
 	path := fmt.Sprintf("/nodes/%s/qemu/%d/agent/network-get-interfaces", node, vmid)
 	out, err := b.run(ctx, b.pveshPath(), "get", path, "--output-format", "json")
 	if err != nil {
+		if isGuestAgentNotRunningError(err) {
+			return "", ErrGuestIPNotFound
+		}
 		return "", err
 	}
 	ips, err := parseAgentIPs(out)
@@ -273,10 +416,14 @@ func (b *ShellBackend) selectIP(ips []net.IP) (string, error) {
 		if err != nil {
 			return "", err
 		}
-		if ip == "" {
-			return "", ErrGuestIPNotFound
+		if ip != "" {
+			return ip, nil
 		}
-		return ip, nil
+	}
+	for _, ip := range ips {
+		if ip != nil && ip.IsPrivate() {
+			return ip.String(), nil
+		}
 	}
 	return ips[0].String(), nil
 }
@@ -402,6 +549,9 @@ func (b *ShellBackend) ValidateTemplate(ctx context.Context, template VMID) erro
 	// Check for explicit agent disabled
 	if strings.Contains(out, "agent: 0") || strings.Contains(out, "agent: disabled=1") {
 		return fmt.Errorf("template VM %d has qemu-guest-agent explicitly disabled", template)
+	}
+	if !hasCloudInitDrive(parseQMConfigMap(out)) {
+		return fmt.Errorf("template VM %d does not have a cloud-init drive configured", template)
 	}
 	return nil
 }

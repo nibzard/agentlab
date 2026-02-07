@@ -200,7 +200,10 @@ func (o *JobOrchestrator) RebindWorkspace(ctx context.Context, workspaceID, prof
 
 	ipAddress, err = o.backend.GuestIP(ctx, proxmox.VMID(created.VMID))
 	if err != nil {
-		return result, err
+		if !errors.Is(err, proxmox.ErrGuestIPNotFound) {
+			return result, err
+		}
+		_ = o.store.RecordEvent(ctx, "sandbox.ip_pending", &created.VMID, nil, "sandbox started but IP not yet discovered", "")
 	}
 	if ipAddress != "" {
 		if err = o.store.UpdateSandboxIP(ctx, created.VMID, ipAddress); err != nil {

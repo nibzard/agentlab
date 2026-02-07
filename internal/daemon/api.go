@@ -1,6 +1,7 @@
 package daemon
 
 import (
+	"context"
 	"crypto/rand"
 	"database/sql"
 	"encoding/hex"
@@ -739,7 +740,9 @@ func (api *ControlAPI) handleSandboxCreate(w http.ResponseWriter, r *http.Reques
 	}
 
 	if provisionSandbox {
-		updated, err := api.jobOrchestrator.ProvisionSandbox(ctx, createdSandbox.VMID)
+		// Provisioning should not be coupled to the lifetime of the HTTP request context.
+		// AI agents may use short client-side timeouts or disconnect while provisioning continues.
+		updated, err := api.jobOrchestrator.ProvisionSandbox(context.Background(), createdSandbox.VMID)
 		if err != nil {
 			// Log the actual error before writing generic response
 			if api.logger != nil {

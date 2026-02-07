@@ -64,14 +64,26 @@ func TestSnippetStoreCreateAndDelete(t *testing.T) {
 	if !strings.Contains(content, input.SSHPublicKey) {
 		t.Fatalf("content missing ssh public key")
 	}
+	if !strings.Contains(content, "sudo: ALL=(ALL) NOPASSWD:ALL") {
+		t.Fatalf("content missing sudo configuration")
+	}
+	if !strings.Contains(content, "resize_rootfs: true") {
+		t.Fatalf("content missing resize_rootfs")
+	}
 	if !strings.Contains(content, "{\"token\":\"token-123\",\"controller\":\"http://10.77.0.1:8844\",\"vmid\":101}") {
 		t.Fatalf("content missing bootstrap json")
 	}
 	if !strings.Contains(content, "owner: agent:agent") {
 		t.Fatalf("content missing bootstrap owner")
 	}
-	if strings.Contains(content, "runcmd") {
-		t.Fatalf("content should not contain runcmd")
+	if !strings.Contains(content, "runcmd:") {
+		t.Fatalf("content missing runcmd")
+	}
+	if !strings.Contains(content, "qemu-guest-agent") {
+		t.Fatalf("content missing qemu-guest-agent setup")
+	}
+	if !strings.Contains(content, "openssh-server") {
+		t.Fatalf("content missing openssh-server setup")
 	}
 
 	if err := store.Delete(snippet); err != nil {

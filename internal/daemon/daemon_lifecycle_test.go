@@ -120,7 +120,7 @@ func TestRun_DatabaseInitError(t *testing.T) {
 			ProfilesDir:             profilesDir,
 			RunDir:                  filepath.Join(temp, "run"),
 			SocketPath:              filepath.Join(temp, "run", "agentlabd.sock"),
-			DBPath:                  "/root/nonexistent/path/agentlab.db", // Invalid path
+			DBPath:                  "/dev/null/agentlab.db", // Invalid: cannot create db directory under /dev/null
 			BootstrapListen:         "127.0.0.1:0",
 			ArtifactListen:          "127.0.0.1:0",
 			ArtifactDir:             filepath.Join(temp, "artifacts"),
@@ -304,7 +304,7 @@ func TestListenUnix_Permissions(t *testing.T) {
 
 func TestListenUnix_DirectoryFail(t *testing.T) {
 	// Use a path where parent directory can't be created
-	socketPath := "/root/nonexistent_deep_path/test.sock"
+	socketPath := "/dev/null/test.sock"
 
 	_, err := listenUnix(socketPath)
 	assert.Error(t, err)

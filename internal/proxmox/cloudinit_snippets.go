@@ -24,28 +24,28 @@ const (
 
 // SnippetInput describes the minimal data needed to build a cloud-init snippet.
 type SnippetInput struct {
-	VMID           VMID    // Target VM identifier
-	Hostname       string  // VM hostname (defaults to "sandbox-{vmid}" if empty)
-	SSHPublicKey   string  // SSH public key for agent user (required)
-	BootstrapToken string  // Authentication token for bootstrap API (required)
-	ControllerURL  string  // URL of the controller API endpoint (required)
+	VMID           VMID   // Target VM identifier
+	Hostname       string // VM hostname (defaults to "sandbox-{vmid}" if empty)
+	SSHPublicKey   string // SSH public key for agent user (required)
+	BootstrapToken string // Authentication token for bootstrap API (required)
+	ControllerURL  string // URL of the controller API endpoint (required)
 }
 
 // CloudInitSnippet represents a stored snippet file and its Proxmox reference.
 type CloudInitSnippet struct {
-	VMID        VMID    // Associated VM identifier
-	Filename    string  // Base filename of the snippet
-	FullPath    string  // Absolute filesystem path to the snippet file
-	Storage     string  // Proxmox storage name (e.g., "local")
-	StoragePath string  // Proxmox storage path (e.g., "local:snippets/agentlab-1000-abc123.yaml")
+	VMID        VMID   // Associated VM identifier
+	Filename    string // Base filename of the snippet
+	FullPath    string // Absolute filesystem path to the snippet file
+	Storage     string // Proxmox storage name (e.g., "local")
+	StoragePath string // Proxmox storage path (e.g., "local:snippets/agentlab-1000-abc123.yaml")
 }
 
 // SnippetStore manages cloud-init snippet files for Proxmox.
 // ABOUTME: Snippets are stored as YAML files in Proxmox's snippets directory and
 // referenced during VM cloning via the cicustom parameter.
 type SnippetStore struct {
-	Storage string // Proxmox storage name for snippets (defaults to "local")
-	Dir     string // Filesystem directory for snippet files (defaults to "/var/lib/vz/snippets")
+	Storage string    // Proxmox storage name for snippets (defaults to "local")
+	Dir     string    // Filesystem directory for snippet files (defaults to "/var/lib/vz/snippets")
 	Rand    io.Reader // Random source for unique filename generation (defaults to crypto/rand)
 }
 
@@ -185,16 +185,35 @@ func renderCloudInitUserData(hostname, sshKey, token, controller string, vmid in
 	content := strings.Join([]string{
 		"#cloud-config",
 		"hostname: " + hostname,
+		"ssh_pwauth: false",
 		"users:",
 		"  - name: agent",
+		"    groups: [sudo]",
+		"    sudo: ALL=(ALL) NOPASSWD:ALL",
+		"    shell: /bin/bash",
+		"    lock_passwd: true",
 		"    ssh_authorized_keys:",
 		"      - " + sshKey,
+		// Grow the root partition/filesystem after AgentLab resizes the VM disk.
+		"growpart:",
+		"  mode: auto",
+		"  devices: ['/']",
+		"  ignore_growroot_disabled: false",
+		"resize_rootfs: true",
 		"write_files:",
 		"  - path: /etc/agentlab/bootstrap.json",
 		"    owner: agent:agent",
 		"    permissions: \"0600\"",
 		"    content: |",
 		"      " + string(jsonBytes),
+		"runcmd:",
+		// Install qemu-guest-agent so AgentLab can discover guest IPs reliably.
+		// Prefer runcmd+apt-get over cloud-init's packages module: some templates disable modules.
+		"  - bash -lc 'if ! command -v qemu-guest-agent >/dev/null 2>&1; then (apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y qemu-guest-agent) || true; fi'",
+		"  - bash -lc 'systemctl enable --now qemu-guest-agent || true'",
+		// Ensure SSH is present and running for interactive access/debugging.
+		"  - bash -lc 'if ! command -v sshd >/dev/null 2>&1; then (apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y openssh-server) || true; fi'",
+		"  - bash -lc 'systemctl enable --now ssh || systemctl enable --now sshd || true'",
 		"",
 	}, "\n")
 

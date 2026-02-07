@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"strings"
 	"time"
 
 	"github.com/agentlab/agentlab/internal/db"
@@ -302,6 +303,9 @@ func (m *SandboxManager) Destroy(ctx context.Context, vmid int) error {
 	if sandbox.State == models.SandboxDestroyed {
 		return nil
 	}
+	if err := m.stopSandbox(ctx, vmid); err != nil {
+		return err
+	}
 	if m.workspace != nil {
 		if err := m.workspace.DetachFromVM(ctx, vmid); err != nil {
 			return fmt.Errorf("detach workspace for vmid %d: %w", vmid, err)
@@ -424,6 +428,9 @@ func (m *SandboxManager) ForceDestroy(ctx context.Context, vmid int) error {
 	}
 	if sandbox.State == models.SandboxDestroyed {
 		return nil
+	}
+	if err := m.stopSandbox(ctx, vmid); err != nil {
+		return err
 	}
 	if m.workspace != nil {
 		if err := m.workspace.DetachFromVM(ctx, vmid); err != nil {
@@ -566,9 +573,38 @@ func (m *SandboxManager) ReconcileState(ctx context.Context) error {
 			_ = m.Transition(ctx, sb.VMID, models.SandboxFailed)
 		}
 
-		if status == proxmox.StatusRunning && sb.State == models.SandboxRequested {
-			m.logger.Printf("reconcile: VM %d is running, marking as ready", sb.VMID)
-			_ = m.Transition(ctx, sb.VMID, models.SandboxReady)
+		if status == proxmox.StatusRunning {
+			// If AgentLab crashed mid-provisioning, the VM can be running while the DB state
+			// is stuck earlier in the state machine. Advance toward RUNNING step-by-step.
+			switch sb.State {
+			case models.SandboxRequested, models.SandboxProvisioning, models.SandboxBooting:
+				// Stop at READY to avoid racing provisioning logic, which will advance READY -> RUNNING.
+				for attempts := 0; attempts < 3 && sb.State != models.SandboxReady && sb.State != models.SandboxRunning; attempts++ {
+					next, ok := nextSandboxStateTowardRunning(sb.State)
+					if !ok || next == "" || next == sb.State || next == models.SandboxRunning {
+						break
+					}
+					if err := m.Transition(ctx, sb.VMID, next); err != nil {
+						if errors.Is(err, ErrInvalidTransition) {
+							break
+						}
+						m.logger.Printf("reconcile: failed to advance sandbox %d (%s -> %s): %v", sb.VMID, sb.State, next, err)
+						break
+					}
+					sb.State = next
+				}
+			}
+		}
+
+		// Opportunistically refresh missing IPs for running VMs. IP discovery can lag behind
+		// the VM reaching RUNNING (e.g., guest agent install via cloud-init).
+		if status == proxmox.StatusRunning && strings.TrimSpace(sb.IP) == "" {
+			ipCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
+			ip, err := m.backend.GuestIP(ipCtx, proxmox.VMID(sb.VMID))
+			cancel()
+			if err == nil && strings.TrimSpace(ip) != "" {
+				_ = m.store.UpdateSandboxIP(ctx, sb.VMID, strings.TrimSpace(ip))
+			}
 		}
 	}
 

@@ -24,6 +24,7 @@ const (
 	bootstrapTokenBytes     = 16               // Bytes of randomness for bootstrap tokens
 	defaultProvisionTimeout = 10 * time.Minute // Timeout for sandbox provisioning
 	defaultFailureTimeout   = 30 * time.Second // Timeout for cleanup after failure
+	defaultIPLookupTimeout  = 30 * time.Second // Best-effort wait for guest IP during provisioning
 )
 
 var (
@@ -259,9 +260,14 @@ func (o *JobOrchestrator) Run(ctx context.Context, jobID string) error {
 		return o.failJob(job, sandbox.VMID, err)
 	}
 
-	ip, err := o.backend.GuestIP(ctx, proxmox.VMID(sandbox.VMID))
+	ipCtx, cancel := context.WithTimeout(ctx, defaultIPLookupTimeout)
+	ip, err := o.backend.GuestIP(ipCtx, proxmox.VMID(sandbox.VMID))
+	cancel()
 	if err != nil {
-		return o.failJob(job, sandbox.VMID, err)
+		if !errors.Is(err, proxmox.ErrGuestIPNotFound) && !errors.Is(err, context.DeadlineExceeded) && !errors.Is(err, context.Canceled) {
+			return o.failJob(job, sandbox.VMID, err)
+		}
+		_ = o.store.RecordEvent(ctx, "sandbox.ip_pending", &sandbox.VMID, &job.ID, "sandbox started but IP not yet discovered", "")
 	}
 	if ip != "" {
 		if err := o.store.UpdateSandboxIP(ctx, sandbox.VMID, ip); err != nil {
@@ -269,10 +275,7 @@ func (o *JobOrchestrator) Run(ctx context.Context, jobID string) error {
 		}
 	}
 
-	if err := o.sandboxManager.Transition(ctx, sandbox.VMID, models.SandboxReady); err != nil {
-		return o.failJob(job, sandbox.VMID, err)
-	}
-	if err := o.sandboxManager.Transition(ctx, sandbox.VMID, models.SandboxRunning); err != nil {
+	if err := o.ensureSandboxRunning(ctx, sandbox.VMID); err != nil {
 		return o.failJob(job, sandbox.VMID, err)
 	}
 	if err := o.store.UpdateJobStatus(ctx, job.ID, models.JobRunning); err != nil {
@@ -427,9 +430,14 @@ func (o *JobOrchestrator) ProvisionSandbox(ctx context.Context, vmid int) (model
 		o.logger.Printf("sandbox %d: VM started, waiting for IP...", sandbox.VMID)
 	}
 
-	ip, err := o.backend.GuestIP(ctx, proxmox.VMID(sandbox.VMID))
+	ipCtx, cancel := context.WithTimeout(ctx, defaultIPLookupTimeout)
+	ip, err := o.backend.GuestIP(ipCtx, proxmox.VMID(sandbox.VMID))
+	cancel()
 	if err != nil {
-		return fail(err)
+		if !errors.Is(err, proxmox.ErrGuestIPNotFound) && !errors.Is(err, context.DeadlineExceeded) && !errors.Is(err, context.Canceled) {
+			return fail(err)
+		}
+		_ = o.store.RecordEvent(ctx, "sandbox.ip_pending", &sandbox.VMID, nil, "sandbox started but IP not yet discovered", "")
 	}
 	if ip != "" {
 		if o.logger != nil {
@@ -440,10 +448,7 @@ func (o *JobOrchestrator) ProvisionSandbox(ctx context.Context, vmid int) (model
 		}
 	}
 
-	if err := o.sandboxManager.Transition(ctx, sandbox.VMID, models.SandboxReady); err != nil {
-		return fail(err)
-	}
-	if err := o.sandboxManager.Transition(ctx, sandbox.VMID, models.SandboxRunning); err != nil {
+	if err := o.ensureSandboxRunning(ctx, sandbox.VMID); err != nil {
 		return fail(err)
 	}
 

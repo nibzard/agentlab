@@ -58,6 +58,50 @@ func TestAPIClientWithTimeout(t *testing.T) {
 	}
 }
 
+func TestAPIClientWithTimeoutRespectsExistingDeadline(t *testing.T) {
+	client := &apiClient{timeout: 50 * time.Millisecond}
+
+	outerCtx, outerCancel := context.WithTimeout(context.Background(), 5*time.Millisecond)
+	defer outerCancel()
+
+	gotCtx, cancel := client.withTimeout(outerCtx)
+	defer cancel()
+	if gotCtx != outerCtx {
+		t.Fatalf("expected context to be unchanged when outer deadline is sooner")
+	}
+	outerDeadline, ok := outerCtx.Deadline()
+	if !ok {
+		t.Fatalf("expected outer deadline")
+	}
+	gotDeadline, ok := gotCtx.Deadline()
+	if !ok {
+		t.Fatalf("expected got deadline")
+	}
+	if !gotDeadline.Equal(outerDeadline) {
+		t.Fatalf("deadline = %v, want %v", gotDeadline, outerDeadline)
+	}
+
+	longCtx, longCancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer longCancel()
+
+	gotShort, shortCancel := client.withTimeout(longCtx)
+	defer shortCancel()
+	if gotShort == longCtx {
+		t.Fatalf("expected derived context when client timeout is sooner")
+	}
+	longDeadline, ok := longCtx.Deadline()
+	if !ok {
+		t.Fatalf("expected long deadline")
+	}
+	shortDeadline, ok := gotShort.Deadline()
+	if !ok {
+		t.Fatalf("expected short deadline")
+	}
+	if !shortDeadline.Before(longDeadline) {
+		t.Fatalf("short deadline = %v, want before %v", shortDeadline, longDeadline)
+	}
+}
+
 func TestAPIClientDoJSONSuccess(t *testing.T) {
 	var gotReq *http.Request
 	var gotBody []byte
