@@ -202,6 +202,9 @@ func TestAPIClientDoRequestHeadersAndErrorHandling(t *testing.T) {
 	if gotReq == nil {
 		t.Fatalf("expected request to be captured")
 	}
+	if gotReq.URL.Path != "/v1/test" {
+		t.Fatalf("path = %s, want /v1/test", gotReq.URL.Path)
+	}
 	if gotReq.Header.Get("X-Test") != "ok" {
 		t.Fatalf("expected header to be set")
 	}
