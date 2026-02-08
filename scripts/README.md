@@ -1,7 +1,7 @@
 # Scripts
 
 - `install_host.sh`: install agentlab binaries, directories, and systemd unit on the host.
-- `create_template.sh`: build the Ubuntu cloud-init template VM on Proxmox.
+- `create_template.sh`: build the Ubuntu cloud-init template VM on Proxmox (supports `--image-sha256` or `--image-sha256-url` verification).
 - `guest/agentlab-agent`: wrapper script baked into the guest template to dispatch agent CLIs.
 - `guest/agent-runner`: guest bootstrap + execution script invoked by systemd.
 - `guest/agent-runner.service`: systemd unit for the guest runner.

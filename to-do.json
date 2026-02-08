@@ -1884,7 +1884,7 @@
       "id": "T083",
       "title": "Verify cloud image downloads in create_template.sh",
       "priority": 3,
-      "status": "todo",
+      "status": "done",
       "details": "Template builds download Ubuntu cloud images without integrity checks. Add optional checksum verification (e.g., --image-sha256 or SHA256SUMS fetch) and document the flow.",
       "tags": [
         "security",
@@ -1893,9 +1893,11 @@
       "files": [
         "scripts/create_template.sh",
         "scripts/README.md",
-        "docs/runbook.md"
+        "docs/runbook.md",
+        "to-do.json"
       ],
-      "created_at": "2026-02-08T21:21:56Z"
+      "created_at": "2026-02-08T21:21:56Z",
+      "updated_at": "2026-02-08T21:30:08Z"
     }
   ]
 }
