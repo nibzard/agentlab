@@ -264,6 +264,51 @@ func TestCLISandboxStartStopHappyPath(t *testing.T) {
 	}
 }
 
+func TestCLISandboxStopAllHappyPath(t *testing.T) {
+	mux := http.NewServeMux()
+	mux.HandleFunc("/v1/sandboxes/stop_all", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			t.Errorf("/v1/sandboxes/stop_all method = %s", r.Method)
+			w.WriteHeader(http.StatusMethodNotAllowed)
+			return
+		}
+		resp := sandboxStopAllResponse{
+			Total:   3,
+			Stopped: 1,
+			Skipped: 1,
+			Failed:  1,
+			Results: []sandboxStopAllResult{
+				{VMID: 9001, State: "STOPPED", Result: "stopped"},
+				{VMID: 9002, State: "STOPPED", Result: "skipped"},
+				{VMID: 9003, State: "RUNNING", Result: "failed", Error: "backend timeout"},
+			},
+		}
+		writeJSON(t, w, http.StatusOK, resp)
+	})
+
+	socketPath := startUnixHTTPServer(t, mux)
+	base := commonFlags{socketPath: socketPath, jsonOutput: false, timeout: time.Second}
+
+	out := captureStdout(t, func() {
+		err := runSandboxStop(context.Background(), []string{"--all"}, base)
+		if err != nil {
+			t.Fatalf("runSandboxStop(--all) error = %v", err)
+		}
+	})
+	if !strings.Contains(out, "stop-all complete") {
+		t.Fatalf("expected stop-all summary, got %q", out)
+	}
+	if !strings.Contains(out, "stopped=1") || !strings.Contains(out, "skipped=1") || !strings.Contains(out, "failed=1") {
+		t.Fatalf("expected stop-all counts, got %q", out)
+	}
+	if !strings.Contains(out, "skipped: vmid=9002") {
+		t.Fatalf("expected skipped entry, got %q", out)
+	}
+	if !strings.Contains(out, "failed: vmid=9003") {
+		t.Fatalf("expected failed entry, got %q", out)
+	}
+}
+
 func TestCLIProfileListHappyPath(t *testing.T) {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/v1/profiles", func(w http.ResponseWriter, r *http.Request) {

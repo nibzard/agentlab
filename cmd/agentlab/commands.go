@@ -857,11 +857,35 @@ func runSandboxStop(ctx context.Context, args []string, base commonFlags) error 
 	fs := newFlagSet("sandbox stop")
 	opts := base
 	opts.bind(fs)
+	var all bool
 	var help bool
+	fs.BoolVar(&all, "all", false, "stop all running sandboxes")
 	fs.BoolVar(&help, "help", false, "show help")
 	fs.BoolVar(&help, "h", false, "show help")
 	if err := parseFlags(fs, args, printSandboxStopUsage, &help, opts.jsonOutput); err != nil {
 		return err
+	}
+	client := newAPIClient(opts.socketPath, opts.timeout)
+	if all {
+		if fs.NArg() > 0 {
+			if !opts.jsonOutput {
+				printSandboxStopUsage()
+			}
+			return fmt.Errorf("vmid is not allowed with --all")
+		}
+		payload, err := client.doJSON(ctx, http.MethodPost, "/v1/sandboxes/stop_all", nil)
+		if err != nil {
+			return err
+		}
+		if opts.jsonOutput {
+			return prettyPrintJSON(os.Stdout, payload)
+		}
+		var resp sandboxStopAllResponse
+		if err := json.Unmarshal(payload, &resp); err != nil {
+			return err
+		}
+		printSandboxStopAll(resp)
+		return nil
 	}
 	if fs.NArg() < 1 {
 		if !opts.jsonOutput {
@@ -874,7 +898,6 @@ func runSandboxStop(ctx context.Context, args []string, base commonFlags) error 
 		return err
 	}
 
-	client := newAPIClient(opts.socketPath, opts.timeout)
 	payload, err := client.doJSON(ctx, http.MethodPost, fmt.Sprintf("/v1/sandboxes/%d/stop", vmid), nil)
 	if err != nil {
 		return wrapSandboxNotFound(ctx, client, vmid, err)
@@ -888,6 +911,22 @@ func runSandboxStop(ctx context.Context, args []string, base commonFlags) error 
 	}
 	fmt.Printf("sandbox %d stopped (state=%s)\n", resp.VMID, resp.State)
 	return nil
+}
+
+func printSandboxStopAll(resp sandboxStopAllResponse) {
+	fmt.Printf("stop-all complete: stopped=%d skipped=%d failed=%d (total=%d)\n", resp.Stopped, resp.Skipped, resp.Failed, resp.Total)
+	for _, result := range resp.Results {
+		switch result.Result {
+		case "failed":
+			if result.Error != "" {
+				fmt.Printf("failed: vmid=%d state=%s error=%s\n", result.VMID, result.State, result.Error)
+			} else {
+				fmt.Printf("failed: vmid=%d state=%s\n", result.VMID, result.State)
+			}
+		case "skipped":
+			fmt.Printf("skipped: vmid=%d state=%s\n", result.VMID, result.State)
+		}
+	}
 }
 
 func runSandboxRevert(ctx context.Context, args []string, base commonFlags) error {

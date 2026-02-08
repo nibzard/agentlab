@@ -75,6 +75,7 @@ var (
 //   - GET    /v1/sandboxes/{vmid}     - Get sandbox details
 //   - POST   /v1/sandboxes/{vmid}/start     - Start a stopped sandbox
 //   - POST   /v1/sandboxes/{vmid}/stop      - Stop a running sandbox
+//   - POST   /v1/sandboxes/stop_all         - Stop all running sandboxes
 //   - POST   /v1/sandboxes/{vmid}/touch     - Update sandbox last_used_at
 //   - POST   /v1/sandboxes/{vmid}/revert    - Revert a sandbox to snapshot "clean"
 //   - POST   /v1/sandboxes/{vmid}/destroy   - Destroy a sandbox
@@ -167,6 +168,7 @@ func (api *ControlAPI) Register(mux *http.ServeMux) {
 	mux.HandleFunc("/v1/status", api.handleStatus)
 	mux.HandleFunc("/v1/sandboxes", api.handleSandboxes)
 	mux.HandleFunc("/v1/sandboxes/", api.handleSandboxByID)
+	mux.HandleFunc("/v1/sandboxes/stop_all", api.handleSandboxStopAll)
 	mux.HandleFunc("/v1/sandboxes/prune", api.handleSandboxPrune)
 	mux.HandleFunc("/v1/workspaces", api.handleWorkspaces)
 	mux.HandleFunc("/v1/workspaces/", api.handleWorkspaceByID)
@@ -1375,6 +1377,89 @@ func (api *ControlAPI) handleSandboxStop(w http.ResponseWriter, r *http.Request,
 		return
 	}
 	writeJSON(w, http.StatusOK, api.sandboxToV1(sandbox))
+}
+
+func (api *ControlAPI) handleSandboxStopAll(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		writeMethodNotAllowed(w, []string{http.MethodPost})
+		return
+	}
+	if api.sandboxManager == nil {
+		writeError(w, http.StatusInternalServerError, "sandbox manager unavailable")
+		return
+	}
+	if api.store == nil {
+		writeError(w, http.StatusInternalServerError, "sandbox store unavailable")
+		return
+	}
+	ctx := r.Context()
+	sandboxes, err := api.store.ListSandboxes(ctx)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to list sandboxes")
+		return
+	}
+
+	resp := V1SandboxStopAllResponse{
+		Results: make([]V1SandboxStopAllResult, 0, len(sandboxes)),
+	}
+	for _, sb := range sandboxes {
+		result := V1SandboxStopAllResult{
+			VMID:    sb.VMID,
+			Name:    sb.Name,
+			Profile: sb.Profile,
+			State:   string(sb.State),
+			Result:  "skipped",
+		}
+		var stopErr error
+		if sb.State == models.SandboxReady || sb.State == models.SandboxRunning {
+			stopErr = api.sandboxManager.Stop(ctx, sb.VMID)
+			if stopErr == nil {
+				result.Result = "stopped"
+				result.State = string(models.SandboxStopped)
+			} else if !errors.Is(stopErr, ErrSandboxNotFound) && !errors.Is(stopErr, ErrInvalidTransition) {
+				result.Result = "failed"
+				result.Error = stopErr.Error()
+			} else {
+				result.Error = stopErr.Error()
+			}
+		}
+
+		switch result.Result {
+		case "stopped":
+			resp.Stopped++
+		case "failed":
+			resp.Failed++
+		default:
+			resp.Skipped++
+		}
+		resp.Total++
+		resp.Results = append(resp.Results, result)
+
+		payload, _ := json.Marshal(map[string]any{
+			"result":         result.Result,
+			"state":          result.State,
+			"previous_state": string(sb.State),
+			"error":          result.Error,
+		})
+		msg := fmt.Sprintf("stop_all %s", result.Result)
+		if result.Error != "" {
+			msg = fmt.Sprintf("%s: %s", msg, result.Error)
+		}
+		_ = api.store.RecordEvent(ctx, "sandbox.stop_all.result", &sb.VMID, nil, msg, string(payload))
+	}
+
+	summaryPayload, _ := json.Marshal(map[string]any{
+		"total":   resp.Total,
+		"stopped": resp.Stopped,
+		"skipped": resp.Skipped,
+		"failed":  resp.Failed,
+	})
+	_ = api.store.RecordEvent(ctx, "sandbox.stop_all", nil, nil,
+		fmt.Sprintf("stop_all completed: stopped=%d skipped=%d failed=%d", resp.Stopped, resp.Skipped, resp.Failed),
+		string(summaryPayload),
+	)
+
+	writeJSON(w, http.StatusOK, resp)
 }
 
 func (api *ControlAPI) handleSandboxTouch(w http.ResponseWriter, r *http.Request, vmid int) {
