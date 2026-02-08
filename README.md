@@ -73,7 +73,13 @@ sudo scripts/create_template.sh
 sudo systemctl restart agentlabd.service
 ```
 
-6) Run a job from the host:
+7) Check control-plane status:
+
+```bash
+agentlab status
+```
+
+8) Run a job from the host:
 
 ```bash
 agentlab job run --repo <git-url> --task "<task>" --profile yolo-ephemeral
@@ -664,6 +670,12 @@ AGENTLAB_DEBUG=1 /usr/local/bin/agentlabd --config /etc/agentlab/config.yaml
 ## Troubleshooting
 
 ### Common Issues
+
+Start with a quick status snapshot:
+
+```bash
+agentlab status
+```
 
 #### Daemon Not Starting
 

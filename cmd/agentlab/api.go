@@ -148,6 +148,29 @@ type profilesResponse struct {
 	Profiles []profileResponse `json:"profiles"`
 }
 
+// statusArtifactsResponse represents artifact storage status in the status summary.
+type statusArtifactsResponse struct {
+	Root       string `json:"root,omitempty"`
+	TotalBytes uint64 `json:"total_bytes,omitempty"`
+	FreeBytes  uint64 `json:"free_bytes,omitempty"`
+	UsedBytes  uint64 `json:"used_bytes,omitempty"`
+	Error      string `json:"error,omitempty"`
+}
+
+// statusMetricsResponse represents metrics listener status.
+type statusMetricsResponse struct {
+	Enabled bool `json:"enabled"`
+}
+
+// statusResponse represents the control plane status summary.
+type statusResponse struct {
+	Sandboxes      map[string]int          `json:"sandboxes"`
+	Jobs           map[string]int          `json:"jobs"`
+	Artifacts      statusArtifactsResponse `json:"artifacts"`
+	Metrics        statusMetricsResponse   `json:"metrics"`
+	RecentFailures []eventResponse         `json:"recent_failures"`
+}
+
 // sandboxRevertResponse contains the result of a revert operation.
 type sandboxRevertResponse struct {
 	Sandbox    sandboxResponse `json:"sandbox"`

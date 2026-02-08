@@ -295,3 +295,70 @@ func TestCLIProfileListHappyPath(t *testing.T) {
 		t.Fatalf("expected template id in output, got %q", out)
 	}
 }
+
+func TestCLIStatusHappyPath(t *testing.T) {
+	mux := http.NewServeMux()
+	mux.HandleFunc("/v1/status", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			t.Errorf("/v1/status method = %s", r.Method)
+			w.WriteHeader(http.StatusMethodNotAllowed)
+			return
+		}
+		resp := statusResponse{
+			Sandboxes: map[string]int{"RUNNING": 2, "STOPPED": 1},
+			Jobs:      map[string]int{"QUEUED": 1, "FAILED": 2},
+			Artifacts: statusArtifactsResponse{
+				Root:       "/var/lib/agentlab/artifacts",
+				TotalBytes: 1000,
+				FreeBytes:  250,
+				UsedBytes:  750,
+			},
+			Metrics: statusMetricsResponse{Enabled: true},
+			RecentFailures: []eventResponse{
+				{
+					ID:          1,
+					Timestamp:   "2026-02-08T12:00:00Z",
+					Kind:        "job.failed",
+					SandboxVMID: intPtr(9001),
+					JobID:       "job-1",
+					Message:     "boom",
+				},
+			},
+		}
+		writeJSON(t, w, http.StatusOK, resp)
+	})
+
+	socketPath := startUnixHTTPServer(t, mux)
+	base := commonFlags{socketPath: socketPath, jsonOutput: false, timeout: time.Second}
+
+	out := captureStdout(t, func() {
+		err := runStatusCommand(context.Background(), nil, base)
+		if err != nil {
+			t.Fatalf("runStatusCommand() error = %v", err)
+		}
+	})
+	if !strings.Contains(out, "Sandboxes:") || !strings.Contains(out, "RUNNING") {
+		t.Fatalf("expected sandboxes in output, got %q", out)
+	}
+	if !strings.Contains(out, "Artifacts:") || !strings.Contains(out, "Metrics:") {
+		t.Fatalf("expected artifacts/metrics output, got %q", out)
+	}
+	if !strings.Contains(out, "job.failed") {
+		t.Fatalf("expected recent failure output, got %q", out)
+	}
+
+	base.jsonOutput = true
+	jsonOut := captureStdout(t, func() {
+		err := runStatusCommand(context.Background(), nil, base)
+		if err != nil {
+			t.Fatalf("runStatusCommand(json) error = %v", err)
+		}
+	})
+	var got statusResponse
+	if err := json.Unmarshal([]byte(jsonOut), &got); err != nil {
+		t.Fatalf("unmarshal status json: %v", err)
+	}
+	if got.Metrics.Enabled != true {
+		t.Fatalf("expected metrics enabled, got %#v", got.Metrics.Enabled)
+	}
+}
