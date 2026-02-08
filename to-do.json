@@ -1518,25 +1518,25 @@
         "proxmox"
       ],
       "files": [
-        "internal/daemon/profile_resources.go",
-        "internal/daemon/profile_validation.go",
-        "internal/daemon/api_types.go",
-        "internal/daemon/api.go",
-        "internal/daemon/job_orchestrator_test.go",
-        "internal/daemon/profile_validation_test.go",
-        "internal/proxmox/proxmox.go",
-        "internal/proxmox/shell_backend.go",
-        "internal/proxmox/api_backend.go",
-        "internal/proxmox/shell_backend_test.go",
-        "internal/proxmox/api_backend_test.go",
         "cmd/agentlab/api.go",
         "cmd/agentlab/commands.go",
         "cmd/agentlab/commands_daemon_test.go",
         "docs/configuration.md",
+        "internal/daemon/api.go",
+        "internal/daemon/api_types.go",
+        "internal/daemon/job_orchestrator_test.go",
+        "internal/daemon/profile_resources.go",
+        "internal/daemon/profile_validation.go",
+        "internal/daemon/profile_validation_test.go",
+        "internal/proxmox/api_backend.go",
+        "internal/proxmox/api_backend_test.go",
+        "internal/proxmox/proxmox.go",
+        "internal/proxmox/shell_backend.go",
+        "internal/proxmox/shell_backend_test.go",
         "to-do.json"
       ],
       "created_at": "2026-02-08T16:47:32Z",
-      "updated_at": "2026-02-08T19:52:55Z"
+      "updated_at": "2026-02-08T19:53:27Z"
     },
     {
       "id": "T072",
@@ -1574,7 +1574,7 @@
       "id": "T073",
       "title": "Add exposures registry (DB + API) for explicit sandbox port exposure",
       "priority": 3,
-      "status": "todo",
+      "status": "done",
       "details": "Make exposure explicit, host-owned, and auditable. Add a first-class exposure registry so sandboxes cannot self-expose services. This is the control-plane foundation for `sandbox expose`.",
       "steps": [
         "Add DB migration to create exposures table (name, vmid, port, target_ip, url, state, created_at, updated_at).",
@@ -1590,12 +1590,16 @@
       ],
       "files": [
         "internal/db/migrations.go",
-        "internal/db/db.go",
+        "internal/db/migrations_test.go",
+        "internal/db/exposures.go",
+        "internal/db/exposures_test.go",
         "internal/daemon/api.go",
-        "internal/daemon/api_types.go"
+        "internal/daemon/api_types.go",
+        "internal/daemon/api_exposures_test.go",
+        "to-do.json"
       ],
       "created_at": "2026-02-08T16:47:32Z",
-      "updated_at": "2026-02-08T16:47:32Z"
+      "updated_at": "2026-02-08T20:01:10Z"
     },
     {
       "id": "T074",

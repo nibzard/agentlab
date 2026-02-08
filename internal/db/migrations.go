@@ -136,6 +136,24 @@ var migrations = []migration{
 			`ALTER TABLE sandboxes ADD COLUMN last_used_at TEXT`,
 		},
 	},
+	{
+		version: 5,
+		name:    "add_exposures",
+		statements: []string{
+			`CREATE TABLE IF NOT EXISTS exposures (
+				name TEXT PRIMARY KEY,
+				vmid INTEGER NOT NULL,
+				port INTEGER NOT NULL,
+				target_ip TEXT NOT NULL,
+				url TEXT,
+				state TEXT NOT NULL,
+				created_at TEXT NOT NULL,
+				updated_at TEXT NOT NULL,
+				FOREIGN KEY(vmid) REFERENCES sandboxes(vmid) ON DELETE CASCADE
+			)`,
+			`CREATE INDEX IF NOT EXISTS idx_exposures_vmid ON exposures(vmid)`,
+		},
+	},
 }
 
 // Migrate runs any pending migrations against the provided database.

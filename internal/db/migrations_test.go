@@ -22,7 +22,7 @@ func TestMigrate(t *testing.T) {
 		var count int
 		err = conn.QueryRow("SELECT COUNT(*) FROM schema_migrations").Scan(&count)
 		require.NoError(t, err)
-		assert.Equal(t, 4, count) // We have 4 migrations
+		assert.Equal(t, 5, count) // We have 5 migrations
 
 		// Verify version numbers
 		rows, err := conn.Query("SELECT version FROM schema_migrations ORDER BY version")
@@ -36,7 +36,7 @@ func TestMigrate(t *testing.T) {
 			require.NoError(t, err)
 			versions = append(versions, v)
 		}
-		assert.Equal(t, []int{1, 2, 3, 4}, versions)
+		assert.Equal(t, []int{1, 2, 3, 4, 5}, versions)
 	})
 
 	t.Run("idempotent - re-running is safe", func(t *testing.T) {
@@ -53,11 +53,11 @@ func TestMigrate(t *testing.T) {
 		err = Migrate(conn)
 		require.NoError(t, err)
 
-		// Verify only 4 migrations recorded
+		// Verify only 5 migrations recorded
 		var count int
 		err = conn.QueryRow("SELECT COUNT(*) FROM schema_migrations").Scan(&count)
 		require.NoError(t, err)
-		assert.Equal(t, 4, count)
+		assert.Equal(t, 5, count)
 	})
 
 	t.Run("creates all core tables", func(t *testing.T) {
@@ -72,7 +72,7 @@ func TestMigrate(t *testing.T) {
 		// Check expected tables exist
 		tables := []string{
 			"sandboxes", "jobs", "profiles", "workspaces",
-			"bootstrap_tokens", "events", "artifact_tokens", "artifacts",
+			"bootstrap_tokens", "events", "artifact_tokens", "artifacts", "exposures",
 		}
 
 		for _, table := range tables {
@@ -95,7 +95,7 @@ func TestMigrate(t *testing.T) {
 		// Check some key indexes exist
 		indexes := []string{
 			"idx_sandboxes_state", "idx_jobs_status",
-			"idx_workspaces_attached", "idx_artifacts_job",
+			"idx_workspaces_attached", "idx_artifacts_job", "idx_exposures_vmid",
 		}
 
 		for _, index := range indexes {
@@ -377,15 +377,15 @@ func TestPartialMigration(t *testing.T) {
 			}
 		}
 
-		// Run migrations - should apply 2, 3, and 4
+		// Run migrations - should apply 2, 3, 4, and 5
 		err = Migrate(conn)
 		require.NoError(t, err)
 
-		// Verify all 4 migrations applied
+		// Verify all 5 migrations applied
 		var count int
 		err = conn.QueryRow("SELECT COUNT(*) FROM schema_migrations").Scan(&count)
 		require.NoError(t, err)
-		assert.Equal(t, 4, count)
+		assert.Equal(t, 5, count)
 
 		// Verify tables from migration 2 and 3 exist
 		var tables int
