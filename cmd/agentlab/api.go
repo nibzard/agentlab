@@ -205,6 +205,10 @@ type sandboxStopAllResponse struct {
 	Results []sandboxStopAllResult `json:"results"`
 }
 
+type sandboxStopAllRequest struct {
+	Force bool `json:"force,omitempty"`
+}
+
 // leaseRenewRequest contains parameters for renewing a sandbox lease.
 type leaseRenewRequest struct {
 	TTLMinutes int `json:"ttl_minutes"`
@@ -269,6 +273,7 @@ type exposureCreateRequest struct {
 	Name     string `json:"name"`
 	VMID     int    `json:"vmid"`
 	Port     int    `json:"port"`
+	Force    bool   `json:"force,omitempty"`
 	TargetIP string `json:"target_ip,omitempty"`
 }
 

@@ -1560,24 +1560,24 @@
         "profiles"
       ],
       "files": [
-        "internal/daemon/profile_network_mode.go",
-        "internal/daemon/profile_resources.go",
-        "internal/daemon/profile_validation.go",
-        "internal/daemon/api.go",
-        "internal/daemon/api_types.go",
-        "internal/daemon/profile_resources_test.go",
-        "internal/daemon/profile_validation_test.go",
-        "internal/daemon/api_status_test.go",
+        "README.md",
         "cmd/agentlab/api.go",
         "cmd/agentlab/commands.go",
         "cmd/agentlab/commands_daemon_test.go",
         "cmd/agentlab/commands_happy_path_test.go",
         "docs/configuration.md",
-        "README.md",
+        "internal/daemon/api.go",
+        "internal/daemon/api_status_test.go",
+        "internal/daemon/api_types.go",
+        "internal/daemon/profile_network_mode.go",
+        "internal/daemon/profile_resources.go",
+        "internal/daemon/profile_resources_test.go",
+        "internal/daemon/profile_validation.go",
+        "internal/daemon/profile_validation_test.go",
         "scripts/profiles/defaults.yaml"
       ],
       "created_at": "2026-02-08T16:47:32Z",
-      "updated_at": "2026-02-08T20:59:44Z"
+      "updated_at": "2026-02-08T21:00:56Z"
     },
     {
       "id": "T073",
@@ -1781,7 +1781,7 @@
       "id": "T079",
       "title": "Add confirmation gates / --force semantics for destructive or security-weakening operations",
       "priority": 4,
-      "status": "todo",
+      "status": "done",
       "details": "Codify safe defaults: destructive or security-weakening actions should require explicit confirmation in interactive CLI usage and/or a `--force` flag. This includes revert-running, expose, stop-all, and network policy changes.",
       "steps": [
         "Define a consistent CLI confirmation UX (interactive prompt when TTY; require --force in non-interactive).",
@@ -1801,12 +1801,21 @@
         "cli"
       ],
       "files": [
-        "cmd/agentlab/main.go",
+        "README.md",
+        "cmd/agentlab/api.go",
         "cmd/agentlab/commands.go",
-        "cmd/agentlab/ssh.go"
+        "cmd/agentlab/commands_happy_path_test.go",
+        "cmd/agentlab/confirm.go",
+        "cmd/agentlab/confirm_test.go",
+        "cmd/agentlab/exposures_test.go",
+        "cmd/agentlab/main.go",
+        "cmd/agentlab/ssh.go",
+        "internal/daemon/api.go",
+        "internal/daemon/api_types.go",
+        "internal/daemon/sandbox_manager.go"
       ],
       "created_at": "2026-02-08T16:47:32Z",
-      "updated_at": "2026-02-08T16:47:32Z"
+      "updated_at": "2026-02-08T21:10:22Z"
     }
   ]
 }

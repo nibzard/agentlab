@@ -266,10 +266,16 @@ func TestCLISandboxStartStopHappyPath(t *testing.T) {
 
 func TestCLISandboxStopAllHappyPath(t *testing.T) {
 	mux := http.NewServeMux()
+	var gotStopAll sandboxStopAllRequest
 	mux.HandleFunc("/v1/sandboxes/stop_all", func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
 			t.Errorf("/v1/sandboxes/stop_all method = %s", r.Method)
 			w.WriteHeader(http.StatusMethodNotAllowed)
+			return
+		}
+		if err := json.NewDecoder(r.Body).Decode(&gotStopAll); err != nil {
+			t.Errorf("decode stop_all request: %v", err)
+			w.WriteHeader(http.StatusBadRequest)
 			return
 		}
 		resp := sandboxStopAllResponse{
@@ -290,11 +296,14 @@ func TestCLISandboxStopAllHappyPath(t *testing.T) {
 	base := commonFlags{socketPath: socketPath, jsonOutput: false, timeout: time.Second}
 
 	out := captureStdout(t, func() {
-		err := runSandboxStop(context.Background(), []string{"--all"}, base)
+		err := runSandboxStop(context.Background(), []string{"--all", "--force"}, base)
 		if err != nil {
 			t.Fatalf("runSandboxStop(--all) error = %v", err)
 		}
 	})
+	if !gotStopAll.Force {
+		t.Fatalf("expected stop_all to set force")
+	}
 	if !strings.Contains(out, "stop-all complete") {
 		t.Fatalf("expected stop-all summary, got %q", out)
 	}
