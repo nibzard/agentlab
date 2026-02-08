@@ -47,6 +47,8 @@ The main configuration file is located at `/etc/agentlab/config.yaml` by default
 | `proxmox_api_url` | string | `https://localhost:8006` | Proxmox API URL |
 | `proxmox_api_token` | string | `""` (required) | Proxmox API token |
 | `proxmox_node` | string | `""` (auto) | Proxmox node name (auto-detected if empty) |
+| `proxmox_tls_insecure` | bool | `true` | Skip TLS certificate verification for Proxmox API |
+| `proxmox_tls_ca_path` | string | `""` | Optional CA bundle path for Proxmox API verification |
 
 ### Network Configuration
 
@@ -83,6 +85,14 @@ proxmox_backend: api
 proxmox_api_url: https://localhost:8006
 proxmox_api_token: root@pam!token=uuid
 proxmox_node: pve1  # optional, auto-detected if empty
+proxmox_tls_insecure: true  # default; skip TLS verification for self-signed certs
+```
+
+To enforce TLS verification, disable insecure mode and optionally provide a CA bundle:
+
+```yaml
+proxmox_tls_insecure: false
+proxmox_tls_ca_path: /etc/agentlab/certs/proxmox-ca.pem
 ```
 
 **Advantages:**
@@ -268,6 +278,8 @@ Configuration can be overridden via environment variables. Environment variables
 | `AGENTLAB_PROXMOX_API_URL` | `proxmox_api_url` | `https://localhost:8006` |
 | `AGENTLAB_PROXMOX_API_TOKEN` | `proxmox_api_token` | `root@pam!token=uuid` |
 | `AGENTLAB_PROXMOX_NODE` | `proxmox_node` | `pve1` |
+| `AGENTLAB_PROXMOX_TLS_INSECURE` | `proxmox_tls_insecure` | `true` |
+| `AGENTLAB_PROXMOX_TLS_CA_PATH` | `proxmox_tls_ca_path` | `/etc/agentlab/certs/proxmox-ca.pem` |
 
 ## Validation Rules
 
@@ -339,6 +351,7 @@ If `ssh_public_key_path` is specified, the file must exist and contain a valid S
 
 - `proxmox_backend` must be either `"shell"` or `"api"`
 - When `proxmox_backend` is `"api"`, `proxmox_api_token` is required
+- `proxmox_tls_insecure` cannot be true when `proxmox_tls_ca_path` is set
 
 ### Profile Validation
 
