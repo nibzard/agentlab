@@ -54,7 +54,7 @@ Usage:
   agentlab [--socket PATH] [--json] [--timeout DURATION] job show <job_id> [--events-tail <n>]
   agentlab [--socket PATH] [--json] [--timeout DURATION] job artifacts <job_id>
   agentlab [--socket PATH] [--json] [--timeout DURATION] job artifacts download <job_id> [--out <path>] [--path <path>] [--name <name>] [--latest] [--bundle]
-  agentlab [--socket PATH] [--json] [--timeout DURATION] sandbox new --profile <profile> [--name <name>] [--ttl <ttl>] [--keepalive] [--workspace <id>] [--vmid <vmid>] [--job <id>] [--and-ssh]
+  agentlab [--socket PATH] [--json] [--timeout DURATION] sandbox new [--name <name>] [--ttl <ttl>] [--keepalive] [--workspace <id>] [--vmid <vmid>] [--job <id>] [--and-ssh] (--profile <profile> | +mod [+mod...])
   agentlab [--socket PATH] [--json] [--timeout DURATION] sandbox list
   agentlab [--socket PATH] [--json] [--timeout DURATION] sandbox show <vmid>
   agentlab [--socket PATH] [--json] [--timeout DURATION] sandbox start <vmid>
@@ -261,7 +261,8 @@ func printSandboxUsage() {
 }
 
 func printSandboxNewUsage() {
-	fmt.Fprintln(os.Stdout, "Usage: agentlab sandbox new --profile <profile> [--name <name>] [--ttl <ttl>] [--keepalive] [--workspace <id>] [--vmid <vmid>] [--job <id>] [--and-ssh]")
+	fmt.Fprintln(os.Stdout, "Usage: agentlab sandbox new [--name <name>] [--ttl <ttl>] [--keepalive] [--workspace <id>] [--vmid <vmid>] [--job <id>] [--and-ssh] (--profile <profile> | +mod [+mod...])")
+	fmt.Fprintln(os.Stdout, "Note: Modifiers are resolved by sorting and joining with '-' (e.g., +secure +small -> secure-small).")
 }
 
 func printSandboxListUsage() {

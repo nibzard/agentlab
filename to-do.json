@@ -1469,7 +1469,7 @@
       "id": "T070",
       "title": "Add modifier syntax for sandbox creation (e.g., `sandbox new +small +secure`)",
       "priority": 3,
-      "status": "todo",
+      "status": "done",
       "details": "Replace flag soup with safe, composable modifiers. Allow `agentlab sandbox new +small +secure` as sugar over named profiles (source of truth remains YAML profiles). Unknown modifiers should fail with a clear list of valid modifiers.",
       "steps": [
         "Extend CLI parsing for sandbox new to accept order-independent +mod tokens after flags.",
@@ -1487,12 +1487,15 @@
         "profiles"
       ],
       "files": [
-        "cmd/agentlab/main.go",
         "cmd/agentlab/commands.go",
-        "README.md"
+        "cmd/agentlab/main.go",
+        "cmd/agentlab/modifiers.go",
+        "cmd/agentlab/sandbox_modifiers_test.go",
+        "README.md",
+        "to-do.json"
       ],
       "created_at": "2026-02-08T16:47:32Z",
-      "updated_at": "2026-02-08T16:47:32Z"
+      "updated_at": "2026-02-08T19:37:37Z"
     },
     {
       "id": "T071",

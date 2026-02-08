@@ -627,6 +627,17 @@ func runSandboxNew(ctx context.Context, args []string, base commonFlags) error {
 	if err := parseFlags(fs, args, printSandboxNewUsage, &help, opts.jsonOutput); err != nil {
 		return err
 	}
+	modifiers, err := parseSandboxModifiers(fs.Args())
+	if err != nil {
+		if !opts.jsonOutput {
+			printSandboxNewUsage()
+		}
+		return err
+	}
+	profile = strings.TrimSpace(profile)
+	if profile != "" && len(modifiers) > 0 {
+		return fmt.Errorf("cannot combine --profile with modifiers")
+	}
 	if andSSH {
 		if opts.jsonOutput {
 			return fmt.Errorf("cannot use --and-ssh with --json")
@@ -635,9 +646,9 @@ func runSandboxNew(ctx context.Context, args []string, base commonFlags) error {
 			return fmt.Errorf("--and-ssh requires an interactive terminal")
 		}
 	}
-	if profile == "" {
+	if profile == "" && len(modifiers) == 0 {
 		printSandboxNewUsage()
-		return fmt.Errorf("profile is required")
+		return fmt.Errorf("profile is required (or provide +modifiers)")
 	}
 	ttlMinutes, err := parseTTLMinutes(ttl)
 	if err != nil {
@@ -655,6 +666,25 @@ func runSandboxNew(ctx context.Context, args []string, base commonFlags) error {
 	}
 
 	client := newAPIClient(opts.socketPath, opts.timeout)
+	if profile != "" || len(modifiers) > 0 {
+		profiles, err := fetchProfiles(ctx, client)
+		if err != nil {
+			return err
+		}
+		if len(modifiers) > 0 {
+			resolvedProfile, resolveErr := resolveProfileFromModifiers(modifiers, profiles)
+			if resolveErr != nil {
+				return resolveErr
+			}
+			profile = resolvedProfile
+		} else {
+			resolvedProfile, resolveErr := validateProfileName(profile, profiles)
+			if resolveErr != nil {
+				return resolveErr
+			}
+			profile = resolvedProfile
+		}
+	}
 	req := sandboxCreateRequest{
 		Name:       name,
 		Profile:    profile,
