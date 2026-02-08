@@ -1957,27 +1957,29 @@
       "status": "done",
       "details": "Shell backend uses linked clones (--full 0) while API backend forces full clones (full=1), diverging from each other and the spec linked-clone preference. Add a config flag to control clone mode (default linked) and apply consistently across backends; update docs/tests as needed.",
       "files": [
-        "internal/proxmox/api_backend.go",
-        "internal/proxmox/shell_backend.go",
-        "internal/config/config.go",
         "docs/configuration.md",
-        "internal/proxmox/api_backend_test.go",
-        "internal/proxmox/shell_backend_test.go",
+        "internal/config/config.go",
+        "internal/config/config_test.go",
         "internal/daemon/daemon.go",
-        "internal/config/config_test.go"
+        "internal/proxmox/api_backend.go",
+        "internal/proxmox/api_backend_test.go",
+        "internal/proxmox/shell_backend.go",
+        "internal/proxmox/shell_backend_test.go",
+        "to-do.json"
       ],
-      "updated_at": "2026-02-08T22:03:22Z"
+      "updated_at": "2026-02-08T22:03:48Z"
     },
     {
       "id": "T088",
       "title": "Fix health check path in API documentation",
       "priority": 5,
-      "status": "todo",
+      "status": "done",
       "details": "docs/api.md references /v1/healthz, but the daemon exposes /healthz on all listeners. Update the doc example (or add a /v1/healthz alias) so documentation matches implementation.",
       "files": [
         "docs/api.md",
         "internal/daemon/daemon.go"
-      ]
+      ],
+      "updated_at": "2026-02-08T22:04:28Z"
     }
   ]
 }
