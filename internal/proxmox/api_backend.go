@@ -90,7 +90,7 @@ func (b *APIBackend) Configure(ctx context.Context, vmid VMID, cfg VMConfig) err
 		params.Set("memory", strconv.Itoa(cfg.MemoryMB))
 	}
 	if cfg.CPUPinning != "" {
-		params.Set("cpulimit", cfg.CPUPinning)
+		params.Set("cpulist", cfg.CPUPinning)
 	}
 	if cfg.Bridge != "" || cfg.NetModel != "" || cfg.Firewall != nil || cfg.FirewallGroup != "" {
 		net0 := buildNet0(cfg.NetModel, cfg.Bridge, cfg.Firewall, cfg.FirewallGroup)

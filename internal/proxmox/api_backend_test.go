@@ -140,8 +140,8 @@ func TestAPIBackendConfigure(t *testing.T) {
 	if got := call.form.Get("memory"); got != "2048" {
 		t.Fatalf("memory = %q", got)
 	}
-	if got := call.form.Get("cpulimit"); got != "0-3" {
-		t.Fatalf("cpulimit = %q", got)
+	if got := call.form.Get("cpulist"); got != "0-3" {
+		t.Fatalf("cpulist = %q", got)
 	}
 	if got := call.form.Get("net0"); got != "virtio,bridge=vmbr1,firewall=1,fwgroup=agent_nat_default" {
 		t.Fatalf("net0 = %q", got)
