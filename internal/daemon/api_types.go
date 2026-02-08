@@ -203,6 +203,30 @@ type V1WorkspaceRebindResponse struct {
 	OldVMID   *int                `json:"old_vmid,omitempty"`
 }
 
+type V1ExposureCreateRequest struct {
+	Name     string `json:"name"`
+	VMID     int    `json:"vmid"`
+	Port     int    `json:"port"`
+	TargetIP string `json:"target_ip,omitempty"`
+	URL      string `json:"url,omitempty"`
+	State    string `json:"state,omitempty"`
+}
+
+type V1Exposure struct {
+	Name      string `json:"name"`
+	VMID      int    `json:"vmid"`
+	Port      int    `json:"port"`
+	TargetIP  string `json:"target_ip"`
+	URL       string `json:"url,omitempty"`
+	State     string `json:"state"`
+	CreatedAt string `json:"created_at"`
+	UpdatedAt string `json:"updated_at"`
+}
+
+type V1ExposuresResponse struct {
+	Exposures []V1Exposure `json:"exposures"`
+}
+
 type V1Event struct {
 	ID          int64           `json:"id"`
 	Timestamp   string          `json:"ts"`

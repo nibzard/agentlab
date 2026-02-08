@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"net"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -32,6 +33,7 @@ const (
 	defaultJobEventsTail      = 50   // Default events tailed for job details
 	maxEventsLimit            = 1000 // Maximum events allowed per query
 	defaultStatusFailureLimit = 10   // Default recent failures returned in status
+	defaultExposureState      = "requested"
 )
 
 var (
@@ -85,6 +87,9 @@ var (
 //   - POST   /v1/workspaces/{id}/attach  - Attach workspace to VM
 //   - POST   /v1/workspaces/{id}/detach  - Detach workspace from VM
 //   - POST   /v1/workspaces/{id}/rebind   - Rebind workspace to new VM
+//   - POST   /v1/exposures            - Create a new exposure
+//   - GET    /v1/exposures            - List exposures
+//   - DELETE /v1/exposures/{name}     - Delete exposure
 type ControlAPI struct {
 	store           *db.Store
 	profiles        map[string]models.Profile
@@ -155,6 +160,8 @@ func (api *ControlAPI) Register(mux *http.ServeMux) {
 	mux.HandleFunc("/v1/sandboxes/prune", api.handleSandboxPrune)
 	mux.HandleFunc("/v1/workspaces", api.handleWorkspaces)
 	mux.HandleFunc("/v1/workspaces/", api.handleWorkspaceByID)
+	mux.HandleFunc("/v1/exposures", api.handleExposures)
+	mux.HandleFunc("/v1/exposures/", api.handleExposureByName)
 }
 
 func (api *ControlAPI) handleJobs(w http.ResponseWriter, r *http.Request) {
@@ -698,6 +705,31 @@ func (api *ControlAPI) handleWorkspaceByID(w http.ResponseWriter, r *http.Reques
 	writeError(w, http.StatusNotFound, "workspace not found")
 }
 
+func (api *ControlAPI) handleExposures(w http.ResponseWriter, r *http.Request) {
+	switch r.Method {
+	case http.MethodPost:
+		api.handleExposureCreate(w, r)
+	case http.MethodGet:
+		api.handleExposureList(w, r)
+	default:
+		writeMethodNotAllowed(w, []string{http.MethodGet, http.MethodPost})
+	}
+}
+
+func (api *ControlAPI) handleExposureByName(w http.ResponseWriter, r *http.Request) {
+	tail := strings.TrimPrefix(r.URL.Path, "/v1/exposures/")
+	name := strings.TrimSpace(strings.Trim(tail, "/"))
+	if name == "" {
+		writeError(w, http.StatusNotFound, "exposure not found")
+		return
+	}
+	if r.Method != http.MethodDelete {
+		writeMethodNotAllowed(w, []string{http.MethodDelete})
+		return
+	}
+	api.handleExposureDelete(w, r, name)
+}
+
 func (api *ControlAPI) handleSandboxList(w http.ResponseWriter, r *http.Request) {
 	sandboxes, err := api.store.ListSandboxes(r.Context())
 	if err != nil {
@@ -1060,6 +1092,146 @@ func (api *ControlAPI) handleWorkspaceRebind(w http.ResponseWriter, r *http.Requ
 		OldVMID:   result.OldVMID,
 	}
 	writeJSON(w, http.StatusOK, resp)
+}
+
+func (api *ControlAPI) handleExposureCreate(w http.ResponseWriter, r *http.Request) {
+	if api.store == nil {
+		writeError(w, http.StatusServiceUnavailable, "exposure registry unavailable")
+		return
+	}
+	var req V1ExposureCreateRequest
+	if err := decodeJSON(w, r, &req); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	req.Name = strings.TrimSpace(req.Name)
+	req.TargetIP = strings.TrimSpace(req.TargetIP)
+	req.URL = strings.TrimSpace(req.URL)
+	req.State = strings.TrimSpace(req.State)
+
+	if req.Name == "" {
+		writeError(w, http.StatusBadRequest, "name is required")
+		return
+	}
+	if req.VMID <= 0 {
+		writeError(w, http.StatusBadRequest, "vmid must be positive")
+		return
+	}
+	if req.Port <= 0 || req.Port > 65535 {
+		writeError(w, http.StatusBadRequest, "port must be between 1 and 65535")
+		return
+	}
+	if req.State == "" {
+		req.State = defaultExposureState
+	}
+
+	ctx := r.Context()
+	sandbox, err := api.store.GetSandbox(ctx, req.VMID)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			writeError(w, http.StatusNotFound, "sandbox not found")
+			return
+		}
+		writeError(w, http.StatusInternalServerError, "failed to load sandbox")
+		return
+	}
+	if req.TargetIP == "" {
+		req.TargetIP = strings.TrimSpace(sandbox.IP)
+	}
+	if req.TargetIP == "" {
+		writeError(w, http.StatusConflict, "sandbox has no ip assigned")
+		return
+	}
+	if net.ParseIP(req.TargetIP) == nil {
+		writeError(w, http.StatusBadRequest, "target_ip must be a valid IP")
+		return
+	}
+
+	now := api.now().UTC()
+	exposure := db.Exposure{
+		Name:      req.Name,
+		VMID:      req.VMID,
+		Port:      req.Port,
+		TargetIP:  req.TargetIP,
+		URL:       req.URL,
+		State:     req.State,
+		CreatedAt: now,
+		UpdatedAt: now,
+	}
+	if err := api.store.CreateExposure(ctx, exposure); err != nil {
+		if isUniqueConstraint(err) {
+			writeError(w, http.StatusConflict, "exposure already exists")
+			return
+		}
+		writeError(w, http.StatusInternalServerError, "failed to create exposure")
+		return
+	}
+
+	payload, _ := json.Marshal(map[string]any{
+		"name":      exposure.Name,
+		"vmid":      exposure.VMID,
+		"port":      exposure.Port,
+		"target_ip": exposure.TargetIP,
+		"url":       exposure.URL,
+		"state":     exposure.State,
+	})
+	vmid := exposure.VMID
+	_ = api.store.RecordEvent(ctx, "exposure.create", &vmid, nil, fmt.Sprintf("exposure %s created", exposure.Name), string(payload))
+
+	writeJSON(w, http.StatusCreated, exposureToV1(exposure))
+}
+
+func (api *ControlAPI) handleExposureList(w http.ResponseWriter, r *http.Request) {
+	if api.store == nil {
+		writeError(w, http.StatusServiceUnavailable, "exposure registry unavailable")
+		return
+	}
+	exposures, err := api.store.ListExposures(r.Context())
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to list exposures")
+		return
+	}
+	resp := V1ExposuresResponse{Exposures: make([]V1Exposure, 0, len(exposures))}
+	for _, exposure := range exposures {
+		resp.Exposures = append(resp.Exposures, exposureToV1(exposure))
+	}
+	writeJSON(w, http.StatusOK, resp)
+}
+
+func (api *ControlAPI) handleExposureDelete(w http.ResponseWriter, r *http.Request, name string) {
+	if api.store == nil {
+		writeError(w, http.StatusServiceUnavailable, "exposure registry unavailable")
+		return
+	}
+	exposure, err := api.store.GetExposure(r.Context(), name)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			writeError(w, http.StatusNotFound, "exposure not found")
+			return
+		}
+		writeError(w, http.StatusInternalServerError, "failed to load exposure")
+		return
+	}
+	if err := api.store.DeleteExposure(r.Context(), name); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			writeError(w, http.StatusNotFound, "exposure not found")
+			return
+		}
+		writeError(w, http.StatusInternalServerError, "failed to delete exposure")
+		return
+	}
+	payload, _ := json.Marshal(map[string]any{
+		"name":      exposure.Name,
+		"vmid":      exposure.VMID,
+		"port":      exposure.Port,
+		"target_ip": exposure.TargetIP,
+		"url":       exposure.URL,
+		"state":     exposure.State,
+	})
+	vmid := exposure.VMID
+	_ = api.store.RecordEvent(r.Context(), "exposure.delete", &vmid, nil, fmt.Sprintf("exposure %s deleted", exposure.Name), string(payload))
+
+	writeJSON(w, http.StatusOK, exposureToV1(exposure))
 }
 
 func (api *ControlAPI) handleSandboxDestroy(w http.ResponseWriter, r *http.Request, vmid int) {
@@ -1481,6 +1653,24 @@ func workspaceToV1(ws models.Workspace) V1WorkspaceResponse {
 	if ws.AttachedVM != nil && *ws.AttachedVM > 0 {
 		value := *ws.AttachedVM
 		resp.AttachedVMID = &value
+	}
+	return resp
+}
+
+func exposureToV1(exposure db.Exposure) V1Exposure {
+	resp := V1Exposure{
+		Name:     exposure.Name,
+		VMID:     exposure.VMID,
+		Port:     exposure.Port,
+		TargetIP: exposure.TargetIP,
+		URL:      exposure.URL,
+		State:    exposure.State,
+	}
+	if !exposure.CreatedAt.IsZero() {
+		resp.CreatedAt = exposure.CreatedAt.UTC().Format(time.RFC3339Nano)
+	}
+	if !exposure.UpdatedAt.IsZero() {
+		resp.UpdatedAt = exposure.UpdatedAt.UTC().Format(time.RFC3339Nano)
 	}
 	return resp
 }
