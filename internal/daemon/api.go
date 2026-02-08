@@ -73,6 +73,7 @@ var (
 //   - GET    /v1/sandboxes/{vmid}     - Get sandbox details
 //   - POST   /v1/sandboxes/{vmid}/start     - Start a stopped sandbox
 //   - POST   /v1/sandboxes/{vmid}/stop      - Stop a running sandbox
+//   - POST   /v1/sandboxes/{vmid}/touch     - Update sandbox last_used_at
 //   - POST   /v1/sandboxes/{vmid}/revert    - Revert a sandbox to snapshot "clean"
 //   - POST   /v1/sandboxes/{vmid}/destroy   - Destroy a sandbox
 //   - POST   /v1/sandboxes/{vmid}/lease/renew - Renew sandbox lease
@@ -594,6 +595,14 @@ func (api *ControlAPI) handleSandboxByID(w http.ResponseWriter, r *http.Request)
 				return
 			}
 			api.handleSandboxStop(w, r, vmid)
+			return
+		}
+		if parts[1] == "touch" {
+			if r.Method != http.MethodPost {
+				writeMethodNotAllowed(w, []string{http.MethodPost})
+				return
+			}
+			api.handleSandboxTouch(w, r, vmid)
 			return
 		}
 		if parts[1] == "revert" {
@@ -1160,6 +1169,28 @@ func (api *ControlAPI) handleSandboxStop(w http.ResponseWriter, r *http.Request,
 	writeJSON(w, http.StatusOK, sandboxToV1(sandbox))
 }
 
+func (api *ControlAPI) handleSandboxTouch(w http.ResponseWriter, r *http.Request, vmid int) {
+	now := api.now().UTC()
+	if err := api.store.UpdateSandboxLastUsed(r.Context(), vmid, now); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			writeError(w, http.StatusNotFound, "sandbox not found")
+			return
+		}
+		writeError(w, http.StatusInternalServerError, "failed to update sandbox usage")
+		return
+	}
+	sandbox, err := api.store.GetSandbox(r.Context(), vmid)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			writeError(w, http.StatusNotFound, "sandbox not found")
+			return
+		}
+		writeError(w, http.StatusInternalServerError, "failed to load sandbox")
+		return
+	}
+	writeJSON(w, http.StatusOK, sandboxToV1(sandbox))
+}
+
 func (api *ControlAPI) handleSandboxRevert(w http.ResponseWriter, r *http.Request, vmid int) {
 	if api.sandboxManager == nil {
 		writeError(w, http.StatusInternalServerError, "sandbox manager unavailable")
@@ -1394,6 +1425,10 @@ func sandboxToV1(sb models.Sandbox) V1SandboxResponse {
 	if !sb.LeaseExpires.IsZero() {
 		value := sb.LeaseExpires.UTC().Format(time.RFC3339Nano)
 		resp.LeaseExpires = &value
+	}
+	if !sb.LastUsedAt.IsZero() {
+		value := sb.LastUsedAt.UTC().Format(time.RFC3339Nano)
+		resp.LastUsedAt = &value
 	}
 	return resp
 }

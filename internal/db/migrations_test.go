@@ -22,7 +22,7 @@ func TestMigrate(t *testing.T) {
 		var count int
 		err = conn.QueryRow("SELECT COUNT(*) FROM schema_migrations").Scan(&count)
 		require.NoError(t, err)
-		assert.Equal(t, 3, count) // We have 3 migrations
+		assert.Equal(t, 4, count) // We have 4 migrations
 
 		// Verify version numbers
 		rows, err := conn.Query("SELECT version FROM schema_migrations ORDER BY version")
@@ -36,7 +36,7 @@ func TestMigrate(t *testing.T) {
 			require.NoError(t, err)
 			versions = append(versions, v)
 		}
-		assert.Equal(t, []int{1, 2, 3}, versions)
+		assert.Equal(t, []int{1, 2, 3, 4}, versions)
 	})
 
 	t.Run("idempotent - re-running is safe", func(t *testing.T) {
@@ -53,11 +53,11 @@ func TestMigrate(t *testing.T) {
 		err = Migrate(conn)
 		require.NoError(t, err)
 
-		// Verify only 3 migrations recorded
+		// Verify only 4 migrations recorded
 		var count int
 		err = conn.QueryRow("SELECT COUNT(*) FROM schema_migrations").Scan(&count)
 		require.NoError(t, err)
-		assert.Equal(t, 3, count)
+		assert.Equal(t, 4, count)
 	})
 
 	t.Run("creates all core tables", func(t *testing.T) {
@@ -163,7 +163,7 @@ func TestMigrationVersion1(t *testing.T) {
 		// Verify key columns exist
 		columns := []string{
 			"vmid", "name", "profile", "state", "ip",
-			"workspace_id", "keepalive", "lease_expires_at",
+			"workspace_id", "keepalive", "lease_expires_at", "last_used_at",
 			"created_at", "updated_at", "meta_json",
 		}
 
@@ -333,6 +333,23 @@ func TestMigrationVersion3(t *testing.T) {
 	})
 }
 
+func TestMigrationVersion4(t *testing.T) {
+	t.Run("adds sandboxes last_used_at column", func(t *testing.T) {
+		path := t.TempDir() + "/test.db"
+		conn, err := sql.Open("sqlite", path)
+		require.NoError(t, err)
+		defer conn.Close()
+
+		err = Migrate(conn)
+		require.NoError(t, err)
+
+		var count int
+		err = conn.QueryRow("SELECT COUNT(*) FROM pragma_table_info('sandboxes') WHERE name='last_used_at'").Scan(&count)
+		require.NoError(t, err)
+		assert.Equal(t, 1, count)
+	})
+}
+
 func TestPartialMigration(t *testing.T) {
 	t.Run("applies only pending migrations", func(t *testing.T) {
 		path := t.TempDir() + "/test.db"
@@ -360,15 +377,15 @@ func TestPartialMigration(t *testing.T) {
 			}
 		}
 
-		// Run migrations - should apply 2 and 3
+		// Run migrations - should apply 2, 3, and 4
 		err = Migrate(conn)
 		require.NoError(t, err)
 
-		// Verify all 3 migrations applied
+		// Verify all 4 migrations applied
 		var count int
 		err = conn.QueryRow("SELECT COUNT(*) FROM schema_migrations").Scan(&count)
 		require.NoError(t, err)
-		assert.Equal(t, 3, count)
+		assert.Equal(t, 4, count)
 
 		// Verify tables from migration 2 and 3 exist
 		var tables int

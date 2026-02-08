@@ -729,6 +729,7 @@ func runSandboxShow(ctx context.Context, args []string, base commonFlags) error 
 	}
 
 	client := newAPIClient(opts.socketPath, opts.timeout)
+	touchSandboxBestEffort(ctx, client, vmid)
 	payload, err := client.doJSON(ctx, http.MethodGet, fmt.Sprintf("/v1/sandboxes/%d", vmid), nil)
 	if err != nil {
 		return err
@@ -1240,6 +1241,7 @@ func runLogsCommand(ctx context.Context, args []string, base commonFlags) error 
 	}
 
 	client := newAPIClient(opts.socketPath, opts.timeout)
+	touchSandboxBestEffort(ctx, client, vmid)
 	resp, err := fetchEvents(ctx, client, vmid, tail, 0)
 	if err != nil {
 		return err
@@ -1312,6 +1314,7 @@ func printSandbox(sb sandboxResponse) {
 	fmt.Printf("Workspace: %s\n", orDashPtr(sb.WorkspaceID))
 	fmt.Printf("Keepalive: %t\n", sb.Keepalive)
 	fmt.Printf("Lease Expires: %s\n", orDashPtr(sb.LeaseExpires))
+	fmt.Printf("Last Used At: %s\n", orDashPtr(sb.LastUsedAt))
 	fmt.Printf("Created At: %s\n", sb.CreatedAt)
 	fmt.Printf("Updated At: %s\n", sb.LastUpdatedAt)
 }
@@ -1358,10 +1361,11 @@ func printStatus(resp statusResponse) {
 
 func printSandboxList(sandboxes []sandboxResponse) {
 	w := tabwriter.NewWriter(os.Stdout, 2, 8, 2, ' ', 0)
-	fmt.Fprintln(w, "VMID\tNAME\tPROFILE\tSTATE\tIP\tLEASE")
+	fmt.Fprintln(w, "VMID\tNAME\tPROFILE\tSTATE\tIP\tLEASE\tLAST USED")
 	for _, sb := range sandboxes {
 		lease := orDashPtr(sb.LeaseExpires)
-		fmt.Fprintf(w, "%d\t%s\t%s\t%s\t%s\t%s\n", sb.VMID, sb.Name, sb.Profile, sb.State, orDash(sb.IP), lease)
+		lastUsed := orDashPtr(sb.LastUsedAt)
+		fmt.Fprintf(w, "%d\t%s\t%s\t%s\t%s\t%s\t%s\n", sb.VMID, sb.Name, sb.Profile, sb.State, orDash(sb.IP), lease, lastUsed)
 	}
 	_ = w.Flush()
 }

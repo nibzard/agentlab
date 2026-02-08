@@ -127,6 +127,7 @@ type sandboxResponse struct {
 	WorkspaceID   *string `json:"workspace_id,omitempty"`
 	Keepalive     bool    `json:"keepalive"`
 	LeaseExpires  *string `json:"lease_expires_at,omitempty"`
+	LastUsedAt    *string `json:"last_used_at,omitempty"`
 	CreatedAt     string  `json:"created_at"`
 	LastUpdatedAt string  `json:"updated_at"`
 }

@@ -129,6 +129,13 @@ var migrations = []migration{
 			`CREATE INDEX IF NOT EXISTS idx_artifacts_vmid ON artifacts(vmid)`,
 		},
 	},
+	{
+		version: 4,
+		name:    "add_sandbox_last_used_at",
+		statements: []string{
+			`ALTER TABLE sandboxes ADD COLUMN last_used_at TEXT`,
+		},
+	},
 }
 
 // Migrate runs any pending migrations against the provided database.

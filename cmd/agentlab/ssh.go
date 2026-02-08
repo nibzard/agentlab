@@ -169,6 +169,7 @@ func runSSHCommand(ctx context.Context, args []string, base commonFlags) error {
 	sshArgs := buildSSHArgs(target, port, identity)
 	fullArgs := append([]string{"ssh"}, sshArgs...)
 	warning := tailnetWarning(ctx, parsedIP)
+	touchSandboxBestEffort(waitCtx, client, vmid)
 
 	if opts.jsonOutput {
 		out := sshOutput{
