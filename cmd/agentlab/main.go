@@ -67,6 +67,7 @@ Usage:
   agentlab [--socket PATH] [--json] [--timeout DURATION] workspace attach <workspace> <vmid>
   agentlab [--socket PATH] [--json] [--timeout DURATION] workspace detach <workspace>
   agentlab [--socket PATH] [--json] [--timeout DURATION] workspace rebind <workspace> --profile <profile> [--ttl <ttl>] [--keep-old]
+  agentlab [--socket PATH] [--json] [--timeout DURATION] profile list
   agentlab [--socket PATH] [--json] [--timeout DURATION] ssh <vmid> [--user <user>] [--port <port>] [--identity <path>] [--exec] [-- <remote command>...]
   agentlab [--socket PATH] [--json] [--timeout DURATION] logs <vmid> [--follow] [--tail <n>]
 
@@ -182,6 +183,8 @@ func dispatch(ctx context.Context, args []string, base commonFlags) error {
 		return runSandboxCommand(ctx, args[1:], base)
 	case "workspace":
 		return runWorkspaceCommand(ctx, args[1:], base)
+	case "profile":
+		return runProfileCommand(ctx, args[1:], base)
 	case "ssh":
 		return runSSHCommand(ctx, args[1:], base)
 	case "logs":
@@ -316,6 +319,14 @@ func printWorkspaceDetachUsage() {
 
 func printWorkspaceRebindUsage() {
 	fmt.Fprintln(os.Stdout, "Usage: agentlab workspace rebind <workspace> --profile <profile> [--ttl <ttl>] [--keep-old]")
+}
+
+func printProfileUsage() {
+	fmt.Fprintln(os.Stdout, "Usage: agentlab profile <list>")
+}
+
+func printProfileListUsage() {
+	fmt.Fprintln(os.Stdout, "Usage: agentlab profile list")
 }
 
 func printLogsUsage() {

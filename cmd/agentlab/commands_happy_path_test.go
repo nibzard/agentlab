@@ -263,3 +263,35 @@ func TestCLISandboxStartStopHappyPath(t *testing.T) {
 		t.Fatalf("expected stop output, got %q", out)
 	}
 }
+
+func TestCLIProfileListHappyPath(t *testing.T) {
+	mux := http.NewServeMux()
+	mux.HandleFunc("/v1/profiles", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			t.Errorf("/v1/profiles method = %s", r.Method)
+			w.WriteHeader(http.StatusMethodNotAllowed)
+			return
+		}
+		resp := profilesResponse{Profiles: []profileResponse{
+			{Name: "alpha", TemplateVMID: 9000, UpdatedAt: "2026-02-08T12:00:00Z"},
+			{Name: "beta", TemplateVMID: 9100, UpdatedAt: "2026-02-08T12:05:00Z"},
+		}}
+		writeJSON(t, w, http.StatusOK, resp)
+	})
+
+	socketPath := startUnixHTTPServer(t, mux)
+	base := commonFlags{socketPath: socketPath, jsonOutput: false, timeout: time.Second}
+
+	out := captureStdout(t, func() {
+		err := runProfileList(context.Background(), nil, base)
+		if err != nil {
+			t.Fatalf("runProfileList() error = %v", err)
+		}
+	})
+	if !strings.Contains(out, "NAME") || !strings.Contains(out, "alpha") {
+		t.Fatalf("expected profile list output, got %q", out)
+	}
+	if !strings.Contains(out, "9000") {
+		t.Fatalf("expected template id in output, got %q", out)
+	}
+}

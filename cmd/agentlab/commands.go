@@ -10,6 +10,7 @@
 //	job:       Manage jobs (run, show, artifacts)
 //	sandbox:   Manage sandboxes (new, list, show, start, stop, revert, destroy, lease, prune)
 //	workspace: Manage workspaces (create, list, attach, detach, rebind)
+//	profile:   Manage profiles (list)
 //	ssh:       Generate SSH connection parameters
 //	logs:      View sandbox event logs
 //
@@ -505,6 +506,51 @@ func runWorkspaceCommand(ctx context.Context, args []string, base commonFlags) e
 		printWorkspaceUsage()
 		return fmt.Errorf("unknown workspace command %q", args[0])
 	}
+}
+
+// runProfileCommand dispatches profile subcommands.
+func runProfileCommand(ctx context.Context, args []string, base commonFlags) error {
+	if len(args) == 0 {
+		printProfileUsage()
+		return nil
+	}
+	if isHelpToken(args[0]) {
+		printProfileUsage()
+		return errHelp
+	}
+	switch args[0] {
+	case "list":
+		return runProfileList(ctx, args[1:], base)
+	default:
+		printProfileUsage()
+		return fmt.Errorf("unknown profile command %q", args[0])
+	}
+}
+
+func runProfileList(ctx context.Context, args []string, base commonFlags) error {
+	fs := newFlagSet("profile list")
+	opts := base
+	opts.bind(fs)
+	var help bool
+	fs.BoolVar(&help, "help", false, "show help")
+	fs.BoolVar(&help, "h", false, "show help")
+	if err := parseFlags(fs, args, printProfileListUsage, &help, opts.jsonOutput); err != nil {
+		return err
+	}
+	client := newAPIClient(opts.socketPath, opts.timeout)
+	payload, err := client.doJSON(ctx, http.MethodGet, "/v1/profiles", nil)
+	if err != nil {
+		return err
+	}
+	if opts.jsonOutput {
+		return prettyPrintJSON(os.Stdout, payload)
+	}
+	var resp profilesResponse
+	if err := json.Unmarshal(payload, &resp); err != nil {
+		return err
+	}
+	printProfileList(resp.Profiles)
+	return nil
 }
 
 func runSandboxNew(ctx context.Context, args []string, base commonFlags) error {
@@ -1235,6 +1281,15 @@ func printWorkspaceList(workspaces []workspaceResponse) {
 	fmt.Fprintln(w, "ID\tNAME\tSIZE(GB)\tSTORAGE\tATTACHED")
 	for _, ws := range workspaces {
 		fmt.Fprintf(w, "%s\t%s\t%d\t%s\t%s\n", ws.ID, ws.Name, ws.SizeGB, ws.Storage, vmidString(ws.AttachedVMID))
+	}
+	_ = w.Flush()
+}
+
+func printProfileList(profiles []profileResponse) {
+	w := tabwriter.NewWriter(os.Stdout, 2, 8, 2, ' ', 0)
+	fmt.Fprintln(w, "NAME\tTEMPLATE\tUPDATED")
+	for _, profile := range profiles {
+		fmt.Fprintf(w, "%s\t%d\t%s\n", orDash(profile.Name), profile.TemplateVMID, orDash(profile.UpdatedAt))
 	}
 	_ = w.Flush()
 }

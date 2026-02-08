@@ -113,6 +113,16 @@ type V1SandboxesResponse struct {
 	Sandboxes []V1SandboxResponse `json:"sandboxes"`
 }
 
+type V1Profile struct {
+	Name         string `json:"name"`
+	TemplateVMID int    `json:"template_vmid"`
+	UpdatedAt    string `json:"updated_at"`
+}
+
+type V1ProfilesResponse struct {
+	Profiles []V1Profile `json:"profiles"`
+}
+
 type V1SandboxRevertResponse struct {
 	Sandbox    V1SandboxResponse `json:"sandbox"`
 	Restarted  bool              `json:"restarted"`

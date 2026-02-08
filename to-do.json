@@ -1120,7 +1120,7 @@
       "id": "T060",
       "title": "Add profiles listing endpoint (/v1/profiles) and CLI command",
       "priority": 2,
-      "status": "todo",
+      "status": "done",
       "details": "Expose loaded profile metadata to clients for UX improvements (modifiers, suggestions, status output). Implement GET /v1/profiles and a minimal CLI to list profile names and template VMIDs.",
       "steps": [
         "Define a minimal V1Profile type in internal/daemon/api_types.go (name, template_vmid, updated_at).",
@@ -1138,13 +1138,18 @@
       "files": [
         "internal/daemon/api.go",
         "internal/daemon/api_types.go",
-        "cmd/agentlab/main.go",
+        "internal/daemon/api_profiles_test.go",
+        "cmd/agentlab/api.go",
         "cmd/agentlab/commands.go",
+        "cmd/agentlab/commands_happy_path_test.go",
+        "cmd/agentlab/main.go",
+        "cmd/agentlab/main_test.go",
         "docs/api.md",
-        "README.md"
+        "README.md",
+        "to-do.json"
       ],
       "created_at": "2026-02-08T16:47:32Z",
-      "updated_at": "2026-02-08T16:47:32Z"
+      "updated_at": "2026-02-08T18:31:07Z"
     },
     {
       "id": "T061",

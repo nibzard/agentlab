@@ -153,6 +153,11 @@ func TestDispatch(t *testing.T) {
 			wantErr: false,
 		},
 		{
+			name:    "profile command",
+			args:    []string{"profile"},
+			wantErr: false,
+		},
+		{
 			name:    "ssh command",
 			args:    []string{"ssh"},
 			wantErr: false,
@@ -194,8 +199,8 @@ func TestDispatch(t *testing.T) {
 			} else {
 				// Commands will fail due to missing args/subcommands, but dispatch should not error
 				// The error will be from the subcommand handler, not dispatch itself
-				// For "job", "sandbox", "workspace" which print usage and return nil
-				if tt.args[0] == "job" || tt.args[0] == "sandbox" || tt.args[0] == "workspace" {
+				// For "job", "sandbox", "workspace", "profile" which print usage and return nil
+				if tt.args[0] == "job" || tt.args[0] == "sandbox" || tt.args[0] == "workspace" || tt.args[0] == "profile" {
 					assert.NoError(t, err)
 				}
 			}
@@ -211,6 +216,7 @@ func TestDispatchHelpTokens(t *testing.T) {
 		{"job help", []string{"job", "--help"}},
 		{"sandbox help", []string{"sandbox", "-h"}},
 		{"workspace help", []string{"workspace", "help"}},
+		{"profile help", []string{"profile", "help"}},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

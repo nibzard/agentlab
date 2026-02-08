@@ -82,6 +82,28 @@ curl --unix-socket /run/agentlab/agentlabd.sock http://localhost/v1/healthz
 ```
 
 ```json
+// V1Profile
+{
+  "name": "yolo-ephemeral",
+  "template_vmid": 9000,
+  "updated_at": "2026-01-29T23:45:00Z"
+}
+```
+
+```json
+// V1ProfilesResponse
+{
+  "profiles": [
+    {
+      "name": "yolo-ephemeral",
+      "template_vmid": 9000,
+      "updated_at": "2026-01-29T23:45:00Z"
+    }
+  ]
+}
+```
+
+```json
 // V1SandboxRevertRequest
 {
   "force": false,
@@ -193,6 +215,23 @@ Query params:
 - `path=<relative path>` downloads an exact artifact path.
 - `name=<artifact name>` downloads the latest artifact with that name.
 - If neither is provided, the latest artifact is returned.
+
+### GET /v1/profiles
+List loaded profiles.
+
+Response:
+
+```json
+{
+  "profiles": [
+    {
+      "name": "yolo-ephemeral",
+      "template_vmid": 9000,
+      "updated_at": "2026-01-29T23:45:00Z"
+    }
+  ]
+}
+```
 
 ### POST /v1/sandboxes
 Create and provision a sandbox VM. If `vmid` is omitted, agentlabd allocates the next available VMID starting at 1000 based on its database. Provisioning clones the template, writes a cloud-init snippet, applies profile resources, starts the VM, and records the guest IP.
