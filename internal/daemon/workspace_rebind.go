@@ -217,6 +217,7 @@ func (o *JobOrchestrator) RebindWorkspace(ctx context.Context, workspaceID, prof
 	if err = o.sandboxManager.Transition(ctx, created.VMID, models.SandboxRunning); err != nil {
 		return result, err
 	}
+	o.createCleanSnapshot(ctx, created.VMID, nil)
 
 	if !keepOld && oldVMID != nil {
 		if destroyErr := o.sandboxManager.Destroy(ctx, *oldVMID); destroyErr != nil && !errors.Is(destroyErr, ErrSandboxNotFound) {

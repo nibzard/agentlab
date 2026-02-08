@@ -1296,7 +1296,7 @@
       "id": "T066",
       "title": "Snapshot-on-provision: create canonical 'clean' snapshot for each sandbox",
       "priority": 1,
-      "status": "todo",
+      "status": "done",
       "details": "Make undo instant by taking a canonical snapshot after successful sandbox provisioning (and workspace rebind). This snapshot becomes the target for `sandbox revert`.",
       "steps": [
         "After a sandbox reaches RUNNING/READY (post-IP), create snapshot name 'clean' (best-effort).",
@@ -1315,10 +1315,12 @@
       "files": [
         "internal/daemon/job_orchestrator.go",
         "internal/daemon/workspace_rebind.go",
-        "internal/db/events.go"
+        "internal/daemon/job_orchestrator_test.go",
+        "internal/daemon/behavior_defaults_test.go",
+        "to-do.json"
       ],
       "created_at": "2026-02-08T16:47:32Z",
-      "updated_at": "2026-02-08T16:47:32Z"
+      "updated_at": "2026-02-08T18:10:22Z"
     },
     {
       "id": "T067",
