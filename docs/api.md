@@ -152,6 +152,47 @@ curl --unix-socket /run/agentlab/agentlabd.sock http://localhost/v1/healthz
 ```
 
 ```json
+// V1ExposureCreateRequest
+{
+  "name": "sbx-1000-8080",
+  "vmid": 1000,
+  "port": 8080
+}
+```
+
+```json
+// V1Exposure
+{
+  "name": "sbx-1000-8080",
+  "vmid": 1000,
+  "port": 8080,
+  "target_ip": "10.77.0.10",
+  "url": "tcp://host.tailnet.ts.net:8080",
+  "state": "serving",
+  "created_at": "2026-02-08T20:30:00Z",
+  "updated_at": "2026-02-08T20:30:00Z"
+}
+```
+
+```json
+// V1ExposuresResponse
+{
+  "exposures": [
+    {
+      "name": "sbx-1000-8080",
+      "vmid": 1000,
+      "port": 8080,
+      "target_ip": "10.77.0.10",
+      "url": "tcp://host.tailnet.ts.net:8080",
+      "state": "serving",
+      "created_at": "2026-02-08T20:30:00Z",
+      "updated_at": "2026-02-08T20:30:00Z"
+    }
+  ]
+}
+```
+
+```json
 // V1LeaseRenewRequest
 { "ttl_minutes": 240 }
 ```
@@ -282,6 +323,27 @@ Query params (mutually exclusive `tail`/`after`):
 - `tail=<n>` returns the last N events (default used by CLI logs).
 - `after=<id>` returns events with id greater than `after` (for follow).
 - `limit=<n>` caps the number of events (default 200, max 1000).
+
+### POST /v1/exposures
+Create a host-owned exposure for a sandbox port. The daemon installs the exposure
+using host-level Tailscale Serve and records an audit event.
+
+Body:
+
+```json
+{ "name": "sbx-1000-8080", "vmid": 1000, "port": 8080 }
+```
+
+Notes:
+- If `target_ip` is omitted, the sandbox IP is used.
+- `state` reflects health checks (`serving`, `healthy`, `unhealthy`).
+- The CLI uses `sbx-<vmid>-<port>` for exposure names by default.
+
+### GET /v1/exposures
+List exposures.
+
+### DELETE /v1/exposures/{name}
+Remove an exposure by name.
 
 ### POST /v1/workspaces
 Create a workspace volume.
