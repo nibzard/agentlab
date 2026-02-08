@@ -23,6 +23,8 @@ type stubBackend struct {
 	snapshotRollbackErr   error
 	statusErr             error
 	status                proxmox.Status
+	statsErr              error
+	cpuUsage              float64
 	startCalls            int
 	stopCalls             int
 	detachCalls           int
@@ -72,6 +74,13 @@ func (s *stubBackend) Status(context.Context, proxmox.VMID) (proxmox.Status, err
 		return s.status, nil
 	}
 	return proxmox.StatusUnknown, nil
+}
+
+func (s *stubBackend) CurrentStats(context.Context, proxmox.VMID) (proxmox.VMStats, error) {
+	if s.statsErr != nil {
+		return proxmox.VMStats{}, s.statsErr
+	}
+	return proxmox.VMStats{CPUUsage: s.cpuUsage}, nil
 }
 
 func (s *stubBackend) GuestIP(context.Context, proxmox.VMID) (string, error) {

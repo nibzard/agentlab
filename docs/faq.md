@@ -117,6 +117,30 @@ agentlab sandbox list
 systemctl restart agentlabd
 ```
 
+### Why did my sandbox stop while I was away?
+
+AgentLab includes an **idle auto-stop** policy for RUNNING sandboxes:
+
+- No active SSH sessions (detected via host conntrack flows to `sandbox_ip:22`)
+- CPU usage stays below a low threshold for N minutes (from Proxmox `status/current`)
+
+Defaults (in `/etc/agentlab/config.yaml`):
+```yaml
+idle_stop_enabled: true
+idle_stop_interval: 1m
+idle_stop_minutes_default: 30
+idle_stop_cpu_threshold: 0.05
+```
+
+Per-profile override (set `0` to disable for that profile):
+```yaml
+behavior:
+  idle_stop_minutes_default: 0
+```
+
+If SSH detection fails (missing `conntrack` or insufficient privileges), the
+idle stop loop skips stopping that sandbox.
+
 ### How do I backup my data?
 
 AgentLab data should be backed up regularly:
@@ -550,7 +574,7 @@ provisioning_timeout: 20m
 
 ---
 
-**Last updated:** 2026-02-06
+**Last updated:** 2026-02-08
 
 **Related documentation:**
 - [README](../README.md) - Overview and quickstart

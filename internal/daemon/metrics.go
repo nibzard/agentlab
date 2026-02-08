@@ -21,6 +21,7 @@ type Metrics struct {
 	sandboxDestroySeconds   *prometheus.HistogramVec
 	sandboxRevertTotal      *prometheus.CounterVec
 	sandboxRevertSeconds    *prometheus.HistogramVec
+	sandboxIdleStopTotal    *prometheus.CounterVec
 	jobStatusTotal          *prometheus.CounterVec
 	jobDurationSeconds      *prometheus.HistogramVec
 	jobTimeToStartSeconds   prometheus.Histogram
@@ -117,6 +118,15 @@ func NewMetrics() *Metrics {
 		},
 		[]string{"result"},
 	)
+	sandboxIdleStopTotal := prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Namespace: "agentlab",
+			Subsystem: "sandbox",
+			Name:      "idle_stop_total",
+			Help:      "Total number of idle sandbox stops.",
+		},
+		[]string{"result"},
+	)
 	jobStatusTotal := prometheus.NewCounterVec(
 		prometheus.CounterOpts{
 			Namespace: "agentlab",
@@ -156,6 +166,7 @@ func NewMetrics() *Metrics {
 		sandboxDestroySeconds,
 		sandboxRevertTotal,
 		sandboxRevertSeconds,
+		sandboxIdleStopTotal,
 		jobStatusTotal,
 		jobDurationSeconds,
 		jobTimeToStartSeconds,
@@ -172,6 +183,7 @@ func NewMetrics() *Metrics {
 		sandboxDestroySeconds:   sandboxDestroySeconds,
 		sandboxRevertTotal:      sandboxRevertTotal,
 		sandboxRevertSeconds:    sandboxRevertSeconds,
+		sandboxIdleStopTotal:    sandboxIdleStopTotal,
 		jobStatusTotal:          jobStatusTotal,
 		jobDurationSeconds:      jobDurationSeconds,
 		jobTimeToStartSeconds:   jobTimeToStartSeconds,
@@ -276,6 +288,16 @@ func (m *Metrics) IncSandboxRevert(result string) {
 		result = "unknown"
 	}
 	m.sandboxRevertTotal.WithLabelValues(result).Inc()
+}
+
+func (m *Metrics) IncSandboxIdleStop(result string) {
+	if m == nil {
+		return
+	}
+	if result == "" {
+		result = "unknown"
+	}
+	m.sandboxIdleStopTotal.WithLabelValues(result).Inc()
 }
 
 func (m *Metrics) ObserveSandboxRevertDuration(result string, duration time.Duration) {

@@ -26,6 +26,32 @@ Network defaults:
 - NAT egress: `vmbr0`
 - Tailscale interface: `tailscale0`
 
+## Idle auto-stop
+
+AgentLab can auto-stop RUNNING sandboxes when there are no active SSH sessions
+and CPU usage stays under a low threshold for N minutes. SSH activity is
+detected via host conntrack entries (established flows to `sandbox_ip:22`).
+
+Defaults (in `/etc/agentlab/config.yaml`):
+
+```yaml
+idle_stop_enabled: true
+idle_stop_interval: 1m
+idle_stop_minutes_default: 30
+idle_stop_cpu_threshold: 0.05
+```
+
+Per-profile override (set to `0` to disable idle stop for that profile):
+
+```yaml
+behavior:
+  idle_stop_minutes_default: 15
+```
+
+Notes:
+- `conntrack` (from `conntrack-tools`) must be available on the host.
+- If SSH detection fails, the idle stop loop will skip stopping the sandbox.
+
 ## First-time setup checklist
 
 1) Build binaries on the host:

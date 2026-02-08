@@ -28,6 +28,11 @@ const (
 	StatusStopped Status = "stopped"
 )
 
+// VMStats contains runtime statistics for a VM.
+type VMStats struct {
+	CPUUsage float64 // Fractional CPU usage from status/current (0.0-1.0+).
+}
+
 // VMConfig contains configuration parameters for a VM.
 type VMConfig struct {
 	Name       string // VM name
@@ -76,6 +81,10 @@ type Backend interface {
 	// Status retrieves the current runtime status of a VM.
 	// ABOUTME: Returns StatusRunning, StatusStopped, or StatusUnknown.
 	Status(ctx context.Context, vmid VMID) (Status, error)
+
+	// CurrentStats retrieves runtime stats for a VM.
+	// ABOUTME: CPUUsage is a fractional value from Proxmox status/current.
+	CurrentStats(ctx context.Context, vmid VMID) (VMStats, error)
 
 	// GuestIP retrieves the IP address of the VM's guest agent.
 	// ABOUTME: Falls back to DHCP lease lookup if guest agent is unavailable.

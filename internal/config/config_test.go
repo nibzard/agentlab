@@ -594,6 +594,9 @@ func TestDefaultConfig(t *testing.T) {
 	assert.NotEmpty(t, cfg.SnippetStorage)
 	assert.GreaterOrEqual(t, cfg.ProxmoxCommandTimeout, time.Duration(0))
 	assert.GreaterOrEqual(t, cfg.ProvisioningTimeout, time.Duration(0))
+	assert.NotZero(t, cfg.IdleStopInterval)
+	assert.GreaterOrEqual(t, cfg.IdleStopMinutesDefault, 0)
+	assert.GreaterOrEqual(t, cfg.IdleStopCPUThreshold, 0.0)
 
 	// Check that default config is valid
 	err := cfg.Validate()
