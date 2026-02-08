@@ -84,6 +84,10 @@ func (b *orchestratorBackend) Status(context.Context, proxmox.VMID) (proxmox.Sta
 	return proxmox.StatusRunning, nil
 }
 
+func (b *orchestratorBackend) CurrentStats(context.Context, proxmox.VMID) (proxmox.VMStats, error) {
+	return proxmox.VMStats{CPUUsage: 0.0}, nil
+}
+
 func (b *orchestratorBackend) GuestIP(context.Context, proxmox.VMID) (string, error) {
 	return b.guestIP, nil
 }

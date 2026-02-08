@@ -167,6 +167,27 @@ func TestShellBackendStatus(t *testing.T) {
 	}
 }
 
+func TestShellBackendCurrentStats(t *testing.T) {
+	runner := &fakeRunner{responses: []runnerResponse{{stdout: `{"cpu":0.07}`}}}
+	backend := &ShellBackend{Runner: runner, Node: "pve"}
+
+	stats, err := backend.CurrentStats(context.Background(), 101)
+	if err != nil {
+		t.Fatalf("CurrentStats() error = %v", err)
+	}
+	if stats.CPUUsage != 0.07 {
+		t.Fatalf("CurrentStats().CPUUsage = %v, want %v", stats.CPUUsage, 0.07)
+	}
+
+	want := []runnerCall{{
+		name: "pvesh",
+		args: []string{"get", "/nodes/pve/qemu/101/status/current", "--output-format", "json"},
+	}}
+	if !reflect.DeepEqual(runner.calls, want) {
+		t.Fatalf("CurrentStats() calls = %#v, want %#v", runner.calls, want)
+	}
+}
+
 func TestShellBackendGuestIPWithNodeDiscovery(t *testing.T) {
 	leaseDir := t.TempDir()
 	leasePath := filepath.Join(leaseDir, "dnsmasq.leases")

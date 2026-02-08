@@ -67,6 +67,7 @@ type Service struct {
 	sandboxManager    *SandboxManager
 	workspaceManager  *WorkspaceManager
 	artifactGC        *ArtifactGC
+	idleStopper       *IdleStopper
 	metrics           *Metrics
 }
 
@@ -237,6 +238,12 @@ func NewService(cfg config.Config, profiles map[string]models.Profile, store *db
 	NewArtifactAPI(store, cfg.ArtifactDir, cfg.ArtifactMaxBytes, agentSubnet).Register(artifactMux)
 
 	artifactGC := NewArtifactGC(store, profiles, cfg.ArtifactDir, log.Default(), redactor)
+	idleStopper := NewIdleStopper(store, backend, profiles, sandboxManager, &ConntrackSessionDetector{}, log.Default(), metrics, IdleStopConfig{
+		Enabled:        cfg.IdleStopEnabled,
+		Interval:       cfg.IdleStopInterval,
+		DefaultMinutes: cfg.IdleStopMinutesDefault,
+		CPUThreshold:   cfg.IdleStopCPUThreshold,
+	})
 
 	unixServer := &http.Server{
 		Handler:           localMux,
@@ -280,6 +287,7 @@ func NewService(cfg config.Config, profiles map[string]models.Profile, store *db
 		sandboxManager:    sandboxManager,
 		workspaceManager:  workspaceManager,
 		artifactGC:        artifactGC,
+		idleStopper:       idleStopper,
 		metrics:           metrics,
 	}, nil
 }
@@ -308,6 +316,9 @@ func (s *Service) Serve(ctx context.Context) error {
 	if s.sandboxManager != nil {
 		s.sandboxManager.StartLeaseGC(ctx)
 		s.sandboxManager.StartReconciler(ctx)
+	}
+	if s.idleStopper != nil {
+		s.idleStopper.Start(ctx)
 	}
 	if s.artifactGC != nil {
 		s.artifactGC.Start(ctx)

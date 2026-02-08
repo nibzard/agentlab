@@ -256,6 +256,27 @@ func (b *ShellBackend) Status(ctx context.Context, vmid VMID) (Status, error) {
 	return status, nil
 }
 
+// CurrentStats retrieves VM runtime statistics via pvesh.
+// ABOUTME: CPUUsage is reported by Proxmox status/current.
+func (b *ShellBackend) CurrentStats(ctx context.Context, vmid VMID) (VMStats, error) {
+	node, err := b.ensureNode(ctx)
+	if err != nil {
+		return VMStats{}, err
+	}
+	path := fmt.Sprintf("/nodes/%s/qemu/%d/status/current", node, vmid)
+	out, err := b.run(ctx, b.pveshPath(), "get", path, "--output-format", "json")
+	if err != nil {
+		return VMStats{}, err
+	}
+	var result struct {
+		CPU float64 `json:"cpu"`
+	}
+	if err := json.Unmarshal([]byte(out), &result); err != nil {
+		return VMStats{}, fmt.Errorf("parse current stats: %w", err)
+	}
+	return VMStats{CPUUsage: result.CPU}, nil
+}
+
 func (b *ShellBackend) GuestIP(ctx context.Context, vmid VMID) (string, error) {
 	var netblock *net.IPNet
 	if b.AgentCIDR != "" {

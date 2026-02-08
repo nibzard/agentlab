@@ -1414,16 +1414,17 @@
         "internal/db/sandboxes.go",
         "internal/db/sandboxes_test.go",
         "internal/models/models.go",
-        "internal/testing/testutil.go"
+        "internal/testing/testutil.go",
+        "to-do.json"
       ],
       "created_at": "2026-02-08T16:47:32Z",
-      "updated_at": "2026-02-08T19:15:31Z"
+      "updated_at": "2026-02-08T19:16:14Z"
     },
     {
       "id": "T069",
       "title": "Implement idle auto-stop (no SSH sessions + low CPU for N minutes)",
       "priority": 2,
-      "status": "todo",
+      "status": "done",
       "details": "Default mental model: keep many sandboxes stopped cheaply, start on demand. Implement an idle auto-stop policy that stops RUNNING sandboxes when there are no active SSH sessions and CPU usage stays under a threshold for N minutes (separate from TTL lease GC).",
       "steps": [
         "Define profile behavior defaults for idle-stop (e.g., behavior.idle_stop_minutes_default) and a daemon-level enable/disable switch.",
@@ -1437,10 +1438,7 @@
         "T059",
         "T068"
       ],
-      "blockers": [
-        "Pick an implementation for SSH session detection that is accurate and cheap enough on Proxmox hosts (conntrack vs nft counters vs other).",
-        "Confirm CPU usage signal from Proxmox API is stable and available for all VMs (API vs shell backend)."
-      ],
+      "blockers": [],
       "tags": [
         "roadmap-v0.2",
         "sandbox",
@@ -1449,13 +1447,23 @@
       ],
       "files": [
         "internal/daemon/daemon.go",
-        "internal/daemon/sandbox_manager.go",
+        "internal/daemon/idle_stop.go",
+        "internal/daemon/idle_stop_test.go",
+        "internal/daemon/metrics.go",
         "internal/daemon/profile_behavior.go",
+        "internal/daemon/sandbox_manager_test.go",
+        "internal/daemon/job_orchestrator_test.go",
+        "internal/proxmox/proxmox.go",
+        "internal/proxmox/api_backend.go",
+        "internal/proxmox/shell_backend.go",
+        "internal/proxmox/shell_backend_test.go",
+        "internal/config/config.go",
+        "internal/config/config_test.go",
         "docs/runbook.md",
         "docs/faq.md"
       ],
       "created_at": "2026-02-08T16:47:32Z",
-      "updated_at": "2026-02-08T16:47:32Z"
+      "updated_at": "2026-02-08T19:30:34Z"
     },
     {
       "id": "T070",

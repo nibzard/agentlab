@@ -287,6 +287,30 @@ func (b *APIBackend) Status(ctx context.Context, vmid VMID) (Status, error) {
 	}
 }
 
+// CurrentStats retrieves VM runtime statistics.
+// ABOUTME: CPUUsage is reported by Proxmox status/current.
+func (b *APIBackend) CurrentStats(ctx context.Context, vmid VMID) (VMStats, error) {
+	node, err := b.ensureNode(ctx)
+	if err != nil {
+		return VMStats{}, err
+	}
+
+	endpoint := fmt.Sprintf("/nodes/%s/qemu/%d/status/current", node, vmid)
+	data, err := b.doGet(ctx, endpoint)
+	if err != nil {
+		return VMStats{}, err
+	}
+
+	var result struct {
+		CPU float64 `json:"cpu"`
+	}
+	if err := json.Unmarshal(data, &result); err != nil {
+		return VMStats{}, fmt.Errorf("parse current stats: %w", err)
+	}
+
+	return VMStats{CPUUsage: result.CPU}, nil
+}
+
 // GuestIP retrieves the guest IP address.
 // ABOUTME: Polls for an IP via DHCP lease lookup and the guest agent in parallel (interleaved),
 // since DHCP commonly arrives before the guest agent is installed/started by cloud-init.

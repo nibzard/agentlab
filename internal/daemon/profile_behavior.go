@@ -12,13 +12,15 @@ type profileBehaviorSpec struct {
 }
 
 type profileBehaviorDefaults struct {
-	KeepaliveDefault  *bool `yaml:"keepalive_default"`
-	TTLMinutesDefault *int  `yaml:"ttl_minutes_default"`
+	KeepaliveDefault       *bool `yaml:"keepalive_default"`
+	TTLMinutesDefault      *int  `yaml:"ttl_minutes_default"`
+	IdleStopMinutesDefault *int  `yaml:"idle_stop_minutes_default"`
 }
 
 type behaviorDefaults struct {
-	Keepalive  *bool
-	TTLMinutes *int
+	Keepalive       *bool
+	TTLMinutes      *int
+	IdleStopMinutes *int
 }
 
 func parseProfileBehaviorDefaults(raw string) (behaviorDefaults, error) {
@@ -31,11 +33,15 @@ func parseProfileBehaviorDefaults(raw string) (behaviorDefaults, error) {
 		return behaviorDefaults{}, err
 	}
 	defaults := behaviorDefaults{
-		Keepalive:  spec.Behavior.KeepaliveDefault,
-		TTLMinutes: spec.Behavior.TTLMinutesDefault,
+		Keepalive:       spec.Behavior.KeepaliveDefault,
+		TTLMinutes:      spec.Behavior.TTLMinutesDefault,
+		IdleStopMinutes: spec.Behavior.IdleStopMinutesDefault,
 	}
 	if defaults.TTLMinutes != nil && *defaults.TTLMinutes <= 0 {
 		defaults.TTLMinutes = nil
+	}
+	if defaults.IdleStopMinutes != nil && *defaults.IdleStopMinutes < 0 {
+		defaults.IdleStopMinutes = nil
 	}
 	return defaults, nil
 }
@@ -58,4 +64,15 @@ func applyProfileBehaviorDefaults(profile models.Profile, ttlMinutes *int, keepa
 		effectiveKeepalive = *defaults.Keepalive
 	}
 	return effectiveTTL, effectiveKeepalive, nil
+}
+
+func idleStopMinutesForProfile(profile models.Profile, fallback int) (int, error) {
+	defaults, err := parseProfileBehaviorDefaults(profile.RawYAML)
+	if err != nil {
+		return 0, err
+	}
+	if defaults.IdleStopMinutes != nil {
+		return *defaults.IdleStopMinutes, nil
+	}
+	return fallback, nil
 }

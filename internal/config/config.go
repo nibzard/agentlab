@@ -61,6 +61,10 @@ type Config struct {
 	SSHPublicKeyPath        string
 	ProxmoxCommandTimeout   time.Duration
 	ProvisioningTimeout     time.Duration
+	IdleStopEnabled         bool
+	IdleStopInterval        time.Duration
+	IdleStopMinutesDefault  int
+	IdleStopCPUThreshold    float64
 	// Proxmox API backend configuration
 	ProxmoxBackend  string // "shell" or "api"
 	ProxmoxAPIURL   string // e.g., "https://localhost:8006/api2/json"
@@ -78,35 +82,39 @@ type Config struct {
 // configuration overrides. Duration fields accept Go duration format
 // strings (e.g., "30s", "5m", "1h").
 type FileConfig struct {
-	ProfilesDir             string `yaml:"profiles_dir"`
-	DataDir                 string `yaml:"data_dir"`
-	LogDir                  string `yaml:"log_dir"`
-	RunDir                  string `yaml:"run_dir"`
-	SocketPath              string `yaml:"socket_path"`
-	DBPath                  string `yaml:"db_path"`
-	BootstrapListen         string `yaml:"bootstrap_listen"`
-	ArtifactListen          string `yaml:"artifact_listen"`
-	MetricsListen           string `yaml:"metrics_listen"`
-	AgentSubnet             string `yaml:"agent_subnet"`
-	ControllerURL           string `yaml:"controller_url"`
-	ArtifactUploadURL       string `yaml:"artifact_upload_url"`
-	ArtifactDir             string `yaml:"artifact_dir"`
-	ArtifactMaxBytes        int64  `yaml:"artifact_max_bytes"`
-	ArtifactTokenTTLMinutes int    `yaml:"artifact_token_ttl_minutes"`
-	SecretsDir              string `yaml:"secrets_dir"`
-	SecretsBundle           string `yaml:"secrets_bundle"`
-	SecretsAgeKeyPath       string `yaml:"secrets_age_key_path"`
-	SecretsSopsPath         string `yaml:"secrets_sops_path"`
-	SnippetsDir             string `yaml:"snippets_dir"`
-	SnippetStorage          string `yaml:"snippet_storage"`
-	SSHPublicKey            string `yaml:"ssh_public_key"`
-	SSHPublicKeyPath        string `yaml:"ssh_public_key_path"`
-	ProxmoxCommandTimeout   string `yaml:"proxmox_command_timeout"`
-	ProvisioningTimeout     string `yaml:"provisioning_timeout"`
-	ProxmoxBackend          string `yaml:"proxmox_backend"`
-	ProxmoxAPIURL           string `yaml:"proxmox_api_url"`
-	ProxmoxAPIToken         string `yaml:"proxmox_api_token"`
-	ProxmoxNode             string `yaml:"proxmox_node"`
+	ProfilesDir             string   `yaml:"profiles_dir"`
+	DataDir                 string   `yaml:"data_dir"`
+	LogDir                  string   `yaml:"log_dir"`
+	RunDir                  string   `yaml:"run_dir"`
+	SocketPath              string   `yaml:"socket_path"`
+	DBPath                  string   `yaml:"db_path"`
+	BootstrapListen         string   `yaml:"bootstrap_listen"`
+	ArtifactListen          string   `yaml:"artifact_listen"`
+	MetricsListen           string   `yaml:"metrics_listen"`
+	AgentSubnet             string   `yaml:"agent_subnet"`
+	ControllerURL           string   `yaml:"controller_url"`
+	ArtifactUploadURL       string   `yaml:"artifact_upload_url"`
+	ArtifactDir             string   `yaml:"artifact_dir"`
+	ArtifactMaxBytes        int64    `yaml:"artifact_max_bytes"`
+	ArtifactTokenTTLMinutes int      `yaml:"artifact_token_ttl_minutes"`
+	SecretsDir              string   `yaml:"secrets_dir"`
+	SecretsBundle           string   `yaml:"secrets_bundle"`
+	SecretsAgeKeyPath       string   `yaml:"secrets_age_key_path"`
+	SecretsSopsPath         string   `yaml:"secrets_sops_path"`
+	SnippetsDir             string   `yaml:"snippets_dir"`
+	SnippetStorage          string   `yaml:"snippet_storage"`
+	SSHPublicKey            string   `yaml:"ssh_public_key"`
+	SSHPublicKeyPath        string   `yaml:"ssh_public_key_path"`
+	ProxmoxCommandTimeout   string   `yaml:"proxmox_command_timeout"`
+	ProvisioningTimeout     string   `yaml:"provisioning_timeout"`
+	IdleStopEnabled         *bool    `yaml:"idle_stop_enabled"`
+	IdleStopInterval        string   `yaml:"idle_stop_interval"`
+	IdleStopMinutesDefault  *int     `yaml:"idle_stop_minutes_default"`
+	IdleStopCPUThreshold    *float64 `yaml:"idle_stop_cpu_threshold"`
+	ProxmoxBackend          string   `yaml:"proxmox_backend"`
+	ProxmoxAPIURL           string   `yaml:"proxmox_api_url"`
+	ProxmoxAPIToken         string   `yaml:"proxmox_api_token"`
+	ProxmoxNode             string   `yaml:"proxmox_node"`
 }
 
 // DefaultConfig returns a Config struct with all default values set.
@@ -126,6 +134,10 @@ type FileConfig struct {
 //   - ProxmoxBackend: "shell"
 //   - ProxmoxCommandTimeout: 2 minutes
 //   - ProvisioningTimeout: 10 minutes
+//   - IdleStopEnabled: true
+//   - IdleStopInterval: 1 minute
+//   - IdleStopMinutesDefault: 30 minutes
+//   - IdleStopCPUThreshold: 0.05
 //
 // The returned configuration is valid and ready to use without modification.
 // Use Load() to apply overrides from a configuration file.
@@ -154,6 +166,10 @@ func DefaultConfig() Config {
 		SnippetStorage:          "local",
 		ProxmoxCommandTimeout:   2 * time.Minute,
 		ProvisioningTimeout:     10 * time.Minute,
+		IdleStopEnabled:         true,
+		IdleStopInterval:        1 * time.Minute,
+		IdleStopMinutesDefault:  30,
+		IdleStopCPUThreshold:    0.05,
 		ProxmoxBackend:          "shell",
 		ProxmoxAPIURL:           "https://localhost:8006",
 		ProxmoxAPIToken:         "", // Must be configured
@@ -302,6 +318,22 @@ func applyFileConfig(cfg *Config, fileCfg FileConfig) error {
 		}
 		cfg.ProvisioningTimeout = timeout
 	}
+	if fileCfg.IdleStopEnabled != nil {
+		cfg.IdleStopEnabled = *fileCfg.IdleStopEnabled
+	}
+	if fileCfg.IdleStopInterval != "" {
+		timeout, err := parseDurationField(fileCfg.IdleStopInterval, "idle_stop_interval")
+		if err != nil {
+			return err
+		}
+		cfg.IdleStopInterval = timeout
+	}
+	if fileCfg.IdleStopMinutesDefault != nil {
+		cfg.IdleStopMinutesDefault = *fileCfg.IdleStopMinutesDefault
+	}
+	if fileCfg.IdleStopCPUThreshold != nil {
+		cfg.IdleStopCPUThreshold = *fileCfg.IdleStopCPUThreshold
+	}
 	if fileCfg.ProxmoxBackend != "" {
 		cfg.ProxmoxBackend = fileCfg.ProxmoxBackend
 	}
@@ -422,6 +454,18 @@ func (c Config) Validate() error {
 	}
 	if c.ProvisioningTimeout < 0 {
 		return fmt.Errorf("provisioning_timeout must be non-negative")
+	}
+	if c.IdleStopInterval < 0 {
+		return fmt.Errorf("idle_stop_interval must be non-negative")
+	}
+	if c.IdleStopEnabled && c.IdleStopInterval <= 0 {
+		return fmt.Errorf("idle_stop_interval must be positive when idle_stop_enabled is true")
+	}
+	if c.IdleStopMinutesDefault < 0 {
+		return fmt.Errorf("idle_stop_minutes_default must be non-negative")
+	}
+	if c.IdleStopCPUThreshold < 0 || c.IdleStopCPUThreshold > 1 {
+		return fmt.Errorf("idle_stop_cpu_threshold must be between 0 and 1")
 	}
 	if c.ProxmoxBackend != "" && c.ProxmoxBackend != "shell" && c.ProxmoxBackend != "api" {
 		return fmt.Errorf("proxmox_backend must be either 'shell' or 'api'")
