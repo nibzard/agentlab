@@ -10,7 +10,7 @@ The local control API is served by `agentlabd` over a Unix domain socket. This A
 Example curl usage:
 
 ```bash
-curl --unix-socket /run/agentlab/agentlabd.sock http://localhost/v1/healthz
+curl --unix-socket /run/agentlab/agentlabd.sock http://localhost/healthz
 ```
 
 ## Error shape
