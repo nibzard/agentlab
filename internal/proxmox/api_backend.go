@@ -162,6 +162,63 @@ func (b *APIBackend) Destroy(ctx context.Context, vmid VMID) error {
 	return nil
 }
 
+// SnapshotCreate creates a disk-only snapshot of a VM.
+// ABOUTME: The snapshot excludes VM memory state (no vmstate).
+func (b *APIBackend) SnapshotCreate(ctx context.Context, vmid VMID, name string) error {
+	name = strings.TrimSpace(name)
+	if name == "" {
+		return fmt.Errorf("snapshot name is required")
+	}
+
+	node, err := b.ensureNode(ctx)
+	if err != nil {
+		return err
+	}
+
+	params := url.Values{}
+	params.Set("snapname", name)
+	params.Set("vmstate", "0")
+
+	endpoint := fmt.Sprintf("/nodes/%s/qemu/%d/snapshot", node, vmid)
+	_, err = b.doPost(ctx, endpoint, params)
+	return err
+}
+
+// SnapshotRollback reverts a VM to the named snapshot.
+// ABOUTME: The VM should be stopped before rollback; no vmstate snapshots are used.
+func (b *APIBackend) SnapshotRollback(ctx context.Context, vmid VMID, name string) error {
+	name = strings.TrimSpace(name)
+	if name == "" {
+		return fmt.Errorf("snapshot name is required")
+	}
+
+	node, err := b.ensureNode(ctx)
+	if err != nil {
+		return err
+	}
+
+	endpoint := fmt.Sprintf("/nodes/%s/qemu/%d/snapshot/%s/rollback", node, vmid, url.PathEscape(name))
+	_, err = b.doPost(ctx, endpoint, nil)
+	return err
+}
+
+// SnapshotDelete removes a snapshot from a VM.
+func (b *APIBackend) SnapshotDelete(ctx context.Context, vmid VMID, name string) error {
+	name = strings.TrimSpace(name)
+	if name == "" {
+		return fmt.Errorf("snapshot name is required")
+	}
+
+	node, err := b.ensureNode(ctx)
+	if err != nil {
+		return err
+	}
+
+	endpoint := fmt.Sprintf("/nodes/%s/qemu/%d/snapshot/%s", node, vmid, url.PathEscape(name))
+	_, err = b.doDelete(ctx, endpoint, nil)
+	return err
+}
+
 // Status retrieves VM status.
 // ABOUTME: Returns StatusRunning, StatusStopped, or StatusUnknown.
 func (b *APIBackend) Status(ctx context.Context, vmid VMID) (Status, error) {

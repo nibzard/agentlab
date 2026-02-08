@@ -148,6 +148,38 @@ func (b *ShellBackend) Destroy(ctx context.Context, vmid VMID) error {
 	return nil
 }
 
+// SnapshotCreate creates a disk-only snapshot of a VM.
+// ABOUTME: The snapshot excludes VM memory state (no vmstate).
+func (b *ShellBackend) SnapshotCreate(ctx context.Context, vmid VMID, name string) error {
+	name = strings.TrimSpace(name)
+	if name == "" {
+		return fmt.Errorf("snapshot name is required")
+	}
+	_, err := b.run(ctx, b.qmPath(), "snapshot", strconv.Itoa(int(vmid)), name)
+	return err
+}
+
+// SnapshotRollback reverts a VM to the named snapshot.
+// ABOUTME: The VM should be stopped before rollback; no vmstate snapshots are used.
+func (b *ShellBackend) SnapshotRollback(ctx context.Context, vmid VMID, name string) error {
+	name = strings.TrimSpace(name)
+	if name == "" {
+		return fmt.Errorf("snapshot name is required")
+	}
+	_, err := b.run(ctx, b.qmPath(), "rollback", strconv.Itoa(int(vmid)), name)
+	return err
+}
+
+// SnapshotDelete removes a snapshot from a VM.
+func (b *ShellBackend) SnapshotDelete(ctx context.Context, vmid VMID, name string) error {
+	name = strings.TrimSpace(name)
+	if name == "" {
+		return fmt.Errorf("snapshot name is required")
+	}
+	_, err := b.run(ctx, b.qmPath(), "delsnapshot", strconv.Itoa(int(vmid)), name)
+	return err
+}
+
 func (b *ShellBackend) Status(ctx context.Context, vmid VMID) (Status, error) {
 	out, err := b.run(ctx, b.qmPath(), "status", strconv.Itoa(int(vmid)))
 	if err != nil {

@@ -62,6 +62,17 @@ type Backend interface {
 	// ABOUTME: This operation is irreversible. Returns ErrVMNotFound if the VM does not exist.
 	Destroy(ctx context.Context, vmid VMID) error
 
+	// SnapshotCreate creates a disk-only snapshot of the VM with the given name.
+	// ABOUTME: Snapshots do not include VM memory state (no vmstate).
+	SnapshotCreate(ctx context.Context, vmid VMID, name string) error
+
+	// SnapshotRollback reverts the VM to the named snapshot.
+	// ABOUTME: Callers should stop the VM before rollback; vmstate snapshots are not used.
+	SnapshotRollback(ctx context.Context, vmid VMID, name string) error
+
+	// SnapshotDelete removes the named snapshot from the VM.
+	SnapshotDelete(ctx context.Context, vmid VMID, name string) error
+
 	// Status retrieves the current runtime status of a VM.
 	// ABOUTME: Returns StatusRunning, StatusStopped, or StatusUnknown.
 	Status(ctx context.Context, vmid VMID) (Status, error)

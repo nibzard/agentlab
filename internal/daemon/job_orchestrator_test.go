@@ -61,6 +61,18 @@ func (b *orchestratorBackend) Destroy(_ context.Context, vmid proxmox.VMID) erro
 	return nil
 }
 
+func (b *orchestratorBackend) SnapshotCreate(context.Context, proxmox.VMID, string) error {
+	return nil
+}
+
+func (b *orchestratorBackend) SnapshotRollback(context.Context, proxmox.VMID, string) error {
+	return nil
+}
+
+func (b *orchestratorBackend) SnapshotDelete(context.Context, proxmox.VMID, string) error {
+	return nil
+}
+
 func (b *orchestratorBackend) Status(context.Context, proxmox.VMID) (proxmox.Status, error) {
 	return proxmox.StatusRunning, nil
 }

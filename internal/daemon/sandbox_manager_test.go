@@ -47,6 +47,18 @@ func (s *stubBackend) Destroy(context.Context, proxmox.VMID) error {
 	return s.destroyErr
 }
 
+func (s *stubBackend) SnapshotCreate(context.Context, proxmox.VMID, string) error {
+	return nil
+}
+
+func (s *stubBackend) SnapshotRollback(context.Context, proxmox.VMID, string) error {
+	return nil
+}
+
+func (s *stubBackend) SnapshotDelete(context.Context, proxmox.VMID, string) error {
+	return nil
+}
+
 func (s *stubBackend) Status(context.Context, proxmox.VMID) (proxmox.Status, error) {
 	return proxmox.StatusUnknown, nil
 }
