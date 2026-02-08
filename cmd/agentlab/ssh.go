@@ -103,11 +103,12 @@ func runSSHCommand(ctx context.Context, args []string, base commonFlags) error {
 	fs.BoolVar(&waitSSH, "wait", false, "wait for ssh readiness before returning")
 	fs.BoolVar(&help, "help", false, "show help")
 	fs.BoolVar(&help, "h", false, "show help")
-
 	preArgs, explicitRemoteCmd, hasExplicitRemoteCmd := splitDoubleDash(args)
 	vmidToken, parseArgs := extractVMIDArg(preArgs)
 	if vmidToken == "" {
-		printSSHUsage()
+		if !opts.jsonOutput {
+			printSSHUsage()
+		}
 		return fmt.Errorf("vmid is required")
 	}
 	// Parse flags from the remaining args (supports flags appearing before or after <vmid>).
@@ -229,7 +230,7 @@ func withWaitTimeout(ctx context.Context, timeout time.Duration) (context.Contex
 func fetchSandbox(ctx context.Context, client *apiClient, vmid int) (sandboxResponse, error) {
 	payload, err := client.doJSON(ctx, http.MethodGet, fmt.Sprintf("/v1/sandboxes/%d", vmid), nil)
 	if err != nil {
-		return sandboxResponse{}, err
+		return sandboxResponse{}, wrapSandboxNotFound(ctx, client, vmid, err)
 	}
 	var resp sandboxResponse
 	if err := json.Unmarshal(payload, &resp); err != nil {
@@ -241,7 +242,7 @@ func fetchSandbox(ctx context.Context, client *apiClient, vmid int) (sandboxResp
 func startSandbox(ctx context.Context, client *apiClient, vmid int) (sandboxResponse, error) {
 	payload, err := client.doJSON(ctx, http.MethodPost, fmt.Sprintf("/v1/sandboxes/%d/start", vmid), nil)
 	if err != nil {
-		return sandboxResponse{}, err
+		return sandboxResponse{}, wrapSandboxNotFound(ctx, client, vmid, err)
 	}
 	var resp sandboxResponse
 	if err := json.Unmarshal(payload, &resp); err != nil {

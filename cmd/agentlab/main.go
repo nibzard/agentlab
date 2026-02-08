@@ -103,11 +103,11 @@ func main() {
 			printUsage()
 			return
 		}
-		msg := errorMessage(err)
+		msg, next, hints := describeError(err)
 		if opts.jsonOutput {
 			writeJSONError(os.Stdout, msg)
 		} else {
-			fmt.Fprintln(os.Stderr, msg)
+			printError(os.Stderr, msg, next, hints)
 		}
 		if errors.Is(err, errUsage) {
 			if !opts.jsonOutput {
@@ -140,11 +140,11 @@ func main() {
 		if errors.Is(err, errHelp) {
 			return
 		}
-		msg := errorMessage(err)
+		msg, next, hints := describeError(err)
 		if opts.jsonOutput {
 			writeJSONError(os.Stdout, msg)
 		} else {
-			fmt.Fprintln(os.Stderr, msg)
+			printError(os.Stderr, msg, next, hints)
 		}
 		if errors.Is(err, errUsage) {
 			os.Exit(2)
@@ -182,22 +182,24 @@ func parseGlobal(args []string) (globalOptions, []string, error) {
 func dispatch(ctx context.Context, args []string, base commonFlags) error {
 	switch args[0] {
 	case "status":
-		return runStatusCommand(ctx, args[1:], base)
+		return withDefaultNext(runStatusCommand(ctx, args[1:], base), "agentlab status --help")
 	case "job":
-		return runJobCommand(ctx, args[1:], base)
+		return withDefaultNext(runJobCommand(ctx, args[1:], base), "agentlab job --help")
 	case "sandbox":
-		return runSandboxCommand(ctx, args[1:], base)
+		return withDefaultNext(runSandboxCommand(ctx, args[1:], base), "agentlab sandbox --help")
 	case "workspace":
-		return runWorkspaceCommand(ctx, args[1:], base)
+		return withDefaultNext(runWorkspaceCommand(ctx, args[1:], base), "agentlab workspace --help")
 	case "profile":
-		return runProfileCommand(ctx, args[1:], base)
+		return withDefaultNext(runProfileCommand(ctx, args[1:], base), "agentlab profile --help")
 	case "ssh":
-		return runSSHCommand(ctx, args[1:], base)
+		return withDefaultNext(runSSHCommand(ctx, args[1:], base), "agentlab ssh --help")
 	case "logs":
-		return runLogsCommand(ctx, args[1:], base)
+		return withDefaultNext(runLogsCommand(ctx, args[1:], base), "agentlab logs --help")
 	default:
-		printUsage()
-		return fmt.Errorf("unknown command %q", args[0])
+		if !base.jsonOutput {
+			printUsage()
+		}
+		return unknownCommandError(args[0], []string{"status", "job", "sandbox", "workspace", "profile", "ssh", "logs"})
 	}
 }
 

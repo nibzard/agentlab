@@ -45,11 +45,11 @@ func fetchProfiles(ctx context.Context, client *apiClient) ([]profileResponse, e
 func resolveProfileFromModifiers(modifiers []string, profiles []profileResponse) (string, error) {
 	normalized := normalizeModifiers(modifiers)
 	if len(normalized) == 0 {
-		return "", fmt.Errorf("no modifiers provided")
+		return "", newCLIError("no modifiers provided", "agentlab profile list")
 	}
 	validMods := validModifiersFromProfiles(profiles)
 	if len(validMods) == 0 {
-		return "", fmt.Errorf("no modifiers available (no profiles loaded)")
+		return "", newCLIError("no modifiers available (no profiles loaded)", "agentlab profile list")
 	}
 	validSet := make(map[string]struct{}, len(validMods))
 	for _, mod := range validMods {
@@ -62,7 +62,12 @@ func resolveProfileFromModifiers(modifiers []string, profiles []profileResponse)
 		}
 	}
 	if len(unknown) > 0 {
-		return "", fmt.Errorf("unknown modifier(s) %s. Valid modifiers: %s", formatModifierList(unknown), formatModifierList(validMods))
+		msg := fmt.Sprintf("unknown modifier(s) %s", formatModifierList(unknown))
+		if suggestions := suggestModifierMatches(unknown, validMods); len(suggestions) > 0 {
+			msg = fmt.Sprintf("%s (did you mean %s?)", msg, formatModifierList(suggestions))
+		}
+		msg = fmt.Sprintf("%s. Valid modifiers: %s", msg, formatModifierList(validMods))
+		return "", newCLIError(msg, "agentlab profile list")
 	}
 	resolved := strings.Join(normalized, "-")
 	actual, ok := lookupProfileName(resolved, profiles)
@@ -70,25 +75,46 @@ func resolveProfileFromModifiers(modifiers []string, profiles []profileResponse)
 		return actual, nil
 	}
 	profileNames := profileNameList(profiles)
-	if suggestion := suggestProfileName(resolved, profileNames); suggestion != "" {
-		return "", fmt.Errorf("no profile matches modifiers %s (resolved to %q). Did you mean %q?", formatModifierList(normalized), resolved, suggestion)
+	if suggestions := rankSuggestions(resolved, profileNames, 3); len(suggestions) > 0 {
+		if len(suggestions) == 1 {
+			return "", newCLIError(
+				fmt.Sprintf("no profile matches modifiers %s (resolved to %q). Did you mean %q?", formatModifierList(normalized), resolved, suggestions[0]),
+				"agentlab profile list",
+			)
+		}
+		return "", newCLIError(
+			fmt.Sprintf("no profile matches modifiers %s (resolved to %q). Did you mean one of: %s?", formatModifierList(normalized), resolved, formatQuotedList(suggestions)),
+			"agentlab profile list",
+		)
 	}
-	return "", fmt.Errorf("no profile matches modifiers %s (resolved to %q). Available profiles: %s", formatModifierList(normalized), resolved, strings.Join(profileNames, ", "))
+	return "", newCLIError(
+		fmt.Sprintf("no profile matches modifiers %s (resolved to %q). Available profiles: %s", formatModifierList(normalized), resolved, strings.Join(profileNames, ", ")),
+		"agentlab profile list",
+	)
 }
 
 func validateProfileName(profile string, profiles []profileResponse) (string, error) {
 	if profile == "" {
-		return "", fmt.Errorf("profile is required")
+		return "", newCLIError("profile is required", "agentlab profile list")
 	}
 	actual, ok := lookupProfileName(profile, profiles)
 	if ok {
 		return actual, nil
 	}
 	profileNames := profileNameList(profiles)
-	if suggestion := suggestProfileName(profile, profileNames); suggestion != "" {
-		return "", fmt.Errorf("unknown profile %q (did you mean %q?)", profile, suggestion)
+	if suggestions := rankSuggestions(profile, profileNames, 3); len(suggestions) > 0 {
+		if len(suggestions) == 1 {
+			return "", newCLIError(fmt.Sprintf("unknown profile %q (did you mean %q?)", profile, suggestions[0]), "agentlab profile list")
+		}
+		return "", newCLIError(
+			fmt.Sprintf("unknown profile %q. Did you mean one of: %s?", profile, formatQuotedList(suggestions)),
+			"agentlab profile list",
+		)
 	}
-	return "", fmt.Errorf("unknown profile %q. Available profiles: %s", profile, strings.Join(profileNames, ", "))
+	return "", newCLIError(
+		fmt.Sprintf("unknown profile %q. Available profiles: %s", profile, strings.Join(profileNames, ", ")),
+		"agentlab profile list",
+	)
 }
 
 func normalizeModifiers(modifiers []string) []string {
@@ -147,6 +173,25 @@ func formatModifierList(modifiers []string) string {
 	return strings.Join(prefixed, ", ")
 }
 
+func suggestModifierMatches(unknown []string, valid []string) []string {
+	if len(unknown) == 0 || len(valid) == 0 {
+		return nil
+	}
+	seen := make(map[string]struct{}, len(valid))
+	suggestions := make([]string, 0, len(unknown))
+	for _, mod := range unknown {
+		if suggestion := bestSuggestion(mod, valid); suggestion != "" {
+			if _, ok := seen[suggestion]; ok {
+				continue
+			}
+			seen[suggestion] = struct{}{}
+			suggestions = append(suggestions, suggestion)
+		}
+	}
+	sort.Strings(suggestions)
+	return suggestions
+}
+
 func lookupProfileName(name string, profiles []profileResponse) (string, bool) {
 	needle := strings.ToLower(strings.TrimSpace(name))
 	if needle == "" {
@@ -176,30 +221,7 @@ func profileNameList(profiles []profileResponse) []string {
 }
 
 func suggestProfileName(name string, candidates []string) string {
-	if len(candidates) == 0 {
-		return ""
-	}
-	needle := strings.ToLower(strings.TrimSpace(name))
-	if needle == "" {
-		return ""
-	}
-	best := ""
-	bestScore := 0
-	for _, candidate := range candidates {
-		candLower := strings.ToLower(candidate)
-		if strings.HasPrefix(candLower, needle) || strings.HasPrefix(needle, candLower) {
-			return candidate
-		}
-		distance := levenshteinDistance(needle, candLower)
-		if best == "" || distance < bestScore {
-			best = candidate
-			bestScore = distance
-		}
-	}
-	if best != "" && bestScore <= 3 {
-		return best
-	}
-	return ""
+	return bestSuggestion(name, candidates)
 }
 
 func levenshteinDistance(a, b string) int {
