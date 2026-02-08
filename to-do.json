@@ -1136,26 +1136,26 @@
         "cli"
       ],
       "files": [
-        "internal/daemon/api.go",
-        "internal/daemon/api_types.go",
-        "internal/daemon/api_profiles_test.go",
+        "README.md",
         "cmd/agentlab/api.go",
         "cmd/agentlab/commands.go",
         "cmd/agentlab/commands_happy_path_test.go",
         "cmd/agentlab/main.go",
         "cmd/agentlab/main_test.go",
         "docs/api.md",
-        "README.md",
+        "internal/daemon/api.go",
+        "internal/daemon/api_profiles_test.go",
+        "internal/daemon/api_types.go",
         "to-do.json"
       ],
       "created_at": "2026-02-08T16:47:32Z",
-      "updated_at": "2026-02-08T18:31:07Z"
+      "updated_at": "2026-02-08T18:32:48Z"
     },
     {
       "id": "T061",
       "title": "Implement /v1/status endpoint for host + control-plane summary",
       "priority": 2,
-      "status": "todo",
+      "status": "done",
       "details": "Add a single endpoint to summarize system health: sandbox counts by state, job counts by status, disk pressure signals, and recent failures. This powers an operator-friendly `agentlab status` UX and makes SLOs visible.",
       "steps": [
         "Add DB helpers to count sandboxes by state and jobs by status (and optionally recent event kinds).",
@@ -1172,11 +1172,16 @@
       "files": [
         "internal/daemon/api.go",
         "internal/daemon/api_types.go",
+        "internal/daemon/daemon.go",
+        "internal/daemon/api_status_test.go",
         "internal/db/sandboxes.go",
-        "internal/db/jobs.go"
+        "internal/db/jobs.go",
+        "internal/db/events.go",
+        "internal/db/sandboxes_test.go",
+        "internal/db/jobs_test.go"
       ],
       "created_at": "2026-02-08T16:47:32Z",
-      "updated_at": "2026-02-08T16:47:32Z"
+      "updated_at": "2026-02-08T18:40:44Z"
     },
     {
       "id": "T062",

@@ -265,6 +265,35 @@ func TestGetJobBySandboxVMID(t *testing.T) {
 	})
 }
 
+func TestCountJobsByStatus(t *testing.T) {
+	ctx := context.Background()
+
+	t.Run("counts", func(t *testing.T) {
+		store := openTestStore(t)
+		job1 := testutil.NewTestJob(testutil.JobOpts{ID: "job-1", Status: models.JobRunning})
+		job2 := testutil.NewTestJob(testutil.JobOpts{ID: "job-2", Status: models.JobRunning})
+		job3 := testutil.NewTestJob(testutil.JobOpts{ID: "job-3", Status: models.JobFailed})
+		require.NoError(t, store.CreateJob(ctx, job1))
+		require.NoError(t, store.CreateJob(ctx, job2))
+		require.NoError(t, store.CreateJob(ctx, job3))
+
+		counts, err := store.CountJobsByStatus(ctx)
+		require.NoError(t, err)
+		assert.Equal(t, 2, counts[models.JobRunning])
+		assert.Equal(t, 1, counts[models.JobFailed])
+	})
+
+	t.Run("nil store", func(t *testing.T) {
+		_, err := (*Store)(nil).CountJobsByStatus(ctx)
+		assert.EqualError(t, err, "db store is nil")
+	})
+
+	t.Run("nil db", func(t *testing.T) {
+		_, err := (&Store{}).CountJobsByStatus(ctx)
+		assert.EqualError(t, err, "db store is nil")
+	})
+}
+
 func TestUpdateJobSandbox(t *testing.T) {
 	ctx := context.Background()
 

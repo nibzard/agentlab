@@ -173,6 +173,42 @@ func (s *Store) ListEventsByJobTail(ctx context.Context, jobID string, limit int
 	return out, nil
 }
 
+// ListRecentFailureEvents returns the most recent failure-related events.
+//
+// Failure events are identified by kind matching "*failed*" or "*timeout*".
+// Results are returned in chronological order (oldest to newest).
+func (s *Store) ListRecentFailureEvents(ctx context.Context, limit int) ([]Event, error) {
+	if s == nil || s.DB == nil {
+		return nil, errors.New("db store is nil")
+	}
+	if limit <= 0 {
+		return nil, errors.New("limit must be positive")
+	}
+	rows, err := s.DB.QueryContext(ctx, `SELECT id, ts, kind, sandbox_vmid, job_id, msg, json
+		FROM events
+		WHERE lower(kind) LIKE ? OR lower(kind) LIKE ?
+		ORDER BY id DESC LIMIT ?`, "%failed%", "%timeout%", limit)
+	if err != nil {
+		return nil, fmt.Errorf("list failure events: %w", err)
+	}
+	defer rows.Close()
+	var out []Event
+	for rows.Next() {
+		ev, err := scanEventRow(rows)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, ev)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate failure events: %w", err)
+	}
+	for i, j := 0, len(out)-1; i < j; i, j = i+1, j-1 {
+		out[i], out[j] = out[j], out[i]
+	}
+	return out, nil
+}
+
 func scanEventRow(scanner interface{ Scan(dest ...any) error }) (Event, error) {
 	var ev Event
 	var ts string
