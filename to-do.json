@@ -1083,14 +1083,643 @@
       "updated_at": "2026-01-30T08:37:45Z"
     },
     {
-      "id": "PROJECT-DONE",
-      "title": "Project done: no new tasks",
+      "id": "T059",
+      "title": "Implement sandbox start/stop lifecycle (API + CLI + state machine)",
+      "priority": 1,
       "status": "done",
-      "priority": 5,
-      "tags": [
-        "project-done"
+      "details": "AgentLab specs include start/stop endpoints and STOPPED sandboxes should be restartable. Implement start/stop operations end-to-end: state machine transitions, Proxmox backend calls, API endpoints, CLI commands, and tests.",
+      "steps": [
+        "Update sandbox state machine to allow STOPPED -> BOOTING/READY/RUNNING and READY/RUNNING -> STOPPED transitions.",
+        "Implement SandboxManager Start/Stop helpers that call proxmox.Backend.Start/Stop and transition DB state with events.",
+        "Add API endpoints: POST /v1/sandboxes/{vmid}/start and POST /v1/sandboxes/{vmid}/stop (with clear error codes for invalid states).",
+        "Add CLI commands: agentlab sandbox start <vmid> and agentlab sandbox stop <vmid>.",
+        "Add unit tests for state transitions, API handlers, and CLI happy paths using stub backends."
       ],
-      "details": "Final review on 2026-01-30 found no new tasks to add."
+      "tags": [
+        "roadmap-v0.2",
+        "sandbox",
+        "api",
+        "cli"
+      ],
+      "files": [
+        "internal/models/models.go",
+        "internal/daemon/sandbox_manager.go",
+        "internal/daemon/api.go",
+        "internal/daemon/api_sandbox_test.go",
+        "internal/daemon/sandbox_manager_test.go",
+        "cmd/agentlab/commands.go",
+        "cmd/agentlab/main.go",
+        "cmd/agentlab/main_test.go",
+        "cmd/agentlab/commands_happy_path_test.go"
+      ],
+      "created_at": "2026-02-08T16:47:32Z",
+      "updated_at": "2026-02-08T17:54:14Z"
+    },
+    {
+      "id": "T060",
+      "title": "Add profiles listing endpoint (/v1/profiles) and CLI command",
+      "priority": 2,
+      "status": "todo",
+      "details": "Expose loaded profile metadata to clients for UX improvements (modifiers, suggestions, status output). Implement GET /v1/profiles and a minimal CLI to list profile names and template VMIDs.",
+      "steps": [
+        "Define a minimal V1Profile type in internal/daemon/api_types.go (name, template_vmid, updated_at).",
+        "Implement GET /v1/profiles in internal/daemon/api.go, sourcing data from the in-memory profiles map.",
+        "Add CLI command: agentlab profile list (and --json output).",
+        "Update docs/api.md and README.md to document /v1/profiles and CLI usage.",
+        "Add tests for the endpoint and CLI output."
+      ],
+      "tags": [
+        "roadmap-v0.2",
+        "profiles",
+        "api",
+        "cli"
+      ],
+      "files": [
+        "internal/daemon/api.go",
+        "internal/daemon/api_types.go",
+        "cmd/agentlab/main.go",
+        "cmd/agentlab/commands.go",
+        "docs/api.md",
+        "README.md"
+      ],
+      "created_at": "2026-02-08T16:47:32Z",
+      "updated_at": "2026-02-08T16:47:32Z"
+    },
+    {
+      "id": "T061",
+      "title": "Implement /v1/status endpoint for host + control-plane summary",
+      "priority": 2,
+      "status": "todo",
+      "details": "Add a single endpoint to summarize system health: sandbox counts by state, job counts by status, disk pressure signals, and recent failures. This powers an operator-friendly `agentlab status` UX and makes SLOs visible.",
+      "steps": [
+        "Add DB helpers to count sandboxes by state and jobs by status (and optionally recent event kinds).",
+        "Define V1StatusResponse type in internal/daemon/api_types.go.",
+        "Implement GET /v1/status in internal/daemon/api.go.",
+        "Include at least: sandbox state counts, job status counts, artifacts dir size (or free space), and whether metrics listener is enabled.",
+        "Add unit tests for response shape and basic counts."
+      ],
+      "tags": [
+        "roadmap-v0.2",
+        "observability",
+        "api"
+      ],
+      "files": [
+        "internal/daemon/api.go",
+        "internal/daemon/api_types.go",
+        "internal/db/sandboxes.go",
+        "internal/db/jobs.go"
+      ],
+      "created_at": "2026-02-08T16:47:32Z",
+      "updated_at": "2026-02-08T16:47:32Z"
+    },
+    {
+      "id": "T062",
+      "title": "Add `agentlab status` CLI command (human + JSON output)",
+      "priority": 2,
+      "status": "todo",
+      "details": "Implement `agentlab status` to surface the most important operator signals quickly (running/stopped sandboxes, job state summary, warnings), with `--json` support for automation.",
+      "steps": [
+        "Add CLI command wiring in cmd/agentlab/main.go.",
+        "Call GET /v1/status and print a compact summary table in human mode.",
+        "Support --json output passthrough.",
+        "Add CLI tests for both human and JSON output.",
+        "Update README.md to include `agentlab status` in the quickstart and troubleshooting sections."
+      ],
+      "depends_on": [
+        "T061"
+      ],
+      "tags": [
+        "roadmap-v0.2",
+        "observability",
+        "cli"
+      ],
+      "files": [
+        "cmd/agentlab/main.go",
+        "cmd/agentlab/commands.go",
+        "README.md"
+      ],
+      "created_at": "2026-02-08T16:47:32Z",
+      "updated_at": "2026-02-08T16:47:32Z"
+    },
+    {
+      "id": "T063",
+      "title": "Instrument sandbox lifecycle SLO metrics (time-to-ready/ssh/start/stop/revert/destroy)",
+      "priority": 2,
+      "status": "todo",
+      "details": "Shift performance focus to perceived speed by instrumenting explicit SLOs: time-to-ready, time-to-ssh, time-to-job-start, time-to-revert, and time-to-destroy. Export as Prometheus histograms and surface key percentiles in docs/performance.md.",
+      "steps": [
+        "Extend internal/daemon/metrics.go with new histograms for: start duration, stop duration, revert duration, destroy duration, time-to-ssh (host TCP probe to port 22).",
+        "Record observations in provisioning/start/stop/revert/destroy paths (ensure negative durations are ignored).",
+        "Add events that include operation durations for easy debugging without Prometheus.",
+        "Update docs/performance.md with example Prometheus queries for the new metrics."
+      ],
+      "depends_on": [
+        "T059",
+        "T061"
+      ],
+      "tags": [
+        "roadmap-v0.2",
+        "metrics",
+        "observability"
+      ],
+      "files": [
+        "internal/daemon/metrics.go",
+        "internal/daemon/job_orchestrator.go",
+        "internal/daemon/sandbox_manager.go",
+        "docs/performance.md"
+      ],
+      "created_at": "2026-02-08T16:47:32Z",
+      "updated_at": "2026-02-08T16:47:32Z"
+    },
+    {
+      "id": "T064",
+      "title": "Start-on-connect for `agentlab ssh` + one-command create-and-ssh flow",
+      "priority": 2,
+      "status": "todo",
+      "details": "Optimize for time-to-shell. `agentlab ssh <vmid>` should auto-start STOPPED sandboxes and optionally wait for SSH readiness. Add `agentlab sandbox new --and-ssh` to create + provision + attach in one command.",
+      "steps": [
+        "Update cmd/agentlab/ssh.go: if sandbox state is STOPPED, call /v1/sandboxes/{vmid}/start (unless --no-start).",
+        "After starting, wait for sandbox IP (if missing) and optionally probe TCP port 22 before exec/printing the ssh command.",
+        "Add `agentlab sandbox new --and-ssh` that provisions and then execs `agentlab ssh --exec`.",
+        "Add regression tests for STOPPED sandboxes and `--no-start` behavior."
+      ],
+      "depends_on": [
+        "T059"
+      ],
+      "tags": [
+        "roadmap-v0.2",
+        "cli",
+        "ssh"
+      ],
+      "files": [
+        "cmd/agentlab/ssh.go",
+        "cmd/agentlab/commands.go",
+        "cmd/agentlab/main.go"
+      ],
+      "created_at": "2026-02-08T16:47:32Z",
+      "updated_at": "2026-02-08T16:47:32Z"
+    },
+    {
+      "id": "T065",
+      "title": "Add Proxmox VM snapshot operations to backend (create/rollback/delete)",
+      "priority": 1,
+      "status": "todo",
+      "details": "Enable fast undo by adding snapshot primitives to the proxmox.Backend interface and implementing them for both APIBackend and ShellBackend. These will support sandbox revert-to-clean workflows.",
+      "steps": [
+        "Extend internal/proxmox/Backend interface with SnapshotCreate(vmid,name), SnapshotRollback(vmid,name), and SnapshotDelete(vmid,name) (or equivalent).",
+        "Implement snapshot ops in internal/proxmox/api_backend.go using Proxmox /snapshot endpoints.",
+        "Implement snapshot ops in internal/proxmox/shell_backend.go using qm snapshot/rollback/delsnapshot.",
+        "Decide and document required VM state for rollback (prefer: ensure VM stopped before rollback; no vmstate snapshots).",
+        "Add unit tests for the shell backend command construction and API backend request paths (mock HTTP)."
+      ],
+      "blockers": [
+        "Confirm Proxmox API endpoints and required parameters for snapshot create/rollback/delete across PVE 8.x and 9.x."
+      ],
+      "tags": [
+        "roadmap-v0.2",
+        "proxmox",
+        "undo",
+        "backend"
+      ],
+      "files": [
+        "internal/proxmox/proxmox.go",
+        "internal/proxmox/api_backend.go",
+        "internal/proxmox/shell_backend.go",
+        "internal/proxmox/shell_backend_test.go"
+      ],
+      "created_at": "2026-02-08T16:47:32Z",
+      "updated_at": "2026-02-08T16:47:32Z"
+    },
+    {
+      "id": "T066",
+      "title": "Snapshot-on-provision: create canonical 'clean' snapshot for each sandbox",
+      "priority": 1,
+      "status": "todo",
+      "details": "Make undo instant by taking a canonical snapshot after successful sandbox provisioning (and workspace rebind). This snapshot becomes the target for `sandbox revert`.",
+      "steps": [
+        "After a sandbox reaches RUNNING/READY (post-IP), create snapshot name 'clean' (best-effort).",
+        "Record an audit event on success/failure with snapshot name and error (do not block provisioning unless configured).",
+        "Apply the same behavior in workspace rebind (new VM created for workspace).",
+        "Add tests that snapshot creation is attempted exactly once per successful provision path (using stub backend)."
+      ],
+      "depends_on": [
+        "T065"
+      ],
+      "tags": [
+        "roadmap-v0.2",
+        "undo",
+        "snapshot"
+      ],
+      "files": [
+        "internal/daemon/job_orchestrator.go",
+        "internal/daemon/workspace_rebind.go",
+        "internal/db/events.go"
+      ],
+      "created_at": "2026-02-08T16:47:32Z",
+      "updated_at": "2026-02-08T16:47:32Z"
+    },
+    {
+      "id": "T067",
+      "title": "Implement sandbox revert endpoint + CLI (rollback to 'clean')",
+      "priority": 1,
+      "status": "todo",
+      "details": "Add `agentlab sandbox revert <vmid>` backed by POST /v1/sandboxes/{vmid}/revert. Default behavior: stop VM if running, rollback disk to snapshot 'clean', then optionally restart. Include safety checks for running jobs and emit audit events + metrics.",
+      "steps": [
+        "Add API endpoint POST /v1/sandboxes/{vmid}/revert with request options (e.g., force, restart).",
+        "Implement revert operation: ensure VM is stopped (or stop it), perform snapshot rollback, then restart if requested.",
+        "Handle missing snapshot 'clean' with an actionable error message (and guidance to recreate or snapshot).",
+        "Add CLI command `agentlab sandbox revert <vmid>` with --force and --no-restart (or --restart) flags.",
+        "Emit events: sandbox.revert.started/completed/failed (include duration and whether a restart occurred).",
+        "Add tests for: stopped revert fast-path, running revert stop+rollback, and missing snapshot errors."
+      ],
+      "depends_on": [
+        "T059",
+        "T065",
+        "T066"
+      ],
+      "tags": [
+        "roadmap-v0.2",
+        "undo",
+        "api",
+        "cli"
+      ],
+      "files": [
+        "internal/daemon/api.go",
+        "internal/daemon/api_types.go",
+        "internal/daemon/sandbox_manager.go",
+        "cmd/agentlab/commands.go",
+        "cmd/agentlab/main.go",
+        "docs/api.md",
+        "README.md"
+      ],
+      "created_at": "2026-02-08T16:47:32Z",
+      "updated_at": "2026-02-08T16:47:32Z"
+    },
+    {
+      "id": "T068",
+      "title": "Add sandbox last_used_at tracking + /touch endpoint for UX/auto-stop",
+      "priority": 2,
+      "status": "todo",
+      "details": "Support better lifecycle policies (idle stop) and UX by tracking when a sandbox was last used. Add a DB column + API field, plus a lightweight endpoint CLI can call to update last_used_at when users interact (ssh/logs/show).",
+      "steps": [
+        "Add DB migration to add sandboxes.last_used_at (nullable RFC3339).",
+        "Extend models.Sandbox and V1SandboxResponse to include last_used_at.",
+        "Add POST /v1/sandboxes/{vmid}/touch to set last_used_at=now (idempotent).",
+        "Update CLI commands (ssh, logs, sandbox show) to call /touch best-effort.",
+        "Update sandbox list/show output to surface last_used_at (human + JSON).",
+        "Add unit tests for the new endpoint and DB behavior."
+      ],
+      "tags": [
+        "roadmap-v0.2",
+        "sandbox",
+        "api",
+        "db"
+      ],
+      "files": [
+        "internal/db/migrations.go",
+        "internal/db/sandboxes.go",
+        "internal/models/models.go",
+        "internal/daemon/api.go",
+        "internal/daemon/api_types.go",
+        "cmd/agentlab/ssh.go",
+        "cmd/agentlab/commands.go"
+      ],
+      "created_at": "2026-02-08T16:47:32Z",
+      "updated_at": "2026-02-08T16:47:32Z"
+    },
+    {
+      "id": "T069",
+      "title": "Implement idle auto-stop (no SSH sessions + low CPU for N minutes)",
+      "priority": 2,
+      "status": "todo",
+      "details": "Default mental model: keep many sandboxes stopped cheaply, start on demand. Implement an idle auto-stop policy that stops RUNNING sandboxes when there are no active SSH sessions and CPU usage stays under a threshold for N minutes (separate from TTL lease GC).",
+      "steps": [
+        "Define profile behavior defaults for idle-stop (e.g., behavior.idle_stop_minutes_default) and a daemon-level enable/disable switch.",
+        "Implement a periodic daemon loop to evaluate idle sandboxes and call Stop + state transition.",
+        "Detect active SSH sessions via host conntrack/nftables (established flows to sandbox_ip:22) or another host-observable signal; make it testable via an interface.",
+        "Fetch per-VM CPU usage from Proxmox status/current and apply a low-CPU threshold window.",
+        "Emit sandbox.idle_stop events and add a metric for idle stops.",
+        "Document defaults and caveats in docs/runbook.md and docs/faq.md."
+      ],
+      "depends_on": [
+        "T059",
+        "T068"
+      ],
+      "blockers": [
+        "Pick an implementation for SSH session detection that is accurate and cheap enough on Proxmox hosts (conntrack vs nft counters vs other).",
+        "Confirm CPU usage signal from Proxmox API is stable and available for all VMs (API vs shell backend)."
+      ],
+      "tags": [
+        "roadmap-v0.2",
+        "sandbox",
+        "cost-control",
+        "daemon"
+      ],
+      "files": [
+        "internal/daemon/daemon.go",
+        "internal/daemon/sandbox_manager.go",
+        "internal/daemon/profile_behavior.go",
+        "docs/runbook.md",
+        "docs/faq.md"
+      ],
+      "created_at": "2026-02-08T16:47:32Z",
+      "updated_at": "2026-02-08T16:47:32Z"
+    },
+    {
+      "id": "T070",
+      "title": "Add modifier syntax for sandbox creation (e.g., `sandbox new +small +secure`)",
+      "priority": 3,
+      "status": "todo",
+      "details": "Replace flag soup with safe, composable modifiers. Allow `agentlab sandbox new +small +secure` as sugar over named profiles (source of truth remains YAML profiles). Unknown modifiers should fail with a clear list of valid modifiers.",
+      "steps": [
+        "Extend CLI parsing for sandbox new to accept order-independent +mod tokens after flags.",
+        "Resolve modifiers to a concrete profile name deterministically (e.g., sort modifiers and join with '-': secure-small).",
+        "Validate existence via GET /v1/profiles and provide 'did you mean' suggestions.",
+        "Update usage text and README examples.",
+        "Add tests for modifier parsing, resolution, and error messages."
+      ],
+      "depends_on": [
+        "T060"
+      ],
+      "tags": [
+        "roadmap-v0.2",
+        "cli",
+        "profiles"
+      ],
+      "files": [
+        "cmd/agentlab/main.go",
+        "cmd/agentlab/commands.go",
+        "README.md"
+      ],
+      "created_at": "2026-02-08T16:47:32Z",
+      "updated_at": "2026-02-08T16:47:32Z"
+    },
+    {
+      "id": "T071",
+      "title": "Plumb profile network.firewall_group into Proxmox VM config",
+      "priority": 3,
+      "status": "todo",
+      "details": "Profiles already specify network.firewall_group (e.g., agent_nat_default) but AgentLab does not apply it. Implement support so networking policy can be expressed as a simple profile knob and surfaced in sandbox show/list.",
+      "steps": [
+        "Extend profile parsing to read network.firewall (bool) and network.firewall_group (string).",
+        "Define how firewall group is applied for QEMU NICs via Proxmox API/shell (research required) and implement it in both backends.",
+        "Add validation: unknown/empty firewall_group should be rejected or defaulted consistently.",
+        "Update docs/configuration.md to document firewall_group and its semantics.",
+        "Add unit tests for config application (shell command args + API params)."
+      ],
+      "blockers": [
+        "Confirm the correct Proxmox config keys for applying firewall group to a VM/NIC (API fields vs qm flags)."
+      ],
+      "tags": [
+        "roadmap-v0.2",
+        "network",
+        "profiles",
+        "proxmox"
+      ],
+      "files": [
+        "internal/daemon/profile_resources.go",
+        "internal/proxmox/api_backend.go",
+        "internal/proxmox/shell_backend.go",
+        "docs/configuration.md"
+      ],
+      "created_at": "2026-02-08T16:47:32Z",
+      "updated_at": "2026-02-08T16:47:32Z"
+    },
+    {
+      "id": "T072",
+      "title": "Add network.mode abstraction (off|nat|allowlist) and surface it everywhere",
+      "priority": 4,
+      "status": "todo",
+      "details": "Make networking policy a simple mode that is obvious and consistently displayed. Add network.mode to profiles (off|nat|allowlist), map modes to firewall groups/rules, and show the effective mode in `sandbox list/show` and `agentlab status`.",
+      "steps": [
+        "Extend profile schema to accept network.mode (off|nat|allowlist) and validate values.",
+        "Map network.mode to a firewall_group (or other implementation) without changing the underlying nftables architecture initially.",
+        "Extend sandbox API response to include effective network mode (stored or computed).",
+        "Update CLI list/show to print network mode prominently.",
+        "Document the modes and defaults in README.md and docs/configuration.md."
+      ],
+      "depends_on": [
+        "T071"
+      ],
+      "tags": [
+        "network",
+        "ux",
+        "profiles"
+      ],
+      "files": [
+        "internal/daemon/profile_resources.go",
+        "internal/daemon/profile_validation.go",
+        "internal/daemon/api_types.go",
+        "cmd/agentlab/commands.go",
+        "README.md",
+        "docs/configuration.md"
+      ],
+      "created_at": "2026-02-08T16:47:32Z",
+      "updated_at": "2026-02-08T16:47:32Z"
+    },
+    {
+      "id": "T073",
+      "title": "Add exposures registry (DB + API) for explicit sandbox port exposure",
+      "priority": 3,
+      "status": "todo",
+      "details": "Make exposure explicit, host-owned, and auditable. Add a first-class exposure registry so sandboxes cannot self-expose services. This is the control-plane foundation for `sandbox expose`.",
+      "steps": [
+        "Add DB migration to create exposures table (name, vmid, port, target_ip, url, state, created_at, updated_at).",
+        "Implement API endpoints: POST /v1/exposures, GET /v1/exposures, DELETE /v1/exposures/{name}.",
+        "Emit audit events for create/delete exposure requests (before integration with tailscale).",
+        "Add unit tests for DB CRUD and API handlers."
+      ],
+      "tags": [
+        "roadmap-v0.2",
+        "exposure",
+        "api",
+        "db"
+      ],
+      "files": [
+        "internal/db/migrations.go",
+        "internal/db/db.go",
+        "internal/daemon/api.go",
+        "internal/daemon/api_types.go"
+      ],
+      "created_at": "2026-02-08T16:47:32Z",
+      "updated_at": "2026-02-08T16:47:32Z"
+    },
+    {
+      "id": "T074",
+      "title": "Implement Tailscale Serve integration for sandbox exposures (health-checked)",
+      "priority": 3,
+      "status": "todo",
+      "details": "Wire the exposure registry to host-level Tailscale Serve (or a safe fallback) so `expose <vmid> :port` yields a stable tailnet-reachable URL/name. Include health checks and automatic cleanup on sandbox destroy.",
+      "steps": [
+        "Implement a tailscale integration module that can create/remove serve rules for a given exposure name -> sandbox_ip:port.",
+        "On expose: resolve sandbox IP, install serve rule, run a TCP (and optional HTTP) health check, store resulting URL/state.",
+        "On unexpose: remove serve rule and mark exposure deleted.",
+        "Ensure exposures are cleaned up when the owning sandbox is destroyed (best-effort).",
+        "Add integration tests that mock tailscale command execution."
+      ],
+      "depends_on": [
+        "T073"
+      ],
+      "blockers": [
+        "Decide whether to use `tailscale serve` CLI, Tailscale LocalAPI, or an SSH reverse proxy fallback (and document tradeoffs)."
+      ],
+      "tags": [
+        "roadmap-v0.2",
+        "exposure",
+        "tailscale",
+        "security"
+      ],
+      "files": [
+        "internal/daemon/sandbox_manager.go",
+        "internal/daemon/api.go",
+        "docs/runbook.md"
+      ],
+      "created_at": "2026-02-08T16:47:32Z",
+      "updated_at": "2026-02-08T16:47:32Z"
+    },
+    {
+      "id": "T075",
+      "title": "Add CLI commands for exposures (expose/exposed/unexpose) + docs",
+      "priority": 3,
+      "status": "todo",
+      "details": "Expose should be a top-level verb for users. Add CLI commands to manage exposures and document the security model (host-owned, auditable).",
+      "steps": [
+        "Add CLI commands: agentlab sandbox expose <vmid> :<port>, agentlab sandbox exposed, agentlab sandbox unexpose <name>.",
+        "Support --json output for all commands.",
+        "Update docs/api.md and README.md with examples and expected output.",
+        "Add CLI tests that validate request paths and response rendering."
+      ],
+      "depends_on": [
+        "T073",
+        "T074"
+      ],
+      "tags": [
+        "roadmap-v0.2",
+        "exposure",
+        "cli",
+        "docs"
+      ],
+      "files": [
+        "cmd/agentlab/main.go",
+        "cmd/agentlab/commands.go",
+        "docs/api.md",
+        "README.md"
+      ],
+      "created_at": "2026-02-08T16:47:32Z",
+      "updated_at": "2026-02-08T16:47:32Z"
+    },
+    {
+      "id": "T076",
+      "title": "Humane errors: fuzzy suggestions + next-step hints across CLI",
+      "priority": 3,
+      "status": "todo",
+      "details": "Reduce tooling tax during fast iteration. Add fuzzy suggestions for VMIDs and profile names, and always print the next best command when failing (e.g., suggest `agentlab sandbox list`).",
+      "steps": [
+        "Implement a small suggestion helper (Levenshtein or prefix match) for profile names and common subcommands.",
+        "On sandbox not found: suggest nearest VMIDs from sandbox list.",
+        "On unknown profile/modifier: suggest closest profile names from /v1/profiles.",
+        "Standardize error output formatting and ensure `--json` mode remains machine-readable.",
+        "Add unit tests for suggestion ranking and output."
+      ],
+      "depends_on": [
+        "T060"
+      ],
+      "tags": [
+        "roadmap-v0.2",
+        "ux",
+        "cli"
+      ],
+      "files": [
+        "cmd/agentlab/main.go",
+        "cmd/agentlab/commands.go",
+        "cmd/agentlab/ssh.go"
+      ],
+      "created_at": "2026-02-08T16:47:32Z",
+      "updated_at": "2026-02-08T16:47:32Z"
+    },
+    {
+      "id": "T077",
+      "title": "Panic button: stop all sandboxes (API + CLI) with audit events",
+      "priority": 3,
+      "status": "todo",
+      "details": "When an agent goes rogue, operators need one command. Add a stop-all endpoint and CLI flag that stops all running sandboxes quickly and records audit events.",
+      "steps": [
+        "Add API endpoint POST /v1/sandboxes/stop_all (best-effort stop each VM; return counts).",
+        "Add CLI command/flag: agentlab sandbox stop --all (and optionally --force).",
+        "Emit an audit event for the stop-all invocation and per-sandbox stop results.",
+        "Add tests for the endpoint behavior on mixed sandbox states."
+      ],
+      "depends_on": [
+        "T059"
+      ],
+      "tags": [
+        "roadmap-v0.2",
+        "safety",
+        "api",
+        "cli"
+      ],
+      "files": [
+        "internal/daemon/api.go",
+        "internal/daemon/api_types.go",
+        "internal/daemon/sandbox_manager.go",
+        "cmd/agentlab/main.go",
+        "cmd/agentlab/commands.go"
+      ],
+      "created_at": "2026-02-08T16:47:32Z",
+      "updated_at": "2026-02-08T16:47:32Z"
+    },
+    {
+      "id": "T078",
+      "title": "Spike: optional SSH gateway routing layer (ssh new@host, ssh sbx-<id>@host)",
+      "priority": 5,
+      "status": "todo",
+      "details": "Explore an SSH-first UX layer similar to Sandboxed: route ssh usernames to create/connect actions (ssh new@host, ssh 1001@host). This is a bigger bet and should start as a design doc + prototype to validate feasibility with Proxmox + Tailscale routing.",
+      "steps": [
+        "Write a short design doc covering: auth model, username grammar, routing logic, attach mechanism, and audit logging.",
+        "Prototype a minimal gateway that can authenticate keys and call the existing /v1 API over unix socket.",
+        "Decide whether this replaces or complements tailscale subnet routing (threat model + firewall impact)."
+      ],
+      "tags": [
+        "future",
+        "ssh",
+        "ux"
+      ],
+      "files": [
+        "docs"
+      ],
+      "created_at": "2026-02-08T16:47:32Z",
+      "updated_at": "2026-02-08T16:47:32Z"
+    },
+    {
+      "id": "T079",
+      "title": "Add confirmation gates / --force semantics for destructive or security-weakening operations",
+      "priority": 4,
+      "status": "todo",
+      "details": "Codify safe defaults: destructive or security-weakening actions should require explicit confirmation in interactive CLI usage and/or a `--force` flag. This includes revert-running, expose, stop-all, and network policy changes.",
+      "steps": [
+        "Define a consistent CLI confirmation UX (interactive prompt when TTY; require --force in non-interactive).",
+        "Apply to: sandbox revert (when running), sandbox expose, sandbox stop --all, and any operation that enables broader networking.",
+        "Ensure `--json` mode does not prompt and fails with an actionable error unless `--force` is supplied.",
+        "Emit audit events that record when --force was used.",
+        "Add tests for prompt gating logic and non-interactive behavior."
+      ],
+      "depends_on": [
+        "T067",
+        "T073",
+        "T077"
+      ],
+      "tags": [
+        "safety",
+        "ux",
+        "cli"
+      ],
+      "files": [
+        "cmd/agentlab/main.go",
+        "cmd/agentlab/commands.go",
+        "cmd/agentlab/ssh.go"
+      ],
+      "created_at": "2026-02-08T16:47:32Z",
+      "updated_at": "2026-02-08T16:47:32Z"
     }
   ]
 }

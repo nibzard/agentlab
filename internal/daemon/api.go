@@ -45,6 +45,8 @@ const (
 //   - POST   /v1/sandboxes            - Create a new sandbox
 //   - GET    /v1/sandboxes            - List all sandboxes
 //   - GET    /v1/sandboxes/{vmid}     - Get sandbox details
+//   - POST   /v1/sandboxes/{vmid}/start     - Start a stopped sandbox
+//   - POST   /v1/sandboxes/{vmid}/stop      - Stop a running sandbox
 //   - POST   /v1/sandboxes/{vmid}/destroy   - Destroy a sandbox
 //   - POST   /v1/sandboxes/{vmid}/lease/renew - Renew sandbox lease
 //   - GET    /v1/sandboxes/{vmid}/events - Get sandbox events
@@ -478,6 +480,22 @@ func (api *ControlAPI) handleSandboxByID(w http.ResponseWriter, r *http.Request)
 		api.handleSandboxGet(w, r, vmid)
 		return
 	case 2:
+		if parts[1] == "start" {
+			if r.Method != http.MethodPost {
+				writeMethodNotAllowed(w, []string{http.MethodPost})
+				return
+			}
+			api.handleSandboxStart(w, r, vmid)
+			return
+		}
+		if parts[1] == "stop" {
+			if r.Method != http.MethodPost {
+				writeMethodNotAllowed(w, []string{http.MethodPost})
+				return
+			}
+			api.handleSandboxStop(w, r, vmid)
+			return
+		}
 		if parts[1] == "destroy" {
 			if r.Method != http.MethodPost {
 				writeMethodNotAllowed(w, []string{http.MethodPost})
@@ -961,6 +979,70 @@ func (api *ControlAPI) handleSandboxDestroy(w http.ResponseWriter, r *http.Reque
 			}
 		default:
 			writeError(w, http.StatusInternalServerError, fmt.Sprintf("failed to destroy sandbox: %v", err))
+		}
+		return
+	}
+	sandbox, err := api.store.GetSandbox(r.Context(), vmid)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to load sandbox")
+		return
+	}
+	writeJSON(w, http.StatusOK, sandboxToV1(sandbox))
+}
+
+func (api *ControlAPI) handleSandboxStart(w http.ResponseWriter, r *http.Request, vmid int) {
+	if api.sandboxManager == nil {
+		writeError(w, http.StatusInternalServerError, "sandbox manager unavailable")
+		return
+	}
+	if err := api.sandboxManager.Start(r.Context(), vmid); err != nil {
+		switch {
+		case errors.Is(err, ErrSandboxNotFound):
+			writeError(w, http.StatusNotFound, "sandbox not found")
+		case errors.Is(err, ErrInvalidTransition):
+			if api.store != nil {
+				if sb, getErr := api.store.GetSandbox(r.Context(), vmid); getErr == nil {
+					writeError(w, http.StatusConflict, fmt.Sprintf("cannot start sandbox in %s state. Valid states: STOPPED", sb.State))
+				} else {
+					writeError(w, http.StatusConflict, "invalid sandbox state for start operation")
+				}
+			} else {
+				writeError(w, http.StatusConflict, "invalid sandbox state for start operation")
+			}
+		default:
+			writeError(w, http.StatusInternalServerError, fmt.Sprintf("failed to start sandbox: %v", err))
+		}
+		return
+	}
+	sandbox, err := api.store.GetSandbox(r.Context(), vmid)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to load sandbox")
+		return
+	}
+	writeJSON(w, http.StatusOK, sandboxToV1(sandbox))
+}
+
+func (api *ControlAPI) handleSandboxStop(w http.ResponseWriter, r *http.Request, vmid int) {
+	if api.sandboxManager == nil {
+		writeError(w, http.StatusInternalServerError, "sandbox manager unavailable")
+		return
+	}
+	if err := api.sandboxManager.Stop(r.Context(), vmid); err != nil {
+		switch {
+		case errors.Is(err, ErrSandboxNotFound):
+			writeError(w, http.StatusNotFound, "sandbox not found")
+		case errors.Is(err, ErrInvalidTransition):
+			if api.store != nil {
+				if sb, getErr := api.store.GetSandbox(r.Context(), vmid); getErr == nil {
+					writeError(w, http.StatusConflict, fmt.Sprintf("cannot stop sandbox in %s state. Valid states: READY, RUNNING", sb.State))
+				} else {
+					writeError(w, http.StatusConflict, "invalid sandbox state for stop operation")
+				}
+			} else {
+				writeError(w, http.StatusConflict, "invalid sandbox state for stop operation")
+			}
+		default:
+			writeError(w, http.StatusInternalServerError, fmt.Sprintf("failed to stop sandbox: %v", err))
 		}
 		return
 	}

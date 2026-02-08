@@ -16,9 +16,12 @@ import (
 )
 
 type stubBackend struct {
+	startErr    error
 	stopErr     error
 	destroyErr  error
 	detachErr   error
+	startCalls  int
+	stopCalls   int
 	detachCalls int
 }
 
@@ -31,10 +34,12 @@ func (s *stubBackend) Configure(context.Context, proxmox.VMID, proxmox.VMConfig)
 }
 
 func (s *stubBackend) Start(context.Context, proxmox.VMID) error {
-	return nil
+	s.startCalls++
+	return s.startErr
 }
 
 func (s *stubBackend) Stop(context.Context, proxmox.VMID) error {
+	s.stopCalls++
 	return s.stopErr
 }
 
@@ -152,6 +157,79 @@ func TestSandboxLeaseGC(t *testing.T) {
 	}
 	if updated.State != models.SandboxDestroyed {
 		t.Fatalf("expected destroyed, got %s", updated.State)
+	}
+}
+
+func TestSandboxStartStopLifecycle(t *testing.T) {
+	ctx := context.Background()
+	store := newTestStore(t)
+	backend := &stubBackend{}
+	mgr := NewSandboxManager(store, backend, log.New(io.Discard, "", 0))
+
+	sandbox := models.Sandbox{
+		VMID:      108,
+		Name:      "stoppable",
+		Profile:   "default",
+		State:     models.SandboxStopped,
+		Keepalive: false,
+		CreatedAt: time.Now().UTC(),
+	}
+	if err := store.CreateSandbox(ctx, sandbox); err != nil {
+		t.Fatalf("create sandbox: %v", err)
+	}
+
+	if err := mgr.Start(ctx, sandbox.VMID); err != nil {
+		t.Fatalf("start sandbox: %v", err)
+	}
+	if backend.startCalls != 1 {
+		t.Fatalf("expected start called once, got %d", backend.startCalls)
+	}
+	updated, err := store.GetSandbox(ctx, sandbox.VMID)
+	if err != nil {
+		t.Fatalf("get sandbox: %v", err)
+	}
+	if updated.State != models.SandboxRunning {
+		t.Fatalf("expected running, got %s", updated.State)
+	}
+
+	if err := mgr.Stop(ctx, sandbox.VMID); err != nil {
+		t.Fatalf("stop sandbox: %v", err)
+	}
+	if backend.stopCalls != 1 {
+		t.Fatalf("expected stop called once, got %d", backend.stopCalls)
+	}
+	updated, err = store.GetSandbox(ctx, sandbox.VMID)
+	if err != nil {
+		t.Fatalf("get sandbox: %v", err)
+	}
+	if updated.State != models.SandboxStopped {
+		t.Fatalf("expected stopped, got %s", updated.State)
+	}
+}
+
+func TestSandboxStartStopInvalidState(t *testing.T) {
+	ctx := context.Background()
+	store := newTestStore(t)
+	backend := &stubBackend{}
+	mgr := NewSandboxManager(store, backend, log.New(io.Discard, "", 0))
+
+	sandbox := models.Sandbox{
+		VMID:      109,
+		Name:      "invalid-transition",
+		Profile:   "default",
+		State:     models.SandboxProvisioning,
+		Keepalive: false,
+		CreatedAt: time.Now().UTC(),
+	}
+	if err := store.CreateSandbox(ctx, sandbox); err != nil {
+		t.Fatalf("create sandbox: %v", err)
+	}
+
+	if err := mgr.Start(ctx, sandbox.VMID); !errors.Is(err, ErrInvalidTransition) {
+		t.Fatalf("expected invalid transition for start, got %v", err)
+	}
+	if err := mgr.Stop(ctx, sandbox.VMID); !errors.Is(err, ErrInvalidTransition) {
+		t.Fatalf("expected invalid transition for stop, got %v", err)
 	}
 }
 

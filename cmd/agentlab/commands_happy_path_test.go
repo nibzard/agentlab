@@ -201,3 +201,65 @@ func TestCLIHappyPathJobAndSandbox(t *testing.T) {
 		t.Fatalf("expected sandbox list output, got %q", out)
 	}
 }
+
+func TestCLISandboxStartStopHappyPath(t *testing.T) {
+	createdAt := "2026-01-30T12:00:00Z"
+	updatedAt := "2026-01-30T12:01:00Z"
+
+	mux := http.NewServeMux()
+	mux.HandleFunc("/v1/sandboxes/9001/start", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			t.Errorf("/v1/sandboxes/9001/start method = %s", r.Method)
+			w.WriteHeader(http.StatusMethodNotAllowed)
+			return
+		}
+		resp := sandboxResponse{
+			VMID:          9001,
+			Name:          "sandbox-9001",
+			Profile:       "yolo",
+			State:         "RUNNING",
+			CreatedAt:     createdAt,
+			LastUpdatedAt: updatedAt,
+		}
+		writeJSON(t, w, http.StatusOK, resp)
+	})
+	mux.HandleFunc("/v1/sandboxes/9001/stop", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			t.Errorf("/v1/sandboxes/9001/stop method = %s", r.Method)
+			w.WriteHeader(http.StatusMethodNotAllowed)
+			return
+		}
+		resp := sandboxResponse{
+			VMID:          9001,
+			Name:          "sandbox-9001",
+			Profile:       "yolo",
+			State:         "STOPPED",
+			CreatedAt:     createdAt,
+			LastUpdatedAt: updatedAt,
+		}
+		writeJSON(t, w, http.StatusOK, resp)
+	})
+
+	socketPath := startUnixHTTPServer(t, mux)
+	base := commonFlags{socketPath: socketPath, jsonOutput: false, timeout: time.Second}
+
+	out := captureStdout(t, func() {
+		err := runSandboxStart(context.Background(), []string{"9001"}, base)
+		if err != nil {
+			t.Fatalf("runSandboxStart() error = %v", err)
+		}
+	})
+	if !strings.Contains(out, "started") || !strings.Contains(out, "RUNNING") {
+		t.Fatalf("expected start output, got %q", out)
+	}
+
+	out = captureStdout(t, func() {
+		err := runSandboxStop(context.Background(), []string{"9001"}, base)
+		if err != nil {
+			t.Fatalf("runSandboxStop() error = %v", err)
+		}
+	})
+	if !strings.Contains(out, "stopped") || !strings.Contains(out, "STOPPED") {
+		t.Fatalf("expected stop output, got %q", out)
+	}
+}

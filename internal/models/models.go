@@ -17,6 +17,8 @@ import "time"
 //
 //	REQUESTED → PROVISIONING → BOOTING → READY → RUNNING → (COMPLETED|FAILED|TIMEOUT) → STOPPED → DESTROYED
 //
+// STOPPED sandboxes can be restarted, transitioning back through BOOTING/READY/RUNNING.
+//
 // States can also transition to TIMEOUT at any point before COMPLETED/FAILED/STOPPED,
 // and to DESTROYED from most states (via force destroy).
 type SandboxState string
