@@ -49,6 +49,7 @@ const usageText = `agentlab is the CLI for agentlabd.
 
 Usage:
   agentlab --version
+  agentlab [--socket PATH] [--json] [--timeout DURATION] status
   agentlab [--socket PATH] [--json] [--timeout DURATION] job run --repo <url> --task <task> --profile <profile> [--ref <ref>] [--mode <mode>] [--ttl <ttl>] [--keepalive]
   agentlab [--socket PATH] [--json] [--timeout DURATION] job show <job_id> [--events-tail <n>]
   agentlab [--socket PATH] [--json] [--timeout DURATION] job artifacts <job_id>
@@ -177,6 +178,8 @@ func parseGlobal(args []string) (globalOptions, []string, error) {
 
 func dispatch(ctx context.Context, args []string, base commonFlags) error {
 	switch args[0] {
+	case "status":
+		return runStatusCommand(ctx, args[1:], base)
 	case "job":
 		return runJobCommand(ctx, args[1:], base)
 	case "sandbox":
@@ -229,6 +232,10 @@ func writeJSONError(w io.Writer, message string) {
 
 func printJobUsage() {
 	fmt.Fprintln(os.Stdout, "Usage: agentlab job <run|show|artifacts> [flags]")
+}
+
+func printStatusUsage() {
+	fmt.Fprintln(os.Stdout, "Usage: agentlab status")
 }
 
 func printJobRunUsage() {

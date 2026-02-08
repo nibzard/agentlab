@@ -37,6 +37,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"sort"
 	"strconv"
 	"strings"
 	"text/tabwriter"
@@ -55,8 +56,27 @@ const (
 )
 
 var (
-	errHelp  = errors.New("help requested")
-	errUsage = errors.New("invalid usage")
+	errHelp            = errors.New("help requested")
+	errUsage           = errors.New("invalid usage")
+	statusSandboxOrder = []string{
+		"REQUESTED",
+		"PROVISIONING",
+		"BOOTING",
+		"READY",
+		"RUNNING",
+		"COMPLETED",
+		"FAILED",
+		"TIMEOUT",
+		"STOPPED",
+		"DESTROYED",
+	}
+	statusJobOrder = []string{
+		"QUEUED",
+		"RUNNING",
+		"COMPLETED",
+		"FAILED",
+		"TIMEOUT",
+	}
 )
 
 // usageError wraps an error with a flag indicating whether usage should be shown.
@@ -160,6 +180,34 @@ func parseFlags(fs *flag.FlagSet, args []string, usage func(), help *bool, jsonO
 		usage()
 		return errHelp
 	}
+	return nil
+}
+
+// runStatusCommand displays the control plane status summary.
+func runStatusCommand(ctx context.Context, args []string, base commonFlags) error {
+	fs := newFlagSet("status")
+	opts := base
+	opts.bind(fs)
+	var help bool
+	fs.BoolVar(&help, "help", false, "show help")
+	fs.BoolVar(&help, "h", false, "show help")
+	if err := parseFlags(fs, args, printStatusUsage, &help, opts.jsonOutput); err != nil {
+		return err
+	}
+
+	client := newAPIClient(opts.socketPath, opts.timeout)
+	payload, err := client.doJSON(ctx, http.MethodGet, "/v1/status", nil)
+	if err != nil {
+		return err
+	}
+	if opts.jsonOutput {
+		return prettyPrintJSON(os.Stdout, payload)
+	}
+	var resp statusResponse
+	if err := json.Unmarshal(payload, &resp); err != nil {
+		return err
+	}
+	printStatus(resp)
 	return nil
 }
 
@@ -1255,6 +1303,46 @@ func printSandbox(sb sandboxResponse) {
 	fmt.Printf("Updated At: %s\n", sb.LastUpdatedAt)
 }
 
+func printStatus(resp statusResponse) {
+	fmt.Println("Sandboxes:")
+	printCountTable("STATE", resp.Sandboxes, statusSandboxOrder)
+	fmt.Println("Jobs:")
+	printCountTable("STATUS", resp.Jobs, statusJobOrder)
+	fmt.Println("Artifacts:")
+	fmt.Printf("Root: %s\n", orDash(resp.Artifacts.Root))
+	fmt.Printf("Total Bytes: %d\n", resp.Artifacts.TotalBytes)
+	fmt.Printf("Free Bytes: %d\n", resp.Artifacts.FreeBytes)
+	fmt.Printf("Used Bytes: %d\n", resp.Artifacts.UsedBytes)
+	fmt.Printf("Error: %s\n", orDash(resp.Artifacts.Error))
+	fmt.Println("Metrics:")
+	fmt.Printf("Enabled: %t\n", resp.Metrics.Enabled)
+	fmt.Println("Recent Failures:")
+	if len(resp.RecentFailures) == 0 {
+		fmt.Println("-")
+		return
+	}
+	w := tabwriter.NewWriter(os.Stdout, 2, 8, 2, ' ', 0)
+	fmt.Fprintln(w, "TIME\tKIND\tJOB\tSANDBOX\tMESSAGE")
+	for _, ev := range resp.RecentFailures {
+		job := strings.TrimSpace(ev.JobID)
+		if job == "" {
+			job = "-"
+		}
+		msg := strings.TrimSpace(ev.Message)
+		if msg == "" {
+			msg = "-"
+		}
+		fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\n",
+			orDash(ev.Timestamp),
+			orDash(ev.Kind),
+			job,
+			vmidString(ev.SandboxVMID),
+			msg,
+		)
+	}
+	_ = w.Flush()
+}
+
 func printSandboxList(sandboxes []sandboxResponse) {
 	w := tabwriter.NewWriter(os.Stdout, 2, 8, 2, ' ', 0)
 	fmt.Fprintln(w, "VMID\tNAME\tPROFILE\tSTATE\tIP\tLEASE")
@@ -1371,6 +1459,29 @@ func printEvents(events []eventResponse, jsonOutput bool) int64 {
 		fmt.Printf("%s\t%s\tjob=%s\t%s\n", ev.Timestamp, ev.Kind, job, msg)
 	}
 	return lastID
+}
+
+func printCountTable(label string, counts map[string]int, order []string) {
+	w := tabwriter.NewWriter(os.Stdout, 2, 8, 2, ' ', 0)
+	fmt.Fprintf(w, "%s\tCOUNT\n", label)
+	seen := make(map[string]struct{}, len(counts))
+	for _, key := range order {
+		if count, ok := counts[key]; ok {
+			fmt.Fprintf(w, "%s\t%d\n", key, count)
+			seen[key] = struct{}{}
+		}
+	}
+	var extra []string
+	for key := range counts {
+		if _, ok := seen[key]; !ok {
+			extra = append(extra, key)
+		}
+	}
+	sort.Strings(extra)
+	for _, key := range extra {
+		fmt.Fprintf(w, "%s\t%d\n", key, counts[key])
+	}
+	_ = w.Flush()
 }
 
 // selectArtifact selects an artifact from a list based on the provided criteria.
