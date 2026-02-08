@@ -85,6 +85,11 @@ type revertEventPayload struct {
 	Error      string `json:"error,omitempty"`
 }
 
+type lifecycleEventPayload struct {
+	DurationMS int64  `json:"duration_ms,omitempty"`
+	Error      string `json:"error,omitempty"`
+}
+
 // SandboxManager enforces sandbox state transitions and lease garbage collection.
 //
 // It provides a state machine for sandbox lifecycle management, ensuring that
@@ -340,7 +345,7 @@ func (m *SandboxManager) RenewLease(ctx context.Context, vmid int, ttl time.Dura
 //
 // Returns ErrSandboxNotFound if the sandbox doesn't exist or has been destroyed.
 // Returns ErrInvalidTransition if the sandbox is not STOPPED.
-func (m *SandboxManager) Start(ctx context.Context, vmid int) error {
+func (m *SandboxManager) Start(ctx context.Context, vmid int) (err error) {
 	if m == nil || m.store == nil {
 		return errors.New("sandbox manager not configured")
 	}
@@ -363,19 +368,39 @@ func (m *SandboxManager) Start(ctx context.Context, vmid int) error {
 	if m.backend == nil {
 		return errors.New("proxmox backend unavailable")
 	}
-	if err := m.backend.Start(ctx, proxmox.VMID(vmid)); err != nil {
+	startedAt := m.now().UTC()
+	defer func() {
+		duration := m.now().UTC().Sub(startedAt)
+		if err != nil {
+			m.recordLifecycleEvent(ctx, vmid, "sandbox.start.failed", fmt.Sprintf("start failed: %s", err.Error()), lifecycleEventPayload{
+				DurationMS: duration.Milliseconds(),
+				Error:      err.Error(),
+			})
+			if m.metrics != nil {
+				m.metrics.ObserveSandboxStart("failed", duration)
+			}
+			return
+		}
+		m.recordLifecycleEvent(ctx, vmid, "sandbox.start.completed", fmt.Sprintf("start completed in %s", duration), lifecycleEventPayload{
+			DurationMS: duration.Milliseconds(),
+		})
+		if m.metrics != nil {
+			m.metrics.ObserveSandboxStart("success", duration)
+		}
+	}()
+	if err = m.backend.Start(ctx, proxmox.VMID(vmid)); err != nil {
 		if errors.Is(err, proxmox.ErrVMNotFound) {
 			return ErrSandboxNotFound
 		}
 		return fmt.Errorf("start vmid %d: %w", vmid, err)
 	}
-	if err := m.Transition(ctx, vmid, models.SandboxBooting); err != nil {
+	if err = m.Transition(ctx, vmid, models.SandboxBooting); err != nil {
 		return err
 	}
-	if err := m.Transition(ctx, vmid, models.SandboxReady); err != nil {
+	if err = m.Transition(ctx, vmid, models.SandboxReady); err != nil {
 		return err
 	}
-	if err := m.Transition(ctx, vmid, models.SandboxRunning); err != nil {
+	if err = m.Transition(ctx, vmid, models.SandboxRunning); err != nil {
 		return err
 	}
 	return nil
@@ -389,7 +414,7 @@ func (m *SandboxManager) Start(ctx context.Context, vmid int) error {
 //
 // Returns ErrSandboxNotFound if the sandbox doesn't exist or has been destroyed.
 // Returns ErrInvalidTransition if the sandbox is not READY/RUNNING.
-func (m *SandboxManager) Stop(ctx context.Context, vmid int) error {
+func (m *SandboxManager) Stop(ctx context.Context, vmid int) (err error) {
 	if m == nil || m.store == nil {
 		return errors.New("sandbox manager not configured")
 	}
@@ -412,13 +437,33 @@ func (m *SandboxManager) Stop(ctx context.Context, vmid int) error {
 	if m.backend == nil {
 		return errors.New("proxmox backend unavailable")
 	}
-	if err := m.backend.Stop(ctx, proxmox.VMID(vmid)); err != nil {
+	startedAt := m.now().UTC()
+	defer func() {
+		duration := m.now().UTC().Sub(startedAt)
+		if err != nil {
+			m.recordLifecycleEvent(ctx, vmid, "sandbox.stop.failed", fmt.Sprintf("stop failed: %s", err.Error()), lifecycleEventPayload{
+				DurationMS: duration.Milliseconds(),
+				Error:      err.Error(),
+			})
+			if m.metrics != nil {
+				m.metrics.ObserveSandboxStop("failed", duration)
+			}
+			return
+		}
+		m.recordLifecycleEvent(ctx, vmid, "sandbox.stop.completed", fmt.Sprintf("stop completed in %s", duration), lifecycleEventPayload{
+			DurationMS: duration.Milliseconds(),
+		})
+		if m.metrics != nil {
+			m.metrics.ObserveSandboxStop("success", duration)
+		}
+	}()
+	if err = m.backend.Stop(ctx, proxmox.VMID(vmid)); err != nil {
 		if errors.Is(err, proxmox.ErrVMNotFound) {
 			return nil
 		}
 		return fmt.Errorf("stop vmid %d: %w", vmid, err)
 	}
-	if err := m.Transition(ctx, vmid, models.SandboxStopped); err != nil {
+	if err = m.Transition(ctx, vmid, models.SandboxStopped); err != nil {
 		return err
 	}
 	return nil
@@ -597,7 +642,7 @@ func (m *SandboxManager) Revert(ctx context.Context, vmid int, opts RevertOption
 //
 // Returns an error if the sandbox state doesn't allow destruction or if any
 // step of the destroy process fails.
-func (m *SandboxManager) Destroy(ctx context.Context, vmid int) error {
+func (m *SandboxManager) Destroy(ctx context.Context, vmid int) (err error) {
 	if m == nil || m.store == nil {
 		return errors.New("sandbox manager not configured")
 	}
@@ -611,15 +656,35 @@ func (m *SandboxManager) Destroy(ctx context.Context, vmid int) error {
 	if sandbox.State == models.SandboxDestroyed {
 		return nil
 	}
+	startedAt := m.now().UTC()
+	defer func() {
+		duration := m.now().UTC().Sub(startedAt)
+		if err != nil {
+			m.recordLifecycleEvent(ctx, vmid, "sandbox.destroy.failed", fmt.Sprintf("destroy failed: %s", err.Error()), lifecycleEventPayload{
+				DurationMS: duration.Milliseconds(),
+				Error:      err.Error(),
+			})
+			if m.metrics != nil {
+				m.metrics.ObserveSandboxDestroy("failed", duration)
+			}
+			return
+		}
+		m.recordLifecycleEvent(ctx, vmid, "sandbox.destroy.completed", fmt.Sprintf("destroy completed in %s", duration), lifecycleEventPayload{
+			DurationMS: duration.Milliseconds(),
+		})
+		if m.metrics != nil {
+			m.metrics.ObserveSandboxDestroy("success", duration)
+		}
+	}()
 	if m.workspace != nil {
-		if err := m.workspace.DetachFromVM(ctx, vmid); err != nil {
+		if err = m.workspace.DetachFromVM(ctx, vmid); err != nil {
 			return fmt.Errorf("detach workspace for vmid %d: %w", vmid, err)
 		}
 	}
-	if err := m.destroySandbox(ctx, vmid); err != nil {
+	if err = m.destroySandbox(ctx, vmid); err != nil {
 		return err
 	}
-	if err := m.Transition(ctx, vmid, models.SandboxDestroyed); err != nil {
+	if err = m.Transition(ctx, vmid, models.SandboxDestroyed); err != nil {
 		return err
 	}
 	if m.snippetFn != nil {
@@ -720,7 +785,7 @@ func (m *SandboxManager) destroySandbox(ctx context.Context, vmid int) error {
 //   - vmid: The VM ID of the sandbox to destroy
 //
 // Returns an error if the sandbox doesn't exist or if backend operations fail.
-func (m *SandboxManager) ForceDestroy(ctx context.Context, vmid int) error {
+func (m *SandboxManager) ForceDestroy(ctx context.Context, vmid int) (err error) {
 	if m == nil || m.store == nil {
 		return errors.New("sandbox manager not configured")
 	}
@@ -734,15 +799,35 @@ func (m *SandboxManager) ForceDestroy(ctx context.Context, vmid int) error {
 	if sandbox.State == models.SandboxDestroyed {
 		return nil
 	}
+	startedAt := m.now().UTC()
+	defer func() {
+		duration := m.now().UTC().Sub(startedAt)
+		if err != nil {
+			m.recordLifecycleEvent(ctx, vmid, "sandbox.destroy.failed", fmt.Sprintf("force destroy failed: %s", err.Error()), lifecycleEventPayload{
+				DurationMS: duration.Milliseconds(),
+				Error:      err.Error(),
+			})
+			if m.metrics != nil {
+				m.metrics.ObserveSandboxDestroy("failed", duration)
+			}
+			return
+		}
+		m.recordLifecycleEvent(ctx, vmid, "sandbox.destroy.completed", fmt.Sprintf("force destroy completed in %s", duration), lifecycleEventPayload{
+			DurationMS: duration.Milliseconds(),
+		})
+		if m.metrics != nil {
+			m.metrics.ObserveSandboxDestroy("success", duration)
+		}
+	}()
 	if m.workspace != nil {
-		if err := m.workspace.DetachFromVM(ctx, vmid); err != nil {
+		if err = m.workspace.DetachFromVM(ctx, vmid); err != nil {
 			return fmt.Errorf("detach workspace for vmid %d: %w", vmid, err)
 		}
 	}
-	if err := m.destroySandbox(ctx, vmid); err != nil {
+	if err = m.destroySandbox(ctx, vmid); err != nil {
 		return err
 	}
-	if err := m.Transition(ctx, vmid, models.SandboxDestroyed); err != nil {
+	if err = m.Transition(ctx, vmid, models.SandboxDestroyed); err != nil {
 		return err
 	}
 	if m.snippetFn != nil {
@@ -808,6 +893,19 @@ func (m *SandboxManager) recordRevertEvent(ctx context.Context, vmid int, kind s
 	if err != nil {
 		if m.logger != nil {
 			m.logger.Printf("sandbox %d: revert event json failed: %v", vmid, err)
+		}
+	}
+	_ = m.store.RecordEvent(ctx, kind, &vmid, nil, msg, string(data))
+}
+
+func (m *SandboxManager) recordLifecycleEvent(ctx context.Context, vmid int, kind string, msg string, payload lifecycleEventPayload) {
+	if m == nil || m.store == nil {
+		return
+	}
+	data, err := json.Marshal(payload)
+	if err != nil {
+		if m.logger != nil {
+			m.logger.Printf("sandbox %d: lifecycle event json failed: %v", vmid, err)
 		}
 	}
 	_ = m.store.RecordEvent(ctx, kind, &vmid, nil, msg, string(data))

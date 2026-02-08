@@ -418,30 +418,60 @@ metrics_listen: "127.0.0.1:8847"
 
 | Metric | Type | Description |
 |--------|------|-------------|
-| `agentlab_sandboxes_total` | gauge | Total sandboxes by state |
-| `agentlab_jobs_total` | gauge | Total jobs by status |
-| `agentlab_provisioning_duration_seconds` | histogram | Sandbox provisioning time |
-| `agentlab_api_duration_seconds` | histogram | API request duration |
-| `agentlab_lease_gc_duration_seconds` | histogram | Lease GC run time |
+| `agentlab_sandbox_transitions_total` | counter | Sandbox state transitions (from/to) |
+| `agentlab_sandbox_provision_duration_seconds` | histogram | Time from sandbox creation to RUNNING |
+| `agentlab_sandbox_time_to_ready_seconds` | histogram | Time from sandbox creation to READY |
+| `agentlab_sandbox_time_to_ssh_seconds` | histogram | Time from sandbox creation to SSH readiness |
+| `agentlab_sandbox_start_duration_seconds` | histogram | Sandbox start duration (labeled by result) |
+| `agentlab_sandbox_stop_duration_seconds` | histogram | Sandbox stop duration (labeled by result) |
+| `agentlab_sandbox_destroy_duration_seconds` | histogram | Sandbox destroy duration (labeled by result) |
+| `agentlab_sandbox_revert_total` | counter | Sandbox revert operations (labeled by result) |
+| `agentlab_sandbox_revert_duration_seconds` | histogram | Sandbox revert duration (labeled by result) |
+| `agentlab_job_status_total` | counter | Job status transitions |
+| `agentlab_job_time_to_start_seconds` | histogram | Time from job creation to RUNNING |
+| `agentlab_job_duration_seconds` | histogram | Job runtime by final status |
 
 **Example Prometheus queries:**
 
 ```promql
-# Provisioning success rate
-rate(agentlab_sandboxes_total{state="READY"}[5m]) /
-rate(agentlab_sandboxes_total{state="PROVISIONING"}[5m])
-
-# Average provisioning time
+# Time-to-ready p95
 histogram_quantile(0.95,
-  rate(agentlab_provisioning_duration_seconds_bucket[5m])
+  sum(rate(agentlab_sandbox_time_to_ready_seconds_bucket[5m])) by (le)
 )
 
-# Active sandboxes
-agentlab_sandboxes_total{state=~"RUNNING|BOOTING|READY"}
+# Time-to-ssh p95
+histogram_quantile(0.95,
+  sum(rate(agentlab_sandbox_time_to_ssh_seconds_bucket[5m])) by (le)
+)
+
+# Start duration p95 (success)
+histogram_quantile(0.95,
+  sum(rate(agentlab_sandbox_start_duration_seconds_bucket{result="success"}[5m])) by (le)
+)
+
+# Stop duration p95 (success)
+histogram_quantile(0.95,
+  sum(rate(agentlab_sandbox_stop_duration_seconds_bucket{result="success"}[5m])) by (le)
+)
+
+# Revert duration p95 (success)
+histogram_quantile(0.95,
+  sum(rate(agentlab_sandbox_revert_duration_seconds_bucket{result="success"}[5m])) by (le)
+)
+
+# Destroy duration p95 (success)
+histogram_quantile(0.95,
+  sum(rate(agentlab_sandbox_destroy_duration_seconds_bucket{result="success"}[5m])) by (le)
+)
+
+# Job time-to-start p95
+histogram_quantile(0.95,
+  sum(rate(agentlab_job_time_to_start_seconds_bucket[5m])) by (le)
+)
 
 # Job failure rate
-rate(agentlab_jobs_total{status="FAILED"}[1h]) /
-rate(agentlab_jobs_total[1h])
+rate(agentlab_job_status_total{status="FAILED"}[1h]) /
+sum(rate(agentlab_job_status_total[1h]))
 ```
 
 ### Health checks
@@ -510,7 +540,7 @@ journalctl -u agentlabd --since "1 hour ago" > agentlab-$(date +%Y%m%d).log
 
 ---
 
-**Last updated:** 2026-02-06
+**Last updated:** 2026-02-08
 
 **Related documentation:**
 - [FAQ](faq.md) - Common performance questions
