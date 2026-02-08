@@ -86,3 +86,58 @@ host_path: /etc
 		t.Fatalf("expected host mount rationale, got %v", err)
 	}
 }
+
+func TestValidateProfileFirewallGroup(t *testing.T) {
+	tests := []struct {
+		name    string
+		raw     string
+		wantErr bool
+	}{
+		{
+			name: "valid-firewall-group",
+			raw: `
+name: yolo
+template_vmid: 9000
+network:
+  firewall_group: agent_nat_default
+`,
+		},
+		{
+			name: "empty-firewall-group",
+			raw: `
+name: yolo
+template_vmid: 9000
+network:
+  firewall_group: ""
+`,
+			wantErr: true,
+		},
+		{
+			name: "firewall-group-disabled-firewall",
+			raw: `
+name: yolo
+template_vmid: 9000
+network:
+  firewall: false
+  firewall_group: agent_nat_default
+`,
+			wantErr: true,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			profile := models.Profile{
+				Name:    "yolo",
+				RawYAML: tc.raw,
+			}
+			err := validateProfileForProvisioning(profile)
+			if tc.wantErr && err == nil {
+				t.Fatalf("expected error")
+			}
+			if !tc.wantErr && err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+		})
+	}
+}

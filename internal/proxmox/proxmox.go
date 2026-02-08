@@ -35,13 +35,15 @@ type VMStats struct {
 
 // VMConfig contains configuration parameters for a VM.
 type VMConfig struct {
-	Name       string // VM name
-	Cores      int    // Number of CPU cores
-	MemoryMB   int    // Memory in megabytes
-	Bridge     string // Network bridge (e.g., "vmbr1")
-	NetModel   string // Network device model (e.g., "virtio")
-	CloudInit  string // Cloud-init snippet path
-	CPUPinning string // CPU pinning configuration
+	Name          string // VM name
+	Cores         int    // Number of CPU cores
+	MemoryMB      int    // Memory in megabytes
+	Bridge        string // Network bridge (e.g., "vmbr1")
+	NetModel      string // Network device model (e.g., "virtio")
+	Firewall      *bool  // Whether to enable Proxmox firewall for the NIC (nil = leave unchanged)
+	FirewallGroup string // Firewall group name to apply (empty = unset)
+	CloudInit     string // Cloud-init snippet path
+	CPUPinning    string // CPU pinning configuration
 }
 
 // Backend defines the interface for Proxmox operations.

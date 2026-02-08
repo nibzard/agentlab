@@ -1487,21 +1487,21 @@
         "profiles"
       ],
       "files": [
+        "README.md",
         "cmd/agentlab/commands.go",
         "cmd/agentlab/main.go",
         "cmd/agentlab/modifiers.go",
         "cmd/agentlab/sandbox_modifiers_test.go",
-        "README.md",
         "to-do.json"
       ],
       "created_at": "2026-02-08T16:47:32Z",
-      "updated_at": "2026-02-08T19:37:37Z"
+      "updated_at": "2026-02-08T19:39:14Z"
     },
     {
       "id": "T071",
       "title": "Plumb profile network.firewall_group into Proxmox VM config",
       "priority": 3,
-      "status": "todo",
+      "status": "done",
       "details": "Profiles already specify network.firewall_group (e.g., agent_nat_default) but AgentLab does not apply it. Implement support so networking policy can be expressed as a simple profile knob and surfaced in sandbox show/list.",
       "steps": [
         "Extend profile parsing to read network.firewall (bool) and network.firewall_group (string).",
@@ -1510,9 +1510,7 @@
         "Update docs/configuration.md to document firewall_group and its semantics.",
         "Add unit tests for config application (shell command args + API params)."
       ],
-      "blockers": [
-        "Confirm the correct Proxmox config keys for applying firewall group to a VM/NIC (API fields vs qm flags)."
-      ],
+      "blockers": [],
       "tags": [
         "roadmap-v0.2",
         "network",
@@ -1521,12 +1519,24 @@
       ],
       "files": [
         "internal/daemon/profile_resources.go",
-        "internal/proxmox/api_backend.go",
+        "internal/daemon/profile_validation.go",
+        "internal/daemon/api_types.go",
+        "internal/daemon/api.go",
+        "internal/daemon/job_orchestrator_test.go",
+        "internal/daemon/profile_validation_test.go",
+        "internal/proxmox/proxmox.go",
         "internal/proxmox/shell_backend.go",
-        "docs/configuration.md"
+        "internal/proxmox/api_backend.go",
+        "internal/proxmox/shell_backend_test.go",
+        "internal/proxmox/api_backend_test.go",
+        "cmd/agentlab/api.go",
+        "cmd/agentlab/commands.go",
+        "cmd/agentlab/commands_daemon_test.go",
+        "docs/configuration.md",
+        "to-do.json"
       ],
       "created_at": "2026-02-08T16:47:32Z",
-      "updated_at": "2026-02-08T16:47:32Z"
+      "updated_at": "2026-02-08T19:52:55Z"
     },
     {
       "id": "T072",

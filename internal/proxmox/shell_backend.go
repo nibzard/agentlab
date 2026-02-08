@@ -107,8 +107,8 @@ func (b *ShellBackend) Configure(ctx context.Context, vmid VMID, cfg VMConfig) e
 	if cfg.CPUPinning != "" {
 		args = append(args, "--cpulist", cfg.CPUPinning)
 	}
-	if cfg.Bridge != "" || cfg.NetModel != "" {
-		net0 := buildNet0(cfg.NetModel, cfg.Bridge)
+	if cfg.Bridge != "" || cfg.NetModel != "" || cfg.Firewall != nil || cfg.FirewallGroup != "" {
+		net0 := buildNet0(cfg.NetModel, cfg.Bridge, cfg.Firewall, cfg.FirewallGroup)
 		args = append(args, "--net0", net0)
 	}
 	if cfg.CloudInit != "" {
@@ -734,13 +734,23 @@ func (b *ShellBackend) ensureNode(ctx context.Context) (string, error) {
 	return node, nil
 }
 
-func buildNet0(model, bridge string) string {
+func buildNet0(model, bridge string, firewall *bool, firewallGroup string) string {
 	if model == "" {
 		model = "virtio"
 	}
 	parts := []string{model}
 	if bridge != "" && !strings.Contains(model, "bridge=") {
 		parts = append(parts, "bridge="+bridge)
+	}
+	if firewall != nil && !strings.Contains(model, "firewall=") {
+		if *firewall {
+			parts = append(parts, "firewall=1")
+		} else {
+			parts = append(parts, "firewall=0")
+		}
+	}
+	if firewallGroup != "" && !strings.Contains(model, "fwgroup=") {
+		parts = append(parts, "fwgroup="+firewallGroup)
 	}
 	return strings.Join(parts, ",")
 }

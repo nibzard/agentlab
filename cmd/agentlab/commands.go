@@ -1342,6 +1342,14 @@ func printSandbox(sb sandboxResponse) {
 	fmt.Printf("State: %s\n", sb.State)
 	fmt.Printf("IP: %s\n", orDash(sb.IP))
 	fmt.Printf("Workspace: %s\n", orDashPtr(sb.WorkspaceID))
+	firewall := "-"
+	firewallGroup := "-"
+	if sb.Network != nil {
+		firewall = orDashBoolPtr(sb.Network.Firewall)
+		firewallGroup = orDash(sb.Network.FirewallGroup)
+	}
+	fmt.Printf("Firewall: %s\n", firewall)
+	fmt.Printf("Firewall Group: %s\n", firewallGroup)
 	fmt.Printf("Keepalive: %t\n", sb.Keepalive)
 	fmt.Printf("Lease Expires: %s\n", orDashPtr(sb.LeaseExpires))
 	fmt.Printf("Last Used At: %s\n", orDashPtr(sb.LastUsedAt))
@@ -1391,11 +1399,15 @@ func printStatus(resp statusResponse) {
 
 func printSandboxList(sandboxes []sandboxResponse) {
 	w := tabwriter.NewWriter(os.Stdout, 2, 8, 2, ' ', 0)
-	fmt.Fprintln(w, "VMID\tNAME\tPROFILE\tSTATE\tIP\tLEASE\tLAST USED")
+	fmt.Fprintln(w, "VMID\tNAME\tPROFILE\tSTATE\tIP\tFWGROUP\tLEASE\tLAST USED")
 	for _, sb := range sandboxes {
 		lease := orDashPtr(sb.LeaseExpires)
 		lastUsed := orDashPtr(sb.LastUsedAt)
-		fmt.Fprintf(w, "%d\t%s\t%s\t%s\t%s\t%s\t%s\n", sb.VMID, sb.Name, sb.Profile, sb.State, orDash(sb.IP), lease, lastUsed)
+		firewallGroup := "-"
+		if sb.Network != nil {
+			firewallGroup = orDash(sb.Network.FirewallGroup)
+		}
+		fmt.Fprintf(w, "%d\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n", sb.VMID, sb.Name, sb.Profile, sb.State, orDash(sb.IP), firewallGroup, lease, lastUsed)
 	}
 	_ = w.Flush()
 }
@@ -1687,6 +1699,16 @@ func orDashPtr(value *string) string {
 		return "-"
 	}
 	return *value
+}
+
+func orDashBoolPtr(value *bool) string {
+	if value == nil {
+		return "-"
+	}
+	if *value {
+		return "true"
+	}
+	return "false"
 }
 
 func ttlMinutesString(value *int) string {

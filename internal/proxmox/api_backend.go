@@ -91,8 +91,8 @@ func (b *APIBackend) Configure(ctx context.Context, vmid VMID, cfg VMConfig) err
 	if cfg.CPUPinning != "" {
 		params.Set("cpulimit", cfg.CPUPinning)
 	}
-	if cfg.Bridge != "" || cfg.NetModel != "" {
-		net0 := buildNet0(cfg.NetModel, cfg.Bridge)
+	if cfg.Bridge != "" || cfg.NetModel != "" || cfg.Firewall != nil || cfg.FirewallGroup != "" {
+		net0 := buildNet0(cfg.NetModel, cfg.Bridge, cfg.Firewall, cfg.FirewallGroup)
 		params.Set("net0", net0)
 	}
 	if cfg.CloudInit != "" {
