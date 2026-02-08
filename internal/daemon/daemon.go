@@ -198,6 +198,8 @@ func NewService(cfg config.Config, profiles map[string]models.Profile, store *db
 	}
 	workspaceManager := NewWorkspaceManager(store, backend, log.Default())
 	sandboxManager := NewSandboxManager(store, backend, log.Default()).WithWorkspaceManager(workspaceManager).WithMetrics(metrics)
+	exposurePublisher := &TailscaleServePublisher{Runner: proxmox.ExecRunner{}}
+	sandboxManager.WithExposureCleaner(NewExposureCleaner(store, exposurePublisher, log.Default()))
 	redactor := NewRedactor(nil)
 	snippetStore := proxmox.SnippetStore{
 		Storage: cfg.SnippetStorage,
@@ -216,6 +218,7 @@ func NewService(cfg config.Config, profiles map[string]models.Profile, store *db
 	localMux.HandleFunc("/healthz", healthHandler)
 	NewControlAPI(store, profiles, sandboxManager, workspaceManager, jobOrchestrator, cfg.ArtifactDir, log.Default()).
 		WithMetricsEnabled(metrics != nil).
+		WithExposurePublisher(exposurePublisher).
 		Register(localMux)
 
 	bootstrapMux := http.NewServeMux()

@@ -59,6 +59,67 @@ func TestExposureCRUD(t *testing.T) {
 	assert.ErrorIs(t, err, sql.ErrNoRows)
 }
 
+func TestListExposuresByVMID(t *testing.T) {
+	ctx := context.Background()
+	store := openTestStore(t)
+	now := time.Date(2026, time.February, 8, 17, 0, 0, 0, time.UTC)
+
+	sandbox := models.Sandbox{
+		VMID:          901,
+		Name:          "exposure-sb-901",
+		Profile:       "default",
+		State:         models.SandboxRunning,
+		IP:            "10.77.0.51",
+		CreatedAt:     now,
+		LastUpdatedAt: now,
+	}
+	require.NoError(t, store.CreateSandbox(ctx, sandbox))
+	other := models.Sandbox{
+		VMID:          902,
+		Name:          "exposure-sb-902",
+		Profile:       "default",
+		State:         models.SandboxRunning,
+		IP:            "10.77.0.52",
+		CreatedAt:     now,
+		LastUpdatedAt: now,
+	}
+	require.NoError(t, store.CreateSandbox(ctx, other))
+
+	require.NoError(t, store.CreateExposure(ctx, Exposure{
+		Name:      "web-901",
+		VMID:      901,
+		Port:      8080,
+		TargetIP:  "10.77.0.51",
+		State:     "requested",
+		CreatedAt: now,
+		UpdatedAt: now,
+	}))
+	require.NoError(t, store.CreateExposure(ctx, Exposure{
+		Name:      "ssh-901",
+		VMID:      901,
+		Port:      22,
+		TargetIP:  "10.77.0.51",
+		State:     "requested",
+		CreatedAt: now.Add(1 * time.Minute),
+		UpdatedAt: now.Add(1 * time.Minute),
+	}))
+	require.NoError(t, store.CreateExposure(ctx, Exposure{
+		Name:      "web-902",
+		VMID:      902,
+		Port:      8080,
+		TargetIP:  "10.77.0.52",
+		State:     "requested",
+		CreatedAt: now,
+		UpdatedAt: now,
+	}))
+
+	list, err := store.ListExposuresByVMID(ctx, 901)
+	require.NoError(t, err)
+	require.Len(t, list, 2)
+	assert.Equal(t, "ssh-901", list[0].Name)
+	assert.Equal(t, "web-901", list[1].Name)
+}
+
 func TestCreateExposureValidation(t *testing.T) {
 	ctx := context.Background()
 
