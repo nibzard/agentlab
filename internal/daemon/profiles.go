@@ -45,12 +45,20 @@ func LoadProfiles(dir string) (map[string]models.Profile, error) {
 		decoder := yaml.NewDecoder(bytes.NewReader(data))
 		docIndex := 0
 		for {
-			var spec profileSpec
-			err := decoder.Decode(&spec)
+			var node yaml.Node
+			err := decoder.Decode(&node)
 			if err != nil {
 				if errors.Is(err, io.EOF) {
 					break // End of documents
 				}
+				return nil, fmt.Errorf("parse profile %s (document %d): %w", path, docIndex, err)
+			}
+			if node.Kind == 0 || (node.Kind == yaml.DocumentNode && len(node.Content) == 0) {
+				return nil, fmt.Errorf("profile %s (document %d) is empty", path, docIndex)
+			}
+
+			var spec profileSpec
+			if err := node.Decode(&spec); err != nil {
 				return nil, fmt.Errorf("parse profile %s (document %d): %w", path, docIndex, err)
 			}
 			if spec.Name == "" {
@@ -66,16 +74,40 @@ func LoadProfiles(dir string) (map[string]models.Profile, error) {
 			if info, err := os.Stat(path); err == nil {
 				modTime = info.ModTime().UTC()
 			}
+			rawYAML, err := renderProfileYAML(&node)
+			if err != nil {
+				return nil, fmt.Errorf("render profile %s (document %d): %w", path, docIndex, err)
+			}
 			profiles[spec.Name] = models.Profile{
 				Name:       spec.Name,
 				TemplateVM: spec.TemplateVM,
 				UpdatedAt:  modTime,
-				RawYAML:    string(data), // Store full file for multi-doc
+				RawYAML:    rawYAML,
 			}
 			docIndex++
 		}
 	}
 	return profiles, nil
+}
+
+func renderProfileYAML(node *yaml.Node) (string, error) {
+	if node == nil {
+		return "", nil
+	}
+	target := node
+	if node.Kind == yaml.DocumentNode && len(node.Content) == 1 {
+		target = node.Content[0]
+	}
+	var buf bytes.Buffer
+	encoder := yaml.NewEncoder(&buf)
+	encoder.SetIndent(2)
+	if err := encoder.Encode(target); err != nil {
+		return "", err
+	}
+	if err := encoder.Close(); err != nil {
+		return "", err
+	}
+	return buf.String(), nil
 }
 
 func isYAML(name string) bool {
