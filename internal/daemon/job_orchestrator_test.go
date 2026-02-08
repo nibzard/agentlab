@@ -19,10 +19,16 @@ type orchestratorBackend struct {
 	configureCalls []proxmox.VMConfig
 	startCalls     []proxmox.VMID
 	destroyCalls   []proxmox.VMID
+	snapshotCalls  []snapshotCall
 	guestIP        string
 	blockClone     bool
 	blockConfigure bool
 	blockStart     bool
+}
+
+type snapshotCall struct {
+	vmid proxmox.VMID
+	name string
 }
 
 func (b *orchestratorBackend) Clone(ctx context.Context, _ proxmox.VMID, target proxmox.VMID, _ string) error {
@@ -61,7 +67,8 @@ func (b *orchestratorBackend) Destroy(_ context.Context, vmid proxmox.VMID) erro
 	return nil
 }
 
-func (b *orchestratorBackend) SnapshotCreate(context.Context, proxmox.VMID, string) error {
+func (b *orchestratorBackend) SnapshotCreate(_ context.Context, vmid proxmox.VMID, name string) error {
+	b.snapshotCalls = append(b.snapshotCalls, snapshotCall{vmid: vmid, name: name})
 	return nil
 }
 
@@ -169,6 +176,12 @@ func TestJobOrchestratorRun(t *testing.T) {
 	if len(matches) == 0 {
 		t.Fatalf("expected snippet file in %s", snippetDir)
 	}
+	if len(backend.snapshotCalls) != 1 {
+		t.Fatalf("expected snapshot called once, got %d", len(backend.snapshotCalls))
+	}
+	if backend.snapshotCalls[0].vmid != proxmox.VMID(sandbox.VMID) || backend.snapshotCalls[0].name != cleanSnapshotName {
+		t.Fatalf("expected snapshot call for vmid %d name %q, got %+v", sandbox.VMID, cleanSnapshotName, backend.snapshotCalls[0])
+	}
 }
 
 func TestJobOrchestratorProvisionSandbox(t *testing.T) {
@@ -243,6 +256,12 @@ resources:
 	}
 	if len(matches) == 0 {
 		t.Fatalf("expected snippet file in %s", snippetDir)
+	}
+	if len(backend.snapshotCalls) != 1 {
+		t.Fatalf("expected snapshot called once, got %d", len(backend.snapshotCalls))
+	}
+	if backend.snapshotCalls[0].vmid != proxmox.VMID(sandbox.VMID) || backend.snapshotCalls[0].name != cleanSnapshotName {
+		t.Fatalf("expected snapshot call for vmid %d name %q, got %+v", sandbox.VMID, cleanSnapshotName, backend.snapshotCalls[0])
 	}
 }
 

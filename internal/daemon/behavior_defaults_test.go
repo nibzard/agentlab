@@ -162,4 +162,10 @@ func TestWorkspaceRebindAppliesProfileDefaults(t *testing.T) {
 	if !result.Sandbox.LeaseExpires.Equal(expectedLease) {
 		t.Fatalf("expected lease_expires %s, got %s", expectedLease.UTC().Format(time.RFC3339Nano), result.Sandbox.LeaseExpires.UTC().Format(time.RFC3339Nano))
 	}
+	if len(backend.snapshotCalls) != 1 {
+		t.Fatalf("expected snapshot called once, got %d", len(backend.snapshotCalls))
+	}
+	if backend.snapshotCalls[0].vmid != proxmox.VMID(result.Sandbox.VMID) || backend.snapshotCalls[0].name != cleanSnapshotName {
+		t.Fatalf("expected snapshot call for vmid %d name %q, got %+v", result.Sandbox.VMID, cleanSnapshotName, backend.snapshotCalls[0])
+	}
 }

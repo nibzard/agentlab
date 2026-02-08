@@ -24,6 +24,7 @@ const (
 	bootstrapTokenBytes     = 16               // Bytes of randomness for bootstrap tokens
 	defaultProvisionTimeout = 10 * time.Minute // Timeout for sandbox provisioning
 	defaultFailureTimeout   = 30 * time.Second // Timeout for cleanup after failure
+	cleanSnapshotName       = "clean"
 )
 
 var (
@@ -275,6 +276,8 @@ func (o *JobOrchestrator) Run(ctx context.Context, jobID string) error {
 	if err := o.sandboxManager.Transition(ctx, sandbox.VMID, models.SandboxRunning); err != nil {
 		return o.failJob(job, sandbox.VMID, err)
 	}
+	jobIDValue := job.ID
+	o.createCleanSnapshot(ctx, sandbox.VMID, &jobIDValue)
 	if err := o.store.UpdateJobStatus(ctx, job.ID, models.JobRunning); err != nil {
 		return o.failJob(job, sandbox.VMID, err)
 	}
@@ -446,6 +449,7 @@ func (o *JobOrchestrator) ProvisionSandbox(ctx context.Context, vmid int) (model
 	if err := o.sandboxManager.Transition(ctx, sandbox.VMID, models.SandboxRunning); err != nil {
 		return fail(err)
 	}
+	o.createCleanSnapshot(ctx, sandbox.VMID, nil)
 
 	updated, loadErr := o.store.GetSandbox(ctx, sandbox.VMID)
 	if loadErr != nil {
@@ -670,6 +674,46 @@ func (o *JobOrchestrator) cleanupSnippet(vmid int) {
 	if ok {
 		_ = o.snippetStore.Delete(snippet)
 	}
+}
+
+func (o *JobOrchestrator) createCleanSnapshot(ctx context.Context, vmid int, jobID *string) {
+	if o == nil || o.store == nil || o.backend == nil || vmid <= 0 {
+		return
+	}
+
+	err := o.backend.SnapshotCreate(ctx, proxmox.VMID(vmid), cleanSnapshotName)
+	payload := struct {
+		Name  string `json:"name"`
+		Error string `json:"error,omitempty"`
+	}{
+		Name: cleanSnapshotName,
+	}
+	kind := "sandbox.snapshot.created"
+	msg := fmt.Sprintf("snapshot %s created", cleanSnapshotName)
+	if err != nil {
+		errMsg := err.Error()
+		if o.redactor != nil {
+			errMsg = o.redactor.Redact(errMsg)
+		}
+		payload.Error = errMsg
+		kind = "sandbox.snapshot.failed"
+		msg = fmt.Sprintf("snapshot %s failed: %s", cleanSnapshotName, errMsg)
+		if o.logger != nil {
+			o.logger.Printf("sandbox %d: snapshot %s failed: %v", vmid, cleanSnapshotName, err)
+		}
+	}
+
+	jsonPayload, jsonErr := json.Marshal(payload)
+	if jsonErr != nil && o.logger != nil {
+		o.logger.Printf("sandbox %d: snapshot event json failed: %v", vmid, jsonErr)
+	}
+	eventCtx := ctx
+	var cancel context.CancelFunc
+	if eventCtx == nil || eventCtx.Err() != nil {
+		eventCtx, cancel = o.withFailureTimeout()
+		defer cancel()
+	}
+	_ = o.store.RecordEvent(eventCtx, kind, &vmid, jobID, msg, string(jsonPayload))
 }
 
 // CleanupSnippet removes a remembered cloud-init snippet for a VMID.
