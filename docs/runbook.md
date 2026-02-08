@@ -135,9 +135,19 @@ sudo scripts/create_template.sh \
   --bridge vmbr1
 ```
 
+Checksum verification (recommended when downloading images):
+
+```bash
+sudo scripts/create_template.sh \
+  --image-sha256-url https://cloud-images.ubuntu.com/noble/current/SHA256SUMS
+```
+
 Notes:
 - `scripts/create_template.sh` requires `qm` (Proxmox) and `virt-customize`
   (`libguestfs-tools`) unless you pass `--skip-customize`.
+- Use `--image-sha256 <sha>` or `--image-sha256-url <url>` to verify the image
+  download. The script uses `sha256sum` (or `shasum -a 256`) and exits on
+  mismatch.
 - The script exits if the VMID already exists. For updates, create a new VMID
   and update your profile `template_vmid` to the new value.
 - If you change guest tooling (agent-runner, workspace units, CLI versions),

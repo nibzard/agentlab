@@ -27,6 +27,8 @@ Options:
   --disk-size <size>       Resize root disk to size (default: 40G, set to 0 to skip)
   --image-url <url>        Cloud image URL
   --image-file <path>      Use a local image file instead of downloading
+  --image-sha256 <sha>     Verify image SHA256 checksum (hex)
+  --image-sha256-url <url> Fetch SHA256SUMS from URL and verify image
   --cache-dir <dir>        Cache directory for images (default: /var/lib/agentlab/images)
   --packages <list>        Comma/space separated package list
   --skip-customize         Skip virt-customize package/user prep
@@ -40,6 +42,7 @@ Options:
 Notes:
   - Requires Proxmox qm on the host.
   - For package install + user setup, install libguestfs-tools (virt-customize).
+  - Checksum verification uses sha256sum (or shasum -a 256).
 USAGE
 }
 
@@ -53,6 +56,8 @@ CORES=2
 DISK_SIZE="40G"
 IMAGE_URL="https://cloud-images.ubuntu.com/noble/current/noble-server-cloudimg-amd64.img"
 IMAGE_FILE=""
+IMAGE_SHA256=""
+IMAGE_SHA256_URL=""
 CACHE_DIR="/var/lib/agentlab/images"
 PACKAGES="qemu-guest-agent,git,curl,ca-certificates,jq,e2fsprogs,bubblewrap"
 CLAUDE_CODE_VERSION="1.0.100"
@@ -128,9 +133,19 @@ while [[ $# -gt 0 ]]; do
       IMAGE_URL="$2"
       shift 2
       ;;
-    --image-file)
+  --image-file)
       [[ $# -lt 2 ]] && die "--image-file requires a value"
       IMAGE_FILE="$2"
+      shift 2
+      ;;
+    --image-sha256)
+      [[ $# -lt 2 ]] && die "--image-sha256 requires a value"
+      IMAGE_SHA256="$2"
+      shift 2
+      ;;
+    --image-sha256-url)
+      [[ $# -lt 2 ]] && die "--image-sha256-url requires a value"
+      IMAGE_SHA256_URL="$2"
       shift 2
       ;;
     --cache-dir)
@@ -205,6 +220,10 @@ if [[ "$SKIP_CUSTOMIZE" == "1" && "$SKIP_AGENT_TOOLS" == "0" ]]; then
   SKIP_AGENT_TOOLS=1
 fi
 
+if [[ -n "$IMAGE_SHA256" && -n "$IMAGE_SHA256_URL" ]]; then
+  die "Use only one of --image-sha256 or --image-sha256-url"
+fi
+
 if [[ "$SKIP_AGENT_TOOLS" == "0" ]]; then
   [[ -f "$AGENTLAB_AGENT_WRAPPER" ]] || die "agentlab-agent wrapper not found at $AGENTLAB_AGENT_WRAPPER"
   ensure_package "nodejs"
@@ -244,6 +263,64 @@ download_image() {
   fi
 }
 
+normalize_sha256() {
+  local sha="$1"
+  sha="${sha#sha256:}"
+  printf "%s" "$sha" | tr 'A-F' 'a-f'
+}
+
+sha256sum_file() {
+  local file="$1"
+  if command -v sha256sum >/dev/null 2>&1; then
+    sha256sum "$file" | awk '{print $1}'
+    return 0
+  fi
+  if command -v shasum >/dev/null 2>&1; then
+    shasum -a 256 "$file" | awk '{print $1}'
+    return 0
+  fi
+  die "sha256sum or shasum is required for checksum verification"
+}
+
+resolve_image_sha256() {
+  local base sha sums_file
+  if [[ -n "$IMAGE_SHA256" ]]; then
+    sha="$(normalize_sha256 "$IMAGE_SHA256")"
+    printf "%s" "$sha"
+    return 0
+  fi
+  if [[ -z "$IMAGE_SHA256_URL" ]]; then
+    return 1
+  fi
+  base="$(basename "$IMAGE_FILE")"
+  sums_file="$(mktemp)"
+  if ! download_image "$IMAGE_SHA256_URL" "$sums_file"; then
+    rm -f "$sums_file"
+    die "Failed to download SHA256SUMS from $IMAGE_SHA256_URL"
+  fi
+  sha="$(awk -v target="$base" '{f=$2; sub(/^\\*/, "", f); if (f==target) {print $1; exit}}' "$sums_file")"
+  rm -f "$sums_file"
+  if [[ -z "$sha" ]]; then
+    die "SHA256 for ${base} not found in ${IMAGE_SHA256_URL}"
+  fi
+  sha="$(normalize_sha256 "$sha")"
+  printf "%s" "$sha"
+}
+
+verify_sha256() {
+  local file="$1"
+  local expected="$2"
+  local actual
+  if ! [[ "$expected" =~ ^[a-f0-9]{64}$ ]]; then
+    die "Invalid SHA256 checksum: $expected"
+  fi
+  actual="$(normalize_sha256 "$(sha256sum_file "$file")")"
+  if [[ "$actual" != "$expected" ]]; then
+    die "SHA256 mismatch for $file (expected $expected, got $actual)"
+  fi
+  log "Verified SHA256 for $(basename "$file")"
+}
+
 if [[ -z "$IMAGE_FILE" ]]; then
   IMAGE_FILE="${CACHE_DIR}/$(basename "$IMAGE_URL")"
   if [[ "$REFRESH" == "1" || ! -f "$IMAGE_FILE" ]]; then
@@ -255,6 +332,11 @@ if [[ -z "$IMAGE_FILE" ]]; then
 fi
 
 [[ -f "$IMAGE_FILE" ]] || die "Image file not found: $IMAGE_FILE"
+
+if [[ -n "$IMAGE_SHA256" || -n "$IMAGE_SHA256_URL" ]]; then
+  expected_sha="$(resolve_image_sha256)"
+  verify_sha256 "$IMAGE_FILE" "$expected_sha"
+fi
 
 WORK_IMAGE="${CACHE_DIR}/agentlab-${VMID}-$(basename "$IMAGE_FILE")"
 rm -f "$WORK_IMAGE"
