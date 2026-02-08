@@ -46,6 +46,7 @@ const (
 //   - GET    /v1/sandboxes/{vmid}     - Get sandbox details
 //   - POST   /v1/sandboxes/{vmid}/start     - Start a stopped sandbox
 //   - POST   /v1/sandboxes/{vmid}/stop      - Stop a running sandbox
+//   - POST   /v1/sandboxes/{vmid}/revert    - Revert a sandbox to snapshot "clean"
 //   - POST   /v1/sandboxes/{vmid}/destroy   - Destroy a sandbox
 //   - POST   /v1/sandboxes/{vmid}/lease/renew - Renew sandbox lease
 //   - GET    /v1/sandboxes/{vmid}/events - Get sandbox events
@@ -493,6 +494,14 @@ func (api *ControlAPI) handleSandboxByID(w http.ResponseWriter, r *http.Request)
 				return
 			}
 			api.handleSandboxStop(w, r, vmid)
+			return
+		}
+		if parts[1] == "revert" {
+			if r.Method != http.MethodPost {
+				writeMethodNotAllowed(w, []string{http.MethodPost})
+				return
+			}
+			api.handleSandboxRevert(w, r, vmid)
 			return
 		}
 		if parts[1] == "destroy" {
@@ -1049,6 +1058,62 @@ func (api *ControlAPI) handleSandboxStop(w http.ResponseWriter, r *http.Request,
 		return
 	}
 	writeJSON(w, http.StatusOK, sandboxToV1(sandbox))
+}
+
+func (api *ControlAPI) handleSandboxRevert(w http.ResponseWriter, r *http.Request, vmid int) {
+	if api.sandboxManager == nil {
+		writeError(w, http.StatusInternalServerError, "sandbox manager unavailable")
+		return
+	}
+	var req V1SandboxRevertRequest
+	if err := decodeJSON(w, r, &req); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	result, err := api.sandboxManager.Revert(r.Context(), vmid, RevertOptions{
+		Force:   req.Force,
+		Restart: req.Restart,
+	})
+	if err != nil {
+		var inUse SandboxInUseError
+		var missing SnapshotMissingError
+		switch {
+		case errors.Is(err, ErrSandboxNotFound):
+			writeError(w, http.StatusNotFound, "sandbox not found")
+		case errors.As(err, &inUse):
+			msg := "sandbox has a running job; use --force to revert"
+			if inUse.JobID != "" {
+				msg = fmt.Sprintf("sandbox has running job %s; use --force to revert", inUse.JobID)
+			}
+			writeError(w, http.StatusConflict, msg)
+		case errors.As(err, &missing), errors.Is(err, ErrSnapshotMissing):
+			name := cleanSnapshotName
+			if missing.Name != "" {
+				name = missing.Name
+			}
+			writeError(w, http.StatusConflict, fmt.Sprintf("snapshot %q not found; reprovision the sandbox or create it via Proxmox (qm snapshot %d %s)", name, vmid, name))
+		case errors.Is(err, ErrInvalidTransition):
+			if api.store != nil {
+				if sb, getErr := api.store.GetSandbox(r.Context(), vmid); getErr == nil {
+					writeError(w, http.StatusConflict, fmt.Sprintf("cannot revert sandbox in %s state. Valid states: READY, RUNNING, STOPPED, COMPLETED, FAILED, TIMEOUT", sb.State))
+				} else {
+					writeError(w, http.StatusConflict, "invalid sandbox state for revert operation")
+				}
+			} else {
+				writeError(w, http.StatusConflict, "invalid sandbox state for revert operation")
+			}
+		default:
+			writeError(w, http.StatusInternalServerError, fmt.Sprintf("failed to revert sandbox: %v", err))
+		}
+		return
+	}
+	resp := V1SandboxRevertResponse{
+		Sandbox:    sandboxToV1(result.Sandbox),
+		Restarted:  result.Restarted,
+		WasRunning: result.WasRunning,
+		Snapshot:   result.Snapshot,
+	}
+	writeJSON(w, http.StatusOK, resp)
 }
 
 func (api *ControlAPI) handleSandboxLeaseRenew(w http.ResponseWriter, r *http.Request, vmid int) {

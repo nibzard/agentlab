@@ -91,6 +91,11 @@ type V1SandboxDestroyRequest struct {
 	Force bool `json:"force"`
 }
 
+type V1SandboxRevertRequest struct {
+	Force   bool  `json:"force"`
+	Restart *bool `json:"restart,omitempty"`
+}
+
 type V1SandboxResponse struct {
 	VMID          int     `json:"vmid"`
 	Name          string  `json:"name"`
@@ -106,6 +111,13 @@ type V1SandboxResponse struct {
 
 type V1SandboxesResponse struct {
 	Sandboxes []V1SandboxResponse `json:"sandboxes"`
+}
+
+type V1SandboxRevertResponse struct {
+	Sandbox    V1SandboxResponse `json:"sandbox"`
+	Restarted  bool              `json:"restarted"`
+	WasRunning bool              `json:"was_running"`
+	Snapshot   string            `json:"snapshot"`
 }
 
 type V1LeaseRenewRequest struct {

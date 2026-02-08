@@ -82,6 +82,31 @@ curl --unix-socket /run/agentlab/agentlabd.sock http://localhost/v1/healthz
 ```
 
 ```json
+// V1SandboxRevertRequest
+{
+  "force": false,
+  "restart": true
+}
+```
+
+```json
+// V1SandboxRevertResponse
+{
+  "snapshot": "clean",
+  "was_running": true,
+  "restarted": true,
+  "sandbox": {
+    "vmid": 1000,
+    "name": "sandbox-1000",
+    "profile": "yolo-ephemeral",
+    "state": "RUNNING",
+    "created_at": "2026-01-29T23:45:00Z",
+    "updated_at": "2026-01-29T23:45:00Z"
+  }
+}
+```
+
+```json
 // V1WorkspaceCreateRequest
 {
   "name": "workspace-alpha",
@@ -185,6 +210,19 @@ List sandboxes.
 
 ### GET /v1/sandboxes/{vmid}
 Fetch a sandbox by VMID.
+
+### POST /v1/sandboxes/{vmid}/revert
+Revert a sandbox to the canonical `clean` snapshot.
+
+Body (optional fields):
+
+```json
+{ "force": false, "restart": true }
+```
+
+Notes:
+- When `restart` is omitted, the sandbox is restarted only if it was running.
+- Use `force=true` to bypass running-job safety checks.
 
 ### POST /v1/sandboxes/{vmid}/destroy
 Destroy a sandbox. The response is the updated sandbox record.

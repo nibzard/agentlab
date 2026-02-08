@@ -92,3 +92,46 @@ func TestSandboxStartInvalidStateHandler(t *testing.T) {
 		t.Fatalf("status = %d, want %d", rec.Code, http.StatusConflict)
 	}
 }
+
+func TestSandboxRevertHandler(t *testing.T) {
+	store := newTestStore(t)
+	backend := &stubBackend{}
+	manager := NewSandboxManager(store, backend, log.New(io.Discard, "", 0))
+	api := NewControlAPI(store, map[string]models.Profile{}, manager, nil, nil, "", log.New(io.Discard, "", 0))
+
+	sandbox := models.Sandbox{
+		VMID:      112,
+		Name:      "revert-handler",
+		Profile:   "default",
+		State:     models.SandboxStopped,
+		Keepalive: false,
+		CreatedAt: time.Now().UTC(),
+	}
+	if err := store.CreateSandbox(context.Background(), sandbox); err != nil {
+		t.Fatalf("create sandbox: %v", err)
+	}
+
+	body := bytes.NewBufferString(`{"restart": false}`)
+	req := httptest.NewRequest(http.MethodPost, "/v1/sandboxes/112/revert", body)
+	rec := httptest.NewRecorder()
+	api.handleSandboxByID(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d", rec.Code, http.StatusOK)
+	}
+	if backend.snapshotRollbackCalls != 1 {
+		t.Fatalf("expected snapshot rollback once, got %d", backend.snapshotRollbackCalls)
+	}
+	var resp V1SandboxRevertResponse
+	if err := json.NewDecoder(rec.Body).Decode(&resp); err != nil {
+		t.Fatalf("decode revert response: %v", err)
+	}
+	if resp.Sandbox.State != string(models.SandboxStopped) {
+		t.Fatalf("expected stopped state, got %s", resp.Sandbox.State)
+	}
+	if resp.Restarted {
+		t.Fatalf("expected no restart, got restarted=true")
+	}
+	if resp.Snapshot != cleanSnapshotName {
+		t.Fatalf("expected snapshot %s, got %s", cleanSnapshotName, resp.Snapshot)
+	}
+}

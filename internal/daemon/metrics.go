@@ -14,6 +14,8 @@ type Metrics struct {
 	registry                *prometheus.Registry
 	sandboxTransitionsTotal *prometheus.CounterVec
 	sandboxProvisionSeconds prometheus.Histogram
+	sandboxRevertTotal      *prometheus.CounterVec
+	sandboxRevertSeconds    *prometheus.HistogramVec
 	jobStatusTotal          *prometheus.CounterVec
 	jobDurationSeconds      *prometheus.HistogramVec
 }
@@ -40,6 +42,25 @@ func NewMetrics() *Metrics {
 			Buckets:   []float64{1, 2, 5, 10, 20, 30, 60, 120, 300, 600, 1200},
 		},
 	)
+	sandboxRevertTotal := prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Namespace: "agentlab",
+			Subsystem: "sandbox",
+			Name:      "revert_total",
+			Help:      "Total number of sandbox revert operations.",
+		},
+		[]string{"result"},
+	)
+	sandboxRevertSeconds := prometheus.NewHistogramVec(
+		prometheus.HistogramOpts{
+			Namespace: "agentlab",
+			Subsystem: "sandbox",
+			Name:      "revert_duration_seconds",
+			Help:      "Time spent reverting sandboxes to the clean snapshot.",
+			Buckets:   []float64{1, 2, 5, 10, 20, 30, 60, 120, 300, 600},
+		},
+		[]string{"result"},
+	)
 	jobStatusTotal := prometheus.NewCounterVec(
 		prometheus.CounterOpts{
 			Namespace: "agentlab",
@@ -63,6 +84,8 @@ func NewMetrics() *Metrics {
 	registry.MustRegister(
 		sandboxTransitionsTotal,
 		sandboxProvisionSeconds,
+		sandboxRevertTotal,
+		sandboxRevertSeconds,
 		jobStatusTotal,
 		jobDurationSeconds,
 	)
@@ -71,6 +94,8 @@ func NewMetrics() *Metrics {
 		registry:                registry,
 		sandboxTransitionsTotal: sandboxTransitionsTotal,
 		sandboxProvisionSeconds: sandboxProvisionSeconds,
+		sandboxRevertTotal:      sandboxRevertTotal,
+		sandboxRevertSeconds:    sandboxRevertSeconds,
 		jobStatusTotal:          jobStatusTotal,
 		jobDurationSeconds:      jobDurationSeconds,
 	}
@@ -100,6 +125,30 @@ func (m *Metrics) ObserveSandboxProvision(duration time.Duration) {
 		return
 	}
 	m.sandboxProvisionSeconds.Observe(seconds)
+}
+
+func (m *Metrics) IncSandboxRevert(result string) {
+	if m == nil {
+		return
+	}
+	if result == "" {
+		result = "unknown"
+	}
+	m.sandboxRevertTotal.WithLabelValues(result).Inc()
+}
+
+func (m *Metrics) ObserveSandboxRevertDuration(result string, duration time.Duration) {
+	if m == nil {
+		return
+	}
+	seconds := duration.Seconds()
+	if seconds < 0 {
+		return
+	}
+	if result == "" {
+		result = "unknown"
+	}
+	m.sandboxRevertSeconds.WithLabelValues(result).Observe(seconds)
 }
 
 func (m *Metrics) IncJobStatus(status models.JobStatus) {

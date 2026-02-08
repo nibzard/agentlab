@@ -1313,20 +1313,20 @@
         "snapshot"
       ],
       "files": [
-        "internal/daemon/job_orchestrator.go",
-        "internal/daemon/workspace_rebind.go",
-        "internal/daemon/job_orchestrator_test.go",
         "internal/daemon/behavior_defaults_test.go",
+        "internal/daemon/job_orchestrator.go",
+        "internal/daemon/job_orchestrator_test.go",
+        "internal/daemon/workspace_rebind.go",
         "to-do.json"
       ],
       "created_at": "2026-02-08T16:47:32Z",
-      "updated_at": "2026-02-08T18:10:22Z"
+      "updated_at": "2026-02-08T18:11:46Z"
     },
     {
       "id": "T067",
       "title": "Implement sandbox revert endpoint + CLI (rollback to 'clean')",
       "priority": 1,
-      "status": "todo",
+      "status": "done",
       "details": "Add `agentlab sandbox revert <vmid>` backed by POST /v1/sandboxes/{vmid}/revert. Default behavior: stop VM if running, rollback disk to snapshot 'clean', then optionally restart. Include safety checks for running jobs and emit audit events + metrics.",
       "steps": [
         "Add API endpoint POST /v1/sandboxes/{vmid}/revert with request options (e.g., force, restart).",
@@ -1348,16 +1348,21 @@
         "cli"
       ],
       "files": [
-        "internal/daemon/api.go",
-        "internal/daemon/api_types.go",
         "internal/daemon/sandbox_manager.go",
+        "internal/daemon/metrics.go",
+        "internal/daemon/api_types.go",
+        "internal/daemon/api.go",
+        "internal/daemon/sandbox_manager_test.go",
+        "internal/daemon/api_sandbox_test.go",
         "cmd/agentlab/commands.go",
+        "cmd/agentlab/api.go",
         "cmd/agentlab/main.go",
+        "cmd/agentlab/main_test.go",
         "docs/api.md",
         "README.md"
       ],
       "created_at": "2026-02-08T16:47:32Z",
-      "updated_at": "2026-02-08T16:47:32Z"
+      "updated_at": "2026-02-08T18:22:34Z"
     },
     {
       "id": "T068",

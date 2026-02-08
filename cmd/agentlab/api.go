@@ -111,6 +111,12 @@ type sandboxDestroyRequest struct {
 	Force bool `json:"force"`
 }
 
+// sandboxRevertRequest contains parameters for reverting a sandbox to clean.
+type sandboxRevertRequest struct {
+	Force   bool  `json:"force"`
+	Restart *bool `json:"restart,omitempty"`
+}
+
 // sandboxResponse represents a sandbox returned from the API.
 type sandboxResponse struct {
 	VMID          int     `json:"vmid"`
@@ -128,6 +134,14 @@ type sandboxResponse struct {
 // sandboxesResponse contains a list of sandboxes.
 type sandboxesResponse struct {
 	Sandboxes []sandboxResponse `json:"sandboxes"`
+}
+
+// sandboxRevertResponse contains the result of a revert operation.
+type sandboxRevertResponse struct {
+	Sandbox    sandboxResponse `json:"sandbox"`
+	Restarted  bool            `json:"restarted"`
+	WasRunning bool            `json:"was_running"`
+	Snapshot   string          `json:"snapshot"`
 }
 
 // leaseRenewRequest contains parameters for renewing a sandbox lease.

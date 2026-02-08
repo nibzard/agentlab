@@ -16,13 +16,17 @@ import (
 )
 
 type stubBackend struct {
-	startErr    error
-	stopErr     error
-	destroyErr  error
-	detachErr   error
-	startCalls  int
-	stopCalls   int
-	detachCalls int
+	startErr              error
+	stopErr               error
+	destroyErr            error
+	detachErr             error
+	snapshotRollbackErr   error
+	statusErr             error
+	status                proxmox.Status
+	startCalls            int
+	stopCalls             int
+	detachCalls           int
+	snapshotRollbackCalls int
 }
 
 func (s *stubBackend) Clone(context.Context, proxmox.VMID, proxmox.VMID, string) error {
@@ -52,7 +56,8 @@ func (s *stubBackend) SnapshotCreate(context.Context, proxmox.VMID, string) erro
 }
 
 func (s *stubBackend) SnapshotRollback(context.Context, proxmox.VMID, string) error {
-	return nil
+	s.snapshotRollbackCalls++
+	return s.snapshotRollbackErr
 }
 
 func (s *stubBackend) SnapshotDelete(context.Context, proxmox.VMID, string) error {
@@ -60,6 +65,12 @@ func (s *stubBackend) SnapshotDelete(context.Context, proxmox.VMID, string) erro
 }
 
 func (s *stubBackend) Status(context.Context, proxmox.VMID) (proxmox.Status, error) {
+	if s.statusErr != nil {
+		return proxmox.StatusUnknown, s.statusErr
+	}
+	if s.status != "" {
+		return s.status, nil
+	}
 	return proxmox.StatusUnknown, nil
 }
 
@@ -242,6 +253,117 @@ func TestSandboxStartStopInvalidState(t *testing.T) {
 	}
 	if err := mgr.Stop(ctx, sandbox.VMID); !errors.Is(err, ErrInvalidTransition) {
 		t.Fatalf("expected invalid transition for stop, got %v", err)
+	}
+}
+
+func TestSandboxRevertStopped(t *testing.T) {
+	ctx := context.Background()
+	store := newTestStore(t)
+	backend := &stubBackend{}
+	mgr := NewSandboxManager(store, backend, log.New(io.Discard, "", 0))
+
+	sandbox := models.Sandbox{
+		VMID:      112,
+		Name:      "revert-stopped",
+		Profile:   "default",
+		State:     models.SandboxStopped,
+		Keepalive: false,
+		CreatedAt: time.Now().UTC(),
+	}
+	if err := store.CreateSandbox(ctx, sandbox); err != nil {
+		t.Fatalf("create sandbox: %v", err)
+	}
+
+	result, err := mgr.Revert(ctx, sandbox.VMID, RevertOptions{})
+	if err != nil {
+		t.Fatalf("revert sandbox: %v", err)
+	}
+	if backend.snapshotRollbackCalls != 1 {
+		t.Fatalf("expected snapshot rollback once, got %d", backend.snapshotRollbackCalls)
+	}
+	if backend.stopCalls != 0 {
+		t.Fatalf("expected stop not called, got %d", backend.stopCalls)
+	}
+	if backend.startCalls != 0 {
+		t.Fatalf("expected start not called, got %d", backend.startCalls)
+	}
+	if result.Restarted {
+		t.Fatalf("expected no restart, got restarted=true")
+	}
+	if result.Snapshot != cleanSnapshotName {
+		t.Fatalf("expected snapshot %s, got %s", cleanSnapshotName, result.Snapshot)
+	}
+	if result.Sandbox.State != models.SandboxStopped {
+		t.Fatalf("expected sandbox STOPPED, got %s", result.Sandbox.State)
+	}
+}
+
+func TestSandboxRevertRunning(t *testing.T) {
+	ctx := context.Background()
+	store := newTestStore(t)
+	backend := &stubBackend{status: proxmox.StatusRunning}
+	mgr := NewSandboxManager(store, backend, log.New(io.Discard, "", 0))
+
+	sandbox := models.Sandbox{
+		VMID:      113,
+		Name:      "revert-running",
+		Profile:   "default",
+		State:     models.SandboxRunning,
+		Keepalive: false,
+		CreatedAt: time.Now().UTC(),
+	}
+	if err := store.CreateSandbox(ctx, sandbox); err != nil {
+		t.Fatalf("create sandbox: %v", err)
+	}
+
+	result, err := mgr.Revert(ctx, sandbox.VMID, RevertOptions{})
+	if err != nil {
+		t.Fatalf("revert sandbox: %v", err)
+	}
+	if backend.snapshotRollbackCalls != 1 {
+		t.Fatalf("expected snapshot rollback once, got %d", backend.snapshotRollbackCalls)
+	}
+	if backend.stopCalls != 1 {
+		t.Fatalf("expected stop called once, got %d", backend.stopCalls)
+	}
+	if backend.startCalls != 1 {
+		t.Fatalf("expected start called once, got %d", backend.startCalls)
+	}
+	if !result.Restarted {
+		t.Fatalf("expected restart, got restarted=false")
+	}
+	if result.Sandbox.State != models.SandboxRunning {
+		t.Fatalf("expected sandbox RUNNING, got %s", result.Sandbox.State)
+	}
+}
+
+func TestSandboxRevertMissingSnapshot(t *testing.T) {
+	ctx := context.Background()
+	store := newTestStore(t)
+	backend := &stubBackend{snapshotRollbackErr: errors.New("snapshot 'clean' does not exist")}
+	mgr := NewSandboxManager(store, backend, log.New(io.Discard, "", 0))
+
+	sandbox := models.Sandbox{
+		VMID:      114,
+		Name:      "revert-missing",
+		Profile:   "default",
+		State:     models.SandboxStopped,
+		Keepalive: false,
+		CreatedAt: time.Now().UTC(),
+	}
+	if err := store.CreateSandbox(ctx, sandbox); err != nil {
+		t.Fatalf("create sandbox: %v", err)
+	}
+
+	_, err := mgr.Revert(ctx, sandbox.VMID, RevertOptions{})
+	if err == nil {
+		t.Fatalf("expected snapshot missing error")
+	}
+	if !errors.Is(err, ErrSnapshotMissing) {
+		t.Fatalf("expected ErrSnapshotMissing, got %v", err)
+	}
+	if backend.snapshotRollbackCalls != 1 {
+		t.Fatalf("expected snapshot rollback once, got %d", backend.snapshotRollbackCalls)
 	}
 }
 

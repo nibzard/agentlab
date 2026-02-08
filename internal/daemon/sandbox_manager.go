@@ -3,9 +3,11 @@ package daemon
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log"
+	"strings"
 	"time"
 
 	"github.com/agentlab/agentlab/internal/db"
@@ -21,7 +23,67 @@ var (
 	ErrInvalidTransition = errors.New("invalid sandbox state transition")
 	ErrSandboxNotFound   = errors.New("sandbox not found")
 	ErrLeaseNotRenewable = errors.New("sandbox lease is not renewable")
+	ErrSandboxInUse      = errors.New("sandbox has a running job")
+	ErrSnapshotMissing   = errors.New("snapshot not found")
 )
+
+// SandboxInUseError indicates a sandbox has a running job.
+type SandboxInUseError struct {
+	JobID string
+}
+
+func (e SandboxInUseError) Error() string {
+	if e.JobID != "" {
+		return fmt.Sprintf("sandbox has running job %s", e.JobID)
+	}
+	return "sandbox has running job"
+}
+
+func (e SandboxInUseError) Unwrap() error {
+	return ErrSandboxInUse
+}
+
+// SnapshotMissingError indicates a missing snapshot during rollback.
+type SnapshotMissingError struct {
+	Name string
+	Err  error
+}
+
+func (e SnapshotMissingError) Error() string {
+	if e.Name != "" {
+		return fmt.Sprintf("snapshot %q not found", e.Name)
+	}
+	if e.Err != nil {
+		return e.Err.Error()
+	}
+	return ErrSnapshotMissing.Error()
+}
+
+func (e SnapshotMissingError) Unwrap() error {
+	return ErrSnapshotMissing
+}
+
+// RevertOptions controls sandbox revert behavior.
+type RevertOptions struct {
+	Force   bool
+	Restart *bool
+}
+
+// RevertResult captures the outcome of a sandbox revert.
+type RevertResult struct {
+	Snapshot   string
+	WasRunning bool
+	Restarted  bool
+	Sandbox    models.Sandbox
+}
+
+type revertEventPayload struct {
+	Snapshot   string `json:"snapshot"`
+	Restart    bool   `json:"restart"`
+	WasRunning bool   `json:"was_running"`
+	DurationMS int64  `json:"duration_ms,omitempty"`
+	Error      string `json:"error,omitempty"`
+}
 
 // SandboxManager enforces sandbox state transitions and lease garbage collection.
 //
@@ -362,6 +424,161 @@ func (m *SandboxManager) Stop(ctx context.Context, vmid int) error {
 	return nil
 }
 
+// Revert rolls a sandbox back to the canonical "clean" snapshot.
+//
+// The revert process:
+//  1. Optionally stop the VM if it's running
+//  2. Roll back the VM disk to the clean snapshot
+//  3. Transition to STOPPED
+//  4. Optionally restart the VM
+//
+// If Restart is nil, the sandbox is restarted only if it was running.
+// If Force is false, the revert is blocked when a job is currently running.
+func (m *SandboxManager) Revert(ctx context.Context, vmid int, opts RevertOptions) (result RevertResult, err error) {
+	if m == nil || m.store == nil {
+		return RevertResult{}, errors.New("sandbox manager not configured")
+	}
+	if vmid <= 0 {
+		return RevertResult{}, errors.New("vmid must be positive")
+	}
+	sandbox, err := m.store.GetSandbox(ctx, vmid)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return RevertResult{}, ErrSandboxNotFound
+		}
+		return RevertResult{}, fmt.Errorf("load sandbox %d: %w", vmid, err)
+	}
+	if sandbox.State == models.SandboxDestroyed {
+		return RevertResult{}, ErrSandboxNotFound
+	}
+	switch sandbox.State {
+	case models.SandboxRequested, models.SandboxProvisioning, models.SandboxBooting:
+		return RevertResult{}, fmt.Errorf("%w: %s -> revert", ErrInvalidTransition, sandbox.State)
+	}
+	if m.backend == nil {
+		return RevertResult{}, errors.New("proxmox backend unavailable")
+	}
+
+	snapshotName := cleanSnapshotName
+	status := proxmox.StatusUnknown
+	if m.backend != nil {
+		if current, statusErr := m.backend.Status(ctx, proxmox.VMID(vmid)); statusErr == nil {
+			status = current
+		}
+	}
+
+	wasRunning := sandbox.State == models.SandboxRunning || sandbox.State == models.SandboxReady
+	if status == proxmox.StatusRunning {
+		wasRunning = true
+	}
+	restart := wasRunning
+	if opts.Restart != nil {
+		restart = *opts.Restart
+	}
+
+	startedAt := m.now().UTC()
+	m.recordRevertEvent(ctx, vmid, "sandbox.revert.started", "revert started", revertEventPayload{
+		Snapshot:   snapshotName,
+		Restart:    restart,
+		WasRunning: wasRunning,
+	})
+
+	defer func() {
+		if err == nil {
+			return
+		}
+		duration := m.now().UTC().Sub(startedAt)
+		m.recordRevertEvent(ctx, vmid, "sandbox.revert.failed", fmt.Sprintf("revert failed: %s", err.Error()), revertEventPayload{
+			Snapshot:   snapshotName,
+			Restart:    restart,
+			WasRunning: wasRunning,
+			DurationMS: duration.Milliseconds(),
+			Error:      err.Error(),
+		})
+		if m.metrics != nil {
+			m.metrics.IncSandboxRevert("failed")
+			m.metrics.ObserveSandboxRevertDuration("failed", duration)
+		}
+	}()
+
+	if !opts.Force {
+		job, jobErr := m.store.GetJobBySandboxVMID(ctx, vmid)
+		if jobErr == nil {
+			if job.Status == models.JobRunning || job.Status == models.JobQueued {
+				return RevertResult{}, SandboxInUseError{JobID: job.ID}
+			}
+		} else if !errors.Is(jobErr, sql.ErrNoRows) {
+			return RevertResult{}, fmt.Errorf("load sandbox job: %w", jobErr)
+		}
+	}
+
+	shouldStop := false
+	if status == proxmox.StatusRunning {
+		shouldStop = true
+	} else if status == proxmox.StatusUnknown && wasRunning {
+		shouldStop = true
+	}
+
+	if shouldStop {
+		if sandbox.State == models.SandboxRunning || sandbox.State == models.SandboxReady {
+			if err := m.Stop(ctx, vmid); err != nil {
+				return RevertResult{}, err
+			}
+		} else {
+			if err := m.stopSandbox(ctx, vmid); err != nil {
+				return RevertResult{}, err
+			}
+			if err := m.Transition(ctx, vmid, models.SandboxStopped); err != nil {
+				return RevertResult{}, err
+			}
+		}
+	}
+
+	if err := m.backend.SnapshotRollback(ctx, proxmox.VMID(vmid), snapshotName); err != nil {
+		if isSnapshotMissing(err) {
+			return RevertResult{}, SnapshotMissingError{Name: snapshotName, Err: err}
+		}
+		return RevertResult{}, fmt.Errorf("rollback snapshot %s: %w", snapshotName, err)
+	}
+
+	if err := m.Transition(ctx, vmid, models.SandboxStopped); err != nil {
+		return RevertResult{}, err
+	}
+
+	restarted := false
+	if restart {
+		if err := m.Start(ctx, vmid); err != nil {
+			return RevertResult{}, err
+		}
+		restarted = true
+	}
+
+	updated, err := m.store.GetSandbox(ctx, vmid)
+	if err != nil {
+		return RevertResult{}, fmt.Errorf("load sandbox %d: %w", vmid, err)
+	}
+
+	duration := m.now().UTC().Sub(startedAt)
+	m.recordRevertEvent(ctx, vmid, "sandbox.revert.completed", "revert completed", revertEventPayload{
+		Snapshot:   snapshotName,
+		Restart:    restart,
+		WasRunning: wasRunning,
+		DurationMS: duration.Milliseconds(),
+	})
+	if m.metrics != nil {
+		m.metrics.IncSandboxRevert("success")
+		m.metrics.ObserveSandboxRevertDuration("success", duration)
+	}
+
+	result = RevertResult{
+		Snapshot:   snapshotName,
+		WasRunning: wasRunning,
+		Restarted:  restarted,
+		Sandbox:    updated,
+	}
+	return result, nil
+}
+
 // Destroy transitions a sandbox to destroyed after issuing a backend destroy.
 //
 // This is the normal destroy path that enforces state transitions. The sandbox
@@ -583,6 +800,19 @@ func (m *SandboxManager) recordLeaseEvent(ctx context.Context, vmid int, expires
 	_ = m.store.RecordEvent(ctx, "sandbox.lease", &vmid, nil, msg, "")
 }
 
+func (m *SandboxManager) recordRevertEvent(ctx context.Context, vmid int, kind string, msg string, payload revertEventPayload) {
+	if m == nil || m.store == nil {
+		return
+	}
+	data, err := json.Marshal(payload)
+	if err != nil {
+		if m.logger != nil {
+			m.logger.Printf("sandbox %d: revert event json failed: %v", vmid, err)
+		}
+	}
+	_ = m.store.RecordEvent(ctx, kind, &vmid, nil, msg, string(data))
+}
+
 func allowedTransition(from, to models.SandboxState) bool {
 	switch from {
 	case models.SandboxRequested:
@@ -608,6 +838,34 @@ func allowedTransition(from, to models.SandboxState) bool {
 	default:
 		return false
 	}
+}
+
+func isSnapshotMissing(err error) bool {
+	if err == nil {
+		return false
+	}
+	msg := strings.ToLower(err.Error())
+	if !strings.Contains(msg, "snapshot") {
+		return false
+	}
+	phrases := []string{
+		"not found",
+		"does not exist",
+		"no such snapshot",
+		"cannot find snapshot",
+		"can't find snapshot",
+	}
+	foundPhrase := false
+	for _, phrase := range phrases {
+		if strings.Contains(msg, phrase) {
+			foundPhrase = true
+			break
+		}
+	}
+	if !foundPhrase {
+		return false
+	}
+	return true
 }
 
 // ReconcileState syncs sandbox states with actual VM states from Proxmox.
