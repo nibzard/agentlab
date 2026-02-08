@@ -1824,7 +1824,7 @@
       "id": "T080",
       "title": "Stop tracking generated coverage artifacts",
       "priority": 4,
-      "status": "todo",
+      "status": "done",
       "details": "coverage.out and coverage.html are committed. Remove them from version control, add ignore rules, and ensure CI still uploads artifacts without relying on tracked files.",
       "tags": [
         "cleanup",
@@ -1837,7 +1837,8 @@
         ".github/workflows/ci.yml",
         "Makefile"
       ],
-      "created_at": "2026-02-08T21:21:56Z"
+      "created_at": "2026-02-08T21:21:56Z",
+      "updated_at": "2026-02-08T21:35:44Z"
     },
     {
       "id": "T081",
@@ -1878,7 +1879,7 @@
         "to-do.json"
       ],
       "created_at": "2026-02-08T21:21:56Z",
-      "updated_at": "2026-02-08T21:27:26Z"
+      "updated_at": "2026-02-08T21:28:00Z"
     },
     {
       "id": "T083",
@@ -1891,13 +1892,13 @@
         "templates"
       ],
       "files": [
-        "scripts/create_template.sh",
-        "scripts/README.md",
         "docs/runbook.md",
+        "scripts/README.md",
+        "scripts/create_template.sh",
         "to-do.json"
       ],
       "created_at": "2026-02-08T21:21:56Z",
-      "updated_at": "2026-02-08T21:30:08Z"
+      "updated_at": "2026-02-08T21:34:52Z"
     }
   ]
 }

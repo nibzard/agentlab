@@ -4,3 +4,5 @@
 /agentlabd
 /internal/daemon/_daemon_backup_*/
 /internal/daemon/*.patch
+/coverage.out
+/coverage.html
