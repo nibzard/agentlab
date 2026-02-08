@@ -1901,6 +1901,25 @@
       ],
       "created_at": "2026-02-08T21:21:56Z",
       "updated_at": "2026-02-08T21:34:52Z"
+    },
+    {
+      "id": "T085",
+      "title": "Store per-document profile YAML so multi-doc profiles apply correct settings",
+      "priority": 1,
+      "status": "done",
+      "details": "LoadProfiles stores the full file contents in RawYAML for every profile, so parsers only see the first document. Capture and store the YAML for each document separately, then ensure profile-derived settings (resources, behavior defaults, firewall/network mode, artifact retention, inner_sandbox validation) use the correct doc. Update or add tests to cover multi-document profiles.",
+      "files": [
+        "internal/daemon/artifact_gc.go",
+        "internal/daemon/behavior_defaults_test.go",
+        "internal/daemon/profile_behavior.go",
+        "internal/daemon/profile_inner_sandbox.go",
+        "internal/daemon/profile_resources.go",
+        "internal/daemon/profile_resources_test.go",
+        "internal/daemon/profile_validation.go",
+        "internal/daemon/profiles.go",
+        "internal/daemon/profiles_multidoc_test.go"
+      ],
+      "updated_at": "2026-02-08T21:52:01Z"
     }
   ]
 }
