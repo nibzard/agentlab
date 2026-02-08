@@ -1205,20 +1205,21 @@
         "cli"
       ],
       "files": [
+        "README.md",
         "cmd/agentlab/api.go",
         "cmd/agentlab/commands.go",
-        "cmd/agentlab/main.go",
         "cmd/agentlab/commands_happy_path_test.go",
-        "README.md"
+        "cmd/agentlab/main.go",
+        "to-do.json"
       ],
       "created_at": "2026-02-08T16:47:32Z",
-      "updated_at": "2026-02-08T18:45:53Z"
+      "updated_at": "2026-02-08T18:47:14Z"
     },
     {
       "id": "T063",
       "title": "Instrument sandbox lifecycle SLO metrics (time-to-ready/ssh/start/stop/revert/destroy)",
       "priority": 2,
-      "status": "todo",
+      "status": "done",
       "details": "Shift performance focus to perceived speed by instrumenting explicit SLOs: time-to-ready, time-to-ssh, time-to-job-start, time-to-revert, and time-to-destroy. Export as Prometheus histograms and surface key percentiles in docs/performance.md.",
       "steps": [
         "Extend internal/daemon/metrics.go with new histograms for: start duration, stop duration, revert duration, destroy duration, time-to-ssh (host TCP probe to port 22).",
@@ -1242,7 +1243,7 @@
         "docs/performance.md"
       ],
       "created_at": "2026-02-08T16:47:32Z",
-      "updated_at": "2026-02-08T16:47:32Z"
+      "updated_at": "2026-02-08T18:56:59Z"
     },
     {
       "id": "T064",

@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"net"
 	"strings"
 	"sync"
 	"time"
@@ -20,12 +21,15 @@ import (
 )
 
 const (
-	defaultBootstrapTTL     = 10 * time.Minute // Default TTL for bootstrap tokens
-	bootstrapTokenBytes     = 16               // Bytes of randomness for bootstrap tokens
-	defaultProvisionTimeout = 10 * time.Minute // Timeout for sandbox provisioning
-	defaultFailureTimeout   = 30 * time.Second // Timeout for cleanup after failure
-	defaultIPLookupTimeout  = 30 * time.Second // Best-effort wait for guest IP during provisioning
-	cleanSnapshotName       = "clean"
+	defaultBootstrapTTL        = 10 * time.Minute // Default TTL for bootstrap tokens
+	bootstrapTokenBytes        = 16               // Bytes of randomness for bootstrap tokens
+	defaultProvisionTimeout    = 10 * time.Minute // Timeout for sandbox provisioning
+	defaultFailureTimeout      = 30 * time.Second // Timeout for cleanup after failure
+	defaultIPLookupTimeout     = 30 * time.Second // Best-effort wait for guest IP during provisioning
+	defaultSSHProbeTimeout     = 3 * time.Minute  // Max time to wait for SSH readiness
+	defaultSSHProbeInterval    = 2 * time.Second  // Delay between SSH probes
+	defaultSSHProbeDialTimeout = 2 * time.Second  // Timeout per SSH probe
+	cleanSnapshotName          = "clean"
 )
 
 var (
@@ -44,6 +48,12 @@ type JobReport struct {
 	Message   string
 	Artifacts []V1ArtifactMetadata
 	Result    json.RawMessage
+}
+
+type sloEventPayload struct {
+	DurationMS int64  `json:"duration_ms,omitempty"`
+	IP         string `json:"ip,omitempty"`
+	Error      string `json:"error,omitempty"`
 }
 
 // JobOrchestrator manages the lifecycle of jobs from creation to completion.
@@ -275,8 +285,13 @@ func (o *JobOrchestrator) Run(ctx context.Context, jobID string) error {
 			return o.failJob(job, sandbox.VMID, err)
 		}
 	}
+	o.observeSandboxSSH(sandbox, ip)
 
-	if err := o.ensureSandboxRunning(ctx, sandbox.VMID); err != nil {
+	if err := o.sandboxManager.Transition(ctx, sandbox.VMID, models.SandboxReady); err != nil {
+		return o.failJob(job, sandbox.VMID, err)
+	}
+	o.observeSandboxReady(ctx, sandbox)
+	if err := o.sandboxManager.Transition(ctx, sandbox.VMID, models.SandboxRunning); err != nil {
 		return o.failJob(job, sandbox.VMID, err)
 	}
 	jobIDValue := job.ID
@@ -287,6 +302,7 @@ func (o *JobOrchestrator) Run(ctx context.Context, jobID string) error {
 	if o.metrics != nil {
 		o.metrics.IncJobStatus(models.JobRunning)
 	}
+	o.observeJobStart(ctx, job, sandbox.VMID)
 	_ = o.store.RecordEvent(ctx, "job.running", &sandbox.VMID, &job.ID, "sandbox running", "")
 	return nil
 }
@@ -450,8 +466,13 @@ func (o *JobOrchestrator) ProvisionSandbox(ctx context.Context, vmid int) (model
 			return fail(err)
 		}
 	}
+	o.observeSandboxSSH(sandbox, ip)
 
-	if err := o.ensureSandboxRunning(ctx, sandbox.VMID); err != nil {
+	if err := o.sandboxManager.Transition(ctx, sandbox.VMID, models.SandboxReady); err != nil {
+		return fail(err)
+	}
+	o.observeSandboxReady(ctx, sandbox)
+	if err := o.sandboxManager.Transition(ctx, sandbox.VMID, models.SandboxRunning); err != nil {
 		return fail(err)
 	}
 	o.createCleanSnapshot(ctx, sandbox.VMID, nil)
@@ -778,6 +799,139 @@ func buildJobResult(status models.JobStatus, message string, artifacts []V1Artif
 		return "", err
 	}
 	return string(out), nil
+}
+
+func (o *JobOrchestrator) observeSandboxReady(ctx context.Context, sandbox models.Sandbox) {
+	if o == nil || sandbox.VMID <= 0 || sandbox.CreatedAt.IsZero() {
+		return
+	}
+	duration := o.now().UTC().Sub(sandbox.CreatedAt)
+	if duration < 0 {
+		return
+	}
+	if o.metrics != nil {
+		o.metrics.ObserveSandboxReady(duration)
+	}
+	payload := sloEventPayload{
+		DurationMS: duration.Milliseconds(),
+	}
+	o.recordSLOEvent(ctx, "sandbox.slo.ready", &sandbox.VMID, nil, fmt.Sprintf("ready in %s", duration), payload)
+}
+
+func (o *JobOrchestrator) observeSandboxSSH(sandbox models.Sandbox, ip string) {
+	if o == nil || sandbox.VMID <= 0 || sandbox.CreatedAt.IsZero() {
+		return
+	}
+	if strings.TrimSpace(ip) == "" {
+		return
+	}
+	if o.metrics == nil && o.store == nil {
+		return
+	}
+	createdAt := sandbox.CreatedAt
+	vmid := sandbox.VMID
+	go o.probeSSHReady(vmid, createdAt, strings.TrimSpace(ip))
+}
+
+func (o *JobOrchestrator) observeJobStart(ctx context.Context, job models.Job, vmid int) {
+	if o == nil || job.ID == "" || job.CreatedAt.IsZero() || vmid <= 0 {
+		return
+	}
+	duration := o.now().UTC().Sub(job.CreatedAt)
+	if duration < 0 {
+		return
+	}
+	if o.metrics != nil {
+		o.metrics.ObserveJobStart(duration)
+	}
+	jobID := job.ID
+	payload := sloEventPayload{
+		DurationMS: duration.Milliseconds(),
+	}
+	o.recordSLOEvent(ctx, "job.slo.start", &vmid, &jobID, fmt.Sprintf("job started in %s", duration), payload)
+}
+
+func (o *JobOrchestrator) probeSSHReady(vmid int, createdAt time.Time, ip string) {
+	if o == nil || vmid <= 0 || createdAt.IsZero() {
+		return
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), defaultSSHProbeTimeout)
+	defer cancel()
+	dialer := &net.Dialer{Timeout: defaultSSHProbeDialTimeout}
+	ticker := time.NewTicker(defaultSSHProbeInterval)
+	defer ticker.Stop()
+
+	for {
+		if o.trySSH(ctx, dialer, ip) {
+			o.recordSSHProbeResult(ctx, vmid, createdAt, ip, nil)
+			return
+		}
+		select {
+		case <-ctx.Done():
+			o.recordSSHProbeResult(ctx, vmid, createdAt, ip, ctx.Err())
+			return
+		case <-ticker.C:
+		}
+	}
+}
+
+func (o *JobOrchestrator) trySSH(ctx context.Context, dialer *net.Dialer, ip string) bool {
+	if strings.TrimSpace(ip) == "" {
+		return false
+	}
+	if dialer == nil {
+		dialer = &net.Dialer{Timeout: defaultSSHProbeDialTimeout}
+	}
+	conn, err := dialer.DialContext(ctx, "tcp", net.JoinHostPort(strings.TrimSpace(ip), "22"))
+	if err != nil {
+		return false
+	}
+	_ = conn.Close()
+	return true
+}
+
+func (o *JobOrchestrator) recordSSHProbeResult(ctx context.Context, vmid int, createdAt time.Time, ip string, probeErr error) {
+	if o == nil || vmid <= 0 || createdAt.IsZero() {
+		return
+	}
+	duration := o.now().UTC().Sub(createdAt)
+	if duration < 0 {
+		return
+	}
+	payload := sloEventPayload{
+		DurationMS: duration.Milliseconds(),
+		IP:         ip,
+	}
+	msg := fmt.Sprintf("ssh ready in %s", duration)
+	kind := "sandbox.slo.ssh_ready"
+	if probeErr != nil {
+		payload.Error = probeErr.Error()
+		msg = fmt.Sprintf("ssh not ready after %s: %s", duration, probeErr.Error())
+		kind = "sandbox.slo.ssh_failed"
+	}
+	if probeErr == nil && o.metrics != nil {
+		o.metrics.ObserveSandboxSSH(duration)
+	}
+	o.recordSLOEvent(ctx, kind, &vmid, nil, msg, payload)
+}
+
+func (o *JobOrchestrator) recordSLOEvent(ctx context.Context, kind string, vmid *int, jobID *string, msg string, payload sloEventPayload) {
+	if o == nil || o.store == nil || kind == "" {
+		return
+	}
+	data, err := json.Marshal(payload)
+	if err != nil {
+		if o.logger != nil {
+			o.logger.Printf("slo event json failed: %v", err)
+		}
+	}
+	eventCtx := ctx
+	var cancel context.CancelFunc
+	if eventCtx == nil || eventCtx.Err() != nil {
+		eventCtx, cancel = o.withFailureTimeout()
+		defer cancel()
+	}
+	_ = o.store.RecordEvent(eventCtx, kind, vmid, jobID, msg, string(data))
 }
 
 func nextSandboxStateTowardRunning(current models.SandboxState) (models.SandboxState, bool) {
