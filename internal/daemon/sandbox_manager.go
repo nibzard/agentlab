@@ -270,6 +270,98 @@ func (m *SandboxManager) RenewLease(ctx context.Context, vmid int, ttl time.Dura
 	return expiresAt, nil
 }
 
+// Start boots a stopped sandbox and transitions it back to RUNNING.
+//
+// The sandbox must be in STOPPED state. The start process:
+//  1. Starts the VM in Proxmox
+//  2. Transitions STOPPED -> BOOTING -> READY -> RUNNING
+//
+// Returns ErrSandboxNotFound if the sandbox doesn't exist or has been destroyed.
+// Returns ErrInvalidTransition if the sandbox is not STOPPED.
+func (m *SandboxManager) Start(ctx context.Context, vmid int) error {
+	if m == nil || m.store == nil {
+		return errors.New("sandbox manager not configured")
+	}
+	sandbox, err := m.store.GetSandbox(ctx, vmid)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return ErrSandboxNotFound
+		}
+		return fmt.Errorf("load sandbox %d: %w", vmid, err)
+	}
+	if sandbox.State == models.SandboxDestroyed {
+		return ErrSandboxNotFound
+	}
+	if sandbox.State == models.SandboxRunning || sandbox.State == models.SandboxReady {
+		return nil
+	}
+	if sandbox.State != models.SandboxStopped {
+		return fmt.Errorf("%w: %s -> %s", ErrInvalidTransition, sandbox.State, models.SandboxRunning)
+	}
+	if m.backend == nil {
+		return errors.New("proxmox backend unavailable")
+	}
+	if err := m.backend.Start(ctx, proxmox.VMID(vmid)); err != nil {
+		if errors.Is(err, proxmox.ErrVMNotFound) {
+			return ErrSandboxNotFound
+		}
+		return fmt.Errorf("start vmid %d: %w", vmid, err)
+	}
+	if err := m.Transition(ctx, vmid, models.SandboxBooting); err != nil {
+		return err
+	}
+	if err := m.Transition(ctx, vmid, models.SandboxReady); err != nil {
+		return err
+	}
+	if err := m.Transition(ctx, vmid, models.SandboxRunning); err != nil {
+		return err
+	}
+	return nil
+}
+
+// Stop halts a running sandbox and transitions it to STOPPED.
+//
+// The sandbox must be in READY or RUNNING state. The stop process:
+//  1. Stops the VM in Proxmox
+//  2. Transitions READY/RUNNING -> STOPPED
+//
+// Returns ErrSandboxNotFound if the sandbox doesn't exist or has been destroyed.
+// Returns ErrInvalidTransition if the sandbox is not READY/RUNNING.
+func (m *SandboxManager) Stop(ctx context.Context, vmid int) error {
+	if m == nil || m.store == nil {
+		return errors.New("sandbox manager not configured")
+	}
+	sandbox, err := m.store.GetSandbox(ctx, vmid)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return ErrSandboxNotFound
+		}
+		return fmt.Errorf("load sandbox %d: %w", vmid, err)
+	}
+	if sandbox.State == models.SandboxDestroyed {
+		return ErrSandboxNotFound
+	}
+	if sandbox.State == models.SandboxStopped {
+		return nil
+	}
+	if sandbox.State != models.SandboxReady && sandbox.State != models.SandboxRunning {
+		return fmt.Errorf("%w: %s -> %s", ErrInvalidTransition, sandbox.State, models.SandboxStopped)
+	}
+	if m.backend == nil {
+		return errors.New("proxmox backend unavailable")
+	}
+	if err := m.backend.Stop(ctx, proxmox.VMID(vmid)); err != nil {
+		if errors.Is(err, proxmox.ErrVMNotFound) {
+			return nil
+		}
+		return fmt.Errorf("stop vmid %d: %w", vmid, err)
+	}
+	if err := m.Transition(ctx, vmid, models.SandboxStopped); err != nil {
+		return err
+	}
+	return nil
+}
+
 // Destroy transitions a sandbox to destroyed after issuing a backend destroy.
 //
 // This is the normal destroy path that enforces state transitions. The sandbox
@@ -510,7 +602,7 @@ func allowedTransition(from, to models.SandboxState) bool {
 	case models.SandboxTimeout:
 		return to == models.SandboxStopped || to == models.SandboxDestroyed
 	case models.SandboxStopped:
-		return to == models.SandboxDestroyed
+		return to == models.SandboxDestroyed || to == models.SandboxBooting || to == models.SandboxReady || to == models.SandboxRunning
 	case models.SandboxDestroyed:
 		return false
 	default:

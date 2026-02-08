@@ -56,6 +56,8 @@ Usage:
   agentlab [--socket PATH] [--json] [--timeout DURATION] sandbox new --profile <profile> [--name <name>] [--ttl <ttl>] [--keepalive] [--workspace <id>] [--vmid <vmid>] [--job <id>]
   agentlab [--socket PATH] [--json] [--timeout DURATION] sandbox list
   agentlab [--socket PATH] [--json] [--timeout DURATION] sandbox show <vmid>
+  agentlab [--socket PATH] [--json] [--timeout DURATION] sandbox start <vmid>
+  agentlab [--socket PATH] [--json] [--timeout DURATION] sandbox stop <vmid>
   agentlab [--socket PATH] [--json] [--timeout DURATION] sandbox destroy [--force] <vmid>
   agentlab [--socket PATH] [--json] [--timeout DURATION] sandbox lease renew --ttl <ttl> <vmid>
   agentlab [--socket PATH] [--json] [--timeout DURATION] sandbox prune
@@ -244,7 +246,7 @@ func printJobArtifactsDownloadUsage() {
 }
 
 func printSandboxUsage() {
-	fmt.Fprintln(os.Stdout, "Usage: agentlab sandbox <new|list|show|destroy|lease|prune>")
+	fmt.Fprintln(os.Stdout, "Usage: agentlab sandbox <new|list|show|start|stop|destroy|lease|prune>")
 }
 
 func printSandboxNewUsage() {
@@ -257,6 +259,14 @@ func printSandboxListUsage() {
 
 func printSandboxShowUsage() {
 	fmt.Fprintln(os.Stdout, "Usage: agentlab sandbox show <vmid>")
+}
+
+func printSandboxStartUsage() {
+	fmt.Fprintln(os.Stdout, "Usage: agentlab sandbox start <vmid>")
+}
+
+func printSandboxStopUsage() {
+	fmt.Fprintln(os.Stdout, "Usage: agentlab sandbox stop <vmid>")
 }
 
 func printSandboxDestroyUsage() {

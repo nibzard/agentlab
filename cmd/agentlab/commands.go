@@ -8,7 +8,7 @@
 // Commands are organized hierarchically:
 //
 //	job:       Manage jobs (run, show, artifacts)
-//	sandbox:   Manage sandboxes (new, list, show, destroy, lease, prune)
+//	sandbox:   Manage sandboxes (new, list, show, start, stop, destroy, lease, prune)
 //	workspace: Manage workspaces (create, list, attach, detach, rebind)
 //	ssh:       Generate SSH connection parameters
 //	logs:      View sandbox event logs
@@ -462,6 +462,10 @@ func runSandboxCommand(ctx context.Context, args []string, base commonFlags) err
 		return runSandboxList(ctx, args[1:], base)
 	case "show":
 		return runSandboxShow(ctx, args[1:], base)
+	case "start":
+		return runSandboxStart(ctx, args[1:], base)
+	case "stop":
+		return runSandboxStop(ctx, args[1:], base)
 	case "destroy":
 		return runSandboxDestroy(ctx, args[1:], base)
 	case "lease":
@@ -628,6 +632,76 @@ func runSandboxShow(ctx context.Context, args []string, base commonFlags) error 
 		return err
 	}
 	printSandbox(resp)
+	return nil
+}
+
+func runSandboxStart(ctx context.Context, args []string, base commonFlags) error {
+	fs := newFlagSet("sandbox start")
+	opts := base
+	opts.bind(fs)
+	var help bool
+	fs.BoolVar(&help, "help", false, "show help")
+	fs.BoolVar(&help, "h", false, "show help")
+	if err := parseFlags(fs, args, printSandboxStartUsage, &help, opts.jsonOutput); err != nil {
+		return err
+	}
+	if fs.NArg() < 1 {
+		printSandboxStartUsage()
+		return fmt.Errorf("vmid is required")
+	}
+	vmid, err := parseVMID(fs.Arg(0))
+	if err != nil {
+		return err
+	}
+
+	client := newAPIClient(opts.socketPath, opts.timeout)
+	payload, err := client.doJSON(ctx, http.MethodPost, fmt.Sprintf("/v1/sandboxes/%d/start", vmid), nil)
+	if err != nil {
+		return err
+	}
+	if opts.jsonOutput {
+		return prettyPrintJSON(os.Stdout, payload)
+	}
+	var resp sandboxResponse
+	if err := json.Unmarshal(payload, &resp); err != nil {
+		return err
+	}
+	fmt.Printf("sandbox %d started (state=%s)\n", resp.VMID, resp.State)
+	return nil
+}
+
+func runSandboxStop(ctx context.Context, args []string, base commonFlags) error {
+	fs := newFlagSet("sandbox stop")
+	opts := base
+	opts.bind(fs)
+	var help bool
+	fs.BoolVar(&help, "help", false, "show help")
+	fs.BoolVar(&help, "h", false, "show help")
+	if err := parseFlags(fs, args, printSandboxStopUsage, &help, opts.jsonOutput); err != nil {
+		return err
+	}
+	if fs.NArg() < 1 {
+		printSandboxStopUsage()
+		return fmt.Errorf("vmid is required")
+	}
+	vmid, err := parseVMID(fs.Arg(0))
+	if err != nil {
+		return err
+	}
+
+	client := newAPIClient(opts.socketPath, opts.timeout)
+	payload, err := client.doJSON(ctx, http.MethodPost, fmt.Sprintf("/v1/sandboxes/%d/stop", vmid), nil)
+	if err != nil {
+		return err
+	}
+	if opts.jsonOutput {
+		return prettyPrintJSON(os.Stdout, payload)
+	}
+	var resp sandboxResponse
+	if err := json.Unmarshal(payload, &resp); err != nil {
+		return err
+	}
+	fmt.Printf("sandbox %d stopped (state=%s)\n", resp.VMID, resp.State)
 	return nil
 }
 
