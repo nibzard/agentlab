@@ -17,6 +17,7 @@ type profileProvisionSpec struct {
 type profileNetworkSpec struct {
 	Bridge        string  `yaml:"bridge"`
 	Model         string  `yaml:"model"`
+	Mode          *string `yaml:"mode"`
 	Firewall      *bool   `yaml:"firewall"`
 	FirewallGroup *string `yaml:"firewall_group"`
 }
@@ -50,12 +51,18 @@ func applyProfileVMConfig(profile models.Profile, cfg proxmox.VMConfig) (proxmox
 	if spec.Network.Firewall != nil {
 		cfg.Firewall = spec.Network.Firewall
 	}
-	if spec.Network.FirewallGroup != nil {
-		group, err := normalizeFirewallGroup(*spec.Network.FirewallGroup)
-		if err != nil {
-			return cfg, err
-		}
+	group, err := resolveFirewallGroup(spec.Network)
+	if err != nil {
+		return cfg, err
+	}
+	if group != "" {
 		if spec.Network.Firewall != nil && !*spec.Network.Firewall {
+			if spec.Network.Mode != nil {
+				mode, _ := normalizeNetworkMode(*spec.Network.Mode)
+				if mode != "" {
+					return cfg, fmt.Errorf("network.mode %q requires network.firewall=true", mode)
+				}
+			}
 			return cfg, fmt.Errorf("network.firewall_group requires network.firewall=true")
 		}
 		if spec.Network.Firewall == nil {

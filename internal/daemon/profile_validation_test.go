@@ -103,6 +103,15 @@ network:
 `,
 		},
 		{
+			name: "mode-only",
+			raw: `
+name: yolo
+template_vmid: 9000
+network:
+  mode: nat
+`,
+		},
+		{
 			name: "empty-firewall-group",
 			raw: `
 name: yolo
@@ -120,6 +129,38 @@ template_vmid: 9000
 network:
   firewall: false
   firewall_group: agent_nat_default
+`,
+			wantErr: true,
+		},
+		{
+			name: "invalid-mode",
+			raw: `
+name: yolo
+template_vmid: 9000
+network:
+  mode: open
+`,
+			wantErr: true,
+		},
+		{
+			name: "mode-mismatch-firewall-group",
+			raw: `
+name: yolo
+template_vmid: 9000
+network:
+  mode: allowlist
+  firewall_group: agent_nat_default
+`,
+			wantErr: true,
+		},
+		{
+			name: "mode-with-firewall-false",
+			raw: `
+name: yolo
+template_vmid: 9000
+network:
+  mode: nat
+  firewall: false
 `,
 			wantErr: true,
 		},

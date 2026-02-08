@@ -134,6 +134,7 @@ type sandboxResponse struct {
 }
 
 type sandboxNetworkResponse struct {
+	Mode          string `json:"mode,omitempty"`
 	Firewall      *bool  `json:"firewall,omitempty"`
 	FirewallGroup string `json:"firewall_group,omitempty"`
 }
@@ -173,6 +174,7 @@ type statusMetricsResponse struct {
 type statusResponse struct {
 	Sandboxes      map[string]int          `json:"sandboxes"`
 	Jobs           map[string]int          `json:"jobs"`
+	NetworkModes   map[string]int          `json:"network_modes,omitempty"`
 	Artifacts      statusArtifactsResponse `json:"artifacts"`
 	Metrics        statusMetricsResponse   `json:"metrics"`
 	RecentFailures []eventResponse         `json:"recent_failures"`

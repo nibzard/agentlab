@@ -45,14 +45,22 @@ func validateProfileFirewallGroup(profile models.Profile) error {
 	if err != nil {
 		return fmt.Errorf("parse profile %q: %w", profile.Name, err)
 	}
-	if spec.Network.FirewallGroup == nil {
-		return nil
+	if spec.Network.Mode != nil {
+		if _, err := normalizeNetworkMode(*spec.Network.Mode); err != nil {
+			return fmt.Errorf("profile %q: %w", profile.Name, err)
+		}
 	}
-	group, err := normalizeFirewallGroup(*spec.Network.FirewallGroup)
+	group, err := resolveFirewallGroup(spec.Network)
 	if err != nil {
 		return fmt.Errorf("profile %q: %w", profile.Name, err)
 	}
-	if spec.Network.Firewall != nil && !*spec.Network.Firewall {
+	if spec.Network.Firewall != nil && !*spec.Network.Firewall && group != "" {
+		if spec.Network.Mode != nil {
+			mode, _ := normalizeNetworkMode(*spec.Network.Mode)
+			if mode != "" {
+				return fmt.Errorf("profile %q sets network.firewall=false with network.mode %q", profile.Name, mode)
+			}
+		}
 		return fmt.Errorf("profile %q sets network.firewall=false with firewall_group %q", profile.Name, group)
 	}
 	return nil

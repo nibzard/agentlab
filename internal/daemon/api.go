@@ -1,6 +1,7 @@
 package daemon
 
 import (
+	"context"
 	"crypto/rand"
 	"database/sql"
 	"encoding/hex"
@@ -548,6 +549,7 @@ func (api *ControlAPI) handleStatus(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "failed to count jobs")
 		return
 	}
+	networkModes := api.buildNetworkModeCounts(ctx)
 	failureEvents, err := api.store.ListRecentFailureEvents(ctx, defaultStatusFailureLimit)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to load recent failures")
@@ -557,6 +559,7 @@ func (api *ControlAPI) handleStatus(w http.ResponseWriter, r *http.Request) {
 	resp := V1StatusResponse{
 		Sandboxes:      formatSandboxCounts(sandboxCounts),
 		Jobs:           formatJobCounts(jobCounts),
+		NetworkModes:   formatNetworkModeCounts(networkModes),
 		Artifacts:      buildArtifactStatus(api.artifactRoot),
 		Metrics:        V1StatusMetrics{Enabled: api.metricsEnabled},
 		RecentFailures: make([]V1Event, 0, len(failureEvents)),
@@ -1734,18 +1737,26 @@ func profileNetworkToV1(profile models.Profile) *V1SandboxNetwork {
 	if err != nil {
 		return nil
 	}
-	network := V1SandboxNetwork{}
+	mode, err := resolveNetworkMode(spec.Network)
+	if err != nil {
+		return nil
+	}
+	group, err := resolveFirewallGroup(spec.Network)
+	if err != nil {
+		return nil
+	}
+	network := V1SandboxNetwork{
+		Mode: mode,
+	}
 	if spec.Network.Firewall != nil {
 		network.Firewall = spec.Network.Firewall
 	}
-	if spec.Network.FirewallGroup != nil {
-		group := strings.TrimSpace(*spec.Network.FirewallGroup)
-		if group != "" {
-			network.FirewallGroup = group
-		}
+	if group != "" {
+		network.FirewallGroup = group
 	}
-	if network.Firewall == nil && network.FirewallGroup == "" {
-		return nil
+	if network.Firewall == nil && group != "" {
+		value := true
+		network.Firewall = &value
 	}
 	return &network
 }
@@ -1814,6 +1825,56 @@ func formatJobCounts(counts map[models.JobStatus]int) map[string]int {
 	}
 	for status, count := range counts {
 		out[string(status)] = count
+	}
+	return out
+}
+
+func formatNetworkModeCounts(counts map[string]int) map[string]int {
+	out := make(map[string]int, len(networkModeOrder))
+	for _, mode := range networkModeOrder {
+		out[mode] = 0
+	}
+	for mode, count := range counts {
+		out[mode] = count
+	}
+	return out
+}
+
+func (api *ControlAPI) buildNetworkModeCounts(ctx context.Context) map[string]int {
+	out := make(map[string]int, len(networkModeOrder))
+	for _, mode := range networkModeOrder {
+		out[mode] = 0
+	}
+	if api == nil || api.store == nil {
+		return out
+	}
+	sandboxes, err := api.store.ListSandboxes(ctx)
+	if err != nil {
+		api.logger.Printf("status: list sandboxes for network modes: %v", err)
+		return out
+	}
+	profileModes := buildProfileNetworkModes(api.profiles)
+	for _, sb := range sandboxes {
+		mode := profileModes[sb.Profile]
+		if mode == "" {
+			mode = defaultNetworkMode
+		}
+		out[mode]++
+	}
+	return out
+}
+
+func buildProfileNetworkModes(profiles map[string]models.Profile) map[string]string {
+	out := make(map[string]string, len(profiles))
+	for name, profile := range profiles {
+		mode := defaultNetworkMode
+		spec, err := parseProfileProvisionSpec(profile.RawYAML)
+		if err == nil {
+			if resolved, err := resolveNetworkMode(spec.Network); err == nil && resolved != "" {
+				mode = resolved
+			}
+		}
+		out[name] = mode
 	}
 	return out
 }

@@ -148,10 +148,16 @@ Profiles are YAML files in `/etc/agentlab/profiles/` that define sandbox behavio
 |-------|------|---------|-------------|
 | `network.bridge` | string | `vmbr1` | Network bridge for VM |
 | `network.model` | string | `virtio` | Network card model |
+| `network.mode` | string | `nat` | Networking policy mode: `off`, `nat`, or `allowlist`. AgentLab maps the mode to a firewall group. |
 | `network.firewall` | bool | `unset` | Enable Proxmox firewall on the NIC. If omitted, AgentLab leaves the existing setting unchanged unless `network.firewall_group` is set (then it forces firewall on). |
 | `network.firewall_group` | string | `""` | Optional Proxmox firewall group applied to the NIC (requires firewall enabled). |
 
 Notes:
+- `network.mode` values map to Proxmox firewall groups:
+  - `off` -> `agent_nat_off` (no network)
+  - `nat` -> `agent_nat_default` (NAT + RFC1918/ULA blocks)
+  - `allowlist` -> `agent_nat_allowlist` (egress allowlist rules)
+- When `network.mode` is set, AgentLab enables the firewall automatically and applies the mapped firewall group.
 - `network.firewall_group` must be non-empty and uses Proxmox firewall group names (for example, `agent_nat_default`). If it is set while `network.firewall: false`, provisioning fails.
 - If `network.firewall_group` is set without `network.firewall`, AgentLab enables the firewall for that NIC automatically.
 
@@ -208,6 +214,7 @@ resources:
 network:
   bridge: vmbr1
   model: virtio
+  mode: nat
 ```
 
 Multiple profiles (multi-document YAML):
@@ -395,8 +402,7 @@ resources:
 network:
   bridge: vmbr1
   model: virtio
-  firewall: true
-  firewall_group: agent_nat_default
+  mode: nat
 behavior:
   keepalive_default: false
   ttl_minutes_default: 60
@@ -415,6 +421,7 @@ resources:
 network:
   bridge: vmbr1
   model: virtio
+  mode: nat
 behavior:
   keepalive_default: true
   ttl_minutes_default: 0  # no auto-expire
@@ -433,6 +440,7 @@ resources:
 network:
   bridge: vmbr1
   model: virtio
+  mode: nat
 behavior:
   keepalive_default: true
   ttl_minutes_default: 0

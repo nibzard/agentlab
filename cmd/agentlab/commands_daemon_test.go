@@ -58,6 +58,7 @@ resources:
 network:
   bridge: vmbr1
   model: virtio
+  mode: nat
   firewall: true
   firewall_group: agent_nat_default
 `
@@ -226,6 +227,8 @@ func TestCLIReadOnly_WithData(t *testing.T) {
 		assert.Contains(t, out, "test-sandbox")
 		assert.Contains(t, out, "RUNNING")
 		assert.Contains(t, out, "10.77.0.10")
+		assert.Contains(t, out, "MODE")
+		assert.Contains(t, out, "nat")
 		assert.Contains(t, out, "agent_nat_default")
 	})
 
@@ -239,6 +242,7 @@ func TestCLIReadOnly_WithData(t *testing.T) {
 		assert.Contains(t, out, "Profile: test")
 		assert.Contains(t, out, "State: RUNNING")
 		assert.Contains(t, out, "IP: 10.77.0.10")
+		assert.Contains(t, out, "Network Mode: nat")
 		assert.Contains(t, out, "Firewall Group: agent_nat_default")
 	})
 
