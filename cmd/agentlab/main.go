@@ -59,12 +59,12 @@ Usage:
   agentlab [--socket PATH] [--json] [--timeout DURATION] sandbox show <vmid>
   agentlab [--socket PATH] [--json] [--timeout DURATION] sandbox start <vmid>
   agentlab [--socket PATH] [--json] [--timeout DURATION] sandbox stop <vmid>
-  agentlab [--socket PATH] [--json] [--timeout DURATION] sandbox stop --all
+  agentlab [--socket PATH] [--json] [--timeout DURATION] sandbox stop --all [--force]
   agentlab [--socket PATH] [--json] [--timeout DURATION] sandbox revert [--force] [--restart|--no-restart] <vmid>
   agentlab [--socket PATH] [--json] [--timeout DURATION] sandbox destroy [--force] <vmid>
   agentlab [--socket PATH] [--json] [--timeout DURATION] sandbox lease renew --ttl <ttl> <vmid>
   agentlab [--socket PATH] [--json] [--timeout DURATION] sandbox prune
-  agentlab [--socket PATH] [--json] [--timeout DURATION] sandbox expose <vmid> :<port>
+  agentlab [--socket PATH] [--json] [--timeout DURATION] sandbox expose [--force] <vmid> :<port>
   agentlab [--socket PATH] [--json] [--timeout DURATION] sandbox exposed
   agentlab [--socket PATH] [--json] [--timeout DURATION] sandbox unexpose <name>
   agentlab [--socket PATH] [--json] [--timeout DURATION] workspace create --name <name> --size <size> [--storage <storage>]
@@ -285,12 +285,14 @@ func printSandboxStartUsage() {
 
 func printSandboxStopUsage() {
 	fmt.Fprintln(os.Stdout, "Usage: agentlab sandbox stop <vmid>")
-	fmt.Fprintln(os.Stdout, "       agentlab sandbox stop --all")
+	fmt.Fprintln(os.Stdout, "       agentlab sandbox stop --all [--force]")
+	fmt.Fprintln(os.Stdout, "Note: --force skips the confirmation prompt for stop --all.")
 }
 
 func printSandboxRevertUsage() {
 	fmt.Fprintln(os.Stdout, "Usage: agentlab sandbox revert [--force] [--restart|--no-restart] <vmid>")
 	fmt.Fprintln(os.Stdout, "Note: By default, restarts the sandbox only if it was running before the revert.")
+	fmt.Fprintln(os.Stdout, "Note: Reverting a running sandbox requires confirmation unless --force is set.")
 }
 
 func printSandboxDestroyUsage() {
@@ -313,7 +315,8 @@ func printSandboxPruneUsage() {
 }
 
 func printSandboxExposeUsage() {
-	fmt.Fprintln(os.Stdout, "Usage: agentlab sandbox expose <vmid> :<port>")
+	fmt.Fprintln(os.Stdout, "Usage: agentlab sandbox expose [--force] <vmid> :<port>")
+	fmt.Fprintln(os.Stdout, "Note: --force skips the confirmation prompt for expose.")
 }
 
 func printSandboxExposedUsage() {

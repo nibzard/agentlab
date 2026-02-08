@@ -176,6 +176,10 @@ type V1SandboxStopAllResponse struct {
 	Results []V1SandboxStopAllResult `json:"results"`
 }
 
+type V1SandboxStopAllRequest struct {
+	Force bool `json:"force,omitempty"`
+}
+
 type V1LeaseRenewRequest struct {
 	TTLMinutes int `json:"ttl_minutes"`
 }
@@ -226,6 +230,7 @@ type V1ExposureCreateRequest struct {
 	Name     string `json:"name"`
 	VMID     int    `json:"vmid"`
 	Port     int    `json:"port"`
+	Force    bool   `json:"force,omitempty"`
 	TargetIP string `json:"target_ip,omitempty"`
 	URL      string `json:"url,omitempty"`
 	State    string `json:"state,omitempty"`

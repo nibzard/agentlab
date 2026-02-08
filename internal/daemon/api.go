@@ -1,6 +1,7 @@
 package daemon
 
 import (
+	"bytes"
 	"context"
 	"crypto/rand"
 	"database/sql"
@@ -1207,6 +1208,7 @@ func (api *ControlAPI) handleExposureCreate(w http.ResponseWriter, r *http.Reque
 		"target_ip": exposure.TargetIP,
 		"url":       exposure.URL,
 		"state":     exposure.State,
+		"force":     req.Force,
 	})
 	vmid := exposure.VMID
 	_ = api.store.RecordEvent(ctx, "exposure.create", &vmid, nil, fmt.Sprintf("exposure %s created", exposure.Name), string(payload))
@@ -1395,6 +1397,12 @@ func (api *ControlAPI) handleSandboxStopAll(w http.ResponseWriter, r *http.Reque
 		writeError(w, http.StatusInternalServerError, "sandbox store unavailable")
 		return
 	}
+	var req V1SandboxStopAllRequest
+	if err := decodeOptionalJSON(w, r, &req); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	forceUsed := req.Force
 	ctx := r.Context()
 	sandboxes, err := api.store.ListSandboxes(ctx)
 	if err != nil {
@@ -1456,6 +1464,7 @@ func (api *ControlAPI) handleSandboxStopAll(w http.ResponseWriter, r *http.Reque
 		"stopped": resp.Stopped,
 		"skipped": resp.Skipped,
 		"failed":  resp.Failed,
+		"force":   forceUsed,
 	})
 	_ = api.store.RecordEvent(ctx, "sandbox.stop_all", nil, nil,
 		fmt.Sprintf("stop_all completed: stopped=%d skipped=%d failed=%d", resp.Stopped, resp.Skipped, resp.Failed),
@@ -1919,6 +1928,30 @@ func decodeJSON(w http.ResponseWriter, r *http.Request, dest any) error {
 	defer r.Body.Close()
 	r.Body = http.MaxBytesReader(w, r.Body, maxJSONBytes)
 	dec := json.NewDecoder(r.Body)
+	dec.DisallowUnknownFields()
+	if err := dec.Decode(dest); err != nil {
+		return err
+	}
+	if err := dec.Decode(&struct{}{}); err != io.EOF {
+		return errors.New("unexpected trailing data")
+	}
+	return nil
+}
+
+func decodeOptionalJSON(w http.ResponseWriter, r *http.Request, dest any) error {
+	if r.Body == nil || r.Body == http.NoBody {
+		return nil
+	}
+	defer r.Body.Close()
+	r.Body = http.MaxBytesReader(w, r.Body, maxJSONBytes)
+	data, err := io.ReadAll(r.Body)
+	if err != nil {
+		return err
+	}
+	if len(bytes.TrimSpace(data)) == 0 {
+		return nil
+	}
+	dec := json.NewDecoder(bytes.NewReader(data))
 	dec.DisallowUnknownFields()
 	if err := dec.Decode(dest); err != nil {
 		return err

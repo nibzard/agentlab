@@ -52,7 +52,7 @@ func TestCLIExposureCommands(t *testing.T) {
 	base := commonFlags{socketPath: socketPath, jsonOutput: false, timeout: time.Second}
 
 	out := captureStdout(t, func() {
-		err := runSandboxExpose(context.Background(), []string{"9001", ":8080"}, base)
+		err := runSandboxExpose(context.Background(), []string{"--force", "9001", ":8080"}, base)
 		if err != nil {
 			t.Fatalf("runSandboxExpose() error = %v", err)
 		}
@@ -62,6 +62,9 @@ func TestCLIExposureCommands(t *testing.T) {
 	}
 	if gotCreate.Name != exposure.Name {
 		t.Fatalf("exposure name = %q, want %q", gotCreate.Name, exposure.Name)
+	}
+	if !gotCreate.Force {
+		t.Fatalf("expected exposure create to set force")
 	}
 	if !strings.Contains(out, exposure.Name) || !strings.Contains(out, exposure.URL) {
 		t.Fatalf("expected exposure output, got %q", out)

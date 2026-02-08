@@ -357,6 +357,9 @@ agentlab sandbox revert --force 1020
 # Expose a sandbox port over the tailnet (host-owned + audited)
 agentlab sandbox expose 1020 :8080
 
+# For non-interactive scripts, add --force to skip the confirmation prompt
+agentlab sandbox expose --force 1020 :8080
+
 # List active exposures
 agentlab sandbox exposed
 

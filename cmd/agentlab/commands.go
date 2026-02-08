@@ -863,8 +863,10 @@ func runSandboxStop(ctx context.Context, args []string, base commonFlags) error 
 	opts := base
 	opts.bind(fs)
 	var all bool
+	var force bool
 	var help bool
 	fs.BoolVar(&all, "all", false, "stop all running sandboxes")
+	fs.BoolVar(&force, "force", false, "skip confirmation prompt")
 	fs.BoolVar(&help, "help", false, "show help")
 	fs.BoolVar(&help, "h", false, "show help")
 	if err := parseFlags(fs, args, printSandboxStopUsage, &help, opts.jsonOutput); err != nil {
@@ -878,7 +880,14 @@ func runSandboxStop(ctx context.Context, args []string, base commonFlags) error 
 			}
 			return fmt.Errorf("vmid is not allowed with --all")
 		}
-		payload, err := client.doJSON(ctx, http.MethodPost, "/v1/sandboxes/stop_all", nil)
+		if err := requireConfirmation(confirmOptions{
+			action:     "stop all running sandboxes",
+			force:      force,
+			jsonOutput: opts.jsonOutput,
+		}); err != nil {
+			return err
+		}
+		payload, err := client.doJSON(ctx, http.MethodPost, "/v1/sandboxes/stop_all", sandboxStopAllRequest{Force: force})
 		if err != nil {
 			return err
 		}
@@ -974,6 +983,22 @@ func runSandboxRevert(ctx context.Context, args []string, base commonFlags) erro
 	}
 
 	client := newAPIClient(opts.socketPath, opts.timeout)
+	if !force {
+		sb, err := fetchSandbox(ctx, client, vmid)
+		if err != nil {
+			return err
+		}
+		state := strings.TrimSpace(sb.State)
+		if strings.EqualFold(state, "RUNNING") || strings.EqualFold(state, "READY") {
+			if err := requireConfirmation(confirmOptions{
+				action:     fmt.Sprintf("revert running sandbox %d", vmid),
+				force:      force,
+				jsonOutput: opts.jsonOutput,
+			}); err != nil {
+				return err
+			}
+		}
+	}
 	req := sandboxRevertRequest{Force: force, Restart: restartPtr}
 	payload, err := client.doJSON(ctx, http.MethodPost, fmt.Sprintf("/v1/sandboxes/%d/revert", vmid), req)
 	if err != nil {
@@ -1143,7 +1168,9 @@ func runSandboxExpose(ctx context.Context, args []string, base commonFlags) erro
 	fs := newFlagSet("sandbox expose")
 	opts := base
 	opts.bind(fs)
+	var force bool
 	var help bool
+	fs.BoolVar(&force, "force", false, "skip confirmation prompt")
 	fs.BoolVar(&help, "help", false, "show help")
 	fs.BoolVar(&help, "h", false, "show help")
 	if err := parseFlags(fs, args, printSandboxExposeUsage, &help, opts.jsonOutput); err != nil {
@@ -1163,10 +1190,18 @@ func runSandboxExpose(ctx context.Context, args []string, base commonFlags) erro
 	if err != nil {
 		return err
 	}
+	if err := requireConfirmation(confirmOptions{
+		action:     fmt.Sprintf("expose sandbox %d port %d", vmid, port),
+		force:      force,
+		jsonOutput: opts.jsonOutput,
+	}); err != nil {
+		return err
+	}
 	req := exposureCreateRequest{
-		Name: exposureName(vmid, port),
-		VMID: vmid,
-		Port: port,
+		Name:  exposureName(vmid, port),
+		VMID:  vmid,
+		Port:  port,
+		Force: force,
 	}
 	client := newAPIClient(opts.socketPath, opts.timeout)
 	payload, err := client.doJSON(ctx, http.MethodPost, "/v1/exposures", req)

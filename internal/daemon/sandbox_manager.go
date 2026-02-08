@@ -81,6 +81,7 @@ type revertEventPayload struct {
 	Snapshot   string `json:"snapshot"`
 	Restart    bool   `json:"restart"`
 	WasRunning bool   `json:"was_running"`
+	Force      bool   `json:"force,omitempty"`
 	DurationMS int64  `json:"duration_ms,omitempty"`
 	Error      string `json:"error,omitempty"`
 }
@@ -539,6 +540,7 @@ func (m *SandboxManager) Revert(ctx context.Context, vmid int, opts RevertOption
 		Snapshot:   snapshotName,
 		Restart:    restart,
 		WasRunning: wasRunning,
+		Force:      opts.Force,
 	})
 
 	defer func() {
@@ -550,6 +552,7 @@ func (m *SandboxManager) Revert(ctx context.Context, vmid int, opts RevertOption
 			Snapshot:   snapshotName,
 			Restart:    restart,
 			WasRunning: wasRunning,
+			Force:      opts.Force,
 			DurationMS: duration.Milliseconds(),
 			Error:      err.Error(),
 		})
@@ -621,6 +624,7 @@ func (m *SandboxManager) Revert(ctx context.Context, vmid int, opts RevertOption
 		Snapshot:   snapshotName,
 		Restart:    restart,
 		WasRunning: wasRunning,
+		Force:      opts.Force,
 		DurationMS: duration.Milliseconds(),
 	})
 	if m.metrics != nil {

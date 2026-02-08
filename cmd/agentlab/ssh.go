@@ -415,6 +415,10 @@ func isShellSpecial(r rune) bool {
 }
 
 // isInteractive returns true if both stdin and stdout are terminals.
-func isInteractive() bool {
+var isInteractiveFn = func() bool {
 	return isatty.IsTerminal(os.Stdin.Fd()) && isatty.IsTerminal(os.Stdout.Fd())
+}
+
+func isInteractive() bool {
+	return isInteractiveFn()
 }
