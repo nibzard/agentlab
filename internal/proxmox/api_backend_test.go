@@ -16,6 +16,65 @@ type apiRequest struct {
 	form     url.Values
 }
 
+func TestAPIBackendClone(t *testing.T) {
+	tests := []struct {
+		name      string
+		cloneMode string
+		wantFull  string
+	}{
+		{name: "linked clone", cloneMode: "linked", wantFull: "0"},
+		{name: "full clone", cloneMode: "full", wantFull: "1"},
+		{name: "default clone mode", cloneMode: "", wantFull: "0"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var calls []apiRequest
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				body, _ := io.ReadAll(r.Body)
+				_ = r.Body.Close()
+				form, _ := url.ParseQuery(string(body))
+				calls = append(calls, apiRequest{
+					method:   r.Method,
+					path:     r.URL.Path,
+					rawQuery: r.URL.RawQuery,
+					form:     form,
+				})
+				w.Header().Set("Content-Type", "application/json")
+				_, _ = w.Write([]byte(`{"data":{}}`))
+			}))
+			defer srv.Close()
+
+			backend := &APIBackend{
+				BaseURL:    srv.URL + "/api2/json",
+				Node:       "pve",
+				HTTPClient: srv.Client(),
+				CloneMode:  tt.cloneMode,
+			}
+
+			if err := backend.Clone(context.Background(), 9000, 101, "sandbox-101"); err != nil {
+				t.Fatalf("Clone() error = %v", err)
+			}
+			if len(calls) != 1 {
+				t.Fatalf("expected 1 API call, got %d", len(calls))
+			}
+			call := calls[0]
+			if call.method != http.MethodPost || call.path != "/api2/json/nodes/pve/qemu/9000/clone" {
+				t.Fatalf("Clone call = %s %s", call.method, call.path)
+			}
+			if call.form.Get("newid") != "101" {
+				t.Fatalf("Clone newid = %q", call.form.Get("newid"))
+			}
+			if call.form.Get("name") != "sandbox-101" {
+				t.Fatalf("Clone name = %q", call.form.Get("name"))
+			}
+			if call.form.Get("full") != tt.wantFull {
+				t.Fatalf("Clone full = %q, want %q", call.form.Get("full"), tt.wantFull)
+			}
+		})
+	}
+}
+
 func TestAPIBackendSnapshotEndpoints(t *testing.T) {
 	var calls []apiRequest
 

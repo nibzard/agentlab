@@ -44,6 +44,7 @@ The main configuration file is located at `/etc/agentlab/config.yaml` by default
 | `proxmox_command_timeout` | duration | `2m` | Timeout for Proxmox shell commands |
 | `provisioning_timeout` | duration | `10m` | Timeout for VM provisioning |
 | `proxmox_backend` | string | `api` | Proxmox backend: `api` or `shell` |
+| `proxmox_clone_mode` | string | `linked` | Clone mode for templates: `linked` (fast, storage-efficient) or `full` (full copy) |
 | `proxmox_api_url` | string | `https://localhost:8006` | Proxmox API URL |
 | `proxmox_api_token` | string | `""` (required) | Proxmox API token |
 | `proxmox_node` | string | `""` (auto) | Proxmox node name (auto-detected if empty) |
@@ -78,10 +79,19 @@ The `metrics_listen` endpoint exposes Prometheus metrics and **must** be localho
 
 ### Proxmox Backend Configuration
 
+#### Clone Mode
+
+```yaml
+proxmox_clone_mode: linked  # or "full" for full clones
+```
+
+`linked` clones are faster and more storage-efficient on ZFS/LVM-thin. Use `full` if your storage backend does not support linked clones or if you need independent disks.
+
 #### API Backend (Recommended)
 
 ```yaml
 proxmox_backend: api
+proxmox_clone_mode: linked
 proxmox_api_url: https://localhost:8006
 proxmox_api_token: root@pam!token=uuid
 proxmox_node: pve1  # optional, auto-detected if empty
@@ -105,6 +115,7 @@ proxmox_tls_ca_path: /etc/agentlab/certs/proxmox-ca.pem
 
 ```yaml
 proxmox_backend: shell
+proxmox_clone_mode: linked
 proxmox_command_timeout: 5m  # increase for slower systems
 ```
 
@@ -275,6 +286,7 @@ Configuration can be overridden via environment variables. Environment variables
 | `AGENTLAB_PROXMOX_COMMAND_TIMEOUT` | `proxmox_command_timeout` | `5m` |
 | `AGENTLAB_PROVISIONING_TIMEOUT` | `provisioning_timeout` | `15m` |
 | `AGENTLAB_PROXMOX_BACKEND` | `proxmox_backend` | `api` |
+| `AGENTLAB_PROXMOX_CLONE_MODE` | `proxmox_clone_mode` | `linked` |
 | `AGENTLAB_PROXMOX_API_URL` | `proxmox_api_url` | `https://localhost:8006` |
 | `AGENTLAB_PROXMOX_API_TOKEN` | `proxmox_api_token` | `root@pam!token=uuid` |
 | `AGENTLAB_PROXMOX_NODE` | `proxmox_node` | `pve1` |

@@ -71,6 +71,7 @@ type ShellBackend struct {
 	QmPath    string        // Path to qm command (defaults to "qm")
 	PveShPath string        // Path to pvesh command (defaults to "pvesh")
 	Runner    CommandRunner // Command execution strategy (defaults to ExecRunner)
+	CloneMode string        // "linked" or "full" clone mode (default: linked)
 
 	// Use BashRunner to work around Proxmox IPC issues
 	BashRunner         BashRunner                                       // Bash runner for working around IPC issues
@@ -85,7 +86,11 @@ type ShellBackend struct {
 var _ Backend = (*ShellBackend)(nil)
 
 func (b *ShellBackend) Clone(ctx context.Context, template VMID, target VMID, name string) error {
-	args := []string{"clone", strconv.Itoa(int(template)), strconv.Itoa(int(target)), "--full", "0"}
+	full := "0"
+	if strings.EqualFold(strings.TrimSpace(b.CloneMode), "full") {
+		full = "1"
+	}
+	args := []string{"clone", strconv.Itoa(int(template)), strconv.Itoa(int(target)), "--full", full}
 	if name != "" {
 		args = append(args, "--name", name)
 	}

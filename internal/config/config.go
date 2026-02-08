@@ -65,13 +65,14 @@ type Config struct {
 	IdleStopInterval        time.Duration
 	IdleStopMinutesDefault  int
 	IdleStopCPUThreshold    float64
-	// Proxmox API backend configuration
-	ProxmoxBackend      string // "shell" or "api"
-	ProxmoxAPIURL       string // e.g., "https://localhost:8006/api2/json"
-	ProxmoxAPIToken     string // e.g., "root@pam!token=uuid"
-	ProxmoxNode         string // Proxmox node name (optional, auto-detected if empty)
-	ProxmoxTLSInsecure  bool   // Skip TLS verification for Proxmox API
-	ProxmoxTLSCAPath    string // Optional CA bundle path for Proxmox API TLS verification
+	// Proxmox backend configuration
+	ProxmoxBackend     string // "shell" or "api"
+	ProxmoxCloneMode   string // "linked" or "full"
+	ProxmoxAPIURL      string // e.g., "https://localhost:8006/api2/json"
+	ProxmoxAPIToken    string // e.g., "root@pam!token=uuid"
+	ProxmoxNode        string // Proxmox node name (optional, auto-detected if empty)
+	ProxmoxTLSInsecure bool   // Skip TLS verification for Proxmox API
+	ProxmoxTLSCAPath   string // Optional CA bundle path for Proxmox API TLS verification
 }
 
 // FileConfig represents supported YAML config overrides.
@@ -114,6 +115,7 @@ type FileConfig struct {
 	IdleStopMinutesDefault  *int     `yaml:"idle_stop_minutes_default"`
 	IdleStopCPUThreshold    *float64 `yaml:"idle_stop_cpu_threshold"`
 	ProxmoxBackend          string   `yaml:"proxmox_backend"`
+	ProxmoxCloneMode        string   `yaml:"proxmox_clone_mode"`
 	ProxmoxAPIURL           string   `yaml:"proxmox_api_url"`
 	ProxmoxAPIToken         string   `yaml:"proxmox_api_token"`
 	ProxmoxNode             string   `yaml:"proxmox_node"`
@@ -136,6 +138,7 @@ type FileConfig struct {
 //   - ArtifactMaxBytes: 256 MB
 //   - ArtifactTokenTTLMinutes: 1440 (24 hours)
 //   - ProxmoxBackend: "shell"
+//   - ProxmoxCloneMode: "linked"
 //   - ProxmoxCommandTimeout: 2 minutes
 //   - ProvisioningTimeout: 10 minutes
 //   - ProxmoxTLSInsecure: true
@@ -175,12 +178,13 @@ func DefaultConfig() Config {
 		IdleStopInterval:        1 * time.Minute,
 		IdleStopMinutesDefault:  30,
 		IdleStopCPUThreshold:    0.05,
-		ProxmoxBackend:          "shell",
-		ProxmoxAPIURL:           "https://localhost:8006",
-		ProxmoxAPIToken:         "", // Must be configured
-		ProxmoxNode:             "", // Auto-detected if empty
-		ProxmoxTLSInsecure:      true,
-		ProxmoxTLSCAPath:        "",
+		ProxmoxBackend:     "shell",
+		ProxmoxCloneMode:   "linked",
+		ProxmoxAPIURL:      "https://localhost:8006",
+		ProxmoxAPIToken:    "", // Must be configured
+		ProxmoxNode:        "", // Auto-detected if empty
+		ProxmoxTLSInsecure: true,
+		ProxmoxTLSCAPath:   "",
 	}
 }
 
@@ -344,6 +348,9 @@ func applyFileConfig(cfg *Config, fileCfg FileConfig) error {
 	if fileCfg.ProxmoxBackend != "" {
 		cfg.ProxmoxBackend = fileCfg.ProxmoxBackend
 	}
+	if fileCfg.ProxmoxCloneMode != "" {
+		cfg.ProxmoxCloneMode = fileCfg.ProxmoxCloneMode
+	}
 	if fileCfg.ProxmoxAPIURL != "" {
 		cfg.ProxmoxAPIURL = fileCfg.ProxmoxAPIURL
 	}
@@ -482,6 +489,9 @@ func (c Config) Validate() error {
 	}
 	if c.ProxmoxBackend != "" && c.ProxmoxBackend != "shell" && c.ProxmoxBackend != "api" {
 		return fmt.Errorf("proxmox_backend must be either 'shell' or 'api'")
+	}
+	if c.ProxmoxCloneMode != "" && c.ProxmoxCloneMode != "linked" && c.ProxmoxCloneMode != "full" {
+		return fmt.Errorf("proxmox_clone_mode must be either 'linked' or 'full'")
 	}
 	if c.ProxmoxBackend == "api" && c.ProxmoxAPIToken == "" {
 		return fmt.Errorf("proxmox_api_token is required when using api backend")

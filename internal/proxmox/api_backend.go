@@ -36,6 +36,7 @@ type APIBackend struct {
 	Node           string        // Proxmox node name (empty for auto-detection)
 	AgentCIDR      string        // CIDR block for selecting guest IPs (e.g., "10.77.0.0/16")
 	CommandTimeout time.Duration // Timeout for API commands (defaults to 2 minutes)
+	CloneMode      string        // "linked" or "full" clone mode (default: linked)
 
 	// DHCP configuration for GuestIP fallback
 	DHCPLeasePaths []string // Paths to DHCP lease files for fallback IP discovery
@@ -52,7 +53,7 @@ type APIResponse struct {
 }
 
 // Clone creates a new VM by cloning a template.
-// ABOUTME: Performs a full clone of the template VM to create a new VM with the target ID.
+// ABOUTME: Uses linked clones by default; set CloneMode="full" for full clones.
 func (b *APIBackend) Clone(ctx context.Context, template VMID, target VMID, name string) error {
 	node, err := b.ensureNode(ctx)
 	if err != nil {
@@ -61,9 +62,11 @@ func (b *APIBackend) Clone(ctx context.Context, template VMID, target VMID, name
 
 	params := url.Values{}
 	params.Set("newid", strconv.Itoa(int(target)))
-	// Use linked clones for speed and to match the shell backend's behavior.
-	// Full clones are slower and can trigger provisioning timeouts on busy storage.
-	params.Set("full", "0")
+	full := "0"
+	if strings.EqualFold(strings.TrimSpace(b.CloneMode), "full") {
+		full = "1"
+	}
+	params.Set("full", full)
 	if name != "" {
 		params.Set("name", name)
 	}

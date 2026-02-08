@@ -59,7 +59,6 @@ func TestShellBackendCloneRetriesFullCloneOnLinkedCloneFailure(t *testing.T) {
 		{},
 	}}
 	backend := &ShellBackend{Runner: runner}
-
 	err := backend.Clone(context.Background(), 9000, 101, "sandbox-101")
 	if err != nil {
 		t.Fatalf("Clone() error = %v", err)
@@ -70,6 +69,26 @@ func TestShellBackendCloneRetriesFullCloneOnLinkedCloneFailure(t *testing.T) {
 			name: "qm",
 			args: []string{"clone", "9000", "101", "--full", "0", "--name", "sandbox-101"},
 		},
+		{
+			name: "qm",
+			args: []string{"clone", "9000", "101", "--full", "1", "--name", "sandbox-101"},
+		},
+	}
+	if !reflect.DeepEqual(runner.calls, want) {
+		t.Fatalf("Clone() calls = %#v, want %#v", runner.calls, want)
+	}
+}
+
+func TestShellBackendCloneFull(t *testing.T) {
+	runner := &fakeRunner{responses: []runnerResponse{{}}}
+	backend := &ShellBackend{Runner: runner, CloneMode: "full"}
+
+	err := backend.Clone(context.Background(), 9000, 101, "sandbox-101")
+	if err != nil {
+		t.Fatalf("Clone() error = %v", err)
+	}
+
+	want := []runnerCall{
 		{
 			name: "qm",
 			args: []string{"clone", "9000", "101", "--full", "1", "--name", "sandbox-101"},

@@ -134,6 +134,10 @@ func NewService(cfg config.Config, profiles map[string]models.Profile, store *db
 	if strings.TrimSpace(cfg.MetricsListen) != "" {
 		metrics = NewMetrics()
 	}
+	cloneMode := strings.ToLower(strings.TrimSpace(cfg.ProxmoxCloneMode))
+	if cloneMode == "" {
+		cloneMode = "linked"
+	}
 	unixListener, err := listenUnix(cfg.SocketPath)
 	if err != nil {
 		return nil, err
@@ -181,6 +185,7 @@ func NewService(cfg config.Config, profiles map[string]models.Profile, store *db
 			_ = unixListener.Close()
 			return nil, fmt.Errorf("create Proxmox API backend: %w", err)
 		}
+		apiBackend.CloneMode = cloneMode
 		backend = apiBackend
 		log.Printf("using Proxmox API backend (url=%s)", cfg.ProxmoxAPIURL)
 	case "shell", "", "default":
@@ -189,6 +194,7 @@ func NewService(cfg config.Config, profiles map[string]models.Profile, store *db
 			CommandTimeout: cfg.ProxmoxCommandTimeout,
 			AgentCIDR:      agentCIDR,
 			Runner:         &proxmox.BashRunner{},
+			CloneMode:      cloneMode,
 		}
 		log.Printf("using Proxmox shell backend")
 	default:
