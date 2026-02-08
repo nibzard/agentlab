@@ -1912,9 +1912,10 @@
       "files": [
         "cmd/agentlab/api.go",
         "cmd/agentlab/api_test.go",
-        "cmd/agentlab/commands.go"
+        "cmd/agentlab/commands.go",
+        "to-do.json"
       ],
-      "updated_at": "2026-02-08T21:57:03Z"
+      "updated_at": "2026-02-08T21:57:21Z"
     },
     {
       "id": "T085",
@@ -1940,13 +1941,13 @@
       "id": "T086",
       "title": "Use cpulist for API backend CPU pinning",
       "priority": 3,
-      "status": "todo",
+      "status": "done",
       "details": "API backend maps VMConfig.CPUPinning to the Proxmox API parameter cpulimit, which is a CPU cap rather than a pin. Align with the shell backend and profile schema by using cpulist, and update the API backend tests accordingly.",
       "files": [
         "internal/proxmox/api_backend.go",
-        "internal/proxmox/api_backend_test.go",
-        "internal/daemon/profile_resources.go"
-      ]
+        "internal/proxmox/api_backend_test.go"
+      ],
+      "updated_at": "2026-02-08T21:58:26Z"
     },
     {
       "id": "T087",
