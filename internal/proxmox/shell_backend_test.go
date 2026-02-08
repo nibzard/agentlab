@@ -371,3 +371,27 @@ func TestShellBackendDeleteVolume(t *testing.T) {
 		t.Fatalf("DeleteVolume() calls = %#v, want %#v", runner.calls, want)
 	}
 }
+
+func TestShellBackendSnapshotOps(t *testing.T) {
+	runner := &fakeRunner{responses: []runnerResponse{{}, {}, {}}}
+	backend := &ShellBackend{Runner: runner}
+
+	if err := backend.SnapshotCreate(context.Background(), 101, "clean"); err != nil {
+		t.Fatalf("SnapshotCreate() error = %v", err)
+	}
+	if err := backend.SnapshotRollback(context.Background(), 101, "clean"); err != nil {
+		t.Fatalf("SnapshotRollback() error = %v", err)
+	}
+	if err := backend.SnapshotDelete(context.Background(), 101, "clean"); err != nil {
+		t.Fatalf("SnapshotDelete() error = %v", err)
+	}
+
+	want := []runnerCall{
+		{name: "qm", args: []string{"snapshot", "101", "clean"}},
+		{name: "qm", args: []string{"rollback", "101", "clean"}},
+		{name: "qm", args: []string{"delsnapshot", "101", "clean"}},
+	}
+	if !reflect.DeepEqual(runner.calls, want) {
+		t.Fatalf("Snapshot calls = %#v, want %#v", runner.calls, want)
+	}
+}

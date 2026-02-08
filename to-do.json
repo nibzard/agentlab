@@ -1102,18 +1102,19 @@
         "cli"
       ],
       "files": [
-        "internal/models/models.go",
-        "internal/daemon/sandbox_manager.go",
-        "internal/daemon/api.go",
-        "internal/daemon/api_sandbox_test.go",
-        "internal/daemon/sandbox_manager_test.go",
         "cmd/agentlab/commands.go",
+        "cmd/agentlab/commands_happy_path_test.go",
         "cmd/agentlab/main.go",
         "cmd/agentlab/main_test.go",
-        "cmd/agentlab/commands_happy_path_test.go"
+        "internal/daemon/api.go",
+        "internal/daemon/api_sandbox_test.go",
+        "internal/daemon/sandbox_manager.go",
+        "internal/daemon/sandbox_manager_test.go",
+        "internal/models/models.go",
+        "to-do.json"
       ],
       "created_at": "2026-02-08T16:47:32Z",
-      "updated_at": "2026-02-08T17:54:14Z"
+      "updated_at": "2026-02-08T17:58:02Z"
     },
     {
       "id": "T060",
@@ -1263,7 +1264,7 @@
       "id": "T065",
       "title": "Add Proxmox VM snapshot operations to backend (create/rollback/delete)",
       "priority": 1,
-      "status": "todo",
+      "status": "done",
       "details": "Enable fast undo by adding snapshot primitives to the proxmox.Backend interface and implementing them for both APIBackend and ShellBackend. These will support sandbox revert-to-clean workflows.",
       "steps": [
         "Extend internal/proxmox/Backend interface with SnapshotCreate(vmid,name), SnapshotRollback(vmid,name), and SnapshotDelete(vmid,name) (or equivalent).",
@@ -1272,9 +1273,7 @@
         "Decide and document required VM state for rollback (prefer: ensure VM stopped before rollback; no vmstate snapshots).",
         "Add unit tests for the shell backend command construction and API backend request paths (mock HTTP)."
       ],
-      "blockers": [
-        "Confirm Proxmox API endpoints and required parameters for snapshot create/rollback/delete across PVE 8.x and 9.x."
-      ],
+      "blockers": [],
       "tags": [
         "roadmap-v0.2",
         "proxmox",
@@ -1285,10 +1284,13 @@
         "internal/proxmox/proxmox.go",
         "internal/proxmox/api_backend.go",
         "internal/proxmox/shell_backend.go",
-        "internal/proxmox/shell_backend_test.go"
+        "internal/proxmox/api_backend_test.go",
+        "internal/proxmox/shell_backend_test.go",
+        "internal/daemon/sandbox_manager_test.go",
+        "internal/daemon/job_orchestrator_test.go"
       ],
       "created_at": "2026-02-08T16:47:32Z",
-      "updated_at": "2026-02-08T16:47:32Z"
+      "updated_at": "2026-02-08T18:03:26Z"
     },
     {
       "id": "T066",
