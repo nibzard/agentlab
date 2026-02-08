@@ -66,10 +66,12 @@ type Config struct {
 	IdleStopMinutesDefault  int
 	IdleStopCPUThreshold    float64
 	// Proxmox API backend configuration
-	ProxmoxBackend  string // "shell" or "api"
-	ProxmoxAPIURL   string // e.g., "https://localhost:8006/api2/json"
-	ProxmoxAPIToken string // e.g., "root@pam!token=uuid"
-	ProxmoxNode     string // Proxmox node name (optional, auto-detected if empty)
+	ProxmoxBackend      string // "shell" or "api"
+	ProxmoxAPIURL       string // e.g., "https://localhost:8006/api2/json"
+	ProxmoxAPIToken     string // e.g., "root@pam!token=uuid"
+	ProxmoxNode         string // Proxmox node name (optional, auto-detected if empty)
+	ProxmoxTLSInsecure  bool   // Skip TLS verification for Proxmox API
+	ProxmoxTLSCAPath    string // Optional CA bundle path for Proxmox API TLS verification
 }
 
 // FileConfig represents supported YAML config overrides.
@@ -115,6 +117,8 @@ type FileConfig struct {
 	ProxmoxAPIURL           string   `yaml:"proxmox_api_url"`
 	ProxmoxAPIToken         string   `yaml:"proxmox_api_token"`
 	ProxmoxNode             string   `yaml:"proxmox_node"`
+	ProxmoxTLSInsecure      *bool    `yaml:"proxmox_tls_insecure"`
+	ProxmoxTLSCAPath        string   `yaml:"proxmox_tls_ca_path"`
 }
 
 // DefaultConfig returns a Config struct with all default values set.
@@ -134,6 +138,7 @@ type FileConfig struct {
 //   - ProxmoxBackend: "shell"
 //   - ProxmoxCommandTimeout: 2 minutes
 //   - ProvisioningTimeout: 10 minutes
+//   - ProxmoxTLSInsecure: true
 //   - IdleStopEnabled: true
 //   - IdleStopInterval: 1 minute
 //   - IdleStopMinutesDefault: 30 minutes
@@ -174,6 +179,8 @@ func DefaultConfig() Config {
 		ProxmoxAPIURL:           "https://localhost:8006",
 		ProxmoxAPIToken:         "", // Must be configured
 		ProxmoxNode:             "", // Auto-detected if empty
+		ProxmoxTLSInsecure:      true,
+		ProxmoxTLSCAPath:        "",
 	}
 }
 
@@ -346,6 +353,12 @@ func applyFileConfig(cfg *Config, fileCfg FileConfig) error {
 	if fileCfg.ProxmoxNode != "" {
 		cfg.ProxmoxNode = fileCfg.ProxmoxNode
 	}
+	if fileCfg.ProxmoxTLSInsecure != nil {
+		cfg.ProxmoxTLSInsecure = *fileCfg.ProxmoxTLSInsecure
+	}
+	if fileCfg.ProxmoxTLSCAPath != "" {
+		cfg.ProxmoxTLSCAPath = fileCfg.ProxmoxTLSCAPath
+	}
 	return nil
 }
 
@@ -472,6 +485,9 @@ func (c Config) Validate() error {
 	}
 	if c.ProxmoxBackend == "api" && c.ProxmoxAPIToken == "" {
 		return fmt.Errorf("proxmox_api_token is required when using api backend")
+	}
+	if strings.TrimSpace(c.ProxmoxTLSCAPath) != "" && c.ProxmoxTLSInsecure {
+		return fmt.Errorf("proxmox_tls_insecure cannot be true when proxmox_tls_ca_path is set")
 	}
 	return nil
 }

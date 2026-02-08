@@ -570,6 +570,58 @@ func TestValidateTimeouts(t *testing.T) {
 	}
 }
 
+func TestValidateProxmoxTLSConfig(t *testing.T) {
+	tests := []struct {
+		name        string
+		setup       func(*Config)
+		wantErr     bool
+		errContains string
+	}{
+		{
+			name: "insecure with ca path is invalid",
+			setup: func(c *Config) {
+				c.ProxmoxTLSInsecure = true
+				c.ProxmoxTLSCAPath = "/etc/ssl/certs/proxmox-ca.pem"
+			},
+			wantErr:     true,
+			errContains: "proxmox_tls_insecure",
+		},
+		{
+			name: "secure with ca path is valid",
+			setup: func(c *Config) {
+				c.ProxmoxTLSInsecure = false
+				c.ProxmoxTLSCAPath = "/etc/ssl/certs/proxmox-ca.pem"
+			},
+			wantErr: false,
+		},
+		{
+			name: "secure without ca path is valid",
+			setup: func(c *Config) {
+				c.ProxmoxTLSInsecure = false
+				c.ProxmoxTLSCAPath = ""
+			},
+			wantErr: false,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cfg := DefaultConfig()
+			if tt.setup != nil {
+				tt.setup(&cfg)
+			}
+			err := cfg.Validate()
+			if tt.wantErr {
+				require.Error(t, err)
+				if tt.errContains != "" {
+					assert.Contains(t, err.Error(), tt.errContains)
+				}
+			} else {
+				assert.NoError(t, err)
+			}
+		})
+	}
+}
+
 func TestDefaultConfig(t *testing.T) {
 	cfg := DefaultConfig()
 

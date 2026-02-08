@@ -1773,10 +1773,11 @@
       ],
       "files": [
         "cmd/agentlab-ssh-gateway/main.go",
-        "docs/ssh_gateway_spike.md"
+        "docs/ssh_gateway_spike.md",
+        "to-do.json"
       ],
       "created_at": "2026-02-08T16:47:32Z",
-      "updated_at": "2026-02-08T21:16:32Z"
+      "updated_at": "2026-02-08T21:17:04Z"
     },
     {
       "id": "T079",
@@ -1818,6 +1819,83 @@
       ],
       "created_at": "2026-02-08T16:47:32Z",
       "updated_at": "2026-02-08T21:11:44Z"
+    },
+    {
+      "id": "T080",
+      "title": "Stop tracking generated coverage artifacts",
+      "priority": 4,
+      "status": "todo",
+      "details": "coverage.out and coverage.html are committed. Remove them from version control, add ignore rules, and ensure CI still uploads artifacts without relying on tracked files.",
+      "tags": [
+        "cleanup",
+        "ci"
+      ],
+      "files": [
+        "coverage.out",
+        "coverage.html",
+        ".gitignore",
+        ".github/workflows/ci.yml",
+        "Makefile"
+      ],
+      "created_at": "2026-02-08T21:21:56Z"
+    },
+    {
+      "id": "T081",
+      "title": "Align Go version requirement across docs and build scripts",
+      "priority": 4,
+      "status": "todo",
+      "details": "Makefile comment claims Go 1.23+, README references Go 1.24.0, and go.mod specifies 1.24.0. Normalize the stated requirement to a single version and update related docs.",
+      "tags": [
+        "docs",
+        "build"
+      ],
+      "files": [
+        "Makefile",
+        "README.md",
+        "go.mod",
+        "docs/testing.md"
+      ],
+      "created_at": "2026-02-08T21:21:56Z"
+    },
+    {
+      "id": "T082",
+      "title": "Make Proxmox API TLS verification configurable",
+      "priority": 3,
+      "status": "done",
+      "details": "API backend always skips TLS verification. Add config to control verification (e.g., allow CA bundle or an explicit insecure flag), use it in APIBackend client construction, and document the behavior.",
+      "tags": [
+        "security",
+        "proxmox",
+        "config"
+      ],
+      "files": [
+        "internal/proxmox/api_backend.go",
+        "internal/config/config.go",
+        "internal/config/config_test.go",
+        "internal/daemon/daemon.go",
+        "docs/configuration.md",
+        "README.md",
+        "to-do.json"
+      ],
+      "created_at": "2026-02-08T21:21:56Z",
+      "updated_at": "2026-02-08T21:27:26Z"
+    },
+    {
+      "id": "T083",
+      "title": "Verify cloud image downloads in create_template.sh",
+      "priority": 3,
+      "status": "todo",
+      "details": "Template builds download Ubuntu cloud images without integrity checks. Add optional checksum verification (e.g., --image-sha256 or SHA256SUMS fetch) and document the flow.",
+      "tags": [
+        "security",
+        "templates"
+      ],
+      "files": [
+        "scripts/create_template.sh",
+        "scripts/README.md",
+        "docs/runbook.md"
+      ],
+      "created_at": "2026-02-08T21:21:56Z"
     }
   ]
 }

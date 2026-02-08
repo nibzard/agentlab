@@ -171,6 +171,8 @@ func NewService(cfg config.Config, profiles map[string]models.Profile, store *db
 			cfg.ProxmoxNode,
 			agentCIDR,
 			cfg.ProxmoxCommandTimeout,
+			cfg.ProxmoxTLSInsecure,
+			cfg.ProxmoxTLSCAPath,
 		)
 		if err != nil {
 			_ = metricsListener.Close()

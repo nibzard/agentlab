@@ -200,6 +200,9 @@ proxmox_backend: api  # Use API backend (recommended)
 proxmox_api_url: https://localhost:8006
 proxmox_api_token: root@pam!token-id=token-uuid
 proxmox_node: ""  # Auto-detected if empty
+proxmox_tls_insecure: true  # Default: skip TLS verification for self-signed certs
+# proxmox_tls_insecure: false
+# proxmox_tls_ca_path: /etc/agentlab/certs/proxmox-ca.pem
 ```
 
 **Creating API Token:**
@@ -219,7 +222,7 @@ proxmox_api_token: root@pam!agentlab-api=0d08f8bc-0a12-4072-8f18-264a33793bb9
 **Testing API Backend:**
 
 ```bash
-# Test API connectivity
+# Test API connectivity (use -k only when proxmox_tls_insecure is true)
 curl -k -H "Authorization: PVEAPIToken=root@pam!token=uuid" \
   https://localhost:8006/api2/json/nodes
 

@@ -6,6 +6,7 @@ package proxmox
 import (
 	"context"
 	"crypto/tls"
+	"crypto/x509"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -25,7 +26,7 @@ import (
 // It requires an API token for authentication and supports automatic node detection.
 type APIBackend struct {
 	// HTTP client configuration
-	HTTPClient    *http.Client // Custom HTTP client (optional, defaults to insecure TLS client)
+	HTTPClient    *http.Client // Custom HTTP client (optional, defaults to TLS-configured client)
 	BaseURL       string       // Proxmox API base URL (e.g., "https://localhost:8006/api2/json")
 	APIToken      string       // Full API token in format "USER@REALM!TOKENID=TOKEN"
 	APITokenID    string       // Extracted token ID from APIToken
@@ -490,7 +491,8 @@ func (b *APIBackend) client() *http.Client {
 		return b.HTTPClient
 	}
 
-	// Create default client with insecure TLS skip for self-signed certs
+	// Create default client with insecure TLS skip for self-signed certs.
+	// Prefer using NewAPIBackend to get a client configured from settings.
 	return &http.Client{
 		Timeout: b.commandTimeout(),
 		Transport: &http.Transport{
@@ -833,7 +835,8 @@ func (b *APIBackend) sleep(ctx context.Context, d time.Duration) error {
 // NewAPIBackend creates a new APIBackend.
 // ABOUTME: The baseURL should be the Proxmox API URL (e.g., "https://localhost:8006").
 // The apiToken must be in format "USER@REALM!TOKENID=TOKEN". If node is empty, it will be auto-detected.
-func NewAPIBackend(baseURL, apiToken, node, agentCIDR string, timeout time.Duration) (*APIBackend, error) {
+// TLS verification can be controlled with tlsInsecure or a custom CA bundle path.
+func NewAPIBackend(baseURL, apiToken, node, agentCIDR string, timeout time.Duration, tlsInsecure bool, tlsCAPath string) (*APIBackend, error) {
 	// Parse API token
 	var tokenID, tokenValue string
 	if strings.Contains(apiToken, "=") {
@@ -847,7 +850,13 @@ func NewAPIBackend(baseURL, apiToken, node, agentCIDR string, timeout time.Durat
 		baseURL = strings.TrimSuffix(baseURL, "/") + "/api2/json"
 	}
 
+	httpClient, err := newAPIHTTPClient(timeout, tlsInsecure, tlsCAPath)
+	if err != nil {
+		return nil, err
+	}
+
 	return &APIBackend{
+		HTTPClient:     httpClient,
 		BaseURL:        baseURL,
 		APIToken:       apiToken,
 		APITokenID:     tokenID,
@@ -855,6 +864,44 @@ func NewAPIBackend(baseURL, apiToken, node, agentCIDR string, timeout time.Durat
 		Node:           node,
 		AgentCIDR:      agentCIDR,
 		CommandTimeout: timeout,
+	}, nil
+}
+
+func newAPIHTTPClient(timeout time.Duration, tlsInsecure bool, caPath string) (*http.Client, error) {
+	caPath = strings.TrimSpace(caPath)
+	if tlsInsecure && caPath != "" {
+		return nil, fmt.Errorf("proxmox_tls_insecure cannot be true when proxmox_tls_ca_path is set")
+	}
+
+	tlsConfig := &tls.Config{
+		InsecureSkipVerify: tlsInsecure,
+	}
+
+	if caPath != "" {
+		caPEM, err := os.ReadFile(caPath)
+		if err != nil {
+			return nil, fmt.Errorf("read proxmox_tls_ca_path %q: %w", caPath, err)
+		}
+		pool, err := x509.SystemCertPool()
+		if err != nil || pool == nil {
+			pool = x509.NewCertPool()
+		}
+		if ok := pool.AppendCertsFromPEM(caPEM); !ok {
+			return nil, fmt.Errorf("proxmox_tls_ca_path %q did not contain any certificates", caPath)
+		}
+		tlsConfig.RootCAs = pool
+	}
+
+	clientTimeout := timeout
+	if clientTimeout <= 0 {
+		clientTimeout = 2 * time.Minute
+	}
+
+	return &http.Client{
+		Timeout: clientTimeout,
+		Transport: &http.Transport{
+			TLSClientConfig: tlsConfig,
+		},
 	}, nil
 }
 
