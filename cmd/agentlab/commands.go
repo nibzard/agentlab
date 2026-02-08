@@ -611,6 +611,7 @@ func runSandboxNew(ctx context.Context, args []string, base commonFlags) error {
 	var workspace string
 	var vmid int
 	var jobID string
+	var andSSH bool
 	var keepalive optionalBool
 	var help bool
 	fs.StringVar(&name, "name", "", "sandbox name")
@@ -619,11 +620,20 @@ func runSandboxNew(ctx context.Context, args []string, base commonFlags) error {
 	fs.StringVar(&workspace, "workspace", "", "workspace id or name")
 	fs.IntVar(&vmid, "vmid", 0, "vmid override")
 	fs.StringVar(&jobID, "job", "", "attach to existing job id")
+	fs.BoolVar(&andSSH, "and-ssh", false, "create sandbox and immediately ssh into it")
 	fs.Var(&keepalive, "keepalive", "enable keepalive lease for sandbox")
 	fs.BoolVar(&help, "help", false, "show help")
 	fs.BoolVar(&help, "h", false, "show help")
 	if err := parseFlags(fs, args, printSandboxNewUsage, &help, opts.jsonOutput); err != nil {
 		return err
+	}
+	if andSSH {
+		if opts.jsonOutput {
+			return fmt.Errorf("cannot use --and-ssh with --json")
+		}
+		if !isInteractive() {
+			return fmt.Errorf("--and-ssh requires an interactive terminal")
+		}
 	}
 	if profile == "" {
 		printSandboxNewUsage()
@@ -664,6 +674,9 @@ func runSandboxNew(ctx context.Context, args []string, base commonFlags) error {
 	var resp sandboxResponse
 	if err := json.Unmarshal(payload, &resp); err != nil {
 		return err
+	}
+	if andSSH {
+		return runSSHCommand(ctx, []string{"--exec", "--wait", strconv.Itoa(resp.VMID)}, base)
 	}
 	printSandbox(resp)
 	return nil

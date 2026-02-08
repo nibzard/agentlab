@@ -32,6 +32,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net"
 	"net/http"
@@ -52,6 +53,9 @@ const (
 	routeCheckTimeout    = 500 * time.Millisecond
 	defaultAgentSubnet   = "10.77.0.0/16"
 	tailscaleInterfaceID = "tailscale"
+	sandboxPollInterval  = 2 * time.Second
+	sshProbeInterval     = 1 * time.Second
+	sshProbeTimeout      = 750 * time.Millisecond
 )
 
 // sshOutput contains the SSH connection details for a sandbox.
@@ -83,6 +87,8 @@ func runSSHCommand(ctx context.Context, args []string, base commonFlags) error {
 	port := defaultSSHPort
 	identity := ""
 	execFlag := false
+	noStart := false
+	waitSSH := false
 	help := false
 	fs.StringVar(&user, "user", defaultSSHUser, "ssh username")
 	fs.StringVar(&user, "u", defaultSSHUser, "ssh username")
@@ -92,6 +98,8 @@ func runSSHCommand(ctx context.Context, args []string, base commonFlags) error {
 	fs.StringVar(&identity, "i", "", "ssh identity file")
 	fs.BoolVar(&execFlag, "exec", false, "exec ssh instead of printing the command")
 	fs.BoolVar(&execFlag, "e", false, "exec ssh instead of printing the command")
+	fs.BoolVar(&noStart, "no-start", false, "do not auto-start stopped sandboxes")
+	fs.BoolVar(&waitSSH, "wait", false, "wait for ssh readiness before returning")
 	fs.BoolVar(&help, "help", false, "show help")
 	fs.BoolVar(&help, "h", false, "show help")
 	if err := parseFlags(fs, args, printSSHUsage, &help, opts.jsonOutput); err != nil {
@@ -122,23 +130,38 @@ func runSSHCommand(ctx context.Context, args []string, base commonFlags) error {
 	if execFlag && !isInteractive() {
 		return fmt.Errorf("--exec requires an interactive terminal")
 	}
-
+	waitCtx, cancel := withWaitTimeout(ctx, opts.timeout)
+	defer cancel()
 	client := newAPIClient(opts.socketPath, opts.timeout)
-	payload, err := client.doJSON(ctx, http.MethodGet, fmt.Sprintf("/v1/sandboxes/%d", vmid), nil)
+	resp, err := fetchSandbox(waitCtx, client, vmid)
 	if err != nil {
 		return err
 	}
-	var resp sandboxResponse
-	if err := json.Unmarshal(payload, &resp); err != nil {
-		return err
+	if strings.EqualFold(resp.State, "STOPPED") {
+		if noStart {
+			return fmt.Errorf("sandbox %d is stopped; use agentlab sandbox start %d or omit --no-start", vmid, vmid)
+		}
+		resp, err = startSandbox(waitCtx, client, vmid)
+		if err != nil {
+			return err
+		}
 	}
 	ip := strings.TrimSpace(resp.IP)
 	if ip == "" {
-		return fmt.Errorf("sandbox %d has no IP yet", vmid)
+		resp, err = waitForSandboxIP(waitCtx, client, vmid)
+		if err != nil {
+			return err
+		}
+		ip = strings.TrimSpace(resp.IP)
 	}
 	parsedIP := net.ParseIP(ip)
 	if parsedIP == nil {
 		return fmt.Errorf("sandbox %d returned invalid IP %q", vmid, ip)
+	}
+	if waitSSH {
+		if err := waitForSSH(waitCtx, ip, port); err != nil {
+			return err
+		}
 	}
 
 	identity = strings.TrimSpace(identity)
@@ -173,6 +196,104 @@ func runSSHCommand(ctx context.Context, args []string, base commonFlags) error {
 
 	fmt.Fprintln(os.Stdout, formatShellCommand(fullArgs))
 	return nil
+}
+
+func withWaitTimeout(ctx context.Context, timeout time.Duration) (context.Context, context.CancelFunc) {
+	if timeout <= 0 {
+		return ctx, func() {}
+	}
+	return context.WithTimeout(ctx, timeout)
+}
+
+func fetchSandbox(ctx context.Context, client *apiClient, vmid int) (sandboxResponse, error) {
+	payload, err := client.doJSON(ctx, http.MethodGet, fmt.Sprintf("/v1/sandboxes/%d", vmid), nil)
+	if err != nil {
+		return sandboxResponse{}, err
+	}
+	var resp sandboxResponse
+	if err := json.Unmarshal(payload, &resp); err != nil {
+		return sandboxResponse{}, err
+	}
+	return resp, nil
+}
+
+func startSandbox(ctx context.Context, client *apiClient, vmid int) (sandboxResponse, error) {
+	payload, err := client.doJSON(ctx, http.MethodPost, fmt.Sprintf("/v1/sandboxes/%d/start", vmid), nil)
+	if err != nil {
+		return sandboxResponse{}, err
+	}
+	var resp sandboxResponse
+	if err := json.Unmarshal(payload, &resp); err != nil {
+		return sandboxResponse{}, err
+	}
+	return resp, nil
+}
+
+func waitForSandboxIP(ctx context.Context, client *apiClient, vmid int) (sandboxResponse, error) {
+	ticker := time.NewTicker(sandboxPollInterval)
+	defer ticker.Stop()
+	for {
+		resp, err := fetchSandbox(ctx, client, vmid)
+		if err == nil {
+			ip := strings.TrimSpace(resp.IP)
+			if ip != "" {
+				return resp, nil
+			}
+			if terminalState(resp.State) {
+				return resp, fmt.Errorf("sandbox %d is %s and has no IP", vmid, strings.ToLower(resp.State))
+			}
+		}
+		if err := ctx.Err(); err != nil {
+			return sandboxResponse{}, waitError(err, fmt.Sprintf("sandbox %d IP", vmid))
+		}
+		select {
+		case <-ctx.Done():
+			return sandboxResponse{}, waitError(ctx.Err(), fmt.Sprintf("sandbox %d IP", vmid))
+		case <-ticker.C:
+		}
+	}
+}
+
+func waitForSSH(ctx context.Context, ip string, port int) error {
+	address := net.JoinHostPort(ip, strconv.Itoa(port))
+	ticker := time.NewTicker(sshProbeInterval)
+	defer ticker.Stop()
+	for {
+		var d net.Dialer
+		d.Timeout = sshProbeTimeout
+		conn, err := d.DialContext(ctx, "tcp", address)
+		if err == nil {
+			_ = conn.Close()
+			return nil
+		}
+		if err := ctx.Err(); err != nil {
+			return waitError(err, fmt.Sprintf("ssh on %s", address))
+		}
+		select {
+		case <-ctx.Done():
+			return waitError(ctx.Err(), fmt.Sprintf("ssh on %s", address))
+		case <-ticker.C:
+		}
+	}
+}
+
+func terminalState(state string) bool {
+	switch strings.ToUpper(strings.TrimSpace(state)) {
+	case "DESTROYED", "FAILED", "TIMEOUT":
+		return true
+	default:
+		return false
+	}
+}
+
+func waitError(err error, desc string) error {
+	if errors.Is(err, context.DeadlineExceeded) {
+		return fmt.Errorf("timed out waiting for %s", desc)
+	}
+	if errors.Is(err, context.Canceled) {
+		return fmt.Errorf("canceled while waiting for %s", desc)
+	}
+	return err
 }
 
 // buildSSHArgs constructs the SSH argument list for connecting to a target.

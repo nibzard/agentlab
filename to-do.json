@@ -1249,7 +1249,7 @@
       "id": "T064",
       "title": "Start-on-connect for `agentlab ssh` + one-command create-and-ssh flow",
       "priority": 2,
-      "status": "todo",
+      "status": "done",
       "details": "Optimize for time-to-shell. `agentlab ssh <vmid>` should auto-start STOPPED sandboxes and optionally wait for SSH readiness. Add `agentlab sandbox new --and-ssh` to create + provision + attach in one command.",
       "steps": [
         "Update cmd/agentlab/ssh.go: if sandbox state is STOPPED, call /v1/sandboxes/{vmid}/start (unless --no-start).",
@@ -1268,10 +1268,12 @@
       "files": [
         "cmd/agentlab/ssh.go",
         "cmd/agentlab/commands.go",
-        "cmd/agentlab/main.go"
+        "cmd/agentlab/main.go",
+        "cmd/agentlab/main_test.go",
+        "cmd/agentlab/ssh_test.go"
       ],
       "created_at": "2026-02-08T16:47:32Z",
-      "updated_at": "2026-02-08T16:47:32Z"
+      "updated_at": "2026-02-08T19:03:35Z"
     },
     {
       "id": "T065",
