@@ -1854,11 +1854,12 @@
       "files": [
         "Makefile",
         "README.md",
+        "docs/testing.md",
         "go.mod",
-        "docs/testing.md"
+        "to-do.json"
       ],
       "created_at": "2026-02-08T21:21:56Z",
-      "updated_at": "2026-02-08T21:37:24Z"
+      "updated_at": "2026-02-08T21:38:05Z"
     },
     {
       "id": "T082",
@@ -1903,6 +1904,19 @@
       "updated_at": "2026-02-08T21:34:52Z"
     },
     {
+      "id": "T084",
+      "title": "Fix CLI streaming request URL construction for artifact downloads",
+      "priority": 2,
+      "status": "done",
+      "details": "apiClient.doRequest currently appends the HTTP method to the URL path, which yields invalid endpoints (e.g., /v1/jobs/.../GET) and breaks artifact downloads. Build the request URL as http://unix<path> and add a unit test that asserts the request path for doRequest.",
+      "files": [
+        "cmd/agentlab/api.go",
+        "cmd/agentlab/api_test.go",
+        "cmd/agentlab/commands.go"
+      ],
+      "updated_at": "2026-02-08T21:57:03Z"
+    },
+    {
       "id": "T085",
       "title": "Store per-document profile YAML so multi-doc profiles apply correct settings",
       "priority": 1,
@@ -1917,9 +1931,48 @@
         "internal/daemon/profile_resources_test.go",
         "internal/daemon/profile_validation.go",
         "internal/daemon/profiles.go",
-        "internal/daemon/profiles_multidoc_test.go"
+        "internal/daemon/profiles_multidoc_test.go",
+        "to-do.json"
       ],
-      "updated_at": "2026-02-08T21:52:01Z"
+      "updated_at": "2026-02-08T21:56:03Z"
+    },
+    {
+      "id": "T086",
+      "title": "Use cpulist for API backend CPU pinning",
+      "priority": 3,
+      "status": "todo",
+      "details": "API backend maps VMConfig.CPUPinning to the Proxmox API parameter cpulimit, which is a CPU cap rather than a pin. Align with the shell backend and profile schema by using cpulist, and update the API backend tests accordingly.",
+      "files": [
+        "internal/proxmox/api_backend.go",
+        "internal/proxmox/api_backend_test.go",
+        "internal/daemon/profile_resources.go"
+      ]
+    },
+    {
+      "id": "T087",
+      "title": "Align API backend clone mode with shell backend (linked clone) or make it configurable",
+      "priority": 3,
+      "status": "todo",
+      "details": "Shell backend uses linked clones (--full 0) while API backend forces full clones (full=1), diverging from each other and the spec linked-clone preference. Add a config flag to control clone mode (default linked) and apply consistently across backends; update docs/tests as needed.",
+      "files": [
+        "internal/proxmox/api_backend.go",
+        "internal/proxmox/shell_backend.go",
+        "internal/config/config.go",
+        "docs/configuration.md",
+        "internal/proxmox/api_backend_test.go",
+        "internal/proxmox/shell_backend_test.go"
+      ]
+    },
+    {
+      "id": "T088",
+      "title": "Fix health check path in API documentation",
+      "priority": 5,
+      "status": "todo",
+      "details": "docs/api.md references /v1/healthz, but the daemon exposes /healthz on all listeners. Update the doc example (or add a /v1/healthz alias) so documentation matches implementation.",
+      "files": [
+        "docs/api.md",
+        "internal/daemon/daemon.go"
+      ]
     }
   ]
 }
