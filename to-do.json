@@ -1542,7 +1542,7 @@
       "id": "T072",
       "title": "Add network.mode abstraction (off|nat|allowlist) and surface it everywhere",
       "priority": 4,
-      "status": "todo",
+      "status": "done",
       "details": "Make networking policy a simple mode that is obvious and consistently displayed. Add network.mode to profiles (off|nat|allowlist), map modes to firewall groups/rules, and show the effective mode in `sandbox list/show` and `agentlab status`.",
       "steps": [
         "Extend profile schema to accept network.mode (off|nat|allowlist) and validate values.",
@@ -1560,15 +1560,24 @@
         "profiles"
       ],
       "files": [
+        "internal/daemon/profile_network_mode.go",
         "internal/daemon/profile_resources.go",
         "internal/daemon/profile_validation.go",
+        "internal/daemon/api.go",
         "internal/daemon/api_types.go",
+        "internal/daemon/profile_resources_test.go",
+        "internal/daemon/profile_validation_test.go",
+        "internal/daemon/api_status_test.go",
+        "cmd/agentlab/api.go",
         "cmd/agentlab/commands.go",
+        "cmd/agentlab/commands_daemon_test.go",
+        "cmd/agentlab/commands_happy_path_test.go",
+        "docs/configuration.md",
         "README.md",
-        "docs/configuration.md"
+        "scripts/profiles/defaults.yaml"
       ],
       "created_at": "2026-02-08T16:47:32Z",
-      "updated_at": "2026-02-08T16:47:32Z"
+      "updated_at": "2026-02-08T20:59:44Z"
     },
     {
       "id": "T073",
@@ -1734,16 +1743,17 @@
         "cli"
       ],
       "files": [
-        "internal/daemon/api.go",
-        "internal/daemon/api_types.go",
-        "internal/daemon/api_sandbox_test.go",
         "cmd/agentlab/api.go",
         "cmd/agentlab/commands.go",
+        "cmd/agentlab/commands_happy_path_test.go",
         "cmd/agentlab/main.go",
-        "cmd/agentlab/commands_happy_path_test.go"
+        "internal/daemon/api.go",
+        "internal/daemon/api_sandbox_test.go",
+        "internal/daemon/api_types.go",
+        "to-do.json"
       ],
       "created_at": "2026-02-08T16:47:32Z",
-      "updated_at": "2026-02-08T20:46:22Z"
+      "updated_at": "2026-02-08T20:47:30Z"
     },
     {
       "id": "T078",

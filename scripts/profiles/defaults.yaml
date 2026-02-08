@@ -7,6 +7,7 @@ template_vmid: 9000
 network:
   bridge: vmbr1
   model: virtio
+  mode: nat
   firewall_group: agent_nat_default
 resources:
   cores: 4
@@ -36,6 +37,7 @@ template_vmid: 9000
 network:
   bridge: vmbr1
   model: virtio
+  mode: nat
   firewall_group: agent_nat_default
 resources:
   cores: 4
@@ -60,6 +62,7 @@ template_vmid: 9000
 network:
   bridge: vmbr1
   model: virtio
+  mode: nat
   firewall_group: agent_nat_default
 resources:
   cores: 6

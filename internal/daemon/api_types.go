@@ -21,6 +21,7 @@ type V1StatusMetrics struct {
 type V1StatusResponse struct {
 	Sandboxes      map[string]int    `json:"sandboxes"`
 	Jobs           map[string]int    `json:"jobs"`
+	NetworkModes   map[string]int    `json:"network_modes,omitempty"`
 	Artifacts      V1StatusArtifacts `json:"artifacts"`
 	Metrics        V1StatusMetrics   `json:"metrics"`
 	RecentFailures []V1Event         `json:"recent_failures"`
@@ -132,6 +133,7 @@ type V1SandboxResponse struct {
 }
 
 type V1SandboxNetwork struct {
+	Mode          string `json:"mode,omitempty"`
 	Firewall      *bool  `json:"firewall,omitempty"`
 	FirewallGroup string `json:"firewall_group,omitempty"`
 }

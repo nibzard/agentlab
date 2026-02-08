@@ -19,6 +19,15 @@ AgentLab provisions unattended, network-isolated VM sandboxes on Proxmox VE for 
 - Host-owned exposures (Tailscale Serve) with audit events for every expose/unexpose
 - API token authentication instead of shell access
 
+### Network Modes
+
+Profiles can set `network.mode` to one of `off`, `nat` (default), or `allowlist`. AgentLab maps these modes to Proxmox firewall groups and enables the firewall automatically:
+- `off` -> `agent_nat_off` (no network)
+- `nat` -> `agent_nat_default` (NAT + RFC1918/ULA blocks)
+- `allowlist` -> `agent_nat_allowlist` (egress allowlist rules)
+
+Ensure the firewall groups exist in Proxmox before using non-default modes.
+
 ## Prerequisites
 
 - Proxmox VE 9.x+ host (API backend) or 8.x+ (shell backend)

@@ -350,8 +350,9 @@ func TestCLIStatusHappyPath(t *testing.T) {
 			return
 		}
 		resp := statusResponse{
-			Sandboxes: map[string]int{"RUNNING": 2, "STOPPED": 1},
-			Jobs:      map[string]int{"QUEUED": 1, "FAILED": 2},
+			Sandboxes:    map[string]int{"RUNNING": 2, "STOPPED": 1},
+			Jobs:         map[string]int{"QUEUED": 1, "FAILED": 2},
+			NetworkModes: map[string]int{"nat": 2, "off": 0, "allowlist": 1},
 			Artifacts: statusArtifactsResponse{
 				Root:       "/var/lib/agentlab/artifacts",
 				TotalBytes: 1000,
@@ -384,6 +385,9 @@ func TestCLIStatusHappyPath(t *testing.T) {
 	})
 	if !strings.Contains(out, "Sandboxes:") || !strings.Contains(out, "RUNNING") {
 		t.Fatalf("expected sandboxes in output, got %q", out)
+	}
+	if !strings.Contains(out, "Network Modes:") || !strings.Contains(out, "nat") {
+		t.Fatalf("expected network modes in output, got %q", out)
 	}
 	if !strings.Contains(out, "Artifacts:") || !strings.Contains(out, "Metrics:") {
 		t.Fatalf("expected artifacts/metrics output, got %q", out)

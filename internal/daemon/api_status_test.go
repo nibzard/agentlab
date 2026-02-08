@@ -55,6 +55,7 @@ func TestStatusHandler(t *testing.T) {
 
 	assert.Equal(t, 1, resp.Sandboxes[string(models.SandboxRunning)])
 	assert.Equal(t, 1, resp.Sandboxes[string(models.SandboxFailed)])
+	assert.Equal(t, 2, resp.NetworkModes[networkModeNat])
 	assert.Equal(t, 1, resp.Jobs[string(models.JobRunning)])
 	assert.Equal(t, 1, resp.Jobs[string(models.JobFailed)])
 	assert.True(t, resp.Metrics.Enabled)

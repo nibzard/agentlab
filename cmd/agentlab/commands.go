@@ -77,6 +77,11 @@ var (
 		"FAILED",
 		"TIMEOUT",
 	}
+	statusNetworkModeOrder = []string{
+		"off",
+		"nat",
+		"allowlist",
+	}
 )
 
 // usageError wraps an error with a flag indicating whether usage should be shown.
@@ -1560,12 +1565,15 @@ func printSandbox(sb sandboxResponse) {
 	fmt.Printf("State: %s\n", sb.State)
 	fmt.Printf("IP: %s\n", orDash(sb.IP))
 	fmt.Printf("Workspace: %s\n", orDashPtr(sb.WorkspaceID))
+	mode := "-"
 	firewall := "-"
 	firewallGroup := "-"
 	if sb.Network != nil {
+		mode = orDash(sb.Network.Mode)
 		firewall = orDashBoolPtr(sb.Network.Firewall)
 		firewallGroup = orDash(sb.Network.FirewallGroup)
 	}
+	fmt.Printf("Network Mode: %s\n", mode)
 	fmt.Printf("Firewall: %s\n", firewall)
 	fmt.Printf("Firewall Group: %s\n", firewallGroup)
 	fmt.Printf("Keepalive: %t\n", sb.Keepalive)
@@ -1578,6 +1586,10 @@ func printSandbox(sb sandboxResponse) {
 func printStatus(resp statusResponse) {
 	fmt.Println("Sandboxes:")
 	printCountTable("STATE", resp.Sandboxes, statusSandboxOrder)
+	if len(resp.NetworkModes) > 0 {
+		fmt.Println("Network Modes:")
+		printCountTable("MODE", resp.NetworkModes, statusNetworkModeOrder)
+	}
 	fmt.Println("Jobs:")
 	printCountTable("STATUS", resp.Jobs, statusJobOrder)
 	fmt.Println("Artifacts:")
@@ -1617,15 +1629,17 @@ func printStatus(resp statusResponse) {
 
 func printSandboxList(sandboxes []sandboxResponse) {
 	w := tabwriter.NewWriter(os.Stdout, 2, 8, 2, ' ', 0)
-	fmt.Fprintln(w, "VMID\tNAME\tPROFILE\tSTATE\tIP\tFWGROUP\tLEASE\tLAST USED")
+	fmt.Fprintln(w, "VMID\tNAME\tPROFILE\tSTATE\tIP\tMODE\tFWGROUP\tLEASE\tLAST USED")
 	for _, sb := range sandboxes {
 		lease := orDashPtr(sb.LeaseExpires)
 		lastUsed := orDashPtr(sb.LastUsedAt)
+		mode := "-"
 		firewallGroup := "-"
 		if sb.Network != nil {
+			mode = orDash(sb.Network.Mode)
 			firewallGroup = orDash(sb.Network.FirewallGroup)
 		}
-		fmt.Fprintf(w, "%d\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n", sb.VMID, sb.Name, sb.Profile, sb.State, orDash(sb.IP), firewallGroup, lease, lastUsed)
+		fmt.Fprintf(w, "%d\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n", sb.VMID, sb.Name, sb.Profile, sb.State, orDash(sb.IP), mode, firewallGroup, lease, lastUsed)
 	}
 	_ = w.Flush()
 }
