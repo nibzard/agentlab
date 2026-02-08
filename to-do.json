@@ -1759,7 +1759,7 @@
       "id": "T078",
       "title": "Spike: optional SSH gateway routing layer (ssh new@host, ssh sbx-<id>@host)",
       "priority": 5,
-      "status": "todo",
+      "status": "done",
       "details": "Explore an SSH-first UX layer similar to Sandboxed: route ssh usernames to create/connect actions (ssh new@host, ssh 1001@host). This is a bigger bet and should start as a design doc + prototype to validate feasibility with Proxmox + Tailscale routing.",
       "steps": [
         "Write a short design doc covering: auth model, username grammar, routing logic, attach mechanism, and audit logging.",
@@ -1772,10 +1772,11 @@
         "ux"
       ],
       "files": [
-        "docs"
+        "cmd/agentlab-ssh-gateway/main.go",
+        "docs/ssh_gateway_spike.md"
       ],
       "created_at": "2026-02-08T16:47:32Z",
-      "updated_at": "2026-02-08T16:47:32Z"
+      "updated_at": "2026-02-08T21:16:32Z"
     },
     {
       "id": "T079",
@@ -1812,10 +1813,11 @@
         "cmd/agentlab/ssh.go",
         "internal/daemon/api.go",
         "internal/daemon/api_types.go",
-        "internal/daemon/sandbox_manager.go"
+        "internal/daemon/sandbox_manager.go",
+        "to-do.json"
       ],
       "created_at": "2026-02-08T16:47:32Z",
-      "updated_at": "2026-02-08T21:10:22Z"
+      "updated_at": "2026-02-08T21:11:44Z"
     }
   ]
 }
