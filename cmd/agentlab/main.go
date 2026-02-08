@@ -58,6 +58,7 @@ Usage:
   agentlab [--socket PATH] [--json] [--timeout DURATION] sandbox show <vmid>
   agentlab [--socket PATH] [--json] [--timeout DURATION] sandbox start <vmid>
   agentlab [--socket PATH] [--json] [--timeout DURATION] sandbox stop <vmid>
+  agentlab [--socket PATH] [--json] [--timeout DURATION] sandbox revert [--force] [--restart|--no-restart] <vmid>
   agentlab [--socket PATH] [--json] [--timeout DURATION] sandbox destroy [--force] <vmid>
   agentlab [--socket PATH] [--json] [--timeout DURATION] sandbox lease renew --ttl <ttl> <vmid>
   agentlab [--socket PATH] [--json] [--timeout DURATION] sandbox prune
@@ -246,7 +247,7 @@ func printJobArtifactsDownloadUsage() {
 }
 
 func printSandboxUsage() {
-	fmt.Fprintln(os.Stdout, "Usage: agentlab sandbox <new|list|show|start|stop|destroy|lease|prune>")
+	fmt.Fprintln(os.Stdout, "Usage: agentlab sandbox <new|list|show|start|stop|revert|destroy|lease|prune>")
 }
 
 func printSandboxNewUsage() {
@@ -267,6 +268,11 @@ func printSandboxStartUsage() {
 
 func printSandboxStopUsage() {
 	fmt.Fprintln(os.Stdout, "Usage: agentlab sandbox stop <vmid>")
+}
+
+func printSandboxRevertUsage() {
+	fmt.Fprintln(os.Stdout, "Usage: agentlab sandbox revert [--force] [--restart|--no-restart] <vmid>")
+	fmt.Fprintln(os.Stdout, "Note: By default, restarts the sandbox only if it was running before the revert.")
 }
 
 func printSandboxDestroyUsage() {

@@ -8,7 +8,7 @@
 // Commands are organized hierarchically:
 //
 //	job:       Manage jobs (run, show, artifacts)
-//	sandbox:   Manage sandboxes (new, list, show, start, stop, destroy, lease, prune)
+//	sandbox:   Manage sandboxes (new, list, show, start, stop, revert, destroy, lease, prune)
 //	workspace: Manage workspaces (create, list, attach, detach, rebind)
 //	ssh:       Generate SSH connection parameters
 //	logs:      View sandbox event logs
@@ -466,6 +466,8 @@ func runSandboxCommand(ctx context.Context, args []string, base commonFlags) err
 		return runSandboxStart(ctx, args[1:], base)
 	case "stop":
 		return runSandboxStop(ctx, args[1:], base)
+	case "revert":
+		return runSandboxRevert(ctx, args[1:], base)
 	case "destroy":
 		return runSandboxDestroy(ctx, args[1:], base)
 	case "lease":
@@ -702,6 +704,69 @@ func runSandboxStop(ctx context.Context, args []string, base commonFlags) error 
 		return err
 	}
 	fmt.Printf("sandbox %d stopped (state=%s)\n", resp.VMID, resp.State)
+	return nil
+}
+
+func runSandboxRevert(ctx context.Context, args []string, base commonFlags) error {
+	fs := newFlagSet("sandbox revert")
+	opts := base
+	opts.bind(fs)
+	var force bool
+	var noRestart bool
+	var restart bool
+	var help bool
+	fs.BoolVar(&force, "force", false, "force revert even if a job is running")
+	fs.BoolVar(&noRestart, "no-restart", false, "do not restart the sandbox after revert")
+	fs.BoolVar(&restart, "restart", false, "restart the sandbox after revert")
+	fs.BoolVar(&help, "help", false, "show help")
+	fs.BoolVar(&help, "h", false, "show help")
+	if err := parseFlags(fs, args, printSandboxRevertUsage, &help, opts.jsonOutput); err != nil {
+		return err
+	}
+	if fs.NArg() < 1 {
+		printSandboxRevertUsage()
+		return fmt.Errorf("vmid is required")
+	}
+	if noRestart && restart {
+		return fmt.Errorf("cannot use --restart and --no-restart together")
+	}
+	vmid, err := parseVMID(fs.Arg(0))
+	if err != nil {
+		return err
+	}
+	var restartPtr *bool
+	if noRestart {
+		value := false
+		restartPtr = &value
+	}
+	if restart {
+		value := true
+		restartPtr = &value
+	}
+
+	client := newAPIClient(opts.socketPath, opts.timeout)
+	req := sandboxRevertRequest{Force: force, Restart: restartPtr}
+	payload, err := client.doJSON(ctx, http.MethodPost, fmt.Sprintf("/v1/sandboxes/%d/revert", vmid), req)
+	if err != nil {
+		return err
+	}
+	if opts.jsonOutput {
+		return prettyPrintJSON(os.Stdout, payload)
+	}
+	var resp sandboxRevertResponse
+	if err := json.Unmarshal(payload, &resp); err != nil {
+		return err
+	}
+	state := resp.Sandbox.State
+	snapshot := resp.Snapshot
+	if snapshot == "" {
+		snapshot = "clean"
+	}
+	if resp.Restarted {
+		fmt.Printf("sandbox %d reverted to snapshot %s (state=%s, restarted)\n", resp.Sandbox.VMID, snapshot, state)
+	} else {
+		fmt.Printf("sandbox %d reverted to snapshot %s (state=%s)\n", resp.Sandbox.VMID, snapshot, state)
+	}
 	return nil
 }
 

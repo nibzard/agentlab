@@ -568,7 +568,7 @@ func TestUsagePrints(t *testing.T) {
 
 	t.Run("printSandboxUsage outputs sandbox usage", func(t *testing.T) {
 		output := CaptureOutput(printSandboxUsage)
-		assert.Contains(t, output, "sandbox <new|list|show|start|stop|destroy|lease|prune>")
+		assert.Contains(t, output, "sandbox <new|list|show|start|stop|revert|destroy|lease|prune>")
 	})
 
 	t.Run("printWorkspaceUsage outputs workspace usage", func(t *testing.T) {
@@ -625,7 +625,7 @@ func TestGoldenFileJobUsageOutput(t *testing.T) {
 func TestGoldenFileSandboxUsageOutput(t *testing.T) {
 	got := CaptureOutput(printSandboxUsage)
 
-	assert.Contains(t, got, "agentlab sandbox <new|list|show|start|stop|destroy|lease|prune>")
+	assert.Contains(t, got, "agentlab sandbox <new|list|show|start|stop|revert|destroy|lease|prune>")
 }
 
 func TestGoldenFileWorkspaceUsageOutput(t *testing.T) {

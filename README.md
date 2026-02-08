@@ -314,6 +314,19 @@ agentlab sandbox destroy --force 1020
 - Any state → DESTROYED (with `--force`)
 - TIMEOUT/DESTROYED → DESTROYED (normal)
 
+#### Revert Sandbox (Rollback to Clean Snapshot)
+
+```bash
+# Revert to the canonical "clean" snapshot
+agentlab sandbox revert 1020
+
+# Revert without restarting
+agentlab sandbox revert --no-restart 1020
+
+# Force revert even if a job is running
+agentlab sandbox revert --force 1020
+```
+
 #### Renew Lease
 
 ```bash
