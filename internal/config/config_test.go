@@ -622,6 +622,55 @@ func TestValidateProxmoxTLSConfig(t *testing.T) {
 	}
 }
 
+func TestValidateProxmoxCloneMode(t *testing.T) {
+	tests := []struct {
+		name        string
+		setup       func(*Config)
+		wantErr     bool
+		errContains string
+	}{
+		{
+			name: "linked clone mode is valid",
+			setup: func(c *Config) {
+				c.ProxmoxCloneMode = "linked"
+			},
+			wantErr: false,
+		},
+		{
+			name: "full clone mode is valid",
+			setup: func(c *Config) {
+				c.ProxmoxCloneMode = "full"
+			},
+			wantErr: false,
+		},
+		{
+			name: "invalid clone mode",
+			setup: func(c *Config) {
+				c.ProxmoxCloneMode = "snapshot"
+			},
+			wantErr:     true,
+			errContains: "proxmox_clone_mode",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cfg := DefaultConfig()
+			if tt.setup != nil {
+				tt.setup(&cfg)
+			}
+			err := cfg.Validate()
+			if tt.wantErr {
+				require.Error(t, err)
+				if tt.errContains != "" {
+					assert.Contains(t, err.Error(), tt.errContains)
+				}
+			} else {
+				assert.NoError(t, err)
+			}
+		})
+	}
+}
+
 func TestDefaultConfig(t *testing.T) {
 	cfg := DefaultConfig()
 
@@ -646,6 +695,7 @@ func TestDefaultConfig(t *testing.T) {
 	assert.NotEmpty(t, cfg.SnippetStorage)
 	assert.GreaterOrEqual(t, cfg.ProxmoxCommandTimeout, time.Duration(0))
 	assert.GreaterOrEqual(t, cfg.ProvisioningTimeout, time.Duration(0))
+	assert.Equal(t, "linked", cfg.ProxmoxCloneMode)
 	assert.NotZero(t, cfg.IdleStopInterval)
 	assert.GreaterOrEqual(t, cfg.IdleStopMinutesDefault, 0)
 	assert.GreaterOrEqual(t, cfg.IdleStopCPUThreshold, 0.0)
