@@ -60,6 +60,8 @@ Integration tests are build-tagged with `//go:build integration` and are not run
 
 ## Running Tests
 
+Before running tests, ensure Go 1.24.0 or higher is installed (per the `go.mod` requirement).
+
 ### Run All Unit Tests
 
 ```bash

@@ -15,7 +15,7 @@ LDFLAGS := -s -w \
 
 .PHONY: all build lint test test-coverage test-race test-integration test-all clean
 
-# Note: This project requires Go 1.23 or higher. Running 'go version' will show the installed version.
+# Note: This project requires Go 1.24.0 or higher. Running 'go version' will show the installed version.
 
 all: build
 
