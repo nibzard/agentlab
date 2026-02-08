@@ -17,10 +17,33 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+type fakeExposurePublisher struct {
+	publishResult  ExposurePublishResult
+	publishErr     error
+	unpublishErr   error
+	publishCalls   int
+	unpublishCalls int
+}
+
+func (f *fakeExposurePublisher) Publish(_ context.Context, _ string, _ string, _ int) (ExposurePublishResult, error) {
+	f.publishCalls++
+	if f.publishErr != nil {
+		return ExposurePublishResult{}, f.publishErr
+	}
+	return f.publishResult, nil
+}
+
+func (f *fakeExposurePublisher) Unpublish(_ context.Context, _ string, _ int) error {
+	f.unpublishCalls++
+	return f.unpublishErr
+}
+
 func TestExposureHandlersLifecycle(t *testing.T) {
 	ctx := context.Background()
 	store := newTestStore(t)
-	api := NewControlAPI(store, map[string]models.Profile{}, nil, nil, nil, "", log.New(io.Discard, "", 0))
+	publisher := &fakeExposurePublisher{publishResult: ExposurePublishResult{URL: "tcp://tailnet.example:8080", State: exposureStateServing}}
+	api := NewControlAPI(store, map[string]models.Profile{}, nil, nil, nil, "", log.New(io.Discard, "", 0)).
+		WithExposurePublisher(publisher)
 
 	fixed := time.Date(2026, time.February, 8, 18, 0, 0, 0, time.UTC)
 	api.now = func() time.Time { return fixed }
@@ -47,7 +70,8 @@ func TestExposureHandlersLifecycle(t *testing.T) {
 	assert.Equal(t, 501, created.VMID)
 	assert.Equal(t, 8080, created.Port)
 	assert.Equal(t, "10.77.0.10", created.TargetIP)
-	assert.Equal(t, defaultExposureState, created.State)
+	assert.Equal(t, exposureStateServing, created.State)
+	assert.Equal(t, "tcp://tailnet.example:8080", created.URL)
 	assert.Equal(t, fixed.UTC().Format(time.RFC3339Nano), created.CreatedAt)
 	assert.Equal(t, fixed.UTC().Format(time.RFC3339Nano), created.UpdatedAt)
 
@@ -67,6 +91,8 @@ func TestExposureHandlersLifecycle(t *testing.T) {
 	var delResp V1Exposure
 	require.NoError(t, json.NewDecoder(delRec.Body).Decode(&delResp))
 	assert.Equal(t, "web-501", delResp.Name)
+	assert.Equal(t, 1, publisher.publishCalls)
+	assert.Equal(t, 1, publisher.unpublishCalls)
 
 	listReq = httptest.NewRequest(http.MethodGet, "/v1/exposures", nil)
 	listRec = httptest.NewRecorder()
@@ -85,7 +111,9 @@ func TestExposureHandlersLifecycle(t *testing.T) {
 
 func TestExposureHandlersErrors(t *testing.T) {
 	store := newTestStore(t)
-	api := NewControlAPI(store, map[string]models.Profile{}, nil, nil, nil, "", log.New(io.Discard, "", 0))
+	publisher := &fakeExposurePublisher{}
+	api := NewControlAPI(store, map[string]models.Profile{}, nil, nil, nil, "", log.New(io.Discard, "", 0)).
+		WithExposurePublisher(publisher)
 
 	body := bytes.NewBufferString(`{"name":"bad","vmid":999,"port":8080}`)
 	req := httptest.NewRequest(http.MethodPost, "/v1/exposures", body)

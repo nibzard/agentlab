@@ -113,6 +113,7 @@ type SandboxManager struct {
 	logger     *log.Logger
 	workspace  *WorkspaceManager
 	snippetFn  func(vmid int)
+	exposures  *ExposureCleaner
 	metrics    *Metrics
 	now        func() time.Time
 	gcInterval time.Duration
@@ -170,6 +171,18 @@ func (m *SandboxManager) WithSnippetCleaner(cleaner func(vmid int)) *SandboxMana
 		return m
 	}
 	m.snippetFn = cleaner
+	return m
+}
+
+// WithExposureCleaner sets the exposure cleanup helper for destroy operations.
+//
+// When a sandbox is destroyed, the exposure cleaner will remove any related
+// host-level serve rules and delete exposure records (best-effort).
+func (m *SandboxManager) WithExposureCleaner(cleaner *ExposureCleaner) *SandboxManager {
+	if m == nil {
+		return m
+	}
+	m.exposures = cleaner
 	return m
 }
 
@@ -693,6 +706,7 @@ func (m *SandboxManager) Destroy(ctx context.Context, vmid int) (err error) {
 	if m.snippetFn != nil {
 		m.snippetFn(vmid)
 	}
+	m.cleanupExposures(ctx, vmid)
 	return nil
 }
 
@@ -742,6 +756,7 @@ func (m *SandboxManager) expireSandbox(ctx context.Context, sandbox models.Sandb
 	if m.snippetFn != nil {
 		m.snippetFn(sandbox.VMID)
 	}
+	m.cleanupExposures(ctx, sandbox.VMID)
 	return nil
 }
 
@@ -839,6 +854,7 @@ func (m *SandboxManager) ForceDestroy(ctx context.Context, vmid int) (err error)
 	if m.snippetFn != nil {
 		m.snippetFn(vmid)
 	}
+	m.cleanupExposures(ctx, vmid)
 	return nil
 }
 
@@ -875,6 +891,7 @@ func (m *SandboxManager) PruneOrphans(ctx context.Context) (int, error) {
 				m.logger.Printf("prune: failed to mark sandbox %d as destroyed: %v", sb.VMID, err)
 				continue
 			}
+			m.cleanupExposures(ctx, sb.VMID)
 			count++
 		}
 	}
@@ -1009,7 +1026,9 @@ func (m *SandboxManager) ReconcileState(ctx context.Context) error {
 			if errors.Is(err, proxmox.ErrVMNotFound) {
 				if sb.State != models.SandboxDestroyed && sb.State != models.SandboxRequested {
 					m.logger.Printf("reconcile: VM %d not found in Proxmox, marking as destroyed", sb.VMID)
-					_ = m.Transition(ctx, sb.VMID, models.SandboxDestroyed)
+					if err := m.Transition(ctx, sb.VMID, models.SandboxDestroyed); err == nil {
+						m.cleanupExposures(ctx, sb.VMID)
+					}
 				}
 			}
 			continue
@@ -1056,4 +1075,15 @@ func (m *SandboxManager) ReconcileState(ctx context.Context) error {
 	}
 
 	return nil
+}
+
+func (m *SandboxManager) cleanupExposures(ctx context.Context, vmid int) {
+	if m == nil || m.exposures == nil {
+		return
+	}
+	if err := m.exposures.CleanupByVMID(ctx, vmid); err != nil {
+		if m.logger != nil {
+			m.logger.Printf("sandbox %d: exposure cleanup failed: %v", vmid, err)
+		}
+	}
 }

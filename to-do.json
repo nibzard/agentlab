@@ -1589,23 +1589,23 @@
         "db"
       ],
       "files": [
-        "internal/db/migrations.go",
-        "internal/db/migrations_test.go",
+        "internal/daemon/api.go",
+        "internal/daemon/api_exposures_test.go",
+        "internal/daemon/api_types.go",
         "internal/db/exposures.go",
         "internal/db/exposures_test.go",
-        "internal/daemon/api.go",
-        "internal/daemon/api_types.go",
-        "internal/daemon/api_exposures_test.go",
+        "internal/db/migrations.go",
+        "internal/db/migrations_test.go",
         "to-do.json"
       ],
       "created_at": "2026-02-08T16:47:32Z",
-      "updated_at": "2026-02-08T20:01:10Z"
+      "updated_at": "2026-02-08T20:01:40Z"
     },
     {
       "id": "T074",
       "title": "Implement Tailscale Serve integration for sandbox exposures (health-checked)",
       "priority": 3,
-      "status": "todo",
+      "status": "done",
       "details": "Wire the exposure registry to host-level Tailscale Serve (or a safe fallback) so `expose <vmid> :port` yields a stable tailnet-reachable URL/name. Include health checks and automatic cleanup on sandbox destroy.",
       "steps": [
         "Implement a tailscale integration module that can create/remove serve rules for a given exposure name -> sandbox_ip:port.",
@@ -1627,12 +1627,21 @@
         "security"
       ],
       "files": [
-        "internal/daemon/sandbox_manager.go",
         "internal/daemon/api.go",
-        "docs/runbook.md"
+        "internal/daemon/daemon.go",
+        "internal/daemon/sandbox_manager.go",
+        "internal/daemon/exposure_cleanup.go",
+        "internal/daemon/exposure_publisher.go",
+        "internal/daemon/tailscale_serve.go",
+        "internal/daemon/api_exposures_test.go",
+        "internal/daemon/tailscale_serve_test.go",
+        "internal/db/exposures.go",
+        "internal/db/exposures_test.go",
+        "docs/runbook.md",
+        "to-do.json"
       ],
       "created_at": "2026-02-08T16:47:32Z",
-      "updated_at": "2026-02-08T16:47:32Z"
+      "updated_at": "2026-02-08T20:13:10Z"
     },
     {
       "id": "T075",

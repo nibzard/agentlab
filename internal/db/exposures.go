@@ -115,6 +115,34 @@ func (s *Store) ListExposures(ctx context.Context) ([]Exposure, error) {
 	return out, nil
 }
 
+// ListExposuresByVMID returns exposures for a sandbox VMID ordered by created_at descending.
+func (s *Store) ListExposuresByVMID(ctx context.Context, vmid int) ([]Exposure, error) {
+	if s == nil || s.DB == nil {
+		return nil, errors.New("db store is nil")
+	}
+	if vmid <= 0 {
+		return nil, errors.New("exposure vmid must be positive")
+	}
+	rows, err := s.DB.QueryContext(ctx, `SELECT name, vmid, port, target_ip, url, state, created_at, updated_at
+		FROM exposures WHERE vmid = ? ORDER BY created_at DESC`, vmid)
+	if err != nil {
+		return nil, fmt.Errorf("list exposures vmid %d: %w", vmid, err)
+	}
+	defer rows.Close()
+	var out []Exposure
+	for rows.Next() {
+		exposure, err := scanExposureRow(rows)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, exposure)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate exposures vmid %d: %w", vmid, err)
+	}
+	return out, nil
+}
+
 // DeleteExposure removes an exposure by name.
 func (s *Store) DeleteExposure(ctx context.Context, name string) error {
 	if s == nil || s.DB == nil {

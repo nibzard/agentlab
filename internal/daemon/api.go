@@ -92,15 +92,16 @@ var (
 //   - GET    /v1/exposures            - List exposures
 //   - DELETE /v1/exposures/{name}     - Delete exposure
 type ControlAPI struct {
-	store           *db.Store
-	profiles        map[string]models.Profile
-	sandboxManager  *SandboxManager
-	workspaceMgr    *WorkspaceManager
-	jobOrchestrator *JobOrchestrator
-	artifactRoot    string
-	metricsEnabled  bool
-	logger          *log.Logger
-	now             func() time.Time
+	store             *db.Store
+	profiles          map[string]models.Profile
+	sandboxManager    *SandboxManager
+	workspaceMgr      *WorkspaceManager
+	jobOrchestrator   *JobOrchestrator
+	exposurePublisher ExposurePublisher
+	artifactRoot      string
+	metricsEnabled    bool
+	logger            *log.Logger
+	now               func() time.Time
 }
 
 // NewControlAPI creates a new control API instance.
@@ -137,6 +138,15 @@ func (api *ControlAPI) WithMetricsEnabled(enabled bool) *ControlAPI {
 		return api
 	}
 	api.metricsEnabled = enabled
+	return api
+}
+
+// WithExposurePublisher wires the exposure publisher used for tailscale serve integration.
+func (api *ControlAPI) WithExposurePublisher(publisher ExposurePublisher) *ControlAPI {
+	if api == nil {
+		return api
+	}
+	api.exposurePublisher = publisher
 	return api
 }
 
@@ -1102,6 +1112,10 @@ func (api *ControlAPI) handleExposureCreate(w http.ResponseWriter, r *http.Reque
 		writeError(w, http.StatusServiceUnavailable, "exposure registry unavailable")
 		return
 	}
+	if api.exposurePublisher == nil {
+		writeError(w, http.StatusServiceUnavailable, "exposure publisher unavailable")
+		return
+	}
 	var req V1ExposureCreateRequest
 	if err := decodeJSON(w, r, &req); err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
@@ -1124,11 +1138,15 @@ func (api *ControlAPI) handleExposureCreate(w http.ResponseWriter, r *http.Reque
 		writeError(w, http.StatusBadRequest, "port must be between 1 and 65535")
 		return
 	}
-	if req.State == "" {
-		req.State = defaultExposureState
-	}
 
 	ctx := r.Context()
+	if _, err := api.store.GetExposure(ctx, req.Name); err == nil {
+		writeError(w, http.StatusConflict, "exposure already exists")
+		return
+	} else if err != nil && !errors.Is(err, sql.ErrNoRows) {
+		writeError(w, http.StatusInternalServerError, "failed to check exposure")
+		return
+	}
 	sandbox, err := api.store.GetSandbox(ctx, req.VMID)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
@@ -1150,18 +1168,28 @@ func (api *ControlAPI) handleExposureCreate(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
+	publishResult, err := api.exposurePublisher.Publish(ctx, req.Name, req.TargetIP, req.Port)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to configure exposure")
+		return
+	}
+	if publishResult.State == "" {
+		publishResult.State = defaultExposureState
+	}
+
 	now := api.now().UTC()
 	exposure := db.Exposure{
 		Name:      req.Name,
 		VMID:      req.VMID,
 		Port:      req.Port,
 		TargetIP:  req.TargetIP,
-		URL:       req.URL,
-		State:     req.State,
+		URL:       publishResult.URL,
+		State:     publishResult.State,
 		CreatedAt: now,
 		UpdatedAt: now,
 	}
 	if err := api.store.CreateExposure(ctx, exposure); err != nil {
+		_ = api.exposurePublisher.Unpublish(ctx, exposure.Name, exposure.Port)
 		if isUniqueConstraint(err) {
 			writeError(w, http.StatusConflict, "exposure already exists")
 			return
@@ -1206,6 +1234,10 @@ func (api *ControlAPI) handleExposureDelete(w http.ResponseWriter, r *http.Reque
 		writeError(w, http.StatusServiceUnavailable, "exposure registry unavailable")
 		return
 	}
+	if api.exposurePublisher == nil {
+		writeError(w, http.StatusServiceUnavailable, "exposure publisher unavailable")
+		return
+	}
 	exposure, err := api.store.GetExposure(r.Context(), name)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
@@ -1213,6 +1245,10 @@ func (api *ControlAPI) handleExposureDelete(w http.ResponseWriter, r *http.Reque
 			return
 		}
 		writeError(w, http.StatusInternalServerError, "failed to load exposure")
+		return
+	}
+	if err := api.exposurePublisher.Unpublish(r.Context(), exposure.Name, exposure.Port); err != nil && !errors.Is(err, ErrServeRuleNotFound) {
+		writeError(w, http.StatusInternalServerError, "failed to remove exposure")
 		return
 	}
 	if err := api.store.DeleteExposure(r.Context(), name); err != nil {

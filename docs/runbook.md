@@ -211,6 +211,26 @@ If tailnet access fails:
 - Verify nftables rules are active: `systemctl status agentlab-nftables.service`.
 - Re-run `scripts/net/apply.sh --apply` if rules were not installed.
 
+## Tailscale Serve exposures
+
+AgentLab can expose sandbox ports over the tailnet using host-level Tailscale Serve.
+Each exposure maps `host.tailnet.ts.net:<port>` to the sandbox IP and performs a
+TCP health check (plus an optional HTTP probe on common HTTP ports).
+
+Requirements:
+- `tailscale` CLI installed and logged in on the host.
+- MagicDNS enabled in the tailnet for stable DNS names.
+
+Troubleshooting:
+- Inspect active rules: `tailscale serve status`
+- Remove a stale rule: `tailscale serve --tcp=<port> off`
+- If exposure creation fails, confirm `tailscale status --json` works and the
+  daemon can execute `tailscale` from its environment.
+
+Notes:
+- Exposures are removed automatically when the owning sandbox is destroyed
+  (best-effort).
+
 ## Debugging stuck sandboxes
 
 1) Identify the sandbox and state:
