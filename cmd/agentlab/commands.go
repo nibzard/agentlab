@@ -214,8 +214,11 @@ func runStatusCommand(ctx context.Context, args []string, base commonFlags) erro
 // runJobCommand dispatches job subcommands (run, show, artifacts).
 func runJobCommand(ctx context.Context, args []string, base commonFlags) error {
 	if len(args) == 0 {
-		printJobUsage()
-		return nil
+		if !base.jsonOutput {
+			printJobUsage()
+			return nil
+		}
+		return newUsageError(fmt.Errorf("job command is required"), false)
 	}
 	if isHelpToken(args[0]) {
 		printJobUsage()
@@ -229,8 +232,10 @@ func runJobCommand(ctx context.Context, args []string, base commonFlags) error {
 	case "artifacts":
 		return runJobArtifacts(ctx, args[1:], base)
 	default:
-		printJobUsage()
-		return fmt.Errorf("unknown job command %q", args[0])
+		if !base.jsonOutput {
+			printJobUsage()
+		}
+		return unknownSubcommandError("job", args[0], []string{"run", "show", "artifacts"})
 	}
 }
 
@@ -260,7 +265,9 @@ func runJobRun(ctx context.Context, args []string, base commonFlags) error {
 		return err
 	}
 	if repo == "" || profile == "" || task == "" {
-		printJobRunUsage()
+		if !opts.jsonOutput {
+			printJobRunUsage()
+		}
 		return fmt.Errorf("repo, profile, and task are required")
 	}
 	ttlMinutes, err := parseTTLMinutes(ttl)
@@ -280,7 +287,7 @@ func runJobRun(ctx context.Context, args []string, base commonFlags) error {
 	}
 	payload, err := client.doJSON(ctx, http.MethodPost, "/v1/jobs", req)
 	if err != nil {
-		return err
+		return wrapUnknownProfileError(ctx, client, profile, err)
 	}
 	if opts.jsonOutput {
 		return prettyPrintJSON(os.Stdout, payload)
@@ -307,7 +314,9 @@ func runJobShow(ctx context.Context, args []string, base commonFlags) error {
 		return err
 	}
 	if fs.NArg() < 1 {
-		printJobShowUsage()
+		if !opts.jsonOutput {
+			printJobShowUsage()
+		}
 		return fmt.Errorf("job_id is required")
 	}
 	jobID := strings.TrimSpace(fs.Arg(0))
@@ -322,7 +331,7 @@ func runJobShow(ctx context.Context, args []string, base commonFlags) error {
 	}
 	payload, err := client.doJSON(ctx, http.MethodGet, fmt.Sprintf("/v1/jobs/%s%s", jobID, query), nil)
 	if err != nil {
-		return err
+		return wrapJobNotFound(jobID, err)
 	}
 	if opts.jsonOutput {
 		return prettyPrintJSON(os.Stdout, payload)
@@ -342,8 +351,11 @@ func runJobShow(ctx context.Context, args []string, base commonFlags) error {
 // runJobArtifacts handles job artifacts subcommands.
 func runJobArtifacts(ctx context.Context, args []string, base commonFlags) error {
 	if len(args) == 0 {
-		printJobArtifactsUsage()
-		return nil
+		if !base.jsonOutput {
+			printJobArtifactsUsage()
+			return nil
+		}
+		return newUsageError(fmt.Errorf("job artifacts command is required"), false)
 	}
 	switch args[0] {
 	case "download":
@@ -364,7 +376,9 @@ func runJobArtifactsList(ctx context.Context, args []string, base commonFlags) e
 		return err
 	}
 	if fs.NArg() < 1 {
-		printJobArtifactsUsage()
+		if !opts.jsonOutput {
+			printJobArtifactsUsage()
+		}
 		return fmt.Errorf("job_id is required")
 	}
 	jobID := strings.TrimSpace(fs.Arg(0))
@@ -375,7 +389,7 @@ func runJobArtifactsList(ctx context.Context, args []string, base commonFlags) e
 	client := newAPIClient(opts.socketPath, opts.timeout)
 	payload, err := client.doJSON(ctx, http.MethodGet, fmt.Sprintf("/v1/jobs/%s/artifacts", jobID), nil)
 	if err != nil {
-		return err
+		return wrapJobNotFound(jobID, err)
 	}
 	if opts.jsonOutput {
 		return prettyPrintJSON(os.Stdout, payload)
@@ -409,7 +423,9 @@ func runJobArtifactsDownload(ctx context.Context, args []string, base commonFlag
 		return err
 	}
 	if fs.NArg() < 1 {
-		printJobArtifactsDownloadUsage()
+		if !opts.jsonOutput {
+			printJobArtifactsDownloadUsage()
+		}
 		return fmt.Errorf("job_id is required")
 	}
 	jobID := strings.TrimSpace(fs.Arg(0))
@@ -428,7 +444,7 @@ func runJobArtifactsDownload(ctx context.Context, args []string, base commonFlag
 	client := newAPIClient(opts.socketPath, opts.timeout)
 	payload, err := client.doJSON(ctx, http.MethodGet, fmt.Sprintf("/v1/jobs/%s/artifacts", jobID), nil)
 	if err != nil {
-		return err
+		return wrapJobNotFound(jobID, err)
 	}
 	var resp artifactsResponse
 	if err := json.Unmarshal(payload, &resp); err != nil {
@@ -497,8 +513,11 @@ func runJobArtifactsDownload(ctx context.Context, args []string, base commonFlag
 // runSandboxCommand dispatches sandbox subcommands.
 func runSandboxCommand(ctx context.Context, args []string, base commonFlags) error {
 	if len(args) == 0 {
-		printSandboxUsage()
-		return nil
+		if !base.jsonOutput {
+			printSandboxUsage()
+			return nil
+		}
+		return newUsageError(fmt.Errorf("sandbox command is required"), false)
 	}
 	if isHelpToken(args[0]) {
 		printSandboxUsage()
@@ -530,16 +549,21 @@ func runSandboxCommand(ctx context.Context, args []string, base commonFlags) err
 	case "unexpose":
 		return runSandboxUnexpose(ctx, args[1:], base)
 	default:
-		printSandboxUsage()
-		return fmt.Errorf("unknown sandbox command %q", args[0])
+		if !base.jsonOutput {
+			printSandboxUsage()
+		}
+		return unknownSubcommandError("sandbox", args[0], []string{"new", "list", "show", "start", "stop", "revert", "destroy", "lease", "prune", "expose", "exposed", "unexpose"})
 	}
 }
 
 // runWorkspaceCommand dispatches workspace subcommands.
 func runWorkspaceCommand(ctx context.Context, args []string, base commonFlags) error {
 	if len(args) == 0 {
-		printWorkspaceUsage()
-		return nil
+		if !base.jsonOutput {
+			printWorkspaceUsage()
+			return nil
+		}
+		return newUsageError(fmt.Errorf("workspace command is required"), false)
 	}
 	if isHelpToken(args[0]) {
 		printWorkspaceUsage()
@@ -557,16 +581,21 @@ func runWorkspaceCommand(ctx context.Context, args []string, base commonFlags) e
 	case "rebind":
 		return runWorkspaceRebind(ctx, args[1:], base)
 	default:
-		printWorkspaceUsage()
-		return fmt.Errorf("unknown workspace command %q", args[0])
+		if !base.jsonOutput {
+			printWorkspaceUsage()
+		}
+		return unknownSubcommandError("workspace", args[0], []string{"create", "list", "attach", "detach", "rebind"})
 	}
 }
 
 // runProfileCommand dispatches profile subcommands.
 func runProfileCommand(ctx context.Context, args []string, base commonFlags) error {
 	if len(args) == 0 {
-		printProfileUsage()
-		return nil
+		if !base.jsonOutput {
+			printProfileUsage()
+			return nil
+		}
+		return newUsageError(fmt.Errorf("profile command is required"), false)
 	}
 	if isHelpToken(args[0]) {
 		printProfileUsage()
@@ -576,8 +605,10 @@ func runProfileCommand(ctx context.Context, args []string, base commonFlags) err
 	case "list":
 		return runProfileList(ctx, args[1:], base)
 	default:
-		printProfileUsage()
-		return fmt.Errorf("unknown profile command %q", args[0])
+		if !base.jsonOutput {
+			printProfileUsage()
+		}
+		return unknownSubcommandError("profile", args[0], []string{"list"})
 	}
 }
 
@@ -653,7 +684,9 @@ func runSandboxNew(ctx context.Context, args []string, base commonFlags) error {
 		}
 	}
 	if profile == "" && len(modifiers) == 0 {
-		printSandboxNewUsage()
+		if !opts.jsonOutput {
+			printSandboxNewUsage()
+		}
 		return fmt.Errorf("profile is required (or provide +modifiers)")
 	}
 	ttlMinutes, err := parseTTLMinutes(ttl)
@@ -756,7 +789,9 @@ func runSandboxShow(ctx context.Context, args []string, base commonFlags) error 
 		return err
 	}
 	if fs.NArg() < 1 {
-		printSandboxShowUsage()
+		if !opts.jsonOutput {
+			printSandboxShowUsage()
+		}
 		return fmt.Errorf("vmid is required")
 	}
 	vmid, err := parseVMID(fs.Arg(0))
@@ -768,7 +803,7 @@ func runSandboxShow(ctx context.Context, args []string, base commonFlags) error 
 	touchSandboxBestEffort(ctx, client, vmid)
 	payload, err := client.doJSON(ctx, http.MethodGet, fmt.Sprintf("/v1/sandboxes/%d", vmid), nil)
 	if err != nil {
-		return err
+		return wrapSandboxNotFound(ctx, client, vmid, err)
 	}
 	if opts.jsonOutput {
 		return prettyPrintJSON(os.Stdout, payload)
@@ -792,7 +827,9 @@ func runSandboxStart(ctx context.Context, args []string, base commonFlags) error
 		return err
 	}
 	if fs.NArg() < 1 {
-		printSandboxStartUsage()
+		if !opts.jsonOutput {
+			printSandboxStartUsage()
+		}
 		return fmt.Errorf("vmid is required")
 	}
 	vmid, err := parseVMID(fs.Arg(0))
@@ -803,7 +840,7 @@ func runSandboxStart(ctx context.Context, args []string, base commonFlags) error
 	client := newAPIClient(opts.socketPath, opts.timeout)
 	payload, err := client.doJSON(ctx, http.MethodPost, fmt.Sprintf("/v1/sandboxes/%d/start", vmid), nil)
 	if err != nil {
-		return err
+		return wrapSandboxNotFound(ctx, client, vmid, err)
 	}
 	if opts.jsonOutput {
 		return prettyPrintJSON(os.Stdout, payload)
@@ -827,7 +864,9 @@ func runSandboxStop(ctx context.Context, args []string, base commonFlags) error 
 		return err
 	}
 	if fs.NArg() < 1 {
-		printSandboxStopUsage()
+		if !opts.jsonOutput {
+			printSandboxStopUsage()
+		}
 		return fmt.Errorf("vmid is required")
 	}
 	vmid, err := parseVMID(fs.Arg(0))
@@ -838,7 +877,7 @@ func runSandboxStop(ctx context.Context, args []string, base commonFlags) error 
 	client := newAPIClient(opts.socketPath, opts.timeout)
 	payload, err := client.doJSON(ctx, http.MethodPost, fmt.Sprintf("/v1/sandboxes/%d/stop", vmid), nil)
 	if err != nil {
-		return err
+		return wrapSandboxNotFound(ctx, client, vmid, err)
 	}
 	if opts.jsonOutput {
 		return prettyPrintJSON(os.Stdout, payload)
@@ -868,7 +907,9 @@ func runSandboxRevert(ctx context.Context, args []string, base commonFlags) erro
 		return err
 	}
 	if fs.NArg() < 1 {
-		printSandboxRevertUsage()
+		if !opts.jsonOutput {
+			printSandboxRevertUsage()
+		}
 		return fmt.Errorf("vmid is required")
 	}
 	if noRestart && restart {
@@ -892,7 +933,7 @@ func runSandboxRevert(ctx context.Context, args []string, base commonFlags) erro
 	req := sandboxRevertRequest{Force: force, Restart: restartPtr}
 	payload, err := client.doJSON(ctx, http.MethodPost, fmt.Sprintf("/v1/sandboxes/%d/revert", vmid), req)
 	if err != nil {
-		return err
+		return wrapSandboxNotFound(ctx, client, vmid, err)
 	}
 	if opts.jsonOutput {
 		return prettyPrintJSON(os.Stdout, payload)
@@ -927,7 +968,9 @@ func runSandboxDestroy(ctx context.Context, args []string, base commonFlags) err
 		return err
 	}
 	if fs.NArg() < 1 {
-		printSandboxDestroyUsage()
+		if !opts.jsonOutput {
+			printSandboxDestroyUsage()
+		}
 		return fmt.Errorf("vmid is required")
 	}
 	vmid, err := parseVMID(fs.Arg(0))
@@ -939,7 +982,7 @@ func runSandboxDestroy(ctx context.Context, args []string, base commonFlags) err
 	req := sandboxDestroyRequest{Force: force}
 	payload, err := client.doJSON(ctx, http.MethodPost, fmt.Sprintf("/v1/sandboxes/%d/destroy", vmid), req)
 	if err != nil {
-		return err
+		return wrapSandboxNotFound(ctx, client, vmid, err)
 	}
 	if opts.jsonOutput {
 		return prettyPrintJSON(os.Stdout, payload)
@@ -954,8 +997,11 @@ func runSandboxDestroy(ctx context.Context, args []string, base commonFlags) err
 
 func runSandboxLease(ctx context.Context, args []string, base commonFlags) error {
 	if len(args) == 0 {
-		printSandboxLeaseUsage()
-		return nil
+		if !base.jsonOutput {
+			printSandboxLeaseUsage()
+			return nil
+		}
+		return newUsageError(fmt.Errorf("sandbox lease command is required"), false)
 	}
 	if isHelpToken(args[0]) {
 		printSandboxLeaseUsage()
@@ -965,8 +1011,10 @@ func runSandboxLease(ctx context.Context, args []string, base commonFlags) error
 	case "renew":
 		return runSandboxLeaseRenew(ctx, args[1:], base)
 	default:
-		printSandboxLeaseUsage()
-		return fmt.Errorf("unknown sandbox lease command %q", args[0])
+		if !base.jsonOutput {
+			printSandboxLeaseUsage()
+		}
+		return unknownSubcommandError("sandbox lease", args[0], []string{"renew"})
 	}
 }
 
@@ -983,11 +1031,15 @@ func runSandboxLeaseRenew(ctx context.Context, args []string, base commonFlags) 
 		return err
 	}
 	if fs.NArg() < 1 {
-		printSandboxLeaseRenewUsage()
+		if !opts.jsonOutput {
+			printSandboxLeaseRenewUsage()
+		}
 		return fmt.Errorf("vmid is required")
 	}
 	if ttl == "" {
-		printSandboxLeaseRenewUsage()
+		if !opts.jsonOutput {
+			printSandboxLeaseRenewUsage()
+		}
 		return fmt.Errorf("ttl is required. Flags must come before vmid (e.g., --ttl 120 1009)")
 	}
 	vmid, err := parseVMID(fs.Arg(0))
@@ -1003,7 +1055,7 @@ func runSandboxLeaseRenew(ctx context.Context, args []string, base commonFlags) 
 	req := leaseRenewRequest{TTLMinutes: minutes}
 	payload, err := client.doJSON(ctx, http.MethodPost, fmt.Sprintf("/v1/sandboxes/%d/lease/renew", vmid), req)
 	if err != nil {
-		return err
+		return wrapSandboxNotFound(ctx, client, vmid, err)
 	}
 	if opts.jsonOutput {
 		return prettyPrintJSON(os.Stdout, payload)
@@ -1054,7 +1106,9 @@ func runSandboxExpose(ctx context.Context, args []string, base commonFlags) erro
 		return err
 	}
 	if fs.NArg() < 2 {
-		printSandboxExposeUsage()
+		if !opts.jsonOutput {
+			printSandboxExposeUsage()
+		}
 		return fmt.Errorf("vmid and port are required")
 	}
 	vmid, err := parseVMID(fs.Arg(0))
@@ -1073,7 +1127,7 @@ func runSandboxExpose(ctx context.Context, args []string, base commonFlags) erro
 	client := newAPIClient(opts.socketPath, opts.timeout)
 	payload, err := client.doJSON(ctx, http.MethodPost, "/v1/exposures", req)
 	if err != nil {
-		return err
+		return wrapSandboxNotFound(ctx, client, vmid, err)
 	}
 	if opts.jsonOutput {
 		return prettyPrintJSON(os.Stdout, payload)
@@ -1123,7 +1177,9 @@ func runSandboxUnexpose(ctx context.Context, args []string, base commonFlags) er
 		return err
 	}
 	if fs.NArg() < 1 {
-		printSandboxUnexposeUsage()
+		if !opts.jsonOutput {
+			printSandboxUnexposeUsage()
+		}
 		return fmt.Errorf("name is required")
 	}
 	name := strings.TrimSpace(fs.Arg(0))
@@ -1166,7 +1222,9 @@ func runWorkspaceCreate(ctx context.Context, args []string, base commonFlags) er
 	size = strings.TrimSpace(size)
 	storage = strings.TrimSpace(storage)
 	if name == "" || size == "" {
-		printWorkspaceCreateUsage()
+		if !opts.jsonOutput {
+			printWorkspaceCreateUsage()
+		}
 		return fmt.Errorf("name and size are required")
 	}
 	sizeGB, err := parseSizeGB(size)
@@ -1232,7 +1290,9 @@ func runWorkspaceAttach(ctx context.Context, args []string, base commonFlags) er
 		return err
 	}
 	if fs.NArg() < 2 {
-		printWorkspaceAttachUsage()
+		if !opts.jsonOutput {
+			printWorkspaceAttachUsage()
+		}
 		return fmt.Errorf("workspace and vmid are required")
 	}
 	workspace := strings.TrimSpace(fs.Arg(0))
@@ -1247,7 +1307,8 @@ func runWorkspaceAttach(ctx context.Context, args []string, base commonFlags) er
 	req := workspaceAttachRequest{VMID: vmid}
 	payload, err := client.doJSON(ctx, http.MethodPost, fmt.Sprintf("/v1/workspaces/%s/attach", workspace), req)
 	if err != nil {
-		return err
+		err = wrapSandboxNotFound(ctx, client, vmid, err)
+		return wrapWorkspaceNotFound(workspace, err)
 	}
 	if opts.jsonOutput {
 		return prettyPrintJSON(os.Stdout, payload)
@@ -1271,7 +1332,9 @@ func runWorkspaceDetach(ctx context.Context, args []string, base commonFlags) er
 		return err
 	}
 	if fs.NArg() < 1 {
-		printWorkspaceDetachUsage()
+		if !opts.jsonOutput {
+			printWorkspaceDetachUsage()
+		}
 		return fmt.Errorf("workspace is required")
 	}
 	workspace := strings.TrimSpace(fs.Arg(0))
@@ -1281,7 +1344,7 @@ func runWorkspaceDetach(ctx context.Context, args []string, base commonFlags) er
 	client := newAPIClient(opts.socketPath, opts.timeout)
 	payload, err := client.doJSON(ctx, http.MethodPost, fmt.Sprintf("/v1/workspaces/%s/detach", workspace), nil)
 	if err != nil {
-		return err
+		return wrapWorkspaceNotFound(workspace, err)
 	}
 	if opts.jsonOutput {
 		return prettyPrintJSON(os.Stdout, payload)
@@ -1311,7 +1374,9 @@ func runWorkspaceRebind(ctx context.Context, args []string, base commonFlags) er
 		return err
 	}
 	if fs.NArg() < 1 {
-		printWorkspaceRebindUsage()
+		if !opts.jsonOutput {
+			printWorkspaceRebindUsage()
+		}
 		return fmt.Errorf("workspace is required")
 	}
 	workspace := strings.TrimSpace(fs.Arg(0))
@@ -1320,7 +1385,9 @@ func runWorkspaceRebind(ctx context.Context, args []string, base commonFlags) er
 	}
 	profile = strings.TrimSpace(profile)
 	if profile == "" {
-		printWorkspaceRebindUsage()
+		if !opts.jsonOutput {
+			printWorkspaceRebindUsage()
+		}
 		return fmt.Errorf("profile is required")
 	}
 	ttlMinutes, err := parseTTLMinutes(ttl)
@@ -1336,7 +1403,8 @@ func runWorkspaceRebind(ctx context.Context, args []string, base commonFlags) er
 	}
 	payload, err := client.doJSON(ctx, http.MethodPost, fmt.Sprintf("/v1/workspaces/%s/rebind", workspace), req)
 	if err != nil {
-		return err
+		err = wrapUnknownProfileError(ctx, client, profile, err)
+		return wrapWorkspaceNotFound(workspace, err)
 	}
 	if opts.jsonOutput {
 		return prettyPrintJSON(os.Stdout, payload)
@@ -1365,7 +1433,9 @@ func runLogsCommand(ctx context.Context, args []string, base commonFlags) error 
 		return err
 	}
 	if fs.NArg() < 1 {
-		printLogsUsage()
+		if !opts.jsonOutput {
+			printLogsUsage()
+		}
 		return fmt.Errorf("vmid is required")
 	}
 	vmid, err := parseVMID(fs.Arg(0))
@@ -1435,7 +1505,7 @@ func fetchEvents(ctx context.Context, client *apiClient, vmid int, tail int, aft
 	}
 	payload, err := client.doJSON(ctx, http.MethodGet, fmt.Sprintf("/v1/sandboxes/%d/events%s", vmid, query), nil)
 	if err != nil {
-		return eventsResponse{}, err
+		return eventsResponse{}, wrapSandboxNotFound(ctx, client, vmid, err)
 	}
 	var resp eventsResponse
 	if err := json.Unmarshal(payload, &resp); err != nil {

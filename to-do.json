@@ -1666,23 +1666,23 @@
         "docs"
       ],
       "files": [
+        "README.md",
         "cmd/agentlab/api.go",
         "cmd/agentlab/commands.go",
+        "cmd/agentlab/exposures_test.go",
         "cmd/agentlab/main.go",
         "cmd/agentlab/main_test.go",
-        "cmd/agentlab/exposures_test.go",
         "docs/api.md",
-        "README.md",
         "to-do.json"
       ],
       "created_at": "2026-02-08T16:47:32Z",
-      "updated_at": "2026-02-08T20:21:15Z"
+      "updated_at": "2026-02-08T20:21:50Z"
     },
     {
       "id": "T076",
       "title": "Humane errors: fuzzy suggestions + next-step hints across CLI",
       "priority": 3,
-      "status": "todo",
+      "status": "done",
       "details": "Reduce tooling tax during fast iteration. Add fuzzy suggestions for VMIDs and profile names, and always print the next best command when failing (e.g., suggest `agentlab sandbox list`).",
       "steps": [
         "Implement a small suggestion helper (Levenshtein or prefix match) for profile names and common subcommands.",
@@ -1700,12 +1700,16 @@
         "cli"
       ],
       "files": [
-        "cmd/agentlab/main.go",
         "cmd/agentlab/commands.go",
-        "cmd/agentlab/ssh.go"
+        "cmd/agentlab/errors.go",
+        "cmd/agentlab/main.go",
+        "cmd/agentlab/modifiers.go",
+        "cmd/agentlab/ssh.go",
+        "cmd/agentlab/suggestions.go",
+        "cmd/agentlab/suggestions_test.go"
       ],
       "created_at": "2026-02-08T16:47:32Z",
-      "updated_at": "2026-02-08T16:47:32Z"
+      "updated_at": "2026-02-08T20:38:52Z"
     },
     {
       "id": "T077",

@@ -106,11 +106,15 @@ func runSSHCommand(ctx context.Context, args []string, base commonFlags) error {
 		return err
 	}
 	if fs.NArg() < 1 {
-		printSSHUsage()
+		if !opts.jsonOutput {
+			printSSHUsage()
+		}
 		return fmt.Errorf("vmid is required")
 	}
 	if fs.NArg() > 1 {
-		printSSHUsage()
+		if !opts.jsonOutput {
+			printSSHUsage()
+		}
 		return fmt.Errorf("unexpected extra arguments")
 	}
 	vmid, err := parseVMID(fs.Arg(0))
@@ -209,7 +213,7 @@ func withWaitTimeout(ctx context.Context, timeout time.Duration) (context.Contex
 func fetchSandbox(ctx context.Context, client *apiClient, vmid int) (sandboxResponse, error) {
 	payload, err := client.doJSON(ctx, http.MethodGet, fmt.Sprintf("/v1/sandboxes/%d", vmid), nil)
 	if err != nil {
-		return sandboxResponse{}, err
+		return sandboxResponse{}, wrapSandboxNotFound(ctx, client, vmid, err)
 	}
 	var resp sandboxResponse
 	if err := json.Unmarshal(payload, &resp); err != nil {
@@ -221,7 +225,7 @@ func fetchSandbox(ctx context.Context, client *apiClient, vmid int) (sandboxResp
 func startSandbox(ctx context.Context, client *apiClient, vmid int) (sandboxResponse, error) {
 	payload, err := client.doJSON(ctx, http.MethodPost, fmt.Sprintf("/v1/sandboxes/%d/start", vmid), nil)
 	if err != nil {
-		return sandboxResponse{}, err
+		return sandboxResponse{}, wrapSandboxNotFound(ctx, client, vmid, err)
 	}
 	var resp sandboxResponse
 	if err := json.Unmarshal(payload, &resp); err != nil {
