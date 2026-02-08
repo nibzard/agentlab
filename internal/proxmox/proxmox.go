@@ -43,10 +43,14 @@ type VMConfig struct {
 	MemoryMB   int    // Memory in megabytes
 	Bridge     string // Network bridge (e.g., "vmbr1")
 	NetModel   string // Network device model (e.g., "virtio")
-	CloudInit  string // Cloud-init snippet path
-	CPUPinning string // CPU pinning configuration
-	SCSIHW     string // Proxmox scsihw (e.g., "virtio-scsi-pci")
-
+	// Firewall applies only to net0, matching Proxmox's NIC-level firewall behavior.
+	Firewall *bool // Whether to enable Proxmox firewall for the NIC (nil = leave unchanged)
+	// FirewallGroup applies only to net0.
+	FirewallGroup string // Firewall group name to apply (empty = unset)
+	CloudInit     string // Cloud-init snippet path
+	CPUPinning    string // CPU pinning configuration
+	// SCSIHW selects the guest disk controller model (e.g., virtio-scsi-pci).
+	SCSIHW string
 	// RootDiskGB is the desired minimum size (in GB) for the VM's root disk.
 	// ABOUTME: AgentLab uses this to ensure templates with small root disks are resized
 	// during provisioning. The backend will only grow disks; shrinking is not supported.

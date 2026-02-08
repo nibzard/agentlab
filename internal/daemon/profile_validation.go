@@ -20,6 +20,9 @@ func validateProfileForProvisioning(profile models.Profile) error {
 	if err := validateProfileInnerSandbox(profile); err != nil {
 		return err
 	}
+	if err := validateProfileFirewallGroup(profile); err != nil {
+		return err
+	}
 	return nil
 }
 
@@ -33,6 +36,24 @@ func validateProfileInnerSandbox(profile models.Profile) error {
 	}
 	if cfg.Name != "bubblewrap" {
 		return fmt.Errorf("profile %q has unsupported behavior.inner_sandbox %q", profile.Name, cfg.Name)
+	}
+	return nil
+}
+
+func validateProfileFirewallGroup(profile models.Profile) error {
+	spec, err := parseProfileProvisionSpec(profile.RawYAML)
+	if err != nil {
+		return fmt.Errorf("parse profile %q: %w", profile.Name, err)
+	}
+	if spec.Network.FirewallGroup == nil {
+		return nil
+	}
+	group, err := normalizeFirewallGroup(*spec.Network.FirewallGroup)
+	if err != nil {
+		return fmt.Errorf("profile %q: %w", profile.Name, err)
+	}
+	if spec.Network.Firewall != nil && !*spec.Network.Firewall {
+		return fmt.Errorf("profile %q sets network.firewall=false with firewall_group %q", profile.Name, group)
 	}
 	return nil
 }

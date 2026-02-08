@@ -51,10 +51,15 @@ func startTestDaemon(t *testing.T) (*daemon.Service, config.Config, func()) {
 	profilePath := filepath.Join(profilesDir, "test.yaml")
 	profileContent := `
 name: test
-template_vm: 9000
-cpu: 2
-memory: 4096
-network: bridge
+template_vmid: 9000
+resources:
+  cores: 2
+  memory_mb: 4096
+network:
+  bridge: vmbr1
+  model: virtio
+  firewall: true
+  firewall_group: agent_nat_default
 `
 	require.NoError(t, os.WriteFile(profilePath, []byte(profileContent), 0644))
 
@@ -221,6 +226,7 @@ func TestCLIReadOnly_WithData(t *testing.T) {
 		assert.Contains(t, out, "test-sandbox")
 		assert.Contains(t, out, "RUNNING")
 		assert.Contains(t, out, "10.77.0.10")
+		assert.Contains(t, out, "agent_nat_default")
 	})
 
 	t.Run("sandbox show shows details", func(t *testing.T) {
@@ -233,6 +239,7 @@ func TestCLIReadOnly_WithData(t *testing.T) {
 		assert.Contains(t, out, "Profile: test")
 		assert.Contains(t, out, "State: RUNNING")
 		assert.Contains(t, out, "IP: 10.77.0.10")
+		assert.Contains(t, out, "Firewall Group: agent_nat_default")
 	})
 
 	t.Run("job show shows details", func(t *testing.T) {

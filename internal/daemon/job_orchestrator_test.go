@@ -203,6 +203,8 @@ template_vmid: 9000
 network:
   bridge: vmbr1
   model: virtio
+  firewall: true
+  firewall_group: agent_nat_default
 resources:
   cores: 4
   memory_mb: 4096
@@ -250,6 +252,9 @@ resources:
 	}
 	if cfg.Bridge != "vmbr1" || cfg.NetModel != "virtio" {
 		t.Fatalf("unexpected network config: %+v", cfg)
+	}
+	if cfg.Firewall == nil || !*cfg.Firewall || cfg.FirewallGroup != "agent_nat_default" {
+		t.Fatalf("unexpected firewall config: %+v", cfg)
 	}
 	if cfg.CloudInit == "" || !strings.Contains(cfg.CloudInit, "snippets") {
 		t.Fatalf("expected cloud-init snippet path, got %q", cfg.CloudInit)

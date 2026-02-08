@@ -84,14 +84,17 @@ func TestShellBackendConfigure(t *testing.T) {
 	runner := &fakeRunner{responses: []runnerResponse{{}}}
 	backend := &ShellBackend{Runner: runner}
 
+	firewall := true
 	cfg := VMConfig{
-		Name:       "sandbox-101",
-		Cores:      4,
-		MemoryMB:   4096,
-		Bridge:     "vmbr1",
-		NetModel:   "virtio",
-		CloudInit:  "local:snippets/ci.yaml",
-		CPUPinning: "0-3",
+		Name:          "sandbox-101",
+		Cores:         4,
+		MemoryMB:      4096,
+		Bridge:        "vmbr1",
+		NetModel:      "virtio",
+		Firewall:      &firewall,
+		FirewallGroup: "agent_nat_default",
+		CloudInit:     "local:snippets/ci.yaml",
+		CPUPinning:    "0-3",
 	}
 
 	err := backend.Configure(context.Background(), 101, cfg)
@@ -107,7 +110,7 @@ func TestShellBackendConfigure(t *testing.T) {
 			"--cores", "4",
 			"--memory", "4096",
 			"--cpulist", "0-3",
-			"--net0", "virtio,bridge=vmbr1",
+			"--net0", "virtio,bridge=vmbr1,firewall=1,fwgroup=agent_nat_default",
 			"--cicustom", "user=local:snippets/ci.yaml",
 		},
 	}}

@@ -117,17 +117,23 @@ type V1SandboxRevertRequest struct {
 }
 
 type V1SandboxResponse struct {
-	VMID          int     `json:"vmid"`
-	Name          string  `json:"name"`
-	Profile       string  `json:"profile"`
-	State         string  `json:"state"`
-	IP            string  `json:"ip,omitempty"`
-	WorkspaceID   *string `json:"workspace_id,omitempty"`
-	Keepalive     bool    `json:"keepalive"`
-	LeaseExpires  *string `json:"lease_expires_at,omitempty"`
-	LastUsedAt    *string `json:"last_used_at,omitempty"`
-	CreatedAt     string  `json:"created_at"`
-	LastUpdatedAt string  `json:"updated_at"`
+	VMID          int               `json:"vmid"`
+	Name          string            `json:"name"`
+	Profile       string            `json:"profile"`
+	State         string            `json:"state"`
+	IP            string            `json:"ip,omitempty"`
+	WorkspaceID   *string           `json:"workspace_id,omitempty"`
+	Network       *V1SandboxNetwork `json:"network,omitempty"`
+	Keepalive     bool              `json:"keepalive"`
+	LeaseExpires  *string           `json:"lease_expires_at,omitempty"`
+	LastUsedAt    *string           `json:"last_used_at,omitempty"`
+	CreatedAt     string            `json:"created_at"`
+	LastUpdatedAt string            `json:"updated_at"`
+}
+
+type V1SandboxNetwork struct {
+	Firewall      *bool  `json:"firewall,omitempty"`
+	FirewallGroup string `json:"firewall_group,omitempty"`
 }
 
 type V1SandboxesResponse struct {

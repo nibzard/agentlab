@@ -707,7 +707,7 @@ func (api *ControlAPI) handleSandboxList(w http.ResponseWriter, r *http.Request)
 	}
 	resp := V1SandboxesResponse{Sandboxes: make([]V1SandboxResponse, 0, len(sandboxes))}
 	for _, sb := range sandboxes {
-		resp.Sandboxes = append(resp.Sandboxes, sandboxToV1(sb))
+		resp.Sandboxes = append(resp.Sandboxes, api.sandboxToV1(sb))
 	}
 	writeJSON(w, http.StatusOK, resp)
 }
@@ -722,7 +722,7 @@ func (api *ControlAPI) handleSandboxGet(w http.ResponseWriter, r *http.Request, 
 		writeError(w, http.StatusInternalServerError, "failed to load sandbox")
 		return
 	}
-	writeJSON(w, http.StatusOK, sandboxToV1(sandbox))
+	writeJSON(w, http.StatusOK, api.sandboxToV1(sandbox))
 }
 
 func (api *ControlAPI) handleSandboxCreate(w http.ResponseWriter, r *http.Request) {
@@ -887,11 +887,11 @@ func (api *ControlAPI) handleSandboxCreate(w http.ResponseWriter, r *http.Reques
 			writeError(w, http.StatusInternalServerError, "failed to provision sandbox", err)
 			return
 		}
-		writeJSON(w, http.StatusCreated, sandboxToV1(updated))
+		writeJSON(w, http.StatusCreated, api.sandboxToV1(updated))
 		return
 	}
 
-	writeJSON(w, http.StatusCreated, sandboxToV1(createdSandbox))
+	writeJSON(w, http.StatusCreated, api.sandboxToV1(createdSandbox))
 }
 
 func (api *ControlAPI) handleWorkspaceCreate(w http.ResponseWriter, r *http.Request) {
@@ -1059,7 +1059,7 @@ func (api *ControlAPI) handleWorkspaceRebind(w http.ResponseWriter, r *http.Requ
 	}
 	resp := V1WorkspaceRebindResponse{
 		Workspace: workspaceToV1(result.Workspace),
-		Sandbox:   sandboxToV1(result.Sandbox),
+		Sandbox:   api.sandboxToV1(result.Sandbox),
 		OldVMID:   result.OldVMID,
 	}
 	writeJSON(w, http.StatusOK, resp)
@@ -1105,7 +1105,7 @@ func (api *ControlAPI) handleSandboxDestroy(w http.ResponseWriter, r *http.Reque
 		writeError(w, http.StatusInternalServerError, "failed to load sandbox")
 		return
 	}
-	writeJSON(w, http.StatusOK, sandboxToV1(sandbox))
+	writeJSON(w, http.StatusOK, api.sandboxToV1(sandbox))
 }
 
 func (api *ControlAPI) handleSandboxStart(w http.ResponseWriter, r *http.Request, vmid int) {
@@ -1137,7 +1137,7 @@ func (api *ControlAPI) handleSandboxStart(w http.ResponseWriter, r *http.Request
 		writeError(w, http.StatusInternalServerError, "failed to load sandbox")
 		return
 	}
-	writeJSON(w, http.StatusOK, sandboxToV1(sandbox))
+	writeJSON(w, http.StatusOK, api.sandboxToV1(sandbox))
 }
 
 func (api *ControlAPI) handleSandboxStop(w http.ResponseWriter, r *http.Request, vmid int) {
@@ -1169,7 +1169,7 @@ func (api *ControlAPI) handleSandboxStop(w http.ResponseWriter, r *http.Request,
 		writeError(w, http.StatusInternalServerError, "failed to load sandbox")
 		return
 	}
-	writeJSON(w, http.StatusOK, sandboxToV1(sandbox))
+	writeJSON(w, http.StatusOK, api.sandboxToV1(sandbox))
 }
 
 func (api *ControlAPI) handleSandboxTouch(w http.ResponseWriter, r *http.Request, vmid int) {
@@ -1191,7 +1191,7 @@ func (api *ControlAPI) handleSandboxTouch(w http.ResponseWriter, r *http.Request
 		writeError(w, http.StatusInternalServerError, "failed to load sandbox")
 		return
 	}
-	writeJSON(w, http.StatusOK, sandboxToV1(sandbox))
+	writeJSON(w, http.StatusOK, api.sandboxToV1(sandbox))
 }
 
 func (api *ControlAPI) handleSandboxRevert(w http.ResponseWriter, r *http.Request, vmid int) {
@@ -1242,7 +1242,7 @@ func (api *ControlAPI) handleSandboxRevert(w http.ResponseWriter, r *http.Reques
 		return
 	}
 	resp := V1SandboxRevertResponse{
-		Sandbox:    sandboxToV1(result.Sandbox),
+		Sandbox:    api.sandboxToV1(result.Sandbox),
 		Restarted:  result.Restarted,
 		WasRunning: result.WasRunning,
 		Snapshot:   result.Snapshot,
@@ -1413,7 +1413,7 @@ func jobToV1(job models.Job) V1JobResponse {
 	return resp
 }
 
-func sandboxToV1(sb models.Sandbox) V1SandboxResponse {
+func (api *ControlAPI) sandboxToV1(sb models.Sandbox) V1SandboxResponse {
 	resp := V1SandboxResponse{
 		VMID:          sb.VMID,
 		Name:          sb.Name,
@@ -1433,7 +1433,31 @@ func sandboxToV1(sb models.Sandbox) V1SandboxResponse {
 		value := sb.LastUsedAt.UTC().Format(time.RFC3339Nano)
 		resp.LastUsedAt = &value
 	}
+	if profile, ok := api.profile(sb.Profile); ok {
+		resp.Network = profileNetworkToV1(profile)
+	}
 	return resp
+}
+
+func profileNetworkToV1(profile models.Profile) *V1SandboxNetwork {
+	spec, err := parseProfileProvisionSpec(profile.RawYAML)
+	if err != nil {
+		return nil
+	}
+	network := V1SandboxNetwork{}
+	if spec.Network.Firewall != nil {
+		network.Firewall = spec.Network.Firewall
+	}
+	if spec.Network.FirewallGroup != nil {
+		group := strings.TrimSpace(*spec.Network.FirewallGroup)
+		if group != "" {
+			network.FirewallGroup = group
+		}
+	}
+	if network.Firewall == nil && network.FirewallGroup == "" {
+		return nil
+	}
+	return &network
 }
 
 func profileToV1(profile models.Profile) V1Profile {
