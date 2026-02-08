@@ -12,6 +12,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -41,6 +42,7 @@ const (
 //   - GET    /v1/jobs/{id}            - Get job details
 //   - GET    /v1/jobs/{id}/artifacts  - List job artifacts
 //   - GET    /v1/jobs/{id}/artifacts/download - Download job artifacts
+//   - GET    /v1/profiles             - List available profiles
 //   - POST   /v1/sandboxes            - Create a new sandbox
 //   - GET    /v1/sandboxes            - List all sandboxes
 //   - GET    /v1/sandboxes/{vmid}     - Get sandbox details
@@ -110,6 +112,7 @@ func (api *ControlAPI) Register(mux *http.ServeMux) {
 	}
 	mux.HandleFunc("/v1/jobs", api.handleJobs)
 	mux.HandleFunc("/v1/jobs/", api.handleJobByID)
+	mux.HandleFunc("/v1/profiles", api.handleProfiles)
 	mux.HandleFunc("/v1/sandboxes", api.handleSandboxes)
 	mux.HandleFunc("/v1/sandboxes/", api.handleSandboxByID)
 	mux.HandleFunc("/v1/sandboxes/prune", api.handleSandboxPrune)
@@ -445,6 +448,32 @@ func (api *ControlAPI) handleJobArtifactDownload(w http.ResponseWriter, r *http.
 	w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=%q", filename))
 	w.WriteHeader(http.StatusOK)
 	_, _ = io.Copy(w, file)
+}
+
+func (api *ControlAPI) handleProfiles(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		writeMethodNotAllowed(w, []string{http.MethodGet})
+		return
+	}
+	resp := V1ProfilesResponse{Profiles: []V1Profile{}}
+	if api.profiles == nil {
+		writeJSON(w, http.StatusOK, resp)
+		return
+	}
+	names := make([]string, 0, len(api.profiles))
+	for name := range api.profiles {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	resp.Profiles = make([]V1Profile, 0, len(names))
+	for _, name := range names {
+		profile, ok := api.profiles[name]
+		if !ok {
+			continue
+		}
+		resp.Profiles = append(resp.Profiles, profileToV1(profile))
+	}
+	writeJSON(w, http.StatusOK, resp)
 }
 
 func (api *ControlAPI) handleSandboxes(w http.ResponseWriter, r *http.Request) {
@@ -1294,6 +1323,17 @@ func sandboxToV1(sb models.Sandbox) V1SandboxResponse {
 	if !sb.LeaseExpires.IsZero() {
 		value := sb.LeaseExpires.UTC().Format(time.RFC3339Nano)
 		resp.LeaseExpires = &value
+	}
+	return resp
+}
+
+func profileToV1(profile models.Profile) V1Profile {
+	resp := V1Profile{
+		Name:         profile.Name,
+		TemplateVMID: profile.TemplateVM,
+	}
+	if !profile.UpdatedAt.IsZero() {
+		resp.UpdatedAt = profile.UpdatedAt.UTC().Format(time.RFC3339Nano)
 	}
 	return resp
 }

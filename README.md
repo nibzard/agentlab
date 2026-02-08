@@ -401,6 +401,19 @@ Creates a new sandbox and automatically attaches the workspace.
 - `--ttl <duration>` (optional): TTL for new sandbox
 - `--keep-old` (optional): Keep old sandbox (default: destroys old)
 
+### Profile Management
+
+#### List Profiles
+
+```bash
+agentlab profile list
+
+# JSON output
+agentlab profile list --json
+```
+
+Outputs profile names and template VMIDs loaded by `agentlabd`.
+
 ### Job Execution
 
 #### Run Job

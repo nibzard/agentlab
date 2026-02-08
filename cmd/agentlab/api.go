@@ -136,6 +136,18 @@ type sandboxesResponse struct {
 	Sandboxes []sandboxResponse `json:"sandboxes"`
 }
 
+// profileResponse represents a profile returned from the API.
+type profileResponse struct {
+	Name         string `json:"name"`
+	TemplateVMID int    `json:"template_vmid"`
+	UpdatedAt    string `json:"updated_at"`
+}
+
+// profilesResponse contains a list of profiles.
+type profilesResponse struct {
+	Profiles []profileResponse `json:"profiles"`
+}
+
 // sandboxRevertResponse contains the result of a revert operation.
 type sandboxRevertResponse struct {
 	Sandbox    sandboxResponse `json:"sandbox"`
