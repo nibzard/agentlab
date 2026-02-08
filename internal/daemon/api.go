@@ -15,6 +15,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"syscall"
 	"time"
 
 	"github.com/agentlab/agentlab/internal/db"
@@ -22,14 +23,37 @@ import (
 )
 
 const (
-	maxJSONBytes             = 1 << 20 // Maximum size for JSON request bodies (1MB)
-	defaultSandboxVMIDStart  = 1000    // Default starting VM ID for sandboxes
-	defaultJobRef            = "main"  // Default git reference for jobs
-	defaultJobMode           = "dangerous"
-	maxCreateJobIDIterations = 5    // Max retries for unique job ID generation
-	defaultEventsLimit       = 200  // Default events returned per query
-	defaultJobEventsTail     = 50   // Default events tailed for job details
-	maxEventsLimit           = 1000 // Maximum events allowed per query
+	maxJSONBytes              = 1 << 20 // Maximum size for JSON request bodies (1MB)
+	defaultSandboxVMIDStart   = 1000    // Default starting VM ID for sandboxes
+	defaultJobRef             = "main"  // Default git reference for jobs
+	defaultJobMode            = "dangerous"
+	maxCreateJobIDIterations  = 5    // Max retries for unique job ID generation
+	defaultEventsLimit        = 200  // Default events returned per query
+	defaultJobEventsTail      = 50   // Default events tailed for job details
+	maxEventsLimit            = 1000 // Maximum events allowed per query
+	defaultStatusFailureLimit = 10   // Default recent failures returned in status
+)
+
+var (
+	statusSandboxStates = []models.SandboxState{
+		models.SandboxRequested,
+		models.SandboxProvisioning,
+		models.SandboxBooting,
+		models.SandboxReady,
+		models.SandboxRunning,
+		models.SandboxCompleted,
+		models.SandboxFailed,
+		models.SandboxTimeout,
+		models.SandboxStopped,
+		models.SandboxDestroyed,
+	}
+	statusJobStatuses = []models.JobStatus{
+		models.JobQueued,
+		models.JobRunning,
+		models.JobCompleted,
+		models.JobFailed,
+		models.JobTimeout,
+	}
 )
 
 // ControlAPI handles local control plane HTTP requests over the Unix socket.
@@ -43,6 +67,7 @@ const (
 //   - GET    /v1/jobs/{id}/artifacts  - List job artifacts
 //   - GET    /v1/jobs/{id}/artifacts/download - Download job artifacts
 //   - GET    /v1/profiles             - List available profiles
+//   - GET    /v1/status               - Control plane status summary
 //   - POST   /v1/sandboxes            - Create a new sandbox
 //   - GET    /v1/sandboxes            - List all sandboxes
 //   - GET    /v1/sandboxes/{vmid}     - Get sandbox details
@@ -66,6 +91,7 @@ type ControlAPI struct {
 	workspaceMgr    *WorkspaceManager
 	jobOrchestrator *JobOrchestrator
 	artifactRoot    string
+	metricsEnabled  bool
 	logger          *log.Logger
 	now             func() time.Time
 }
@@ -98,6 +124,15 @@ func NewControlAPI(store *db.Store, profiles map[string]models.Profile, manager 
 	}
 }
 
+// WithMetricsEnabled annotates the status response with metrics listener state.
+func (api *ControlAPI) WithMetricsEnabled(enabled bool) *ControlAPI {
+	if api == nil {
+		return api
+	}
+	api.metricsEnabled = enabled
+	return api
+}
+
 // Register registers all control API handlers with the provided mux.
 //
 // The mux will handle all v1 API endpoints. If mux is nil, this is a no-op.
@@ -113,6 +148,7 @@ func (api *ControlAPI) Register(mux *http.ServeMux) {
 	mux.HandleFunc("/v1/jobs", api.handleJobs)
 	mux.HandleFunc("/v1/jobs/", api.handleJobByID)
 	mux.HandleFunc("/v1/profiles", api.handleProfiles)
+	mux.HandleFunc("/v1/status", api.handleStatus)
 	mux.HandleFunc("/v1/sandboxes", api.handleSandboxes)
 	mux.HandleFunc("/v1/sandboxes/", api.handleSandboxByID)
 	mux.HandleFunc("/v1/sandboxes/prune", api.handleSandboxPrune)
@@ -472,6 +508,41 @@ func (api *ControlAPI) handleProfiles(w http.ResponseWriter, r *http.Request) {
 			continue
 		}
 		resp.Profiles = append(resp.Profiles, profileToV1(profile))
+	}
+	writeJSON(w, http.StatusOK, resp)
+}
+
+func (api *ControlAPI) handleStatus(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		writeMethodNotAllowed(w, []string{http.MethodGet})
+		return
+	}
+	ctx := r.Context()
+	sandboxCounts, err := api.store.CountSandboxesByState(ctx)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to count sandboxes")
+		return
+	}
+	jobCounts, err := api.store.CountJobsByStatus(ctx)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to count jobs")
+		return
+	}
+	failureEvents, err := api.store.ListRecentFailureEvents(ctx, defaultStatusFailureLimit)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to load recent failures")
+		return
+	}
+
+	resp := V1StatusResponse{
+		Sandboxes:      formatSandboxCounts(sandboxCounts),
+		Jobs:           formatJobCounts(jobCounts),
+		Artifacts:      buildArtifactStatus(api.artifactRoot),
+		Metrics:        V1StatusMetrics{Enabled: api.metricsEnabled},
+		RecentFailures: make([]V1Event, 0, len(failureEvents)),
+	}
+	for _, ev := range failureEvents {
+		resp.RecentFailures = append(resp.RecentFailures, eventToV1(ev))
 	}
 	writeJSON(w, http.StatusOK, resp)
 }
@@ -1353,6 +1424,61 @@ func workspaceToV1(ws models.Workspace) V1WorkspaceResponse {
 		resp.AttachedVMID = &value
 	}
 	return resp
+}
+
+func formatSandboxCounts(counts map[models.SandboxState]int) map[string]int {
+	out := make(map[string]int, len(statusSandboxStates))
+	for _, state := range statusSandboxStates {
+		out[string(state)] = 0
+	}
+	for state, count := range counts {
+		out[string(state)] = count
+	}
+	return out
+}
+
+func formatJobCounts(counts map[models.JobStatus]int) map[string]int {
+	out := make(map[string]int, len(statusJobStatuses))
+	for _, status := range statusJobStatuses {
+		out[string(status)] = 0
+	}
+	for status, count := range counts {
+		out[string(status)] = count
+	}
+	return out
+}
+
+func buildArtifactStatus(root string) V1StatusArtifacts {
+	root = strings.TrimSpace(root)
+	status := V1StatusArtifacts{
+		Root: root,
+	}
+	if root == "" {
+		status.Error = "artifact root not configured"
+		return status
+	}
+	total, free, err := statFSBytes(root)
+	if err != nil {
+		status.Error = err.Error()
+		return status
+	}
+	status.TotalBytes = total
+	status.FreeBytes = free
+	if total >= free {
+		status.UsedBytes = total - free
+	}
+	return status
+}
+
+func statFSBytes(path string) (uint64, uint64, error) {
+	var stat syscall.Statfs_t
+	if err := syscall.Statfs(path, &stat); err != nil {
+		return 0, 0, err
+	}
+	blockSize := uint64(stat.Bsize)
+	total := uint64(stat.Blocks) * blockSize
+	free := uint64(stat.Bavail) * blockSize
+	return total, free, nil
 }
 
 func decodeJSON(w http.ResponseWriter, r *http.Request, dest any) error {

@@ -121,6 +121,34 @@ func (s *Store) ListSandboxes(ctx context.Context) ([]models.Sandbox, error) {
 	return out, nil
 }
 
+// CountSandboxesByState returns a count of sandboxes grouped by state.
+func (s *Store) CountSandboxesByState(ctx context.Context) (map[models.SandboxState]int, error) {
+	if s == nil || s.DB == nil {
+		return nil, errors.New("db store is nil")
+	}
+	rows, err := s.DB.QueryContext(ctx, `SELECT state, COUNT(*) FROM sandboxes GROUP BY state`)
+	if err != nil {
+		return nil, fmt.Errorf("count sandboxes: %w", err)
+	}
+	defer rows.Close()
+	out := make(map[models.SandboxState]int)
+	for rows.Next() {
+		var state string
+		var count int
+		if err := rows.Scan(&state, &count); err != nil {
+			return nil, fmt.Errorf("scan sandbox count: %w", err)
+		}
+		if state == "" {
+			continue
+		}
+		out[models.SandboxState(state)] = count
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate sandbox counts: %w", err)
+	}
+	return out, nil
+}
+
 // MaxSandboxVMID returns the highest vmid stored, or 0 if none.
 func (s *Store) MaxSandboxVMID(ctx context.Context) (int, error) {
 	if s == nil || s.DB == nil {

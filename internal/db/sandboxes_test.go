@@ -243,6 +243,47 @@ func TestListSandboxes(t *testing.T) {
 	})
 }
 
+func TestCountSandboxesByState(t *testing.T) {
+	ctx := context.Background()
+
+	t.Run("counts", func(t *testing.T) {
+		store := openTestStore(t)
+		sb1 := testutil.NewTestSandbox(testutil.SandboxOpts{
+			VMID:  testutil.TestVMID,
+			Name:  "sandbox-1",
+			State: models.SandboxRunning,
+		})
+		sb2 := testutil.NewTestSandbox(testutil.SandboxOpts{
+			VMID:  testutil.TestVMID + 1,
+			Name:  "sandbox-2",
+			State: models.SandboxRunning,
+		})
+		sb3 := testutil.NewTestSandbox(testutil.SandboxOpts{
+			VMID:  testutil.TestVMID + 2,
+			Name:  "sandbox-3",
+			State: models.SandboxFailed,
+		})
+		require.NoError(t, store.CreateSandbox(ctx, sb1))
+		require.NoError(t, store.CreateSandbox(ctx, sb2))
+		require.NoError(t, store.CreateSandbox(ctx, sb3))
+
+		counts, err := store.CountSandboxesByState(ctx)
+		require.NoError(t, err)
+		assert.Equal(t, 2, counts[models.SandboxRunning])
+		assert.Equal(t, 1, counts[models.SandboxFailed])
+	})
+
+	t.Run("nil store", func(t *testing.T) {
+		_, err := (*Store)(nil).CountSandboxesByState(ctx)
+		assert.EqualError(t, err, "db store is nil")
+	})
+
+	t.Run("nil db", func(t *testing.T) {
+		_, err := (&Store{}).CountSandboxesByState(ctx)
+		assert.EqualError(t, err, "db store is nil")
+	})
+}
+
 func TestMaxSandboxVMID(t *testing.T) {
 	ctx := context.Background()
 

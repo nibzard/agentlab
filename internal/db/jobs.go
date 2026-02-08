@@ -99,6 +99,34 @@ func (s *Store) GetJobBySandboxVMID(ctx context.Context, vmid int) (models.Job, 
 	return scanJobRow(row)
 }
 
+// CountJobsByStatus returns a count of jobs grouped by status.
+func (s *Store) CountJobsByStatus(ctx context.Context) (map[models.JobStatus]int, error) {
+	if s == nil || s.DB == nil {
+		return nil, errors.New("db store is nil")
+	}
+	rows, err := s.DB.QueryContext(ctx, `SELECT status, COUNT(*) FROM jobs GROUP BY status`)
+	if err != nil {
+		return nil, fmt.Errorf("count jobs: %w", err)
+	}
+	defer rows.Close()
+	out := make(map[models.JobStatus]int)
+	for rows.Next() {
+		var status string
+		var count int
+		if err := rows.Scan(&status, &count); err != nil {
+			return nil, fmt.Errorf("scan job count: %w", err)
+		}
+		if status == "" {
+			continue
+		}
+		out[models.JobStatus(status)] = count
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate job counts: %w", err)
+	}
+	return out, nil
+}
+
 // UpdateJobSandbox updates a job with the attached sandbox vmid.
 func (s *Store) UpdateJobSandbox(ctx context.Context, id string, vmid int) (bool, error) {
 	if s == nil || s.DB == nil {

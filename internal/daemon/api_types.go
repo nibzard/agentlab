@@ -6,6 +6,26 @@ type V1ErrorResponse struct {
 	Error string `json:"error"`
 }
 
+type V1StatusArtifacts struct {
+	Root       string `json:"root,omitempty"`
+	TotalBytes uint64 `json:"total_bytes,omitempty"`
+	FreeBytes  uint64 `json:"free_bytes,omitempty"`
+	UsedBytes  uint64 `json:"used_bytes,omitempty"`
+	Error      string `json:"error,omitempty"`
+}
+
+type V1StatusMetrics struct {
+	Enabled bool `json:"enabled"`
+}
+
+type V1StatusResponse struct {
+	Sandboxes      map[string]int    `json:"sandboxes"`
+	Jobs           map[string]int    `json:"jobs"`
+	Artifacts      V1StatusArtifacts `json:"artifacts"`
+	Metrics        V1StatusMetrics   `json:"metrics"`
+	RecentFailures []V1Event         `json:"recent_failures"`
+}
+
 type V1BootstrapFetchRequest struct {
 	Token string `json:"token"`
 	VMID  int    `json:"vmid"`
