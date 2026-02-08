@@ -67,6 +67,62 @@ func TestSandboxStartStopHandlers(t *testing.T) {
 	}
 }
 
+func TestSandboxStopAllHandlerMixedStates(t *testing.T) {
+	store := newTestStore(t)
+	backend := &stubBackend{}
+	manager := NewSandboxManager(store, backend, log.New(io.Discard, "", 0))
+	api := NewControlAPI(store, map[string]models.Profile{}, manager, nil, nil, "", log.New(io.Discard, "", 0))
+
+	now := time.Now().UTC()
+	sandboxes := []models.Sandbox{
+		{VMID: 201, Name: "running", Profile: "default", State: models.SandboxRunning, CreatedAt: now},
+		{VMID: 202, Name: "ready", Profile: "default", State: models.SandboxReady, CreatedAt: now},
+		{VMID: 203, Name: "stopped", Profile: "default", State: models.SandboxStopped, CreatedAt: now},
+		{VMID: 204, Name: "failed", Profile: "default", State: models.SandboxFailed, CreatedAt: now},
+	}
+	for _, sb := range sandboxes {
+		if err := store.CreateSandbox(context.Background(), sb); err != nil {
+			t.Fatalf("create sandbox: %v", err)
+		}
+	}
+
+	req := httptest.NewRequest(http.MethodPost, "/v1/sandboxes/stop_all", nil)
+	rec := httptest.NewRecorder()
+	api.handleSandboxStopAll(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("stop_all status = %d, want %d", rec.Code, http.StatusOK)
+	}
+	if backend.stopCalls != 2 {
+		t.Fatalf("expected stop called twice, got %d", backend.stopCalls)
+	}
+	var resp V1SandboxStopAllResponse
+	if err := json.NewDecoder(rec.Body).Decode(&resp); err != nil {
+		t.Fatalf("decode stop_all response: %v", err)
+	}
+	if resp.Total != 4 {
+		t.Fatalf("expected total 4, got %d", resp.Total)
+	}
+	if resp.Stopped != 2 {
+		t.Fatalf("expected stopped 2, got %d", resp.Stopped)
+	}
+	if resp.Skipped != 2 {
+		t.Fatalf("expected skipped 2, got %d", resp.Skipped)
+	}
+	if resp.Failed != 0 {
+		t.Fatalf("expected failed 0, got %d", resp.Failed)
+	}
+
+	for _, vmid := range []int{201, 202} {
+		sb, err := store.GetSandbox(context.Background(), vmid)
+		if err != nil {
+			t.Fatalf("get sandbox %d: %v", vmid, err)
+		}
+		if sb.State != models.SandboxStopped {
+			t.Fatalf("expected sandbox %d stopped, got %s", vmid, sb.State)
+		}
+	}
+}
+
 func TestSandboxStartInvalidStateHandler(t *testing.T) {
 	store := newTestStore(t)
 	backend := &stubBackend{}

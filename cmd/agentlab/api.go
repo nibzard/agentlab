@@ -186,6 +186,23 @@ type sandboxRevertResponse struct {
 	Snapshot   string          `json:"snapshot"`
 }
 
+type sandboxStopAllResult struct {
+	VMID    int    `json:"vmid"`
+	Name    string `json:"name,omitempty"`
+	Profile string `json:"profile,omitempty"`
+	State   string `json:"state"`
+	Result  string `json:"result"`
+	Error   string `json:"error,omitempty"`
+}
+
+type sandboxStopAllResponse struct {
+	Total   int                    `json:"total"`
+	Stopped int                    `json:"stopped"`
+	Skipped int                    `json:"skipped"`
+	Failed  int                    `json:"failed"`
+	Results []sandboxStopAllResult `json:"results"`
+}
+
 // leaseRenewRequest contains parameters for renewing a sandbox lease.
 type leaseRenewRequest struct {
 	TTLMinutes int `json:"ttl_minutes"`

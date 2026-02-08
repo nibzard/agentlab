@@ -59,6 +59,7 @@ Usage:
   agentlab [--socket PATH] [--json] [--timeout DURATION] sandbox show <vmid>
   agentlab [--socket PATH] [--json] [--timeout DURATION] sandbox start <vmid>
   agentlab [--socket PATH] [--json] [--timeout DURATION] sandbox stop <vmid>
+  agentlab [--socket PATH] [--json] [--timeout DURATION] sandbox stop --all
   agentlab [--socket PATH] [--json] [--timeout DURATION] sandbox revert [--force] [--restart|--no-restart] <vmid>
   agentlab [--socket PATH] [--json] [--timeout DURATION] sandbox destroy [--force] <vmid>
   agentlab [--socket PATH] [--json] [--timeout DURATION] sandbox lease renew --ttl <ttl> <vmid>
@@ -284,6 +285,7 @@ func printSandboxStartUsage() {
 
 func printSandboxStopUsage() {
 	fmt.Fprintln(os.Stdout, "Usage: agentlab sandbox stop <vmid>")
+	fmt.Fprintln(os.Stdout, "       agentlab sandbox stop --all")
 }
 
 func printSandboxRevertUsage() {

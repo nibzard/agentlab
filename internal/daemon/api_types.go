@@ -157,6 +157,23 @@ type V1SandboxRevertResponse struct {
 	Snapshot   string            `json:"snapshot"`
 }
 
+type V1SandboxStopAllResult struct {
+	VMID    int    `json:"vmid"`
+	Name    string `json:"name,omitempty"`
+	Profile string `json:"profile,omitempty"`
+	State   string `json:"state"`
+	Result  string `json:"result"`
+	Error   string `json:"error,omitempty"`
+}
+
+type V1SandboxStopAllResponse struct {
+	Total   int                      `json:"total"`
+	Stopped int                      `json:"stopped"`
+	Skipped int                      `json:"skipped"`
+	Failed  int                      `json:"failed"`
+	Results []V1SandboxStopAllResult `json:"results"`
+}
+
 type V1LeaseRenewRequest struct {
 	TTLMinutes int `json:"ttl_minutes"`
 }

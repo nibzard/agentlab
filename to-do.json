@@ -1706,16 +1706,17 @@
         "cmd/agentlab/modifiers.go",
         "cmd/agentlab/ssh.go",
         "cmd/agentlab/suggestions.go",
-        "cmd/agentlab/suggestions_test.go"
+        "cmd/agentlab/suggestions_test.go",
+        "to-do.json"
       ],
       "created_at": "2026-02-08T16:47:32Z",
-      "updated_at": "2026-02-08T20:38:52Z"
+      "updated_at": "2026-02-08T20:39:33Z"
     },
     {
       "id": "T077",
       "title": "Panic button: stop all sandboxes (API + CLI) with audit events",
       "priority": 3,
-      "status": "todo",
+      "status": "done",
       "details": "When an agent goes rogue, operators need one command. Add a stop-all endpoint and CLI flag that stops all running sandboxes quickly and records audit events.",
       "steps": [
         "Add API endpoint POST /v1/sandboxes/stop_all (best-effort stop each VM; return counts).",
@@ -1735,12 +1736,14 @@
       "files": [
         "internal/daemon/api.go",
         "internal/daemon/api_types.go",
-        "internal/daemon/sandbox_manager.go",
+        "internal/daemon/api_sandbox_test.go",
+        "cmd/agentlab/api.go",
+        "cmd/agentlab/commands.go",
         "cmd/agentlab/main.go",
-        "cmd/agentlab/commands.go"
+        "cmd/agentlab/commands_happy_path_test.go"
       ],
       "created_at": "2026-02-08T16:47:32Z",
-      "updated_at": "2026-02-08T16:47:32Z"
+      "updated_at": "2026-02-08T20:46:22Z"
     },
     {
       "id": "T078",
