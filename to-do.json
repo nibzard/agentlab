@@ -1627,27 +1627,27 @@
         "security"
       ],
       "files": [
+        "docs/runbook.md",
         "internal/daemon/api.go",
+        "internal/daemon/api_exposures_test.go",
         "internal/daemon/daemon.go",
-        "internal/daemon/sandbox_manager.go",
         "internal/daemon/exposure_cleanup.go",
         "internal/daemon/exposure_publisher.go",
+        "internal/daemon/sandbox_manager.go",
         "internal/daemon/tailscale_serve.go",
-        "internal/daemon/api_exposures_test.go",
         "internal/daemon/tailscale_serve_test.go",
         "internal/db/exposures.go",
         "internal/db/exposures_test.go",
-        "docs/runbook.md",
         "to-do.json"
       ],
       "created_at": "2026-02-08T16:47:32Z",
-      "updated_at": "2026-02-08T20:13:10Z"
+      "updated_at": "2026-02-08T20:13:46Z"
     },
     {
       "id": "T075",
       "title": "Add CLI commands for exposures (expose/exposed/unexpose) + docs",
       "priority": 3,
-      "status": "todo",
+      "status": "done",
       "details": "Expose should be a top-level verb for users. Add CLI commands to manage exposures and document the security model (host-owned, auditable).",
       "steps": [
         "Add CLI commands: agentlab sandbox expose <vmid> :<port>, agentlab sandbox exposed, agentlab sandbox unexpose <name>.",
@@ -1666,13 +1666,17 @@
         "docs"
       ],
       "files": [
-        "cmd/agentlab/main.go",
+        "cmd/agentlab/api.go",
         "cmd/agentlab/commands.go",
+        "cmd/agentlab/main.go",
+        "cmd/agentlab/main_test.go",
+        "cmd/agentlab/exposures_test.go",
         "docs/api.md",
-        "README.md"
+        "README.md",
+        "to-do.json"
       ],
       "created_at": "2026-02-08T16:47:32Z",
-      "updated_at": "2026-02-08T16:47:32Z"
+      "updated_at": "2026-02-08T20:21:15Z"
     },
     {
       "id": "T076",

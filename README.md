@@ -16,6 +16,7 @@ AgentLab provisions unattended, network-isolated VM sandboxes on Proxmox VE for 
 - Full outbound Internet access with RFC1918/ULA egress blocks
 - No host bind mounts; optional persistent workspaces via separate disks
 - One-time secrets delivery into tmpfs only
+- Host-owned exposures (Tailscale Serve) with audit events for every expose/unexpose
 - API token authentication instead of shell access
 
 ## Prerequisites
@@ -339,6 +340,27 @@ agentlab sandbox revert --no-restart 1020
 
 # Force revert even if a job is running
 agentlab sandbox revert --force 1020
+```
+
+#### Expose Sandbox Port (Tailnet)
+
+```bash
+# Expose a sandbox port over the tailnet (host-owned + audited)
+agentlab sandbox expose 1020 :8080
+
+# List active exposures
+agentlab sandbox exposed
+
+# Remove an exposure by name
+agentlab sandbox unexpose sbx-1020-8080
+```
+
+Exposure names default to `sbx-<vmid>-<port>`.
+
+Example list output:
+```
+NAME           VMID  PORT  TARGET       URL                               STATE     UPDATED
+sbx-1020-8080  1020  8080  10.77.0.130   tcp://host.tailnet.ts.net:8080    serving   2026-02-08T20:30:00Z
 ```
 
 #### Renew Lease

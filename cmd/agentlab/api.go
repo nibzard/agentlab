@@ -245,6 +245,31 @@ type workspaceRebindResponse struct {
 	OldVMID   *int              `json:"old_vmid,omitempty"`
 }
 
+// exposureCreateRequest contains parameters for creating a new exposure.
+type exposureCreateRequest struct {
+	Name     string `json:"name"`
+	VMID     int    `json:"vmid"`
+	Port     int    `json:"port"`
+	TargetIP string `json:"target_ip,omitempty"`
+}
+
+// exposureResponse represents an exposure returned from the API.
+type exposureResponse struct {
+	Name      string `json:"name"`
+	VMID      int    `json:"vmid"`
+	Port      int    `json:"port"`
+	TargetIP  string `json:"target_ip"`
+	URL       string `json:"url,omitempty"`
+	State     string `json:"state"`
+	CreatedAt string `json:"created_at"`
+	UpdatedAt string `json:"updated_at"`
+}
+
+// exposuresResponse contains a list of exposures.
+type exposuresResponse struct {
+	Exposures []exposureResponse `json:"exposures"`
+}
+
 // eventResponse represents a single event from a sandbox.
 type eventResponse struct {
 	ID          int64           `json:"id"`

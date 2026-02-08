@@ -8,7 +8,7 @@
 // Commands are organized hierarchically:
 //
 //	job:       Manage jobs (run, show, artifacts)
-//	sandbox:   Manage sandboxes (new, list, show, start, stop, revert, destroy, lease, prune)
+//	sandbox:   Manage sandboxes (new, list, show, start, stop, revert, destroy, lease, prune, expose, exposed, unexpose)
 //	workspace: Manage workspaces (create, list, attach, detach, rebind)
 //	profile:   Manage profiles (list)
 //	ssh:       Generate SSH connection parameters
@@ -523,6 +523,12 @@ func runSandboxCommand(ctx context.Context, args []string, base commonFlags) err
 		return runSandboxLease(ctx, args[1:], base)
 	case "prune":
 		return runSandboxPrune(ctx, args[1:], base)
+	case "expose":
+		return runSandboxExpose(ctx, args[1:], base)
+	case "exposed":
+		return runSandboxExposed(ctx, args[1:], base)
+	case "unexpose":
+		return runSandboxUnexpose(ctx, args[1:], base)
 	default:
 		printSandboxUsage()
 		return fmt.Errorf("unknown sandbox command %q", args[0])
@@ -1037,6 +1043,109 @@ func runSandboxPrune(ctx context.Context, args []string, base commonFlags) error
 	return nil
 }
 
+func runSandboxExpose(ctx context.Context, args []string, base commonFlags) error {
+	fs := newFlagSet("sandbox expose")
+	opts := base
+	opts.bind(fs)
+	var help bool
+	fs.BoolVar(&help, "help", false, "show help")
+	fs.BoolVar(&help, "h", false, "show help")
+	if err := parseFlags(fs, args, printSandboxExposeUsage, &help, opts.jsonOutput); err != nil {
+		return err
+	}
+	if fs.NArg() < 2 {
+		printSandboxExposeUsage()
+		return fmt.Errorf("vmid and port are required")
+	}
+	vmid, err := parseVMID(fs.Arg(0))
+	if err != nil {
+		return err
+	}
+	port, err := parseExposePort(fs.Arg(1))
+	if err != nil {
+		return err
+	}
+	req := exposureCreateRequest{
+		Name: exposureName(vmid, port),
+		VMID: vmid,
+		Port: port,
+	}
+	client := newAPIClient(opts.socketPath, opts.timeout)
+	payload, err := client.doJSON(ctx, http.MethodPost, "/v1/exposures", req)
+	if err != nil {
+		return err
+	}
+	if opts.jsonOutput {
+		return prettyPrintJSON(os.Stdout, payload)
+	}
+	var resp exposureResponse
+	if err := json.Unmarshal(payload, &resp); err != nil {
+		return err
+	}
+	printExposure(resp)
+	return nil
+}
+
+func runSandboxExposed(ctx context.Context, args []string, base commonFlags) error {
+	fs := newFlagSet("sandbox exposed")
+	opts := base
+	opts.bind(fs)
+	var help bool
+	fs.BoolVar(&help, "help", false, "show help")
+	fs.BoolVar(&help, "h", false, "show help")
+	if err := parseFlags(fs, args, printSandboxExposedUsage, &help, opts.jsonOutput); err != nil {
+		return err
+	}
+	client := newAPIClient(opts.socketPath, opts.timeout)
+	payload, err := client.doJSON(ctx, http.MethodGet, "/v1/exposures", nil)
+	if err != nil {
+		return err
+	}
+	if opts.jsonOutput {
+		return prettyPrintJSON(os.Stdout, payload)
+	}
+	var resp exposuresResponse
+	if err := json.Unmarshal(payload, &resp); err != nil {
+		return err
+	}
+	printExposureList(resp.Exposures)
+	return nil
+}
+
+func runSandboxUnexpose(ctx context.Context, args []string, base commonFlags) error {
+	fs := newFlagSet("sandbox unexpose")
+	opts := base
+	opts.bind(fs)
+	var help bool
+	fs.BoolVar(&help, "help", false, "show help")
+	fs.BoolVar(&help, "h", false, "show help")
+	if err := parseFlags(fs, args, printSandboxUnexposeUsage, &help, opts.jsonOutput); err != nil {
+		return err
+	}
+	if fs.NArg() < 1 {
+		printSandboxUnexposeUsage()
+		return fmt.Errorf("name is required")
+	}
+	name := strings.TrimSpace(fs.Arg(0))
+	if name == "" {
+		return fmt.Errorf("name is required")
+	}
+	client := newAPIClient(opts.socketPath, opts.timeout)
+	payload, err := client.doJSON(ctx, http.MethodDelete, fmt.Sprintf("/v1/exposures/%s", url.PathEscape(name)), nil)
+	if err != nil {
+		return err
+	}
+	if opts.jsonOutput {
+		return prettyPrintJSON(os.Stdout, payload)
+	}
+	var resp exposureResponse
+	if err := json.Unmarshal(payload, &resp); err != nil {
+		return err
+	}
+	printExposure(resp)
+	return nil
+}
+
 func runWorkspaceCreate(ctx context.Context, args []string, base commonFlags) error {
 	fs := newFlagSet("workspace create")
 	opts := base
@@ -1412,6 +1521,34 @@ func printSandboxList(sandboxes []sandboxResponse) {
 	_ = w.Flush()
 }
 
+func printExposure(exposure exposureResponse) {
+	fmt.Printf("Name: %s\n", exposure.Name)
+	fmt.Printf("VMID: %d\n", exposure.VMID)
+	fmt.Printf("Port: %d\n", exposure.Port)
+	fmt.Printf("Target IP: %s\n", orDash(exposure.TargetIP))
+	fmt.Printf("URL: %s\n", orDash(exposure.URL))
+	fmt.Printf("State: %s\n", orDash(exposure.State))
+	fmt.Printf("Created At: %s\n", orDash(exposure.CreatedAt))
+	fmt.Printf("Updated At: %s\n", orDash(exposure.UpdatedAt))
+}
+
+func printExposureList(exposures []exposureResponse) {
+	w := tabwriter.NewWriter(os.Stdout, 2, 8, 2, ' ', 0)
+	fmt.Fprintln(w, "NAME\tVMID\tPORT\tTARGET\tURL\tSTATE\tUPDATED")
+	for _, exposure := range exposures {
+		fmt.Fprintf(w, "%s\t%d\t%d\t%s\t%s\t%s\t%s\n",
+			orDash(exposure.Name),
+			exposure.VMID,
+			exposure.Port,
+			orDash(exposure.TargetIP),
+			orDash(exposure.URL),
+			orDash(exposure.State),
+			orDash(exposure.UpdatedAt),
+		)
+	}
+	_ = w.Flush()
+}
+
 func printWorkspace(ws workspaceResponse) {
 	fmt.Printf("ID: %s\n", ws.ID)
 	fmt.Printf("Name: %s\n", ws.Name)
@@ -1625,6 +1762,29 @@ func parseVMID(value string) (int, error) {
 		return 0, fmt.Errorf("invalid vmid %q", value)
 	}
 	return vmid, nil
+}
+
+func parseExposePort(value string) (int, error) {
+	raw := strings.TrimSpace(value)
+	if raw == "" {
+		return 0, fmt.Errorf("port is required")
+	}
+	if strings.HasPrefix(raw, ":") {
+		raw = strings.TrimPrefix(raw, ":")
+	}
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return 0, fmt.Errorf("port is required")
+	}
+	port, err := strconv.Atoi(raw)
+	if err != nil || port <= 0 || port > 65535 {
+		return 0, fmt.Errorf("invalid port %q", value)
+	}
+	return port, nil
+}
+
+func exposureName(vmid, port int) string {
+	return fmt.Sprintf("sbx-%d-%d", vmid, port)
 }
 
 // parseTTLMinutes parses a TTL value, accepting either minutes (int) or a duration string.
