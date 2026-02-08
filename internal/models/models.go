@@ -57,6 +57,7 @@ const (
 //   - WorkspaceID: ID of attached workspace volume (optional)
 //   - Keepalive: Whether the sandbox lease auto-renews
 //   - LeaseExpires: When the sandbox lease expires (zero if no TTL)
+//   - LastUsedAt: When the sandbox was last touched by a user interaction
 //   - CreatedAt: When the sandbox was first created
 //   - LastUpdatedAt: When the sandbox state was last updated
 type Sandbox struct {
@@ -68,6 +69,7 @@ type Sandbox struct {
 	WorkspaceID   *string
 	Keepalive     bool
 	LeaseExpires  time.Time
+	LastUsedAt    time.Time
 	CreatedAt     time.Time
 	LastUpdatedAt time.Time
 }

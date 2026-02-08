@@ -218,6 +218,7 @@ type SandboxOpts struct {
 	IP            string
 	Keepalive     bool
 	LeaseExpires  time.Time
+	LastUsedAt    time.Time
 	CreatedAt     time.Time
 	LastUpdatedAt time.Time
 }
@@ -256,6 +257,7 @@ func NewTestSandbox(opts SandboxOpts) models.Sandbox {
 		IP:            opts.IP,
 		Keepalive:     opts.Keepalive,
 		LeaseExpires:  opts.LeaseExpires,
+		LastUsedAt:    opts.LastUsedAt,
 		CreatedAt:     opts.CreatedAt,
 		LastUpdatedAt: opts.LastUpdatedAt,
 	}

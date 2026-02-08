@@ -135,3 +135,51 @@ func TestSandboxRevertHandler(t *testing.T) {
 		t.Fatalf("expected snapshot %s, got %s", cleanSnapshotName, resp.Snapshot)
 	}
 }
+
+func TestSandboxTouchHandler(t *testing.T) {
+	store := newTestStore(t)
+	backend := &stubBackend{}
+	manager := NewSandboxManager(store, backend, log.New(io.Discard, "", 0))
+	api := NewControlAPI(store, map[string]models.Profile{}, manager, nil, nil, "", log.New(io.Discard, "", 0))
+
+	fixed := time.Date(2026, time.February, 8, 15, 0, 0, 0, time.UTC)
+	api.now = func() time.Time { return fixed }
+
+	sandbox := models.Sandbox{
+		VMID:      113,
+		Name:      "touch-handler",
+		Profile:   "default",
+		State:     models.SandboxRunning,
+		Keepalive: false,
+		CreatedAt: time.Now().UTC(),
+	}
+	if err := store.CreateSandbox(context.Background(), sandbox); err != nil {
+		t.Fatalf("create sandbox: %v", err)
+	}
+
+	req := httptest.NewRequest(http.MethodPost, "/v1/sandboxes/113/touch", nil)
+	rec := httptest.NewRecorder()
+	api.handleSandboxByID(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d", rec.Code, http.StatusOK)
+	}
+	var resp V1SandboxResponse
+	if err := json.NewDecoder(rec.Body).Decode(&resp); err != nil {
+		t.Fatalf("decode touch response: %v", err)
+	}
+	if resp.LastUsedAt == nil {
+		t.Fatalf("expected last_used_at to be set")
+	}
+	expected := fixed.UTC().Format(time.RFC3339Nano)
+	if *resp.LastUsedAt != expected {
+		t.Fatalf("expected last_used_at %s, got %s", expected, *resp.LastUsedAt)
+	}
+
+	got, err := store.GetSandbox(context.Background(), 113)
+	if err != nil {
+		t.Fatalf("get sandbox: %v", err)
+	}
+	if !got.LastUsedAt.Equal(fixed.UTC()) {
+		t.Fatalf("expected last_used_at %s, got %s", expected, got.LastUsedAt.UTC().Format(time.RFC3339Nano))
+	}
+}

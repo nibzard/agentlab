@@ -500,6 +500,64 @@ func TestUpdateSandboxLease(t *testing.T) {
 	})
 }
 
+func TestUpdateSandboxLastUsed(t *testing.T) {
+	ctx := context.Background()
+
+	t.Run("success - set last_used_at", func(t *testing.T) {
+		store := openTestStore(t)
+		sb := testutil.NewTestSandbox(testutil.SandboxOpts{
+			VMID:  testutil.TestVMID,
+			State: models.SandboxRunning,
+		})
+		err := store.CreateSandbox(ctx, sb)
+		require.NoError(t, err)
+
+		lastUsed := testutil.FixedTime.Add(2 * time.Hour)
+		err = store.UpdateSandboxLastUsed(ctx, testutil.TestVMID, lastUsed)
+		require.NoError(t, err)
+
+		got, err := store.GetSandbox(ctx, testutil.TestVMID)
+		require.NoError(t, err)
+		assert.Equal(t, lastUsed, got.LastUsedAt)
+	})
+
+	t.Run("success - clear last_used_at", func(t *testing.T) {
+		store := openTestStore(t)
+		lastUsed := testutil.FixedTime.Add(2 * time.Hour)
+		sb := testutil.NewTestSandbox(testutil.SandboxOpts{
+			VMID:       testutil.TestVMID,
+			State:      models.SandboxRunning,
+			LastUsedAt: lastUsed,
+		})
+		err := store.CreateSandbox(ctx, sb)
+		require.NoError(t, err)
+
+		err = store.UpdateSandboxLastUsed(ctx, testutil.TestVMID, time.Time{})
+		require.NoError(t, err)
+
+		got, err := store.GetSandbox(ctx, testutil.TestVMID)
+		require.NoError(t, err)
+		assert.True(t, got.LastUsedAt.IsZero())
+	})
+
+	t.Run("sandbox not found", func(t *testing.T) {
+		store := openTestStore(t)
+		err := store.UpdateSandboxLastUsed(ctx, 999, time.Now().UTC())
+		assert.Equal(t, sql.ErrNoRows, err)
+	})
+
+	t.Run("invalid vmid", func(t *testing.T) {
+		store := openTestStore(t)
+		err := store.UpdateSandboxLastUsed(ctx, 0, time.Now().UTC())
+		assert.EqualError(t, err, "vmid must be positive")
+	})
+
+	t.Run("nil store", func(t *testing.T) {
+		err := (*Store)(nil).UpdateSandboxLastUsed(ctx, 1, time.Now().UTC())
+		assert.EqualError(t, err, "db store is nil")
+	})
+}
+
 func TestUpdateSandboxIP(t *testing.T) {
 	ctx := context.Background()
 

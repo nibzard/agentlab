@@ -54,13 +54,17 @@ func (s *Store) CreateSandbox(ctx context.Context, sandbox models.Sandbox) error
 	if !sandbox.LeaseExpires.IsZero() {
 		lease = formatTime(sandbox.LeaseExpires)
 	}
+	var lastUsed interface{}
+	if !sandbox.LastUsedAt.IsZero() {
+		lastUsed = formatTime(sandbox.LastUsedAt)
+	}
 	var workspace interface{}
 	if sandbox.WorkspaceID != nil && *sandbox.WorkspaceID != "" {
 		workspace = *sandbox.WorkspaceID
 	}
 	_, err := s.DB.ExecContext(ctx, `INSERT INTO sandboxes (
-		vmid, name, profile, state, ip, workspace_id, keepalive, lease_expires_at, created_at, updated_at, meta_json
-	) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		vmid, name, profile, state, ip, workspace_id, keepalive, lease_expires_at, last_used_at, created_at, updated_at, meta_json
+	) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		sandbox.VMID,
 		sandbox.Name,
 		sandbox.Profile,
@@ -69,6 +73,7 @@ func (s *Store) CreateSandbox(ctx context.Context, sandbox models.Sandbox) error
 		workspace,
 		sandbox.Keepalive,
 		lease,
+		lastUsed,
 		formatTime(createdAt),
 		formatTime(updatedAt),
 		nil,
@@ -91,7 +96,7 @@ func (s *Store) GetSandbox(ctx context.Context, vmid int) (models.Sandbox, error
 	if s == nil || s.DB == nil {
 		return models.Sandbox{}, errors.New("db store is nil")
 	}
-	row := s.DB.QueryRowContext(ctx, `SELECT vmid, name, profile, state, ip, workspace_id, keepalive, lease_expires_at, created_at, updated_at
+	row := s.DB.QueryRowContext(ctx, `SELECT vmid, name, profile, state, ip, workspace_id, keepalive, lease_expires_at, last_used_at, created_at, updated_at
 		FROM sandboxes WHERE vmid = ?`, vmid)
 	return scanSandboxRow(row)
 }
@@ -101,7 +106,7 @@ func (s *Store) ListSandboxes(ctx context.Context) ([]models.Sandbox, error) {
 	if s == nil || s.DB == nil {
 		return nil, errors.New("db store is nil")
 	}
-	rows, err := s.DB.QueryContext(ctx, `SELECT vmid, name, profile, state, ip, workspace_id, keepalive, lease_expires_at, created_at, updated_at
+	rows, err := s.DB.QueryContext(ctx, `SELECT vmid, name, profile, state, ip, workspace_id, keepalive, lease_expires_at, last_used_at, created_at, updated_at
 		FROM sandboxes ORDER BY created_at DESC`)
 	if err != nil {
 		return nil, fmt.Errorf("list sandboxes: %w", err)
@@ -168,7 +173,7 @@ func (s *Store) ListExpiredSandboxes(ctx context.Context, now time.Time) ([]mode
 		return nil, errors.New("db store is nil")
 	}
 	cutoff := formatTime(now)
-	rows, err := s.DB.QueryContext(ctx, `SELECT vmid, name, profile, state, ip, workspace_id, keepalive, lease_expires_at, created_at, updated_at
+	rows, err := s.DB.QueryContext(ctx, `SELECT vmid, name, profile, state, ip, workspace_id, keepalive, lease_expires_at, last_used_at, created_at, updated_at
 		FROM sandboxes
 		WHERE lease_expires_at IS NOT NULL AND lease_expires_at <= ? AND state != ?`, cutoff, models.SandboxDestroyed)
 	if err != nil {
@@ -220,6 +225,37 @@ func (s *Store) UpdateSandboxLease(ctx context.Context, vmid int, leaseExpiresAt
 	_, err := s.DB.ExecContext(ctx, `UPDATE sandboxes SET lease_expires_at = ?, updated_at = ? WHERE vmid = ?`, lease, updatedAt, vmid)
 	if err != nil {
 		return fmt.Errorf("update sandbox %d lease: %w", vmid, err)
+	}
+	return nil
+}
+
+// UpdateSandboxLastUsed updates the last_used_at timestamp.
+func (s *Store) UpdateSandboxLastUsed(ctx context.Context, vmid int, lastUsedAt time.Time) error {
+	if s == nil || s.DB == nil {
+		return errors.New("db store is nil")
+	}
+	if vmid <= 0 {
+		return errors.New("vmid must be positive")
+	}
+	var lastUsed interface{}
+	if !lastUsedAt.IsZero() {
+		lastUsed = formatTime(lastUsedAt)
+	}
+	updatedAt := formatTime(time.Now().UTC())
+	res, err := s.DB.ExecContext(ctx, `UPDATE sandboxes SET last_used_at = ?, updated_at = ? WHERE vmid = ?`,
+		lastUsed,
+		updatedAt,
+		vmid,
+	)
+	if err != nil {
+		return fmt.Errorf("update sandbox %d last_used_at: %w", vmid, err)
+	}
+	affected, err := res.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("rows affected sandbox %d last_used_at: %w", vmid, err)
+	}
+	if affected == 0 {
+		return sql.ErrNoRows
 	}
 	return nil
 }
@@ -315,9 +351,10 @@ func scanSandboxRow(scanner interface{ Scan(dest ...any) error }) (models.Sandbo
 	var workspace sql.NullString
 	var keepalive sql.NullBool
 	var lease sql.NullString
+	var lastUsed sql.NullString
 	var createdAt string
 	var updatedAt string
-	if err := scanner.Scan(&sb.VMID, &sb.Name, &sb.Profile, &state, &ip, &workspace, &keepalive, &lease, &createdAt, &updatedAt); err != nil {
+	if err := scanner.Scan(&sb.VMID, &sb.Name, &sb.Profile, &state, &ip, &workspace, &keepalive, &lease, &lastUsed, &createdAt, &updatedAt); err != nil {
 		return models.Sandbox{}, err
 	}
 	if state == "" {
@@ -340,6 +377,13 @@ func scanSandboxRow(scanner interface{ Scan(dest ...any) error }) (models.Sandbo
 			return models.Sandbox{}, fmt.Errorf("parse lease_expires_at: %w", err)
 		}
 		sb.LeaseExpires = parsed
+	}
+	if lastUsed.Valid {
+		parsed, err := parseTime(lastUsed.String)
+		if err != nil {
+			return models.Sandbox{}, fmt.Errorf("parse last_used_at: %w", err)
+		}
+		sb.LastUsedAt = parsed
 	}
 	var err error
 	if createdAt != "" {

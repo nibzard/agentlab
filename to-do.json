@@ -1237,13 +1237,14 @@
         "observability"
       ],
       "files": [
-        "internal/daemon/metrics.go",
+        "docs/performance.md",
         "internal/daemon/job_orchestrator.go",
+        "internal/daemon/metrics.go",
         "internal/daemon/sandbox_manager.go",
-        "docs/performance.md"
+        "to-do.json"
       ],
       "created_at": "2026-02-08T16:47:32Z",
-      "updated_at": "2026-02-08T18:56:59Z"
+      "updated_at": "2026-02-08T18:57:19Z"
     },
     {
       "id": "T064",
@@ -1266,14 +1267,15 @@
         "ssh"
       ],
       "files": [
-        "cmd/agentlab/ssh.go",
         "cmd/agentlab/commands.go",
         "cmd/agentlab/main.go",
         "cmd/agentlab/main_test.go",
-        "cmd/agentlab/ssh_test.go"
+        "cmd/agentlab/ssh.go",
+        "cmd/agentlab/ssh_test.go",
+        "to-do.json"
       ],
       "created_at": "2026-02-08T16:47:32Z",
-      "updated_at": "2026-02-08T19:03:35Z"
+      "updated_at": "2026-02-08T19:06:06Z"
     },
     {
       "id": "T065",
@@ -1383,7 +1385,7 @@
       "id": "T068",
       "title": "Add sandbox last_used_at tracking + /touch endpoint for UX/auto-stop",
       "priority": 2,
-      "status": "todo",
+      "status": "done",
       "details": "Support better lifecycle policies (idle stop) and UX by tracking when a sandbox was last used. Add a DB column + API field, plus a lightweight endpoint CLI can call to update last_used_at when users interact (ssh/logs/show).",
       "steps": [
         "Add DB migration to add sandboxes.last_used_at (nullable RFC3339).",
@@ -1400,16 +1402,22 @@
         "db"
       ],
       "files": [
-        "internal/db/migrations.go",
-        "internal/db/sandboxes.go",
-        "internal/models/models.go",
-        "internal/daemon/api.go",
-        "internal/daemon/api_types.go",
+        "cmd/agentlab/api.go",
+        "cmd/agentlab/commands.go",
         "cmd/agentlab/ssh.go",
-        "cmd/agentlab/commands.go"
+        "cmd/agentlab/touch.go",
+        "internal/daemon/api.go",
+        "internal/daemon/api_sandbox_test.go",
+        "internal/daemon/api_types.go",
+        "internal/db/migrations.go",
+        "internal/db/migrations_test.go",
+        "internal/db/sandboxes.go",
+        "internal/db/sandboxes_test.go",
+        "internal/models/models.go",
+        "internal/testing/testutil.go"
       ],
       "created_at": "2026-02-08T16:47:32Z",
-      "updated_at": "2026-02-08T16:47:32Z"
+      "updated_at": "2026-02-08T19:15:31Z"
     },
     {
       "id": "T069",
