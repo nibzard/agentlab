@@ -271,6 +271,12 @@ agentlab sandbox new \
   --name my-sandbox \
   --ttl 10m
 
+# With modifiers (resolved to a profile name like secure-small)
+agentlab sandbox new \
+  --name my-sandbox \
+  --ttl 10m \
+  +small +secure
+
 # With workspace
 agentlab sandbox new \
   --profile yolo-ephemeral \
@@ -290,13 +296,15 @@ agentlab sandbox new \
 ```
 
 **Flags:**
-- `--profile <name>` (required): Profile name from `/etc/agentlab/profiles/`
+- `--profile <name>` (required unless using `+modifier`s): Profile name from `/etc/agentlab/profiles/`
 - `--name <name>` (optional): Sandbox name
 - `--ttl <duration>` (optional): Time-to-live (default from profile)
 - `--workspace <id>` (optional): Attach existing workspace
 - `--vmid <id>` (optional): Force specific VMID (advanced)
 - `--job <id>` (optional): Create sandbox for existing job
 - `--keepalive` (optional): Don't auto-destroy on TTL expiration
+
+Note: Modifiers are derived from profile names split on `-`, and combined modifiers are resolved by sorting and joining with `-`.
 
 #### Show Sandbox Details
 
