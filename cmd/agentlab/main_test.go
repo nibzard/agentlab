@@ -655,4 +655,6 @@ func TestGoldenFileSSHUsageOutput(t *testing.T) {
 	assert.Contains(t, got, "--user")
 	assert.Contains(t, got, "--port")
 	assert.Contains(t, got, "--identity")
+	assert.Contains(t, got, "--no-start")
+	assert.Contains(t, got, "--wait")
 }

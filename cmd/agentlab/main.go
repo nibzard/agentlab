@@ -54,7 +54,7 @@ Usage:
   agentlab [--socket PATH] [--json] [--timeout DURATION] job show <job_id> [--events-tail <n>]
   agentlab [--socket PATH] [--json] [--timeout DURATION] job artifacts <job_id>
   agentlab [--socket PATH] [--json] [--timeout DURATION] job artifacts download <job_id> [--out <path>] [--path <path>] [--name <name>] [--latest] [--bundle]
-  agentlab [--socket PATH] [--json] [--timeout DURATION] sandbox new --profile <profile> [--name <name>] [--ttl <ttl>] [--keepalive] [--workspace <id>] [--vmid <vmid>] [--job <id>]
+  agentlab [--socket PATH] [--json] [--timeout DURATION] sandbox new --profile <profile> [--name <name>] [--ttl <ttl>] [--keepalive] [--workspace <id>] [--vmid <vmid>] [--job <id>] [--and-ssh]
   agentlab [--socket PATH] [--json] [--timeout DURATION] sandbox list
   agentlab [--socket PATH] [--json] [--timeout DURATION] sandbox show <vmid>
   agentlab [--socket PATH] [--json] [--timeout DURATION] sandbox start <vmid>
@@ -69,7 +69,7 @@ Usage:
   agentlab [--socket PATH] [--json] [--timeout DURATION] workspace detach <workspace>
   agentlab [--socket PATH] [--json] [--timeout DURATION] workspace rebind <workspace> --profile <profile> [--ttl <ttl>] [--keep-old]
   agentlab [--socket PATH] [--json] [--timeout DURATION] profile list
-  agentlab [--socket PATH] [--json] [--timeout DURATION] ssh <vmid> [--user <user>] [--port <port>] [--identity <path>] [--exec] [-- <remote command>...]
+  agentlab [--socket PATH] [--json] [--timeout DURATION] ssh <vmid> [--user <user>] [--port <port>] [--identity <path>] [--exec] [--no-start] [--wait] [-- <remote command>...]
   agentlab [--socket PATH] [--json] [--timeout DURATION] logs <vmid> [--follow] [--tail <n>]
 
 Global Flags:
@@ -261,7 +261,7 @@ func printSandboxUsage() {
 }
 
 func printSandboxNewUsage() {
-	fmt.Fprintln(os.Stdout, "Usage: agentlab sandbox new --profile <profile> [--name <name>] [--ttl <ttl>] [--keepalive] [--workspace <id>] [--vmid <vmid>] [--job <id>]")
+	fmt.Fprintln(os.Stdout, "Usage: agentlab sandbox new --profile <profile> [--name <name>] [--ttl <ttl>] [--keepalive] [--workspace <id>] [--vmid <vmid>] [--job <id>] [--and-ssh]")
 }
 
 func printSandboxListUsage() {
@@ -342,9 +342,9 @@ func printLogsUsage() {
 }
 
 func printSSHUsage() {
-	fmt.Fprintln(os.Stdout, "Usage: agentlab ssh <vmid> [--user <user>] [--port <port>] [--identity <path>] [--exec] [-- <remote command...>]")
-	fmt.Fprintln(os.Stdout, "Usage: agentlab ssh [flags] <vmid> [-- <remote command...>]")
+	fmt.Fprintln(os.Stdout, "Usage: agentlab ssh <vmid> [--user <user>] [--port <port>] [--identity <path>] [--exec] [--no-start] [--wait] [-- <remote command>...]")
 	fmt.Fprintln(os.Stdout, "Note: --exec replaces the CLI with ssh when run in a terminal (unless a remote command is provided).")
+	fmt.Fprintln(os.Stdout, "Note: --wait polls for SSH readiness before returning.")
 }
 
 func isHelpToken(value string) bool {
