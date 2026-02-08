@@ -1831,20 +1831,21 @@
         "ci"
       ],
       "files": [
-        "coverage.out",
-        "coverage.html",
-        ".gitignore",
         ".github/workflows/ci.yml",
-        "Makefile"
+        ".gitignore",
+        "Makefile",
+        "coverage.html",
+        "coverage.out",
+        "to-do.json"
       ],
       "created_at": "2026-02-08T21:21:56Z",
-      "updated_at": "2026-02-08T21:35:44Z"
+      "updated_at": "2026-02-08T21:36:06Z"
     },
     {
       "id": "T081",
       "title": "Align Go version requirement across docs and build scripts",
       "priority": 4,
-      "status": "todo",
+      "status": "done",
       "details": "Makefile comment claims Go 1.23+, README references Go 1.24.0, and go.mod specifies 1.24.0. Normalize the stated requirement to a single version and update related docs.",
       "tags": [
         "docs",
@@ -1856,7 +1857,8 @@
         "go.mod",
         "docs/testing.md"
       ],
-      "created_at": "2026-02-08T21:21:56Z"
+      "created_at": "2026-02-08T21:21:56Z",
+      "updated_at": "2026-02-08T21:37:24Z"
     },
     {
       "id": "T082",
