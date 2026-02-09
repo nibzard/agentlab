@@ -121,11 +121,15 @@ func usageErrorMessage(err error) (string, bool, bool) {
 // commonFlags contains flags shared by all commands.
 type commonFlags struct {
 	socketPath string
+	endpoint   string
+	token      string
 	jsonOutput bool
 	timeout    time.Duration
 }
 
 func (c *commonFlags) bind(fs *flag.FlagSet) {
+	fs.StringVar(&c.endpoint, "endpoint", c.endpoint, "control plane endpoint (http(s)://host:port)")
+	fs.StringVar(&c.token, "token", c.token, "control plane auth token")
 	fs.StringVar(&c.socketPath, "socket", c.socketPath, "path to agentlabd socket")
 	fs.BoolVar(&c.jsonOutput, "json", c.jsonOutput, jsonFlagDescription)
 	fs.DurationVar(&c.timeout, "timeout", c.timeout, "request timeout (e.g. 30s, 2m)")
@@ -202,7 +206,10 @@ func runStatusCommand(ctx context.Context, args []string, base commonFlags) erro
 		return err
 	}
 
-	client := newAPIClient(opts.socketPath, opts.timeout)
+	client, err := apiClientFromFlags(opts)
+	if err != nil {
+		return err
+	}
 	payload, err := client.doJSON(ctx, http.MethodGet, "/v1/status", nil)
 	if err != nil {
 		return err
@@ -215,6 +222,153 @@ func runStatusCommand(ctx context.Context, args []string, base commonFlags) erro
 		return err
 	}
 	printStatus(resp)
+	return nil
+}
+
+type connectOutput struct {
+	Endpoint   string        `json:"endpoint"`
+	JumpHost   string        `json:"jump_host,omitempty"`
+	JumpUser   string        `json:"jump_user,omitempty"`
+	ConfigPath string        `json:"config_path"`
+	TokenSet   bool          `json:"token_set"`
+	Host       *hostResponse `json:"host,omitempty"`
+}
+
+func runConnectCommand(ctx context.Context, args []string, base commonFlags) error {
+	fs := newFlagSet("connect")
+	opts := base
+	opts.bind(fs)
+	var jumpHost string
+	var jumpUser string
+	var help bool
+	fs.StringVar(&jumpHost, "jump-host", "", "default SSH jump host (used when subnet route is unavailable)")
+	fs.StringVar(&jumpUser, "jump-user", "", "default SSH jump username")
+	fs.BoolVar(&help, "help", false, "show help")
+	fs.BoolVar(&help, "h", false, "show help")
+	if err := parseFlags(fs, args, printConnectUsage, &help, opts.jsonOutput); err != nil {
+		return err
+	}
+	if fs.NArg() != 0 {
+		if !opts.jsonOutput {
+			printConnectUsage()
+		}
+		return fmt.Errorf("unexpected extra arguments")
+	}
+	endpointRaw := strings.TrimSpace(opts.endpoint)
+	if endpointRaw == "" {
+		if !opts.jsonOutput {
+			printConnectUsage()
+		}
+		return fmt.Errorf("endpoint is required")
+	}
+	endpoint, err := normalizeEndpoint(endpointRaw)
+	if err != nil {
+		return err
+	}
+	token := strings.TrimSpace(opts.token)
+	client := newAPIClient(clientOptions{Endpoint: endpoint, Token: token}, opts.timeout)
+
+	payload, err := client.doJSON(ctx, http.MethodGet, "/v1/status", nil)
+	if err != nil {
+		return withHints(err, "verify the endpoint and token are correct")
+	}
+	if opts.jsonOutput && payload != nil {
+		// Ensure /v1/status returned valid JSON without printing it.
+		var status statusResponse
+		if err := json.Unmarshal(payload, &status); err != nil {
+			return err
+		}
+	}
+
+	var hostInfo *hostResponse
+	if hostPayload, err := client.doJSON(ctx, http.MethodGet, "/v1/host", nil); err == nil {
+		var resp hostResponse
+		if err := json.Unmarshal(hostPayload, &resp); err == nil {
+			hostInfo = &resp
+		}
+	}
+
+	path, err := clientConfigPath()
+	if err != nil {
+		return err
+	}
+	jumpHost = strings.TrimSpace(jumpHost)
+	jumpUser = strings.TrimSpace(jumpUser)
+	if jumpHost == "" && hostInfo != nil {
+		jumpHost = strings.TrimSpace(hostInfo.TailscaleDNS)
+	}
+	cfg := clientConfig{
+		Endpoint: endpoint,
+		Token:    token,
+		JumpHost: jumpHost,
+		JumpUser: jumpUser,
+	}
+	if err := writeClientConfig(path, cfg); err != nil {
+		return err
+	}
+
+	if opts.jsonOutput {
+		out := connectOutput{
+			Endpoint:   endpoint,
+			JumpHost:   jumpHost,
+			JumpUser:   jumpUser,
+			ConfigPath: path,
+			TokenSet:   token != "",
+			Host:       hostInfo,
+		}
+		enc := json.NewEncoder(os.Stdout)
+		enc.SetEscapeHTML(false)
+		return enc.Encode(out)
+	}
+
+	fmt.Fprintf(os.Stdout, "Connected to %s\n", endpoint)
+	fmt.Fprintf(os.Stdout, "Config written to %s\n", path)
+	if hostInfo != nil && strings.TrimSpace(hostInfo.TailscaleDNS) != "" {
+		fmt.Fprintf(os.Stdout, "Tailscale DNS: %s\n", strings.TrimSpace(hostInfo.TailscaleDNS))
+	}
+	return nil
+}
+
+func runDisconnectCommand(ctx context.Context, args []string, base commonFlags) error {
+	_ = ctx
+	fs := newFlagSet("disconnect")
+	opts := base
+	opts.bind(fs)
+	var help bool
+	fs.BoolVar(&help, "help", false, "show help")
+	fs.BoolVar(&help, "h", false, "show help")
+	if err := parseFlags(fs, args, printDisconnectUsage, &help, opts.jsonOutput); err != nil {
+		return err
+	}
+	if fs.NArg() != 0 {
+		if !opts.jsonOutput {
+			printDisconnectUsage()
+		}
+		return fmt.Errorf("unexpected extra arguments")
+	}
+	path, err := clientConfigPath()
+	if err != nil {
+		return err
+	}
+	removed, err := removeClientConfig(path)
+	if err != nil {
+		return err
+	}
+	if opts.jsonOutput {
+		payload := map[string]any{
+			"disconnected": true,
+			"removed":      removed,
+			"config_path":  path,
+		}
+		enc := json.NewEncoder(os.Stdout)
+		enc.SetEscapeHTML(false)
+		return enc.Encode(payload)
+	}
+	if removed {
+		fmt.Fprintf(os.Stdout, "Disconnected (removed %s)\n", path)
+		return nil
+	}
+	fmt.Fprintf(os.Stdout, "Disconnected (no config found)\n")
 	return nil
 }
 
@@ -365,7 +519,10 @@ func runJobRun(ctx context.Context, args []string, base commonFlags) error {
 		return fmt.Errorf("--workspace-size/--workspace-storage require workspace creation (use --workspace new:<name> or --workspace-create)")
 	}
 
-	client := newAPIClient(opts.socketPath, opts.timeout)
+	client, err := apiClientFromFlags(opts)
+	if err != nil {
+		return err
+	}
 	req := jobCreateRequest{
 		RepoURL:              repo,
 		Ref:                  ref,
@@ -420,7 +577,10 @@ func runJobShow(ctx context.Context, args []string, base commonFlags) error {
 		return fmt.Errorf("job_id is required")
 	}
 
-	client := newAPIClient(opts.socketPath, opts.timeout)
+	client, err := apiClientFromFlags(opts)
+	if err != nil {
+		return err
+	}
 	query := ""
 	if eventsTail >= 0 {
 		query = fmt.Sprintf("?events_tail=%d", eventsTail)
@@ -482,7 +642,10 @@ func runJobArtifactsList(ctx context.Context, args []string, base commonFlags) e
 		return fmt.Errorf("job_id is required")
 	}
 
-	client := newAPIClient(opts.socketPath, opts.timeout)
+	client, err := apiClientFromFlags(opts)
+	if err != nil {
+		return err
+	}
 	payload, err := client.doJSON(ctx, http.MethodGet, fmt.Sprintf("/v1/jobs/%s/artifacts", jobID), nil)
 	if err != nil {
 		return wrapJobNotFound(jobID, err)
@@ -537,7 +700,10 @@ func runJobArtifactsDownload(ctx context.Context, args []string, base commonFlag
 		bundle = true
 	}
 
-	client := newAPIClient(opts.socketPath, opts.timeout)
+	client, err := apiClientFromFlags(opts)
+	if err != nil {
+		return err
+	}
 	payload, err := client.doJSON(ctx, http.MethodGet, fmt.Sprintf("/v1/jobs/%s/artifacts", jobID), nil)
 	if err != nil {
 		return wrapJobNotFound(jobID, err)
@@ -718,7 +884,10 @@ func runProfileList(ctx context.Context, args []string, base commonFlags) error 
 	if err := parseFlags(fs, args, printProfileListUsage, &help, opts.jsonOutput); err != nil {
 		return err
 	}
-	client := newAPIClient(opts.socketPath, opts.timeout)
+	client, err := apiClientFromFlags(opts)
+	if err != nil {
+		return err
+	}
 	payload, err := client.doJSON(ctx, http.MethodGet, "/v1/profiles", nil)
 	if err != nil {
 		return err
@@ -800,7 +969,10 @@ func runSandboxNew(ctx context.Context, args []string, base commonFlags) error {
 		vmidPtr = &value
 	}
 
-	client := newAPIClient(opts.socketPath, opts.timeout)
+	client, err := apiClientFromFlags(opts)
+	if err != nil {
+		return err
+	}
 	if profile != "" || len(modifiers) > 0 {
 		profiles, err := fetchProfiles(ctx, client)
 		if err != nil {
@@ -858,7 +1030,10 @@ func runSandboxList(ctx context.Context, args []string, base commonFlags) error 
 		return err
 	}
 
-	client := newAPIClient(opts.socketPath, opts.timeout)
+	client, err := apiClientFromFlags(opts)
+	if err != nil {
+		return err
+	}
 	payload, err := client.doJSON(ctx, http.MethodGet, "/v1/sandboxes", nil)
 	if err != nil {
 		return err
@@ -895,7 +1070,10 @@ func runSandboxShow(ctx context.Context, args []string, base commonFlags) error 
 		return err
 	}
 
-	client := newAPIClient(opts.socketPath, opts.timeout)
+	client, err := apiClientFromFlags(opts)
+	if err != nil {
+		return err
+	}
 	touchSandboxBestEffort(ctx, client, vmid)
 	payload, err := client.doJSON(ctx, http.MethodGet, fmt.Sprintf("/v1/sandboxes/%d", vmid), nil)
 	if err != nil {
@@ -933,7 +1111,10 @@ func runSandboxStart(ctx context.Context, args []string, base commonFlags) error
 		return err
 	}
 
-	client := newAPIClient(opts.socketPath, opts.timeout)
+	client, err := apiClientFromFlags(opts)
+	if err != nil {
+		return err
+	}
 	payload, err := client.doJSON(ctx, http.MethodPost, fmt.Sprintf("/v1/sandboxes/%d/start", vmid), nil)
 	if err != nil {
 		return wrapSandboxNotFound(ctx, client, vmid, err)
@@ -963,7 +1144,10 @@ func runSandboxStop(ctx context.Context, args []string, base commonFlags) error 
 	if err := parseFlags(fs, args, printSandboxStopUsage, &help, opts.jsonOutput); err != nil {
 		return err
 	}
-	client := newAPIClient(opts.socketPath, opts.timeout)
+	client, err := apiClientFromFlags(opts)
+	if err != nil {
+		return err
+	}
 	if all {
 		if fs.NArg() > 0 {
 			if !opts.jsonOutput {
@@ -1073,7 +1257,10 @@ func runSandboxRevert(ctx context.Context, args []string, base commonFlags) erro
 		restartPtr = &value
 	}
 
-	client := newAPIClient(opts.socketPath, opts.timeout)
+	client, err := apiClientFromFlags(opts)
+	if err != nil {
+		return err
+	}
 	if !force {
 		sb, err := fetchSandbox(ctx, client, vmid)
 		if err != nil {
@@ -1138,7 +1325,10 @@ func runSandboxDestroy(ctx context.Context, args []string, base commonFlags) err
 		return err
 	}
 
-	client := newAPIClient(opts.socketPath, opts.timeout)
+	client, err := apiClientFromFlags(opts)
+	if err != nil {
+		return err
+	}
 	req := sandboxDestroyRequest{Force: force}
 	payload, err := client.doJSON(ctx, http.MethodPost, fmt.Sprintf("/v1/sandboxes/%d/destroy", vmid), req)
 	if err != nil {
@@ -1211,7 +1401,10 @@ func runSandboxLeaseRenew(ctx context.Context, args []string, base commonFlags) 
 		return err
 	}
 
-	client := newAPIClient(opts.socketPath, opts.timeout)
+	client, err := apiClientFromFlags(opts)
+	if err != nil {
+		return err
+	}
 	req := leaseRenewRequest{TTLMinutes: minutes}
 	payload, err := client.doJSON(ctx, http.MethodPost, fmt.Sprintf("/v1/sandboxes/%d/lease/renew", vmid), req)
 	if err != nil {
@@ -1239,7 +1432,10 @@ func runSandboxPrune(ctx context.Context, args []string, base commonFlags) error
 		return err
 	}
 
-	client := newAPIClient(opts.socketPath, opts.timeout)
+	client, err := apiClientFromFlags(opts)
+	if err != nil {
+		return err
+	}
 	payload, err := client.doJSON(ctx, http.MethodPost, "/v1/sandboxes/prune", nil)
 	if err != nil {
 		return err
@@ -1294,7 +1490,10 @@ func runSandboxExpose(ctx context.Context, args []string, base commonFlags) erro
 		Port:  port,
 		Force: force,
 	}
-	client := newAPIClient(opts.socketPath, opts.timeout)
+	client, err := apiClientFromFlags(opts)
+	if err != nil {
+		return err
+	}
 	payload, err := client.doJSON(ctx, http.MethodPost, "/v1/exposures", req)
 	if err != nil {
 		return wrapSandboxNotFound(ctx, client, vmid, err)
@@ -1320,7 +1519,10 @@ func runSandboxExposed(ctx context.Context, args []string, base commonFlags) err
 	if err := parseFlags(fs, args, printSandboxExposedUsage, &help, opts.jsonOutput); err != nil {
 		return err
 	}
-	client := newAPIClient(opts.socketPath, opts.timeout)
+	client, err := apiClientFromFlags(opts)
+	if err != nil {
+		return err
+	}
 	payload, err := client.doJSON(ctx, http.MethodGet, "/v1/exposures", nil)
 	if err != nil {
 		return err
@@ -1356,7 +1558,10 @@ func runSandboxUnexpose(ctx context.Context, args []string, base commonFlags) er
 	if name == "" {
 		return fmt.Errorf("name is required")
 	}
-	client := newAPIClient(opts.socketPath, opts.timeout)
+	client, err := apiClientFromFlags(opts)
+	if err != nil {
+		return err
+	}
 	payload, err := client.doJSON(ctx, http.MethodDelete, fmt.Sprintf("/v1/exposures/%s", url.PathEscape(name)), nil)
 	if err != nil {
 		return err
@@ -1402,7 +1607,10 @@ func runWorkspaceCreate(ctx context.Context, args []string, base commonFlags) er
 		return err
 	}
 
-	client := newAPIClient(opts.socketPath, opts.timeout)
+	client, err := apiClientFromFlags(opts)
+	if err != nil {
+		return err
+	}
 	req := workspaceCreateRequest{
 		Name:    name,
 		SizeGB:  sizeGB,
@@ -1433,7 +1641,10 @@ func runWorkspaceList(ctx context.Context, args []string, base commonFlags) erro
 	if err := parseFlags(fs, args, printWorkspaceListUsage, &help, opts.jsonOutput); err != nil {
 		return err
 	}
-	client := newAPIClient(opts.socketPath, opts.timeout)
+	client, err := apiClientFromFlags(opts)
+	if err != nil {
+		return err
+	}
 	payload, err := client.doJSON(ctx, http.MethodGet, "/v1/workspaces", nil)
 	if err != nil {
 		return err
@@ -1473,7 +1684,10 @@ func runWorkspaceAttach(ctx context.Context, args []string, base commonFlags) er
 	if err != nil {
 		return err
 	}
-	client := newAPIClient(opts.socketPath, opts.timeout)
+	client, err := apiClientFromFlags(opts)
+	if err != nil {
+		return err
+	}
 	req := workspaceAttachRequest{VMID: vmid}
 	payload, err := client.doJSON(ctx, http.MethodPost, fmt.Sprintf("/v1/workspaces/%s/attach", workspace), req)
 	if err != nil {
@@ -1511,7 +1725,10 @@ func runWorkspaceDetach(ctx context.Context, args []string, base commonFlags) er
 	if workspace == "" {
 		return fmt.Errorf("workspace is required")
 	}
-	client := newAPIClient(opts.socketPath, opts.timeout)
+	client, err := apiClientFromFlags(opts)
+	if err != nil {
+		return err
+	}
 	payload, err := client.doJSON(ctx, http.MethodPost, fmt.Sprintf("/v1/workspaces/%s/detach", workspace), nil)
 	if err != nil {
 		return wrapWorkspaceNotFound(workspace, err)
@@ -1565,7 +1782,10 @@ func runWorkspaceRebind(ctx context.Context, args []string, base commonFlags) er
 		return err
 	}
 
-	client := newAPIClient(opts.socketPath, opts.timeout)
+	client, err := apiClientFromFlags(opts)
+	if err != nil {
+		return err
+	}
 	req := workspaceRebindRequest{
 		Profile:    profile,
 		TTLMinutes: ttlMinutes,
@@ -1619,7 +1839,10 @@ func runLogsCommand(ctx context.Context, args []string, base commonFlags) error 
 		tail = maxEventLimit
 	}
 
-	client := newAPIClient(opts.socketPath, opts.timeout)
+	client, err := apiClientFromFlags(opts)
+	if err != nil {
+		return err
+	}
 	touchSandboxBestEffort(ctx, client, vmid)
 	resp, err := fetchEvents(ctx, client, vmid, tail, 0)
 	if err != nil {

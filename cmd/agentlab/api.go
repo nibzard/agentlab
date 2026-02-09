@@ -38,9 +38,12 @@ const (
 	maxJSONOutputBytes = 4 << 20 // 4MB maximum JSON response size
 )
 
-// apiClient is an HTTP client for communicating with agentlabd over a Unix socket.
+// apiClient is an HTTP client for communicating with agentlabd.
 type apiClient struct {
 	socketPath string
+	endpoint   string
+	baseURL    string
+	token      string
 	httpClient *http.Client
 	timeout    time.Duration
 }
@@ -184,6 +187,12 @@ type statusResponse struct {
 	RecentFailures []eventResponse         `json:"recent_failures"`
 }
 
+type hostResponse struct {
+	Version      string `json:"version"`
+	AgentSubnet  string `json:"agent_subnet,omitempty"`
+	TailscaleDNS string `json:"tailscale_dns,omitempty"`
+}
+
 // sandboxRevertResponse contains the result of a revert operation.
 type sandboxRevertResponse struct {
 	Sandbox    sandboxResponse `json:"sandbox"`
@@ -316,9 +325,19 @@ type eventsResponse struct {
 }
 
 // newAPIClient creates a new API client for communicating with agentlabd.
-// The client uses HTTP over a Unix socket to communicate with the daemon.
-func newAPIClient(socketPath string, timeout time.Duration) *apiClient {
-	path := socketPath
+// The client uses HTTP over a Unix socket or a remote HTTP endpoint.
+func newAPIClient(opts clientOptions, timeout time.Duration) *apiClient {
+	if strings.TrimSpace(opts.Endpoint) != "" {
+		endpoint := strings.TrimRight(strings.TrimSpace(opts.Endpoint), "/")
+		return &apiClient{
+			endpoint:   endpoint,
+			baseURL:    endpoint,
+			token:      strings.TrimSpace(opts.Token),
+			httpClient: &http.Client{},
+			timeout:    timeout,
+		}
+	}
+	path := strings.TrimSpace(opts.SocketPath)
 	if path == "" {
 		path = defaultSocketPath
 	}
@@ -330,6 +349,7 @@ func newAPIClient(socketPath string, timeout time.Duration) *apiClient {
 	}
 	return &apiClient{
 		socketPath: path,
+		baseURL:    "http://unix",
 		httpClient: &http.Client{Transport: transport},
 		timeout:    timeout,
 	}
@@ -349,7 +369,7 @@ func (c *apiClient) doJSON(ctx context.Context, method, path string, payload any
 		}
 		body = buf
 	}
-	req, err := http.NewRequestWithContext(ctx, method, "http://unix"+path, body)
+	req, err := http.NewRequestWithContext(ctx, method, c.baseURL+path, body)
 	if err != nil {
 		return nil, err
 	}
@@ -357,9 +377,12 @@ func (c *apiClient) doJSON(ctx context.Context, method, path string, payload any
 	if payload != nil {
 		req.Header.Set("Content-Type", "application/json")
 	}
+	if c.endpoint != "" && c.token != "" {
+		req.Header.Set("Authorization", "Bearer "+c.token)
+	}
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
-		return nil, fmt.Errorf("request %s %s via %s: %w", method, path, c.socketPath, err)
+		return nil, fmt.Errorf("request %s %s via %s: %w", method, path, c.target(), err)
 	}
 	defer resp.Body.Close()
 	data, err := io.ReadAll(io.LimitReader(resp.Body, maxJSONOutputBytes))
@@ -377,7 +400,7 @@ func (c *apiClient) doJSON(ctx context.Context, method, path string, payload any
 func (c *apiClient) doRequest(ctx context.Context, method, path string, body io.Reader, headers map[string]string) (*http.Response, error) {
 	ctx, cancel := c.withTimeout(ctx)
 	defer cancel()
-	req, err := http.NewRequestWithContext(ctx, method, "http://unix"+path, body)
+	req, err := http.NewRequestWithContext(ctx, method, c.baseURL+path, body)
 	if err != nil {
 		return nil, err
 	}
@@ -387,9 +410,12 @@ func (c *apiClient) doRequest(ctx context.Context, method, path string, body io.
 		}
 		req.Header.Set(key, value)
 	}
+	if c.endpoint != "" && c.token != "" {
+		req.Header.Set("Authorization", "Bearer "+c.token)
+	}
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
-		return nil, fmt.Errorf("request %s %s via %s: %w", method, path, c.socketPath, err)
+		return nil, fmt.Errorf("request %s %s via %s: %w", method, path, c.target(), err)
 	}
 	if resp.StatusCode >= 400 {
 		data, readErr := io.ReadAll(io.LimitReader(resp.Body, maxJSONOutputBytes))
@@ -412,6 +438,16 @@ func parseAPIError(status int, data []byte) error {
 		}
 	}
 	return fmt.Errorf("request failed with status %d", status)
+}
+
+func (c *apiClient) target() string {
+	if c == nil {
+		return ""
+	}
+	if strings.TrimSpace(c.endpoint) != "" {
+		return c.endpoint
+	}
+	return c.socketPath
 }
 
 // withTimeout adds the client's timeout to the context if configured.

@@ -117,6 +117,24 @@ sudo scripts/create_template.sh
 sudo systemctl restart agentlabd.service
 ```
 
+## Remote CLI (tailnet)
+
+If you enabled the TCP control plane, you can connect from another machine (Mac, CI runner, etc.):
+
+```bash
+agentlab connect --endpoint https://host.tailnet.ts.net:8845 --token <token>
+```
+
+This writes a local client config file at `$XDG_CONFIG_HOME/agentlab/client.json` (or `~/.config/agentlab/client.json`) with permissions set to `0600`. Commands will use the saved endpoint and token automatically.
+
+Precedence (highest to lowest): CLI flags → environment variables (`AGENTLAB_ENDPOINT`, `AGENTLAB_TOKEN`) → config file → defaults.
+
+To remove the saved config:
+
+```bash
+agentlab disconnect
+```
+
 ## Template build and updates
 
 Build the template with defaults:

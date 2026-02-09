@@ -16,7 +16,15 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+func useTempClientConfig(t *testing.T) {
+	t.Helper()
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	t.Setenv(envEndpoint, "")
+	t.Setenv(envToken, "")
+}
+
 func TestParseGlobal(t *testing.T) {
+	useTempClientConfig(t)
 	tests := []struct {
 		name        string
 		args        []string
@@ -116,6 +124,7 @@ func TestParseGlobal(t *testing.T) {
 }
 
 func TestParseGlobalHelp(t *testing.T) {
+	useTempClientConfig(t)
 	t.Run("long help flag", func(t *testing.T) {
 		_, _, err := parseGlobal([]string{"--help"})
 		require.Error(t, err)
@@ -130,6 +139,7 @@ func TestParseGlobalHelp(t *testing.T) {
 }
 
 func TestDispatch(t *testing.T) {
+	useTempClientConfig(t)
 	tests := []struct {
 		name        string
 		args        []string
@@ -165,6 +175,17 @@ func TestDispatch(t *testing.T) {
 		{
 			name:    "logs command",
 			args:    []string{"logs"},
+			wantErr: false,
+		},
+		{
+			name:        "connect command missing flags",
+			args:        []string{"connect"},
+			wantErr:     true,
+			errContains: "endpoint is required",
+		},
+		{
+			name:    "disconnect command",
+			args:    []string{"disconnect"},
 			wantErr: false,
 		},
 		{
@@ -253,6 +274,7 @@ func TestIsHelpToken(t *testing.T) {
 }
 
 func TestParseGlobalSocketPathEdgeCases(t *testing.T) {
+	useTempClientConfig(t)
 	tests := []struct {
 		name     string
 		args     []string
@@ -289,6 +311,7 @@ func TestParseGlobalSocketPathEdgeCases(t *testing.T) {
 }
 
 func TestParseGlobalTimeoutVariations(t *testing.T) {
+	useTempClientConfig(t)
 	tests := []struct {
 		name        string
 		args        []string
@@ -350,6 +373,7 @@ func TestParseGlobalTimeoutVariations(t *testing.T) {
 }
 
 func TestMainExitPaths(t *testing.T) {
+	useTempClientConfig(t)
 	// Test various exit paths through main()
 	// Since main() calls os.Exit(), we need to test the individual components
 
@@ -382,13 +406,15 @@ func TestMainExitPaths(t *testing.T) {
 
 func TestCommonFlagsBinding(t *testing.T) {
 	tests := []struct {
-		name        string
-		initial     commonFlags
-		args        []string
-		wantSocket  string
-		wantJSON    bool
-		wantTimeout time.Duration
-		wantErr     bool
+		name         string
+		initial      commonFlags
+		args         []string
+		wantEndpoint string
+		wantToken    string
+		wantSocket   string
+		wantJSON     bool
+		wantTimeout  time.Duration
+		wantErr      bool
 	}{
 		{
 			name:        "default values",
@@ -430,6 +456,13 @@ func TestCommonFlagsBinding(t *testing.T) {
 			wantJSON:    true,
 			wantTimeout: 30 * time.Second,
 		},
+		{
+			name:         "endpoint and token",
+			initial:      commonFlags{},
+			args:         []string{"--endpoint", "https://example", "--token", "tok"},
+			wantEndpoint: "https://example",
+			wantToken:    "tok",
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -441,6 +474,8 @@ func TestCommonFlagsBinding(t *testing.T) {
 				assert.Error(t, err)
 			} else {
 				require.NoError(t, err)
+				assert.Equal(t, tt.wantEndpoint, opts.endpoint)
+				assert.Equal(t, tt.wantToken, opts.token)
 				assert.Equal(t, tt.wantSocket, opts.socketPath)
 				assert.Equal(t, tt.wantJSON, opts.jsonOutput)
 				assert.Equal(t, tt.wantTimeout, opts.timeout)
@@ -581,6 +616,17 @@ func TestUsagePrints(t *testing.T) {
 		output := CaptureOutput(printWorkspaceUsage)
 		assert.Contains(t, output, "workspace <create|list|attach|detach|rebind>")
 	})
+
+	t.Run("printConnectUsage outputs connect usage", func(t *testing.T) {
+		output := CaptureOutput(printConnectUsage)
+		assert.Contains(t, output, "agentlab connect")
+		assert.Contains(t, output, "--endpoint")
+	})
+
+	t.Run("printDisconnectUsage outputs disconnect usage", func(t *testing.T) {
+		output := CaptureOutput(printDisconnectUsage)
+		assert.Contains(t, output, "agentlab disconnect")
+	})
 }
 
 func TestDefaultConstants(t *testing.T) {
@@ -617,9 +663,13 @@ func TestGoldenFileUsageOutput(t *testing.T) {
 	assert.Contains(t, got, "agentlab is the CLI for agentlabd")
 	assert.Contains(t, got, "Usage:")
 	assert.Contains(t, got, "Global Flags:")
+	assert.Contains(t, got, "--endpoint URL")
+	assert.Contains(t, got, "--token TOKEN")
 	assert.Contains(t, got, "--socket PATH")
 	assert.Contains(t, got, "--json")
 	assert.Contains(t, got, "--timeout")
+	assert.Contains(t, got, "agentlab connect")
+	assert.Contains(t, got, "agentlab disconnect")
 }
 
 func TestGoldenFileJobUsageOutput(t *testing.T) {

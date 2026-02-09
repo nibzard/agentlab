@@ -254,9 +254,29 @@ proxmox_backend: shell  # Use shell commands (qm, pvesh)
 agentlab [global flags] <command> [command flags]
 
 Global flags:
+  --endpoint URL  Control plane endpoint (http(s)://host:port)
+  --token TOKEN   Control plane auth token (Authorization: Bearer)
   --socket PATH   Path to agentlabd socket (default: /run/agentlab/agentlabd.sock)
   --json          Output JSON format
   --timeout       Request timeout (e.g., 30s, 2m)
+```
+
+### Remote CLI
+
+When the daemon is configured with a remote control listener, you can connect from another machine:
+
+```bash
+agentlab connect --endpoint https://host.tailnet.ts.net:8845 --token <token>
+```
+
+This writes a client config file at `$XDG_CONFIG_HOME/agentlab/client.json` (or `~/.config/agentlab/client.json`). Subsequent commands use the saved endpoint and token automatically.
+
+Precedence (highest to lowest): CLI flags → environment variables (`AGENTLAB_ENDPOINT`, `AGENTLAB_TOKEN`) → config file → defaults.
+
+To remove the saved config:
+
+```bash
+agentlab disconnect
 ```
 
 ### Sandbox Management
