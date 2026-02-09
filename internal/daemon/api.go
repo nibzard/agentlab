@@ -35,6 +35,8 @@ const (
 	defaultEventsLimit        = 200  // Default events returned per query
 	defaultJobEventsTail      = 50   // Default events tailed for job details
 	maxEventsLimit            = 1000 // Maximum events allowed per query
+	defaultMessagesLimit      = 200  // Default messages returned per query
+	maxMessagesLimit          = 1000 // Maximum messages allowed per query
 	defaultStatusFailureLimit = 10   // Default recent failures returned in status
 	defaultExposureState      = "requested"
 	workspaceWaitPollInterval = 250 * time.Millisecond
@@ -61,6 +63,11 @@ var (
 		models.JobTimeout,
 	}
 	errWorkspaceWaitTimeout = errors.New("workspace wait timeout")
+	messageScopeTypes       = map[string]struct{}{
+		"job":       {},
+		"workspace": {},
+		"session":   {},
+	}
 )
 
 // ControlAPI handles local control plane HTTP requests over the Unix socket.
@@ -86,6 +93,8 @@ var (
 //   - POST   /v1/sandboxes/{vmid}/destroy   - Destroy a sandbox
 //   - POST   /v1/sandboxes/{vmid}/lease/renew - Renew sandbox lease
 //   - GET    /v1/sandboxes/{vmid}/events - Get sandbox events
+//   - POST   /v1/messages             - Post a message to the messagebox
+//   - GET    /v1/messages             - List messagebox entries by scope
 //   - POST   /v1/sandboxes/prune      - Prune orphaned sandboxes
 //   - POST   /v1/workspaces           - Create a workspace
 //   - GET    /v1/workspaces           - List workspaces
@@ -203,6 +212,7 @@ func (api *ControlAPI) Register(mux *http.ServeMux) {
 	mux.HandleFunc("/v1/profiles", api.handleProfiles)
 	mux.HandleFunc("/v1/status", api.handleStatus)
 	mux.HandleFunc("/v1/host", api.handleHost)
+	mux.HandleFunc("/v1/messages", api.handleMessages)
 	mux.HandleFunc("/v1/sandboxes", api.handleSandboxes)
 	mux.HandleFunc("/v1/sandboxes/", api.handleSandboxByID)
 	mux.HandleFunc("/v1/sandboxes/stop_all", api.handleSandboxStopAll)
@@ -742,6 +752,110 @@ func (api *ControlAPI) handleHost(w http.ResponseWriter, r *http.Request) {
 		} else if api.logger != nil {
 			api.logger.Printf("host info: tailscale status unavailable: %v", err)
 		}
+	}
+	writeJSON(w, http.StatusOK, resp)
+}
+
+func (api *ControlAPI) handleMessages(w http.ResponseWriter, r *http.Request) {
+	switch r.Method {
+	case http.MethodPost:
+		api.handleMessageCreate(w, r)
+	case http.MethodGet:
+		api.handleMessageList(w, r)
+	default:
+		writeMethodNotAllowed(w, []string{http.MethodGet, http.MethodPost})
+	}
+}
+
+func (api *ControlAPI) handleMessageCreate(w http.ResponseWriter, r *http.Request) {
+	if api.store == nil {
+		writeError(w, http.StatusInternalServerError, "message store unavailable")
+		return
+	}
+	var req V1MessageCreateRequest
+	if err := decodeJSON(w, r, &req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid request body", err)
+		return
+	}
+	scopeType, scopeID, err := parseMessageScope(req.ScopeType, req.ScopeID)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	text := strings.TrimSpace(req.Text)
+	payload := bytes.TrimSpace(req.Payload)
+	if text == "" && len(payload) == 0 {
+		writeError(w, http.StatusBadRequest, "message text or json is required")
+		return
+	}
+	msg := db.Message{
+		Timestamp: api.now().UTC(),
+		ScopeType: scopeType,
+		ScopeID:   scopeID,
+		Author:    strings.TrimSpace(req.Author),
+		Kind:      strings.TrimSpace(req.Kind),
+		Text:      text,
+		JSON:      string(payload),
+	}
+	created, err := api.store.CreateMessage(r.Context(), msg)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to record message", err)
+		return
+	}
+	writeJSON(w, http.StatusCreated, messageToV1(created))
+}
+
+func (api *ControlAPI) handleMessageList(w http.ResponseWriter, r *http.Request) {
+	if api.store == nil {
+		writeError(w, http.StatusInternalServerError, "message store unavailable")
+		return
+	}
+	query := r.URL.Query()
+	scopeType, scopeID, err := parseMessageScope(query.Get("scope_type"), query.Get("scope_id"))
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	afterParam := strings.TrimSpace(query.Get("after_id"))
+	if afterParam == "" {
+		afterParam = strings.TrimSpace(query.Get("after"))
+	}
+	after, err := parseQueryInt64(afterParam)
+	if err != nil || after < 0 {
+		writeError(w, http.StatusBadRequest, "invalid after_id")
+		return
+	}
+	limit, err := parseQueryInt(query.Get("limit"))
+	if err != nil || limit < 0 {
+		writeError(w, http.StatusBadRequest, "invalid limit")
+		return
+	}
+	if limit <= 0 {
+		limit = defaultMessagesLimit
+	}
+	if limit > maxMessagesLimit {
+		limit = maxMessagesLimit
+	}
+	var messages []db.Message
+	if after > 0 {
+		messages, err = api.store.ListMessagesByScope(r.Context(), scopeType, scopeID, after, limit)
+	} else {
+		messages, err = api.store.ListMessagesByScopeTail(r.Context(), scopeType, scopeID, limit)
+	}
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to load messages", err)
+		return
+	}
+	resp := V1MessagesResponse{Messages: make([]V1Message, 0, len(messages))}
+	var lastID int64
+	for _, msg := range messages {
+		if msg.ID > lastID {
+			lastID = msg.ID
+		}
+		resp.Messages = append(resp.Messages, messageToV1(msg))
+	}
+	if lastID > 0 {
+		resp.LastID = lastID
 	}
 	writeJSON(w, http.StatusOK, resp)
 }
@@ -2342,6 +2456,21 @@ func parseQueryInt64(value string) (int64, error) {
 	return parsed, nil
 }
 
+func parseMessageScope(scopeType, scopeID string) (string, string, error) {
+	scopeType = strings.ToLower(strings.TrimSpace(scopeType))
+	if scopeType == "" {
+		return "", "", errors.New("scope_type is required")
+	}
+	if _, ok := messageScopeTypes[scopeType]; !ok {
+		return "", "", errors.New("invalid scope_type")
+	}
+	scopeID = strings.TrimSpace(scopeID)
+	if scopeID == "" {
+		return "", "", errors.New("scope_id is required")
+	}
+	return scopeType, scopeID, nil
+}
+
 func eventToV1(ev db.Event) V1Event {
 	resp := V1Event{
 		ID:        ev.ID,
@@ -2364,6 +2493,28 @@ func eventToV1(ev db.Event) V1Event {
 	}
 	if resp.Message == "" {
 		resp.Message = ""
+	}
+	return resp
+}
+
+func messageToV1(msg db.Message) V1Message {
+	resp := V1Message{
+		ID:        msg.ID,
+		ScopeType: msg.ScopeType,
+		ScopeID:   msg.ScopeID,
+		Author:    msg.Author,
+		Kind:      msg.Kind,
+		Text:      msg.Text,
+	}
+	if !msg.Timestamp.IsZero() {
+		resp.Timestamp = msg.Timestamp.UTC().Format(time.RFC3339Nano)
+	}
+	if strings.TrimSpace(msg.JSON) != "" {
+		payload := []byte(msg.JSON)
+		if !json.Valid(payload) {
+			payload, _ = json.Marshal(msg.JSON)
+		}
+		resp.Payload = json.RawMessage(payload)
 	}
 	return resp
 }

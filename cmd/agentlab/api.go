@@ -352,6 +352,31 @@ type eventsResponse struct {
 	LastID int64           `json:"last_id,omitempty"`
 }
 
+type messageCreateRequest struct {
+	ScopeType string          `json:"scope_type"`
+	ScopeID   string          `json:"scope_id"`
+	Author    string          `json:"author,omitempty"`
+	Kind      string          `json:"kind,omitempty"`
+	Text      string          `json:"text,omitempty"`
+	Payload   json.RawMessage `json:"json,omitempty"`
+}
+
+type messageResponse struct {
+	ID        int64           `json:"id"`
+	Timestamp string          `json:"ts"`
+	ScopeType string          `json:"scope_type"`
+	ScopeID   string          `json:"scope_id"`
+	Author    string          `json:"author,omitempty"`
+	Kind      string          `json:"kind,omitempty"`
+	Text      string          `json:"text,omitempty"`
+	Payload   json.RawMessage `json:"json,omitempty"`
+}
+
+type messagesResponse struct {
+	Messages []messageResponse `json:"messages"`
+	LastID   int64             `json:"last_id,omitempty"`
+}
+
 // newAPIClient creates a new API client for communicating with agentlabd.
 // The client uses HTTP over a Unix socket or a remote HTTP endpoint.
 func newAPIClient(opts clientOptions, timeout time.Duration) *apiClient {

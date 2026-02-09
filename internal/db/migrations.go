@@ -172,6 +172,24 @@ var migrations = []migration{
 			`CREATE INDEX IF NOT EXISTS idx_workspaces_lease_expires ON workspaces(lease_expires_at)`,
 		},
 	},
+	{
+		version: 8,
+		name:    "add_messages",
+		statements: []string{
+			`CREATE TABLE IF NOT EXISTS messages (
+				id INTEGER PRIMARY KEY AUTOINCREMENT,
+				ts TEXT NOT NULL,
+				scope_type TEXT NOT NULL,
+				scope_id TEXT NOT NULL,
+				author TEXT,
+				kind TEXT,
+				text TEXT,
+				json TEXT
+			)`,
+			`CREATE INDEX IF NOT EXISTS idx_messages_scope ON messages(scope_type, scope_id, id)`,
+			`CREATE INDEX IF NOT EXISTS idx_messages_ts ON messages(ts)`,
+		},
+	},
 }
 
 // Migrate runs any pending migrations against the provided database.

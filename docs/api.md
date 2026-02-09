@@ -328,6 +328,37 @@ Query params (mutually exclusive `tail`/`after`):
 - `after=<id>` returns events with id greater than `after` (for follow).
 - `limit=<n>` caps the number of events (default 200, max 1000).
 
+### POST /v1/messages
+Post a message to the shared messagebox.
+
+Body:
+
+```json
+{
+  "scope_type": "job",
+  "scope_id": "job_0123abcd",
+  "author": "alice",
+  "kind": "note",
+  "text": "handoff: run tests next",
+  "json": { "priority": "high" }
+}
+```
+
+Notes:
+- `scope_type` must be one of `job`, `workspace`, `session`.
+- `text` or `json` is required.
+
+### GET /v1/messages
+List messages for a scope.
+
+Query params:
+- `scope_type=<job|workspace|session>` (required).
+- `scope_id=<id>` (required).
+- `after_id=<id>` returns messages with id greater than `after_id`.
+- `limit=<n>` caps the number of messages (default 200, max 1000).
+
+When `after_id` is omitted, the API returns the most recent `limit` messages in chronological order.
+
 ### POST /v1/exposures
 Create a host-owned exposure for a sandbox port. The daemon installs the exposure
 using host-level Tailscale Serve and records an audit event.

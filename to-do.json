@@ -2135,29 +2135,30 @@
         "api"
       ],
       "files": [
-        "internal/proxmox/proxmox.go",
-        "internal/proxmox/errors.go",
-        "internal/proxmox/volume_helpers.go",
-        "internal/proxmox/shell_backend.go",
-        "internal/proxmox/api_backend.go",
-        "internal/daemon/workspace_check.go",
-        "internal/daemon/api.go",
-        "internal/daemon/api_types.go",
+        "cmd/agentlab/api.go",
         "cmd/agentlab/commands.go",
         "cmd/agentlab/main.go",
-        "cmd/agentlab/api.go",
-        "internal/daemon/workspace_check_test.go",
-        "internal/proxmox/shell_backend_test.go",
-        "internal/proxmox/api_backend_test.go",
-        "internal/daemon/sandbox_manager_test.go",
+        "cmd/agentlab/main_test.go",
+        "internal/daemon/api.go",
+        "internal/daemon/api_types.go",
         "internal/daemon/job_orchestrator_test.go",
-        "cmd/agentlab/main_test.go"
+        "internal/daemon/sandbox_manager_test.go",
+        "internal/daemon/workspace_check.go",
+        "internal/daemon/workspace_check_test.go",
+        "internal/proxmox/api_backend.go",
+        "internal/proxmox/api_backend_test.go",
+        "internal/proxmox/errors.go",
+        "internal/proxmox/proxmox.go",
+        "internal/proxmox/shell_backend.go",
+        "internal/proxmox/shell_backend_test.go",
+        "internal/proxmox/volume_helpers.go",
+        "to-do.json"
       ],
       "depends_on": [
         "T024"
       ],
       "created_at": "2026-02-09T09:49:20Z",
-      "updated_at": "2026-02-09T14:58:45Z"
+      "updated_at": "2026-02-09T14:59:34Z"
     },
     {
       "id": "T093",
@@ -2296,7 +2297,7 @@
       "id": "T097",
       "title": "Messagebox: append-only messages table + /v1/messages API + CLI msg post/tail",
       "priority": 2,
-      "status": "todo",
+      "status": "done",
       "details": "Add a built-in shared mailbox/memory primitive for multi-agent coordination. Implement durable append-only messages scoped to job/workspace/session with tail/follow semantics.",
       "steps": [
         "DB: add messages table (id, ts, scope_type, scope_id, author, kind, text, json) + indexes; add migration tests.",
@@ -2320,9 +2321,15 @@
         "internal/daemon/api_types.go",
         "cmd/agentlab/commands.go",
         "cmd/agentlab/main.go",
-        "docs/architecture.md"
+        "docs/architecture.md",
+        "internal/db/messages.go",
+        "internal/db/messages_test.go",
+        "internal/daemon/api_messages_test.go",
+        "cmd/agentlab/api.go",
+        "docs/api.md"
       ],
-      "created_at": "2026-02-09T09:49:20Z"
+      "created_at": "2026-02-09T09:49:20Z",
+      "updated_at": "2026-02-09T15:12:46Z"
     },
     {
       "id": "T098",

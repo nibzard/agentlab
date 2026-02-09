@@ -77,6 +77,8 @@ Usage:
   agentlab [--endpoint URL] [--token TOKEN] [--socket PATH] [--json] [--timeout DURATION] workspace rebind <workspace> --profile <profile> [--ttl <ttl>] [--keep-old]
   agentlab [--endpoint URL] [--token TOKEN] [--socket PATH] [--json] [--timeout DURATION] profile list
   agentlab [--endpoint URL] [--token TOKEN] [--socket PATH] [--json] [--timeout DURATION] ssh <vmid> [--user <user>] [--port <port>] [--identity <path>] [--jump-host <host>] [--jump-user <user>] [--exec] [--no-start] [--wait] [-- <remote command>...]
+  agentlab [--endpoint URL] [--token TOKEN] [--socket PATH] [--json] [--timeout DURATION] msg post (--job <id> | --workspace <id> | --session <id>) [--author <name>] [--kind <kind>] [--text <text>] [--payload <json>] [message...]
+  agentlab [--endpoint URL] [--token TOKEN] [--socket PATH] [--json] [--timeout DURATION] msg tail (--job <id> | --workspace <id> | --session <id>) [--follow] [--tail <n>]
   agentlab [--endpoint URL] [--token TOKEN] [--socket PATH] [--json] [--timeout DURATION] logs <vmid> [--follow] [--tail <n>]
   agentlab connect --endpoint <url> --token <token> [--jump-host <host>] [--jump-user <user>]
   agentlab disconnect
@@ -227,6 +229,8 @@ func dispatch(ctx context.Context, args []string, base commonFlags) error {
 		return withDefaultNext(runWorkspaceCommand(ctx, args[1:], base), "agentlab workspace --help")
 	case "profile":
 		return withDefaultNext(runProfileCommand(ctx, args[1:], base), "agentlab profile --help")
+	case "msg":
+		return withDefaultNext(runMsgCommand(ctx, args[1:], base), "agentlab msg --help")
 	case "ssh":
 		return withDefaultNext(runSSHCommand(ctx, args[1:], base), "agentlab ssh --help")
 	case "logs":
@@ -239,7 +243,7 @@ func dispatch(ctx context.Context, args []string, base commonFlags) error {
 		if !base.jsonOutput {
 			printUsage()
 		}
-		return unknownCommandError(args[0], []string{"status", "job", "sandbox", "workspace", "profile", "ssh", "logs", "connect", "disconnect"})
+		return unknownCommandError(args[0], []string{"status", "job", "sandbox", "workspace", "profile", "msg", "ssh", "logs", "connect", "disconnect"})
 	}
 }
 
@@ -400,6 +404,20 @@ func printProfileUsage() {
 
 func printProfileListUsage() {
 	fmt.Fprintln(os.Stdout, "Usage: agentlab profile list")
+}
+
+func printMsgUsage() {
+	fmt.Fprintln(os.Stdout, "Usage: agentlab msg <post|tail>")
+}
+
+func printMsgPostUsage() {
+	fmt.Fprintln(os.Stdout, "Usage: agentlab msg post (--job <id> | --workspace <id> | --session <id>) [--author <name>] [--kind <kind>] [--text <text>] [--payload <json>] [message...]")
+	fmt.Fprintln(os.Stdout, "Note: If --text is omitted, trailing arguments are joined as the message text.")
+}
+
+func printMsgTailUsage() {
+	fmt.Fprintln(os.Stdout, "Usage: agentlab msg tail (--job <id> | --workspace <id> | --session <id>) [--follow] [--tail <n>]")
+	fmt.Fprintln(os.Stdout, "Note: --json outputs one JSON object per line.")
 }
 
 func printLogsUsage() {
