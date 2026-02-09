@@ -22,7 +22,7 @@ func TestMigrate(t *testing.T) {
 		var count int
 		err = conn.QueryRow("SELECT COUNT(*) FROM schema_migrations").Scan(&count)
 		require.NoError(t, err)
-		assert.Equal(t, 7, count) // We have 7 migrations
+		assert.Equal(t, 8, count) // We have 8 migrations
 
 		// Verify version numbers
 		rows, err := conn.Query("SELECT version FROM schema_migrations ORDER BY version")
@@ -36,7 +36,7 @@ func TestMigrate(t *testing.T) {
 			require.NoError(t, err)
 			versions = append(versions, v)
 		}
-		assert.Equal(t, []int{1, 2, 3, 4, 5, 6, 7}, versions)
+		assert.Equal(t, []int{1, 2, 3, 4, 5, 6, 7, 8}, versions)
 	})
 
 	t.Run("idempotent - re-running is safe", func(t *testing.T) {
@@ -53,11 +53,11 @@ func TestMigrate(t *testing.T) {
 		err = Migrate(conn)
 		require.NoError(t, err)
 
-		// Verify only 7 migrations recorded
+		// Verify only 8 migrations recorded
 		var count int
 		err = conn.QueryRow("SELECT COUNT(*) FROM schema_migrations").Scan(&count)
 		require.NoError(t, err)
-		assert.Equal(t, 7, count)
+		assert.Equal(t, 8, count)
 	})
 
 	t.Run("creates all core tables", func(t *testing.T) {
@@ -72,7 +72,7 @@ func TestMigrate(t *testing.T) {
 		// Check expected tables exist
 		tables := []string{
 			"sandboxes", "jobs", "profiles", "workspaces",
-			"bootstrap_tokens", "events", "artifact_tokens", "artifacts", "exposures",
+			"bootstrap_tokens", "events", "artifact_tokens", "artifacts", "exposures", "messages",
 		}
 
 		for _, table := range tables {
@@ -95,7 +95,7 @@ func TestMigrate(t *testing.T) {
 		// Check some key indexes exist
 		indexes := []string{
 			"idx_sandboxes_state", "idx_jobs_status", "idx_jobs_workspace",
-			"idx_workspaces_attached", "idx_artifacts_job", "idx_exposures_vmid",
+			"idx_workspaces_attached", "idx_artifacts_job", "idx_exposures_vmid", "idx_messages_scope", "idx_messages_ts",
 		}
 
 		for _, index := range indexes {
@@ -260,6 +260,29 @@ func TestMigrationVersion2(t *testing.T) {
 		err = conn.QueryRow("SELECT COUNT(*) FROM jobs WHERE id = ?", "job-1").Scan(&count)
 		require.NoError(t, err)
 		assert.Equal(t, 1, count)
+	})
+}
+
+func TestMigrationVersion8(t *testing.T) {
+	t.Run("adds messages table", func(t *testing.T) {
+		path := t.TempDir() + "/test.db"
+		conn, err := sql.Open("sqlite", path)
+		require.NoError(t, err)
+		defer conn.Close()
+
+		err = Migrate(conn)
+		require.NoError(t, err)
+
+		columns := []string{
+			"id", "ts", "scope_type", "scope_id", "author", "kind", "text", "json",
+		}
+
+		for _, col := range columns {
+			var count int
+			err = conn.QueryRow("SELECT COUNT(*) FROM pragma_table_info('messages') WHERE name=?", col).Scan(&count)
+			require.NoError(t, err)
+			assert.Equal(t, 1, count, "messages.%s column should exist", col)
+		}
 	})
 }
 
@@ -444,15 +467,15 @@ func TestPartialMigration(t *testing.T) {
 			}
 		}
 
-		// Run migrations - should apply 2, 3, 4, 5, 6, and 7
+		// Run migrations - should apply 2, 3, 4, 5, 6, 7, and 8
 		err = Migrate(conn)
 		require.NoError(t, err)
 
-		// Verify all 7 migrations applied
+		// Verify all 8 migrations applied
 		var count int
 		err = conn.QueryRow("SELECT COUNT(*) FROM schema_migrations").Scan(&count)
 		require.NoError(t, err)
-		assert.Equal(t, 7, count)
+		assert.Equal(t, 8, count)
 
 		// Verify tables from migration 2 and 3 exist
 		var tables int

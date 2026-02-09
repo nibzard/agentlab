@@ -11,6 +11,7 @@
 //	sandbox:   Manage sandboxes (new, list, show, start, stop, revert, destroy, lease, prune, expose, exposed, unexpose)
 //	workspace: Manage workspaces (create, list, check, attach, detach, rebind)
 //	profile:   Manage profiles (list)
+//	msg:       Manage messagebox (post, tail)
 //	ssh:       Generate SSH connection parameters
 //	logs:      View sandbox event logs
 //
@@ -49,6 +50,9 @@ const (
 	eventPollInterval               = 2 * time.Second
 	defaultEventLimit               = 200
 	maxEventLimit                   = 1000
+	defaultMessageTail              = 50
+	defaultMessageLimit             = 200
+	maxMessageLimit                 = 1000
 	defaultRequestTimeout           = 10 * time.Minute
 	ttlFlagDescription              = "lease ttl in minutes or duration (e.g. 120 or 2h)"
 	jsonFlagDescription             = "output json"
@@ -873,6 +877,32 @@ func runProfileCommand(ctx context.Context, args []string, base commonFlags) err
 			printProfileUsage()
 		}
 		return unknownSubcommandError("profile", args[0], []string{"list"})
+	}
+}
+
+// runMsgCommand dispatches messagebox subcommands.
+func runMsgCommand(ctx context.Context, args []string, base commonFlags) error {
+	if len(args) == 0 {
+		if !base.jsonOutput {
+			printMsgUsage()
+			return nil
+		}
+		return newUsageError(fmt.Errorf("msg command is required"), false)
+	}
+	if isHelpToken(args[0]) {
+		printMsgUsage()
+		return errHelp
+	}
+	switch args[0] {
+	case "post":
+		return runMsgPost(ctx, args[1:], base)
+	case "tail":
+		return runMsgTail(ctx, args[1:], base)
+	default:
+		if !base.jsonOutput {
+			printMsgUsage()
+		}
+		return unknownSubcommandError("msg", args[0], []string{"post", "tail"})
 	}
 }
 
@@ -1848,6 +1878,155 @@ func runWorkspaceRebind(ctx context.Context, args []string, base commonFlags) er
 	return nil
 }
 
+func runMsgPost(ctx context.Context, args []string, base commonFlags) error {
+	fs := newFlagSet("msg post")
+	opts := base
+	opts.bind(fs)
+	var jobID string
+	var workspaceID string
+	var sessionID string
+	var author string
+	var kind string
+	var text string
+	var payload string
+	var help bool
+	fs.StringVar(&jobID, "job", "", "message scope job id")
+	fs.StringVar(&workspaceID, "workspace", "", "message scope workspace id")
+	fs.StringVar(&sessionID, "session", "", "message scope session id")
+	fs.StringVar(&author, "author", "", "message author")
+	fs.StringVar(&kind, "kind", "", "message kind")
+	fs.StringVar(&text, "text", "", "message text")
+	fs.StringVar(&payload, "payload", "", "message json payload")
+	fs.BoolVar(&help, "help", false, "show help")
+	fs.BoolVar(&help, "h", false, "show help")
+	if err := parseFlags(fs, args, printMsgPostUsage, &help, opts.jsonOutput); err != nil {
+		return err
+	}
+	scopeType, scopeID, err := resolveMessageScope(jobID, workspaceID, sessionID)
+	if err != nil {
+		if !opts.jsonOutput {
+			printMsgPostUsage()
+		}
+		return err
+	}
+	if strings.TrimSpace(text) == "" && fs.NArg() > 0 {
+		text = strings.Join(fs.Args(), " ")
+	}
+	text = strings.TrimSpace(text)
+	payload = strings.TrimSpace(payload)
+	var rawPayload json.RawMessage
+	if payload != "" {
+		if !json.Valid([]byte(payload)) {
+			return fmt.Errorf("payload must be valid JSON")
+		}
+		rawPayload = json.RawMessage(payload)
+	}
+	if text == "" && len(rawPayload) == 0 {
+		return fmt.Errorf("text or payload is required")
+	}
+
+	client, err := apiClientFromFlags(opts)
+	if err != nil {
+		return err
+	}
+	req := messageCreateRequest{
+		ScopeType: scopeType,
+		ScopeID:   scopeID,
+		Author:    strings.TrimSpace(author),
+		Kind:      strings.TrimSpace(kind),
+		Text:      text,
+		Payload:   rawPayload,
+	}
+	respPayload, err := client.doJSON(ctx, http.MethodPost, "/v1/messages", req)
+	if err != nil {
+		return err
+	}
+	if opts.jsonOutput {
+		return prettyPrintJSON(os.Stdout, respPayload)
+	}
+	var resp messageResponse
+	if err := json.Unmarshal(respPayload, &resp); err != nil {
+		return err
+	}
+	printMessages([]messageResponse{resp}, false)
+	return nil
+}
+
+func runMsgTail(ctx context.Context, args []string, base commonFlags) error {
+	fs := newFlagSet("msg tail")
+	opts := base
+	opts.bind(fs)
+	var jobID string
+	var workspaceID string
+	var sessionID string
+	var follow bool
+	var tail int
+	var help bool
+	fs.StringVar(&jobID, "job", "", "message scope job id")
+	fs.StringVar(&workspaceID, "workspace", "", "message scope workspace id")
+	fs.StringVar(&sessionID, "session", "", "message scope session id")
+	fs.BoolVar(&follow, "follow", false, "follow new messages")
+	fs.IntVar(&tail, "tail", defaultMessageTail, "show the last N messages")
+	fs.BoolVar(&help, "help", false, "show help")
+	fs.BoolVar(&help, "h", false, "show help")
+	if err := parseFlags(fs, args, printMsgTailUsage, &help, opts.jsonOutput); err != nil {
+		return err
+	}
+	scopeType, scopeID, err := resolveMessageScope(jobID, workspaceID, sessionID)
+	if err != nil {
+		if !opts.jsonOutput {
+			printMsgTailUsage()
+		}
+		return err
+	}
+	if tail <= 0 {
+		tail = defaultMessageTail
+	}
+	if tail > maxMessageLimit {
+		tail = maxMessageLimit
+	}
+
+	client, err := apiClientFromFlags(opts)
+	if err != nil {
+		return err
+	}
+	resp, err := fetchMessages(ctx, client, scopeType, scopeID, tail, 0)
+	if err != nil {
+		return err
+	}
+	lastID := printMessages(resp.Messages, opts.jsonOutput)
+	if resp.LastID > lastID {
+		lastID = resp.LastID
+	}
+	if !follow {
+		return nil
+	}
+	if lastID == 0 {
+		lastID = resp.LastID
+	}
+
+	ticker := time.NewTicker(eventPollInterval)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return nil
+		case <-ticker.C:
+			resp, err := fetchMessages(ctx, client, scopeType, scopeID, 0, lastID)
+			if err != nil {
+				return err
+			}
+			latest := printMessages(resp.Messages, opts.jsonOutput)
+			if latest > lastID {
+				lastID = latest
+			}
+			if resp.LastID > lastID {
+				lastID = resp.LastID
+			}
+		}
+	}
+}
+
 // runLogsCommand displays sandbox event logs, with optional follow mode.
 func runLogsCommand(ctx context.Context, args []string, base commonFlags) error {
 	fs := newFlagSet("logs")
@@ -1944,6 +2123,35 @@ func fetchEvents(ctx context.Context, client *apiClient, vmid int, tail int, aft
 	var resp eventsResponse
 	if err := json.Unmarshal(payload, &resp); err != nil {
 		return eventsResponse{}, err
+	}
+	return resp, nil
+}
+
+// fetchMessages retrieves messagebox entries for a scope.
+// If tail > 0, fetches the last N messages. If after > 0, fetches messages after the given ID.
+func fetchMessages(ctx context.Context, client *apiClient, scopeType, scopeID string, tail int, after int64) (messagesResponse, error) {
+	values := url.Values{}
+	values.Set("scope_type", scopeType)
+	values.Set("scope_id", scopeID)
+	limit := defaultMessageLimit
+	if limit > maxMessageLimit {
+		limit = maxMessageLimit
+	}
+	if tail > 0 {
+		values.Set("limit", strconv.Itoa(tail))
+	} else if after > 0 {
+		values.Set("after_id", fmt.Sprintf("%d", after))
+		values.Set("limit", strconv.Itoa(limit))
+	} else {
+		values.Set("limit", strconv.Itoa(limit))
+	}
+	payload, err := client.doJSON(ctx, http.MethodGet, "/v1/messages?"+values.Encode(), nil)
+	if err != nil {
+		return messagesResponse{}, err
+	}
+	var resp messagesResponse
+	if err := json.Unmarshal(payload, &resp); err != nil {
+		return messagesResponse{}, err
 	}
 	return resp, nil
 }
@@ -2180,6 +2388,37 @@ func printArtifactsList(artifacts []artifactInfo) {
 	_ = w.Flush()
 }
 
+func printMessages(messages []messageResponse, jsonOutput bool) int64 {
+	var lastID int64
+	for _, msg := range messages {
+		if msg.ID > lastID {
+			lastID = msg.ID
+		}
+		if jsonOutput {
+			data, err := json.Marshal(msg)
+			if err != nil {
+				continue
+			}
+			_, _ = os.Stdout.Write(append(data, '\n'))
+			continue
+		}
+		author := strings.TrimSpace(msg.Author)
+		if author == "" {
+			author = "-"
+		}
+		kind := strings.TrimSpace(msg.Kind)
+		if kind == "" {
+			kind = "-"
+		}
+		text := strings.TrimSpace(msg.Text)
+		if text == "" {
+			text = "-"
+		}
+		fmt.Printf("%s\t%d\t%s\t%s\t%s\n", orDash(msg.Timestamp), msg.ID, author, kind, text)
+	}
+	return lastID
+}
+
 func printEvents(events []eventResponse, jsonOutput bool) int64 {
 	var lastID int64
 	for _, ev := range events {
@@ -2205,6 +2444,39 @@ func printEvents(events []eventResponse, jsonOutput bool) int64 {
 		fmt.Printf("%s\t%s\tjob=%s\t%s\n", ev.Timestamp, ev.Kind, job, msg)
 	}
 	return lastID
+}
+
+func resolveMessageScope(jobID, workspaceID, sessionID string) (string, string, error) {
+	jobID = strings.TrimSpace(jobID)
+	workspaceID = strings.TrimSpace(workspaceID)
+	sessionID = strings.TrimSpace(sessionID)
+
+	var scopeType string
+	var scopeID string
+	setScope := func(candidateType, candidateID string) error {
+		if candidateID == "" {
+			return nil
+		}
+		if scopeType != "" {
+			return fmt.Errorf("only one of --job, --workspace, or --session may be set")
+		}
+		scopeType = candidateType
+		scopeID = candidateID
+		return nil
+	}
+	if err := setScope("job", jobID); err != nil {
+		return "", "", err
+	}
+	if err := setScope("workspace", workspaceID); err != nil {
+		return "", "", err
+	}
+	if err := setScope("session", sessionID); err != nil {
+		return "", "", err
+	}
+	if scopeType == "" {
+		return "", "", fmt.Errorf("scope is required (use --job, --workspace, or --session)")
+	}
+	return scopeType, scopeID, nil
 }
 
 func printCountTable(label string, counts map[string]int, order []string) {

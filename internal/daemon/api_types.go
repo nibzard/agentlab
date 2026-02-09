@@ -304,6 +304,31 @@ type V1EventsResponse struct {
 	LastID int64     `json:"last_id,omitempty"`
 }
 
+type V1MessageCreateRequest struct {
+	ScopeType string          `json:"scope_type"`
+	ScopeID   string          `json:"scope_id"`
+	Author    string          `json:"author,omitempty"`
+	Kind      string          `json:"kind,omitempty"`
+	Text      string          `json:"text,omitempty"`
+	Payload   json.RawMessage `json:"json,omitempty"`
+}
+
+type V1Message struct {
+	ID        int64           `json:"id"`
+	Timestamp string          `json:"ts"`
+	ScopeType string          `json:"scope_type"`
+	ScopeID   string          `json:"scope_id"`
+	Author    string          `json:"author,omitempty"`
+	Kind      string          `json:"kind,omitempty"`
+	Text      string          `json:"text,omitempty"`
+	Payload   json.RawMessage `json:"json,omitempty"`
+}
+
+type V1MessagesResponse struct {
+	Messages []V1Message `json:"messages"`
+	LastID   int64       `json:"last_id,omitempty"`
+}
+
 type V1ArtifactMetadata struct {
 	Name      string `json:"name"`
 	Path      string `json:"path,omitempty"`

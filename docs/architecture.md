@@ -395,6 +395,8 @@ The database schema shows all tables and their relationships.
 erDiagram
     sandboxes ||--o{ jobs : "executes in"
     sandboxes ||--o{ events : "logs"
+    jobs ||--o{ messages : "scope (job)"
+    workspaces ||--o{ messages : "scope (workspace)"
     sandboxes }o--|| workspaces : "uses"
     jobs ||--o{ events : "logs"
     jobs ||--o{ artifacts : "produces"
@@ -454,6 +456,17 @@ erDiagram
         json json "Structured data"
     }
 
+    messages {
+        int id PK "Message ID"
+        datetime ts "Timestamp"
+        string scope_type "job|workspace|session"
+        string scope_id "Scope identifier"
+        string author "Author label"
+        string kind "Message kind"
+        string text "Message text"
+        json json "Structured data"
+    }
+
     artifacts {
         int id PK "Artifact ID"
         string job_id FK "Owner job"
@@ -505,11 +518,26 @@ erDiagram
 | **jobs** | `idx_jobs_status`, `idx_jobs_sandbox` | Filter by status/VM |
 | **workspaces** | `idx_workspaces_attached` | Find attached workspaces |
 | **events** | `idx_events_sandbox`, `idx_events_job` | Query by entity |
+| **messages** | `idx_messages_scope`, `idx_messages_ts` | Query by scope/retention |
 | **bootstrap_tokens** | `idx_bootstrap_tokens_vmid` | Token lookup by VM |
 | **artifact_tokens** | `idx_artifact_tokens_job`, `idx_artifact_tokens_vmid` | Token validation |
 | **artifacts** | `idx_artifacts_job`, `idx_artifacts_vmid` | Artifact lookup |
 
 ---
+
+## Messagebox
+
+Messagebox provides an append-only coordination log scoped to a job, workspace, or session.
+Scopes are polymorphic: `scope_type` and `scope_id` identify the target entity without enforcing a foreign key.
+
+Common usage patterns:
+- **Job scope**: capture agent handoffs and decisions for a single job (`scope_type=job`, `scope_id=<job_id>`).
+- **Workspace scope**: keep durable notes tied to a workspace (`scope_type=workspace`, `scope_id=<workspace_id>`).
+- **Session scope**: share ad-hoc context across multiple agents (`scope_type=session`, `scope_id=<session_id>`).
+
+Retention notes:
+- Messages are stored in SQLite and are not auto-pruned today.
+- Operators should implement retention externally (periodic cleanup/backup + vacuum) if needed.
 
 ## Request Lifecycle
 
