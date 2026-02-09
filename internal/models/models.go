@@ -187,3 +187,31 @@ type Workspace struct {
 	CreatedAt    time.Time
 	LastUpdated  time.Time
 }
+
+// Session represents a persisted workspace-backed session.
+//
+// Sessions bind a workspace to a current sandbox and profile defaults, allowing
+// users to resume work by reprovisioning a fresh sandbox against the same
+// workspace.
+//
+// Fields:
+//   - ID: Unique session identifier
+//   - Name: Human-readable session name
+//   - WorkspaceID: Workspace attached to the session
+//   - CurrentVMID: Active sandbox VM ID (nil if stopped)
+//   - Profile: Profile name for resume defaults
+//   - Branch: Optional branch label for session tracking
+//   - CreatedAt: When the session was created
+//   - UpdatedAt: When the session was last updated
+//   - MetaJSON: Optional metadata (JSON-encoded)
+type Session struct {
+	ID          string
+	Name        string
+	WorkspaceID string
+	CurrentVMID *int
+	Profile     string
+	Branch      string
+	CreatedAt   time.Time
+	UpdatedAt   time.Time
+	MetaJSON    string
+}

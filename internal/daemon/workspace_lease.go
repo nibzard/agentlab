@@ -27,6 +27,14 @@ func workspaceLeaseOwnerForJob(jobID string) string {
 	return "job:" + jobID
 }
 
+func workspaceLeaseOwnerForSession(sessionID string) string {
+	sessionID = strings.TrimSpace(sessionID)
+	if sessionID == "" {
+		return ""
+	}
+	return "session:" + sessionID
+}
+
 func workspaceLeaseOwnerForSandbox(vmid int) string {
 	if vmid <= 0 {
 		return ""

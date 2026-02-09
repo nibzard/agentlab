@@ -190,6 +190,27 @@ var migrations = []migration{
 			`CREATE INDEX IF NOT EXISTS idx_messages_ts ON messages(ts)`,
 		},
 	},
+	{
+		version: 9,
+		name:    "add_sessions",
+		statements: []string{
+			`CREATE TABLE IF NOT EXISTS sessions (
+				id TEXT PRIMARY KEY,
+				name TEXT NOT NULL,
+				workspace_id TEXT NOT NULL,
+				current_vmid INTEGER,
+				profile TEXT NOT NULL,
+				branch TEXT,
+				created_at TEXT NOT NULL,
+				updated_at TEXT NOT NULL,
+				meta_json TEXT
+			)`,
+			`CREATE UNIQUE INDEX IF NOT EXISTS idx_sessions_name ON sessions(name)`,
+			`CREATE INDEX IF NOT EXISTS idx_sessions_workspace ON sessions(workspace_id)`,
+			`CREATE INDEX IF NOT EXISTS idx_sessions_current_vmid ON sessions(current_vmid)`,
+			`CREATE INDEX IF NOT EXISTS idx_sessions_branch ON sessions(branch)`,
+		},
+	},
 }
 
 // Migrate runs any pending migrations against the provided database.

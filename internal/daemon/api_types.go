@@ -264,6 +264,44 @@ type V1WorkspaceRebindResponse struct {
 	OldVMID   *int                `json:"old_vmid,omitempty"`
 }
 
+type V1SessionCreateRequest struct {
+	Name            string                    `json:"name"`
+	Profile         string                    `json:"profile"`
+	WorkspaceID     *string                   `json:"workspace_id,omitempty"`
+	WorkspaceCreate *V1WorkspaceCreateRequest `json:"workspace_create,omitempty"`
+	Branch          string                    `json:"branch,omitempty"`
+}
+
+type V1SessionResponse struct {
+	ID          string `json:"id"`
+	Name        string `json:"name"`
+	WorkspaceID string `json:"workspace_id"`
+	CurrentVMID *int   `json:"current_vmid,omitempty"`
+	Profile     string `json:"profile"`
+	Branch      string `json:"branch,omitempty"`
+	CreatedAt   string `json:"created_at"`
+	UpdatedAt   string `json:"updated_at"`
+}
+
+type V1SessionsResponse struct {
+	Sessions []V1SessionResponse `json:"sessions"`
+}
+
+type V1SessionResumeResponse struct {
+	Session   V1SessionResponse   `json:"session"`
+	Workspace V1WorkspaceResponse `json:"workspace"`
+	Sandbox   V1SandboxResponse   `json:"sandbox"`
+	OldVMID   *int                `json:"old_vmid,omitempty"`
+}
+
+type V1SessionForkRequest struct {
+	Name            string                    `json:"name"`
+	Profile         string                    `json:"profile,omitempty"`
+	WorkspaceID     *string                   `json:"workspace_id,omitempty"`
+	WorkspaceCreate *V1WorkspaceCreateRequest `json:"workspace_create,omitempty"`
+	Branch          string                    `json:"branch,omitempty"`
+}
+
 type V1ExposureCreateRequest struct {
 	Name     string `json:"name"`
 	VMID     int    `json:"vmid"`

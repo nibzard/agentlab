@@ -212,6 +212,14 @@ func wrapWorkspaceNotFound(workspace string, err error) error {
 	return wrapCLIError(err, msg, "agentlab workspace list")
 }
 
+func wrapSessionNotFound(session string, err error) error {
+	if err == nil || !isNotFoundError(err, "session") {
+		return err
+	}
+	msg := fmt.Sprintf("session %s not found", strings.TrimSpace(session))
+	return wrapCLIError(err, msg, "agentlab session list")
+}
+
 func wrapJobWorkspaceCompatibilityError(err error) error {
 	if err == nil {
 		return nil

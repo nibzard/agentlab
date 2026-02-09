@@ -281,6 +281,49 @@ type workspaceRebindResponse struct {
 	OldVMID   *int              `json:"old_vmid,omitempty"`
 }
 
+// sessionCreateRequest contains parameters for creating a session.
+type sessionCreateRequest struct {
+	Name            string                  `json:"name"`
+	Profile         string                  `json:"profile"`
+	WorkspaceID     *string                 `json:"workspace_id,omitempty"`
+	WorkspaceCreate *workspaceCreateRequest `json:"workspace_create,omitempty"`
+	Branch          string                  `json:"branch,omitempty"`
+}
+
+// sessionResponse represents a session returned from the API.
+type sessionResponse struct {
+	ID          string `json:"id"`
+	Name        string `json:"name"`
+	WorkspaceID string `json:"workspace_id"`
+	CurrentVMID *int   `json:"current_vmid,omitempty"`
+	Profile     string `json:"profile"`
+	Branch      string `json:"branch,omitempty"`
+	CreatedAt   string `json:"created_at"`
+	UpdatedAt   string `json:"updated_at"`
+}
+
+// sessionsResponse contains a list of sessions.
+type sessionsResponse struct {
+	Sessions []sessionResponse `json:"sessions"`
+}
+
+// sessionResumeResponse contains the result of a session resume operation.
+type sessionResumeResponse struct {
+	Session   sessionResponse   `json:"session"`
+	Workspace workspaceResponse `json:"workspace"`
+	Sandbox   sandboxResponse   `json:"sandbox"`
+	OldVMID   *int              `json:"old_vmid,omitempty"`
+}
+
+// sessionForkRequest contains parameters for forking a session.
+type sessionForkRequest struct {
+	Name            string                  `json:"name"`
+	Profile         string                  `json:"profile,omitempty"`
+	WorkspaceID     *string                 `json:"workspace_id,omitempty"`
+	WorkspaceCreate *workspaceCreateRequest `json:"workspace_create,omitempty"`
+	Branch          string                  `json:"branch,omitempty"`
+}
+
 type workspaceCheckVolume struct {
 	VolumeID string `json:"volid"`
 	Storage  string `json:"storage,omitempty"`

@@ -856,6 +856,42 @@ func runWorkspaceCommand(ctx context.Context, args []string, base commonFlags) e
 	}
 }
 
+// runSessionCommand dispatches session subcommands.
+func runSessionCommand(ctx context.Context, args []string, base commonFlags) error {
+	if len(args) == 0 {
+		if !base.jsonOutput {
+			printSessionUsage()
+			return nil
+		}
+		return newUsageError(fmt.Errorf("session command is required"), false)
+	}
+	if isHelpToken(args[0]) {
+		printSessionUsage()
+		return errHelp
+	}
+	switch args[0] {
+	case "create":
+		return runSessionCreate(ctx, args[1:], base)
+	case "list":
+		return runSessionList(ctx, args[1:], base)
+	case "show":
+		return runSessionShow(ctx, args[1:], base)
+	case "resume":
+		return runSessionResume(ctx, args[1:], base)
+	case "stop":
+		return runSessionStop(ctx, args[1:], base)
+	case "fork":
+		return runSessionFork(ctx, args[1:], base)
+	case "branch":
+		return runSessionBranch(ctx, args[1:], base)
+	default:
+		if !base.jsonOutput {
+			printSessionUsage()
+		}
+		return unknownSubcommandError("session", args[0], []string{"create", "list", "show", "resume", "stop", "fork", "branch"})
+	}
+}
+
 // runProfileCommand dispatches profile subcommands.
 func runProfileCommand(ctx context.Context, args []string, base commonFlags) error {
 	if len(args) == 0 {
@@ -1878,6 +1914,414 @@ func runWorkspaceRebind(ctx context.Context, args []string, base commonFlags) er
 	return nil
 }
 
+func runSessionCreate(ctx context.Context, args []string, base commonFlags) error {
+	fs := newFlagSet("session create")
+	opts := base
+	opts.bind(fs)
+	var name string
+	var profile string
+	var branch string
+	var workspace string
+	var workspaceCreate string
+	var workspaceSize string
+	var workspaceStorage string
+	var help bool
+	fs.StringVar(&name, "name", "", "session name")
+	fs.StringVar(&profile, "profile", "", "profile name")
+	fs.StringVar(&branch, "branch", "", "branch label")
+	fs.StringVar(&workspace, "workspace", "", "workspace id or name (or new:<name>)")
+	fs.StringVar(&workspaceCreate, "workspace-create", "", "create workspace with name")
+	fs.StringVar(&workspaceSize, "workspace-size", "", "workspace size for creation (e.g. 80G)")
+	fs.StringVar(&workspaceStorage, "workspace-storage", "", "workspace storage (default local-zfs)")
+	fs.BoolVar(&help, "help", false, "show help")
+	fs.BoolVar(&help, "h", false, "show help")
+	if err := parseFlags(fs, args, printSessionCreateUsage, &help, opts.jsonOutput); err != nil {
+		return err
+	}
+	name = strings.TrimSpace(name)
+	profile = strings.TrimSpace(profile)
+	branch = strings.TrimSpace(branch)
+	if name == "" {
+		if !opts.jsonOutput {
+			printSessionCreateUsage()
+		}
+		return fmt.Errorf("name is required")
+	}
+	if profile == "" {
+		if !opts.jsonOutput {
+			printSessionCreateUsage()
+		}
+		return fmt.Errorf("profile is required")
+	}
+	workspaceID, workspaceCreateReq, err := parseWorkspaceSelection(workspace, workspaceCreate, workspaceSize, workspaceStorage)
+	if err != nil {
+		if !opts.jsonOutput {
+			printSessionCreateUsage()
+		}
+		return err
+	}
+	if workspaceID == nil && workspaceCreateReq == nil {
+		if !opts.jsonOutput {
+			printSessionCreateUsage()
+		}
+		return fmt.Errorf("workspace is required")
+	}
+
+	client, err := apiClientFromFlags(opts)
+	if err != nil {
+		return err
+	}
+	req := sessionCreateRequest{
+		Name:            name,
+		Profile:         profile,
+		WorkspaceID:     workspaceID,
+		WorkspaceCreate: workspaceCreateReq,
+		Branch:          branch,
+	}
+	payload, err := client.doJSON(ctx, http.MethodPost, "/v1/sessions", req)
+	if err != nil {
+		err = wrapUnknownProfileError(ctx, client, profile, err)
+		return wrapWorkspaceNotFound(workspaceTargetName(workspaceID, workspaceCreateReq), err)
+	}
+	if opts.jsonOutput {
+		return prettyPrintJSON(os.Stdout, payload)
+	}
+	var resp sessionResponse
+	if err := json.Unmarshal(payload, &resp); err != nil {
+		return err
+	}
+	printSession(resp)
+	return nil
+}
+
+func runSessionList(ctx context.Context, args []string, base commonFlags) error {
+	fs := newFlagSet("session list")
+	opts := base
+	opts.bind(fs)
+	var help bool
+	fs.BoolVar(&help, "help", false, "show help")
+	fs.BoolVar(&help, "h", false, "show help")
+	if err := parseFlags(fs, args, printSessionListUsage, &help, opts.jsonOutput); err != nil {
+		return err
+	}
+	client, err := apiClientFromFlags(opts)
+	if err != nil {
+		return err
+	}
+	payload, err := client.doJSON(ctx, http.MethodGet, "/v1/sessions", nil)
+	if err != nil {
+		return err
+	}
+	if opts.jsonOutput {
+		return prettyPrintJSON(os.Stdout, payload)
+	}
+	var resp sessionsResponse
+	if err := json.Unmarshal(payload, &resp); err != nil {
+		return err
+	}
+	printSessionList(resp.Sessions)
+	return nil
+}
+
+func runSessionShow(ctx context.Context, args []string, base commonFlags) error {
+	fs := newFlagSet("session show")
+	opts := base
+	opts.bind(fs)
+	var help bool
+	fs.BoolVar(&help, "help", false, "show help")
+	fs.BoolVar(&help, "h", false, "show help")
+	if err := parseFlags(fs, args, printSessionShowUsage, &help, opts.jsonOutput); err != nil {
+		return err
+	}
+	if fs.NArg() < 1 {
+		if !opts.jsonOutput {
+			printSessionShowUsage()
+		}
+		return fmt.Errorf("session is required")
+	}
+	sessionID := strings.TrimSpace(fs.Arg(0))
+	if sessionID == "" {
+		return fmt.Errorf("session is required")
+	}
+	client, err := apiClientFromFlags(opts)
+	if err != nil {
+		return err
+	}
+	payload, err := client.doJSON(ctx, http.MethodGet, "/v1/sessions/"+url.PathEscape(sessionID), nil)
+	if err != nil {
+		return wrapSessionNotFound(sessionID, err)
+	}
+	if opts.jsonOutput {
+		return prettyPrintJSON(os.Stdout, payload)
+	}
+	var resp sessionResponse
+	if err := json.Unmarshal(payload, &resp); err != nil {
+		return err
+	}
+	printSession(resp)
+	return nil
+}
+
+func runSessionResume(ctx context.Context, args []string, base commonFlags) error {
+	fs := newFlagSet("session resume")
+	opts := base
+	opts.bind(fs)
+	var help bool
+	fs.BoolVar(&help, "help", false, "show help")
+	fs.BoolVar(&help, "h", false, "show help")
+	if err := parseFlags(fs, args, printSessionResumeUsage, &help, opts.jsonOutput); err != nil {
+		return err
+	}
+	if fs.NArg() < 1 {
+		if !opts.jsonOutput {
+			printSessionResumeUsage()
+		}
+		return fmt.Errorf("session is required")
+	}
+	sessionID := strings.TrimSpace(fs.Arg(0))
+	if sessionID == "" {
+		return fmt.Errorf("session is required")
+	}
+	client, err := apiClientFromFlags(opts)
+	if err != nil {
+		return err
+	}
+	payload, err := client.doJSON(ctx, http.MethodPost, "/v1/sessions/"+url.PathEscape(sessionID)+"/resume", nil)
+	if err != nil {
+		return wrapSessionNotFound(sessionID, err)
+	}
+	if opts.jsonOutput {
+		return prettyPrintJSON(os.Stdout, payload)
+	}
+	var resp sessionResumeResponse
+	if err := json.Unmarshal(payload, &resp); err != nil {
+		return err
+	}
+	printSessionResume(resp)
+	return nil
+}
+
+func runSessionStop(ctx context.Context, args []string, base commonFlags) error {
+	fs := newFlagSet("session stop")
+	opts := base
+	opts.bind(fs)
+	var help bool
+	fs.BoolVar(&help, "help", false, "show help")
+	fs.BoolVar(&help, "h", false, "show help")
+	if err := parseFlags(fs, args, printSessionStopUsage, &help, opts.jsonOutput); err != nil {
+		return err
+	}
+	if fs.NArg() < 1 {
+		if !opts.jsonOutput {
+			printSessionStopUsage()
+		}
+		return fmt.Errorf("session is required")
+	}
+	sessionID := strings.TrimSpace(fs.Arg(0))
+	if sessionID == "" {
+		return fmt.Errorf("session is required")
+	}
+	client, err := apiClientFromFlags(opts)
+	if err != nil {
+		return err
+	}
+	payload, err := client.doJSON(ctx, http.MethodPost, "/v1/sessions/"+url.PathEscape(sessionID)+"/stop", nil)
+	if err != nil {
+		return wrapSessionNotFound(sessionID, err)
+	}
+	if opts.jsonOutput {
+		return prettyPrintJSON(os.Stdout, payload)
+	}
+	var resp sessionResponse
+	if err := json.Unmarshal(payload, &resp); err != nil {
+		return err
+	}
+	printSession(resp)
+	return nil
+}
+
+func runSessionFork(ctx context.Context, args []string, base commonFlags) error {
+	fs := newFlagSet("session fork")
+	opts := base
+	opts.bind(fs)
+	var name string
+	var profile string
+	var branch string
+	var workspace string
+	var workspaceCreate string
+	var workspaceSize string
+	var workspaceStorage string
+	var help bool
+	fs.StringVar(&name, "name", "", "new session name")
+	fs.StringVar(&profile, "profile", "", "profile name (defaults to source session)")
+	fs.StringVar(&branch, "branch", "", "branch label")
+	fs.StringVar(&workspace, "workspace", "", "workspace id or name (or new:<name>)")
+	fs.StringVar(&workspaceCreate, "workspace-create", "", "create workspace with name")
+	fs.StringVar(&workspaceSize, "workspace-size", "", "workspace size for creation (e.g. 80G)")
+	fs.StringVar(&workspaceStorage, "workspace-storage", "", "workspace storage (default local-zfs)")
+	fs.BoolVar(&help, "help", false, "show help")
+	fs.BoolVar(&help, "h", false, "show help")
+	if err := parseFlags(fs, args, printSessionForkUsage, &help, opts.jsonOutput); err != nil {
+		return err
+	}
+	if fs.NArg() < 1 {
+		if !opts.jsonOutput {
+			printSessionForkUsage()
+		}
+		return fmt.Errorf("session is required")
+	}
+	sourceID := strings.TrimSpace(fs.Arg(0))
+	if sourceID == "" {
+		return fmt.Errorf("session is required")
+	}
+	name = strings.TrimSpace(name)
+	profile = strings.TrimSpace(profile)
+	branch = strings.TrimSpace(branch)
+	if name == "" {
+		if !opts.jsonOutput {
+			printSessionForkUsage()
+		}
+		return fmt.Errorf("name is required")
+	}
+	workspaceID, workspaceCreateReq, err := parseWorkspaceSelection(workspace, workspaceCreate, workspaceSize, workspaceStorage)
+	if err != nil {
+		if !opts.jsonOutput {
+			printSessionForkUsage()
+		}
+		return err
+	}
+	if workspaceID == nil && workspaceCreateReq == nil {
+		if !opts.jsonOutput {
+			printSessionForkUsage()
+		}
+		return fmt.Errorf("workspace is required")
+	}
+
+	client, err := apiClientFromFlags(opts)
+	if err != nil {
+		return err
+	}
+	req := sessionForkRequest{
+		Name:            name,
+		Profile:         profile,
+		WorkspaceID:     workspaceID,
+		WorkspaceCreate: workspaceCreateReq,
+		Branch:          branch,
+	}
+	payload, err := client.doJSON(ctx, http.MethodPost, "/v1/sessions/"+url.PathEscape(sourceID)+"/fork", req)
+	if err != nil {
+		err = wrapUnknownProfileError(ctx, client, profile, err)
+		return wrapSessionNotFound(sourceID, wrapWorkspaceNotFound(workspaceTargetName(workspaceID, workspaceCreateReq), err))
+	}
+	if opts.jsonOutput {
+		return prettyPrintJSON(os.Stdout, payload)
+	}
+	var resp sessionResponse
+	if err := json.Unmarshal(payload, &resp); err != nil {
+		return err
+	}
+	printSession(resp)
+	return nil
+}
+
+func runSessionBranch(ctx context.Context, args []string, base commonFlags) error {
+	fs := newFlagSet("session branch")
+	opts := base
+	opts.bind(fs)
+	var profile string
+	var workspace string
+	var workspaceCreate string
+	var workspaceSize string
+	var workspaceStorage string
+	var help bool
+	fs.StringVar(&profile, "profile", "", "profile name")
+	fs.StringVar(&workspace, "workspace", "", "workspace id or name (or new:<name>)")
+	fs.StringVar(&workspaceCreate, "workspace-create", "", "create workspace with name")
+	fs.StringVar(&workspaceSize, "workspace-size", "", "workspace size for creation (e.g. 80G)")
+	fs.StringVar(&workspaceStorage, "workspace-storage", "", "workspace storage (default local-zfs)")
+	fs.BoolVar(&help, "help", false, "show help")
+	fs.BoolVar(&help, "h", false, "show help")
+	if err := parseFlags(fs, args, printSessionBranchUsage, &help, opts.jsonOutput); err != nil {
+		return err
+	}
+	if fs.NArg() < 1 {
+		if !opts.jsonOutput {
+			printSessionBranchUsage()
+		}
+		return fmt.Errorf("branch is required")
+	}
+	branch := strings.TrimSpace(fs.Arg(0))
+	if branch == "" {
+		return fmt.Errorf("branch is required")
+	}
+	sessionName, err := sessionNameFromBranch(branch)
+	if err != nil {
+		return err
+	}
+
+	client, err := apiClientFromFlags(opts)
+	if err != nil {
+		return err
+	}
+	payload, err := client.doJSON(ctx, http.MethodGet, "/v1/sessions/"+url.PathEscape(sessionName), nil)
+	if err == nil {
+		if opts.jsonOutput {
+			return prettyPrintJSON(os.Stdout, payload)
+		}
+		var resp sessionResponse
+		if err := json.Unmarshal(payload, &resp); err != nil {
+			return err
+		}
+		printSession(resp)
+		return nil
+	}
+	if !isNotFoundError(err, "session") {
+		return err
+	}
+
+	profile = strings.TrimSpace(profile)
+	if profile == "" {
+		if !opts.jsonOutput {
+			printSessionBranchUsage()
+		}
+		return fmt.Errorf("profile is required when creating a session")
+	}
+	workspaceID, workspaceCreateReq, err := parseWorkspaceSelection(workspace, workspaceCreate, workspaceSize, workspaceStorage)
+	if err != nil {
+		if !opts.jsonOutput {
+			printSessionBranchUsage()
+		}
+		return err
+	}
+	if workspaceID == nil && workspaceCreateReq == nil {
+		if !opts.jsonOutput {
+			printSessionBranchUsage()
+		}
+		return fmt.Errorf("workspace is required")
+	}
+	req := sessionCreateRequest{
+		Name:            sessionName,
+		Profile:         profile,
+		WorkspaceID:     workspaceID,
+		WorkspaceCreate: workspaceCreateReq,
+		Branch:          branch,
+	}
+	payload, err = client.doJSON(ctx, http.MethodPost, "/v1/sessions", req)
+	if err != nil {
+		err = wrapUnknownProfileError(ctx, client, profile, err)
+		return wrapWorkspaceNotFound(workspaceTargetName(workspaceID, workspaceCreateReq), err)
+	}
+	if opts.jsonOutput {
+		return prettyPrintJSON(os.Stdout, payload)
+	}
+	var resp sessionResponse
+	if err := json.Unmarshal(payload, &resp); err != nil {
+		return err
+	}
+	printSession(resp)
+	return nil
+}
+
 func runMsgPost(ctx context.Context, args []string, base commonFlags) error {
 	fs := newFlagSet("msg post")
 	opts := base
@@ -2290,6 +2734,44 @@ func printWorkspaceList(workspaces []workspaceResponse) {
 	_ = w.Flush()
 }
 
+func printSession(session sessionResponse) {
+	fmt.Printf("ID: %s\n", session.ID)
+	fmt.Printf("Name: %s\n", session.Name)
+	fmt.Printf("Workspace: %s\n", session.WorkspaceID)
+	fmt.Printf("Current VMID: %s\n", vmidString(session.CurrentVMID))
+	fmt.Printf("Profile: %s\n", session.Profile)
+	fmt.Printf("Branch: %s\n", orDash(session.Branch))
+	fmt.Printf("Created At: %s\n", orDash(session.CreatedAt))
+	fmt.Printf("Updated At: %s\n", orDash(session.UpdatedAt))
+}
+
+func printSessionList(sessions []sessionResponse) {
+	w := tabwriter.NewWriter(os.Stdout, 2, 8, 2, ' ', 0)
+	fmt.Fprintln(w, "ID\tNAME\tWORKSPACE\tVMID\tPROFILE\tBRANCH\tUPDATED")
+	for _, session := range sessions {
+		fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\t%s\t%s\n",
+			orDash(session.ID),
+			orDash(session.Name),
+			orDash(session.WorkspaceID),
+			vmidString(session.CurrentVMID),
+			orDash(session.Profile),
+			orDash(session.Branch),
+			orDash(session.UpdatedAt),
+		)
+	}
+	_ = w.Flush()
+}
+
+func printSessionResume(resp sessionResumeResponse) {
+	fmt.Printf("Session: %s\n", resp.Session.Name)
+	fmt.Printf("Workspace: %s\n", resp.Workspace.Name)
+	fmt.Printf("New VMID: %d\n", resp.Sandbox.VMID)
+	fmt.Printf("New IP: %s\n", orDash(resp.Sandbox.IP))
+	if resp.OldVMID != nil {
+		fmt.Printf("Old VMID: %d (destroyed)\n", *resp.OldVMID)
+	}
+}
+
 func printWorkspaceCheck(resp workspaceCheckResponse) {
 	ws := resp.Workspace
 	fmt.Printf("Workspace: %s\n", ws.Name)
@@ -2696,6 +3178,51 @@ func parseWorkspaceWaitSeconds(value string) (*int, error) {
 	return &seconds, nil
 }
 
+func parseWorkspaceSelection(workspace, workspaceCreate, workspaceSize, workspaceStorage string) (*string, *workspaceCreateRequest, error) {
+	workspace = strings.TrimSpace(workspace)
+	workspaceCreate = strings.TrimSpace(workspaceCreate)
+	workspaceSize = strings.TrimSpace(workspaceSize)
+	workspaceStorage = strings.TrimSpace(workspaceStorage)
+	if workspace != "" && workspaceCreate != "" {
+		return nil, nil, fmt.Errorf("--workspace and --workspace-create are mutually exclusive")
+	}
+	if strings.HasPrefix(workspace, "new:") {
+		name := strings.TrimSpace(strings.TrimPrefix(workspace, "new:"))
+		if name == "" {
+			return nil, nil, fmt.Errorf("workspace name is required after new:")
+		}
+		if workspaceCreate != "" {
+			return nil, nil, fmt.Errorf("--workspace new:<name> cannot be combined with --workspace-create")
+		}
+		workspaceCreate = name
+		workspace = ""
+	}
+	var workspaceID *string
+	if workspace != "" {
+		value := workspace
+		workspaceID = &value
+	}
+	var workspaceCreateReq *workspaceCreateRequest
+	if workspaceCreate != "" {
+		if workspaceSize == "" {
+			return nil, nil, fmt.Errorf("--workspace-size is required when creating a workspace")
+		}
+		sizeGB, err := parseSizeGB(workspaceSize)
+		if err != nil {
+			return nil, nil, err
+		}
+		storage := workspaceStorage
+		workspaceCreateReq = &workspaceCreateRequest{
+			Name:    workspaceCreate,
+			SizeGB:  sizeGB,
+			Storage: storage,
+		}
+	} else if workspaceSize != "" || workspaceStorage != "" {
+		return nil, nil, fmt.Errorf("--workspace-size/--workspace-storage require workspace creation (use --workspace new:<name> or --workspace-create)")
+	}
+	return workspaceID, workspaceCreateReq, nil
+}
+
 func defaultStatefulWorkspaceName(repo string) (string, error) {
 	repo = strings.TrimSpace(repo)
 	if repo == "" {
@@ -2739,6 +3266,18 @@ func slugifyWorkspaceName(value string) string {
 		}
 	}
 	return strings.Trim(b.String(), "-")
+}
+
+func sessionNameFromBranch(branch string) (string, error) {
+	branch = strings.TrimSpace(branch)
+	if branch == "" {
+		return "", fmt.Errorf("branch is required")
+	}
+	slug := slugifyWorkspaceName(branch)
+	if slug == "" {
+		return "", fmt.Errorf("invalid branch %q", branch)
+	}
+	return "branch-" + slug, nil
 }
 
 func workspaceTargetName(workspaceID *string, create *workspaceCreateRequest) string {
