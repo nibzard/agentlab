@@ -72,13 +72,16 @@ type V1BootstrapFetchResponse struct {
 }
 
 type V1JobCreateRequest struct {
-	RepoURL    string `json:"repo_url"`
-	Ref        string `json:"ref"`
-	Profile    string `json:"profile"`
-	Task       string `json:"task"`
-	Mode       string `json:"mode"`
-	TTLMinutes *int   `json:"ttl_minutes,omitempty"`
-	Keepalive  *bool  `json:"keepalive,omitempty"`
+	RepoURL              string                    `json:"repo_url"`
+	Ref                  string                    `json:"ref"`
+	Profile              string                    `json:"profile"`
+	Task                 string                    `json:"task"`
+	Mode                 string                    `json:"mode"`
+	TTLMinutes           *int                      `json:"ttl_minutes,omitempty"`
+	Keepalive            *bool                     `json:"keepalive,omitempty"`
+	WorkspaceID          *string                   `json:"workspace_id,omitempty"`
+	WorkspaceCreate      *V1WorkspaceCreateRequest `json:"workspace_create,omitempty"`
+	WorkspaceWaitSeconds *int                      `json:"workspace_wait_seconds,omitempty"`
 }
 
 type V1JobResponse struct {
@@ -90,6 +93,7 @@ type V1JobResponse struct {
 	Mode        string          `json:"mode,omitempty"`
 	TTLMinutes  *int            `json:"ttl_minutes,omitempty"`
 	Keepalive   bool            `json:"keepalive"`
+	WorkspaceID *string         `json:"workspace_id,omitempty"`
 	Status      string          `json:"status"`
 	SandboxVMID *int            `json:"sandbox_vmid,omitempty"`
 	Result      json.RawMessage `json:"result,omitempty"`

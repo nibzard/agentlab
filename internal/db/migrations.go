@@ -154,6 +154,14 @@ var migrations = []migration{
 			`CREATE INDEX IF NOT EXISTS idx_exposures_vmid ON exposures(vmid)`,
 		},
 	},
+	{
+		version: 6,
+		name:    "add_jobs_workspace",
+		statements: []string{
+			`ALTER TABLE jobs ADD COLUMN workspace_id TEXT`,
+			`CREATE INDEX IF NOT EXISTS idx_jobs_workspace ON jobs(workspace_id)`,
+		},
+	},
 }
 
 // Migrate runs any pending migrations against the provided database.

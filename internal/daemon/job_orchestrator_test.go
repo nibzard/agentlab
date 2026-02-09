@@ -188,6 +188,68 @@ func TestJobOrchestratorRun(t *testing.T) {
 	}
 }
 
+func TestJobOrchestratorRunWithWorkspace(t *testing.T) {
+	ctx := context.Background()
+	store := newTestStore(t)
+	backend := &orchestratorBackend{guestIP: "10.77.0.88"}
+	manager := NewSandboxManager(store, backend, log.New(io.Discard, "", 0))
+	workspaceMgr := NewWorkspaceManager(store, backend, log.New(io.Discard, "", 0))
+	profiles := map[string]models.Profile{
+		"yolo": {Name: "yolo", TemplateVM: 9000},
+	}
+	snippetDir := t.TempDir()
+	snippetStore := proxmox.SnippetStore{Storage: "local", Dir: snippetDir}
+	orchestrator := NewJobOrchestrator(store, profiles, backend, manager, workspaceMgr, snippetStore, "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIBtestkey agent@test", "http://10.77.0.1:8844", log.New(io.Discard, "", 0), nil, nil)
+	orchestrator.rand = bytes.NewReader(bytes.Repeat([]byte{0x02}, 64))
+	now := time.Date(2026, 1, 29, 12, 30, 0, 0, time.UTC)
+	orchestrator.now = func() time.Time { return now }
+
+	workspace, err := workspaceMgr.Create(ctx, "dev", "local-zfs", 10)
+	if err != nil {
+		t.Fatalf("create workspace: %v", err)
+	}
+
+	job := models.Job{
+		ID:          "job_workspace",
+		RepoURL:     "https://example.com/repo.git",
+		Ref:         "main",
+		Profile:     "yolo",
+		Task:        "run tests",
+		Status:      models.JobQueued,
+		WorkspaceID: &workspace.ID,
+		CreatedAt:   now,
+		UpdatedAt:   now,
+	}
+	if err := store.CreateJob(ctx, job); err != nil {
+		t.Fatalf("create job: %v", err)
+	}
+	if err := orchestrator.Run(ctx, job.ID); err != nil {
+		t.Fatalf("run job: %v", err)
+	}
+
+	updatedJob, err := store.GetJob(ctx, job.ID)
+	if err != nil {
+		t.Fatalf("get job: %v", err)
+	}
+	if updatedJob.SandboxVMID == nil || *updatedJob.SandboxVMID == 0 {
+		t.Fatalf("expected sandbox vmid set")
+	}
+	sandbox, err := store.GetSandbox(ctx, *updatedJob.SandboxVMID)
+	if err != nil {
+		t.Fatalf("get sandbox: %v", err)
+	}
+	if sandbox.WorkspaceID == nil || *sandbox.WorkspaceID != workspace.ID {
+		t.Fatalf("expected sandbox workspace_id %s, got %v", workspace.ID, sandbox.WorkspaceID)
+	}
+	updatedWorkspace, err := store.GetWorkspace(ctx, workspace.ID)
+	if err != nil {
+		t.Fatalf("get workspace: %v", err)
+	}
+	if updatedWorkspace.AttachedVM == nil || *updatedWorkspace.AttachedVM != sandbox.VMID {
+		t.Fatalf("expected workspace attached to vmid %d, got %v", sandbox.VMID, updatedWorkspace.AttachedVM)
+	}
+}
+
 func TestJobOrchestratorProvisionSandbox(t *testing.T) {
 	ctx := context.Background()
 	store := newTestStore(t)

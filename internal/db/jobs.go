@@ -6,6 +6,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/agentlab/agentlab/internal/models"
@@ -48,13 +49,17 @@ func (s *Store) CreateJob(ctx context.Context, job models.Job) error {
 	if job.TTLMinutes > 0 {
 		ttl = job.TTLMinutes
 	}
+	var workspace interface{}
+	if job.WorkspaceID != nil && strings.TrimSpace(*job.WorkspaceID) != "" {
+		workspace = strings.TrimSpace(*job.WorkspaceID)
+	}
 	var result interface{}
 	if job.ResultJSON != "" {
 		result = job.ResultJSON
 	}
 	_, err := s.DB.ExecContext(ctx, `INSERT INTO jobs (
-		id, repo_url, ref, profile, status, sandbox_vmid, task, mode, ttl_minutes, keepalive, created_at, updated_at, result_json
-	) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		id, repo_url, ref, profile, status, sandbox_vmid, task, mode, ttl_minutes, keepalive, workspace_id, created_at, updated_at, result_json
+	) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		job.ID,
 		job.RepoURL,
 		job.Ref,
@@ -65,6 +70,7 @@ func (s *Store) CreateJob(ctx context.Context, job models.Job) error {
 		nullIfEmpty(job.Mode),
 		ttl,
 		job.Keepalive,
+		workspace,
 		formatTime(createdAt),
 		formatTime(updatedAt),
 		result,
@@ -80,7 +86,7 @@ func (s *Store) GetJob(ctx context.Context, id string) (models.Job, error) {
 	if s == nil || s.DB == nil {
 		return models.Job{}, errors.New("db store is nil")
 	}
-	row := s.DB.QueryRowContext(ctx, `SELECT id, repo_url, ref, profile, task, mode, ttl_minutes, keepalive, status, sandbox_vmid, created_at, updated_at, result_json
+	row := s.DB.QueryRowContext(ctx, `SELECT id, repo_url, ref, profile, task, mode, ttl_minutes, keepalive, status, sandbox_vmid, workspace_id, created_at, updated_at, result_json
 		FROM jobs WHERE id = ?`, id)
 	return scanJobRow(row)
 }
@@ -93,7 +99,7 @@ func (s *Store) GetJobBySandboxVMID(ctx context.Context, vmid int) (models.Job, 
 	if vmid <= 0 {
 		return models.Job{}, errors.New("vmid must be positive")
 	}
-	row := s.DB.QueryRowContext(ctx, `SELECT id, repo_url, ref, profile, task, mode, ttl_minutes, keepalive, status, sandbox_vmid, created_at, updated_at, result_json
+	row := s.DB.QueryRowContext(ctx, `SELECT id, repo_url, ref, profile, task, mode, ttl_minutes, keepalive, status, sandbox_vmid, workspace_id, created_at, updated_at, result_json
 		FROM jobs WHERE sandbox_vmid = ?
 		ORDER BY created_at DESC LIMIT 1`, vmid)
 	return scanJobRow(row)
@@ -214,6 +220,7 @@ func scanJobRow(scanner interface{ Scan(dest ...any) error }) (models.Job, error
 	var keepalive sql.NullBool
 	var status string
 	var sandbox sql.NullInt64
+	var workspace sql.NullString
 	var createdAt string
 	var updatedAt string
 	var result sql.NullString
@@ -228,6 +235,7 @@ func scanJobRow(scanner interface{ Scan(dest ...any) error }) (models.Job, error
 		&keepalive,
 		&status,
 		&sandbox,
+		&workspace,
 		&createdAt,
 		&updatedAt,
 		&result,
@@ -253,6 +261,10 @@ func scanJobRow(scanner interface{ Scan(dest ...any) error }) (models.Job, error
 	if sandbox.Valid {
 		value := int(sandbox.Int64)
 		job.SandboxVMID = &value
+	}
+	if workspace.Valid {
+		value := workspace.String
+		job.WorkspaceID = &value
 	}
 	var err error
 	if createdAt != "" {

@@ -36,6 +36,7 @@ const (
 	maxEventsLimit            = 1000 // Maximum events allowed per query
 	defaultStatusFailureLimit = 10   // Default recent failures returned in status
 	defaultExposureState      = "requested"
+	workspaceWaitPollInterval = 250 * time.Millisecond
 )
 
 var (
@@ -58,6 +59,7 @@ var (
 		models.JobFailed,
 		models.JobTimeout,
 	}
+	errWorkspaceWaitTimeout = errors.New("workspace wait timeout")
 )
 
 // ControlAPI handles local control plane HTTP requests over the Unix socket.
@@ -238,6 +240,18 @@ func (api *ControlAPI) handleJobCreate(w http.ResponseWriter, r *http.Request) {
 	req.Profile = strings.TrimSpace(req.Profile)
 	req.Task = strings.TrimSpace(req.Task)
 	req.Mode = strings.TrimSpace(req.Mode)
+	if req.WorkspaceID != nil {
+		value := strings.TrimSpace(*req.WorkspaceID)
+		if value == "" {
+			req.WorkspaceID = nil
+		} else {
+			req.WorkspaceID = &value
+		}
+	}
+	if req.WorkspaceCreate != nil {
+		req.WorkspaceCreate.Name = strings.TrimSpace(req.WorkspaceCreate.Name)
+		req.WorkspaceCreate.Storage = strings.TrimSpace(req.WorkspaceCreate.Storage)
+	}
 
 	if req.RepoURL == "" {
 		writeError(w, http.StatusBadRequest, "repo_url is required")
@@ -259,6 +273,18 @@ func (api *ControlAPI) handleJobCreate(w http.ResponseWriter, r *http.Request) {
 	}
 	if req.TTLMinutes != nil && *req.TTLMinutes <= 0 {
 		writeError(w, http.StatusBadRequest, "ttl_minutes must be positive")
+		return
+	}
+	if req.WorkspaceID != nil && req.WorkspaceCreate != nil {
+		writeError(w, http.StatusBadRequest, "workspace_id and workspace_create are mutually exclusive")
+		return
+	}
+	if req.WorkspaceWaitSeconds != nil && *req.WorkspaceWaitSeconds < 0 {
+		writeError(w, http.StatusBadRequest, "workspace_wait_seconds must be non-negative")
+		return
+	}
+	if req.WorkspaceWaitSeconds != nil && *req.WorkspaceWaitSeconds > 0 && req.WorkspaceID == nil && req.WorkspaceCreate == nil {
+		writeError(w, http.StatusBadRequest, "workspace_wait_seconds requires workspace_id or workspace_create")
 		return
 	}
 	if !api.profileExists(req.Profile) {
@@ -289,6 +315,67 @@ func (api *ControlAPI) handleJobCreate(w http.ResponseWriter, r *http.Request) {
 	}
 
 	ctx := r.Context()
+	var workspaceID *string
+	if req.WorkspaceID != nil || req.WorkspaceCreate != nil {
+		if api.workspaceMgr == nil {
+			writeError(w, http.StatusInternalServerError, "workspace manager unavailable")
+			return
+		}
+		var workspace models.Workspace
+		if req.WorkspaceCreate != nil {
+			if req.WorkspaceCreate.Name == "" {
+				writeError(w, http.StatusBadRequest, "workspace_create.name is required")
+				return
+			}
+			if req.WorkspaceCreate.SizeGB <= 0 {
+				writeError(w, http.StatusBadRequest, "workspace_create.size_gb must be positive")
+				return
+			}
+			created, err := api.workspaceMgr.Create(ctx, req.WorkspaceCreate.Name, req.WorkspaceCreate.Storage, req.WorkspaceCreate.SizeGB)
+			if err != nil {
+				if errors.Is(err, ErrWorkspaceExists) {
+					writeError(w, http.StatusConflict, "workspace already exists")
+					return
+				}
+				writeError(w, http.StatusInternalServerError, "failed to create workspace")
+				return
+			}
+			workspace = created
+		} else if req.WorkspaceID != nil {
+			resolved, err := api.workspaceMgr.Resolve(ctx, *req.WorkspaceID)
+			if err != nil {
+				if errors.Is(err, ErrWorkspaceNotFound) {
+					writeError(w, http.StatusNotFound, "workspace not found")
+					return
+				}
+				writeError(w, http.StatusInternalServerError, "failed to load workspace")
+				return
+			}
+			workspace = resolved
+		}
+		if workspace.AttachedVM != nil && *workspace.AttachedVM > 0 {
+			waitSeconds := derefInt(req.WorkspaceWaitSeconds)
+			if waitSeconds <= 0 {
+				writeError(w, http.StatusConflict, "workspace already attached", workspaceConflictDetails(workspace, 0))
+				return
+			}
+			available, err := api.waitForWorkspaceAvailable(ctx, workspace, waitSeconds)
+			if err != nil {
+				if errors.Is(err, errWorkspaceWaitTimeout) {
+					writeError(w, http.StatusConflict, "workspace already attached", workspaceConflictDetails(available, waitSeconds))
+					return
+				}
+				if errors.Is(err, ErrWorkspaceNotFound) {
+					writeError(w, http.StatusNotFound, "workspace not found")
+					return
+				}
+				writeError(w, http.StatusInternalServerError, "failed to wait for workspace")
+				return
+			}
+			workspace = available
+		}
+		workspaceID = &workspace.ID
+	}
 	var job models.Job
 	var createErr error
 	for i := 0; i < maxCreateJobIDIterations; i++ {
@@ -299,17 +386,18 @@ func (api *ControlAPI) handleJobCreate(w http.ResponseWriter, r *http.Request) {
 		}
 		now := api.now().UTC()
 		job = models.Job{
-			ID:         jobID,
-			RepoURL:    req.RepoURL,
-			Ref:        req.Ref,
-			Profile:    req.Profile,
-			Task:       req.Task,
-			Mode:       req.Mode,
-			TTLMinutes: ttlMinutes,
-			Keepalive:  keepalive,
-			Status:     models.JobQueued,
-			CreatedAt:  now,
-			UpdatedAt:  now,
+			ID:          jobID,
+			RepoURL:     req.RepoURL,
+			Ref:         req.Ref,
+			Profile:     req.Profile,
+			Task:        req.Task,
+			Mode:        req.Mode,
+			TTLMinutes:  ttlMinutes,
+			Keepalive:   keepalive,
+			WorkspaceID: workspaceID,
+			Status:      models.JobQueued,
+			CreatedAt:   now,
+			UpdatedAt:   now,
 		}
 		createErr = api.store.CreateJob(ctx, job)
 		if createErr == nil {
@@ -1691,16 +1779,17 @@ func (api *ControlAPI) profile(name string) (models.Profile, bool) {
 
 func jobToV1(job models.Job) V1JobResponse {
 	resp := V1JobResponse{
-		ID:        job.ID,
-		RepoURL:   job.RepoURL,
-		Ref:       job.Ref,
-		Profile:   job.Profile,
-		Task:      job.Task,
-		Mode:      job.Mode,
-		Keepalive: job.Keepalive,
-		Status:    string(job.Status),
-		CreatedAt: job.CreatedAt.UTC().Format(time.RFC3339Nano),
-		UpdatedAt: job.UpdatedAt.UTC().Format(time.RFC3339Nano),
+		ID:          job.ID,
+		RepoURL:     job.RepoURL,
+		Ref:         job.Ref,
+		Profile:     job.Profile,
+		Task:        job.Task,
+		Mode:        job.Mode,
+		Keepalive:   job.Keepalive,
+		WorkspaceID: job.WorkspaceID,
+		Status:      string(job.Status),
+		CreatedAt:   job.CreatedAt.UTC().Format(time.RFC3339Nano),
+		UpdatedAt:   job.UpdatedAt.UTC().Format(time.RFC3339Nano),
 	}
 	if job.TTLMinutes > 0 {
 		value := job.TTLMinutes
@@ -1713,6 +1802,45 @@ func jobToV1(job models.Job) V1JobResponse {
 		resp.Result = json.RawMessage(job.ResultJSON)
 	}
 	return resp
+}
+
+func workspaceConflictDetails(workspace models.Workspace, waitSeconds int) error {
+	attached := 0
+	if workspace.AttachedVM != nil {
+		attached = *workspace.AttachedVM
+	}
+	if waitSeconds > 0 {
+		return fmt.Errorf("workspace_id=%s workspace_name=%s attached_vmid=%d workspace_wait_seconds=%d", workspace.ID, workspace.Name, attached, waitSeconds)
+	}
+	return fmt.Errorf("workspace_id=%s workspace_name=%s attached_vmid=%d", workspace.ID, workspace.Name, attached)
+}
+
+func (api *ControlAPI) waitForWorkspaceAvailable(ctx context.Context, workspace models.Workspace, waitSeconds int) (models.Workspace, error) {
+	if waitSeconds <= 0 {
+		return workspace, errWorkspaceWaitTimeout
+	}
+	deadline := api.now().Add(time.Duration(waitSeconds) * time.Second)
+	ticker := time.NewTicker(workspaceWaitPollInterval)
+	defer ticker.Stop()
+
+	for {
+		if workspace.AttachedVM == nil || *workspace.AttachedVM == 0 {
+			return workspace, nil
+		}
+		if api.now().After(deadline) {
+			return workspace, errWorkspaceWaitTimeout
+		}
+		select {
+		case <-ctx.Done():
+			return workspace, ctx.Err()
+		case <-ticker.C:
+			updated, err := api.workspaceMgr.Resolve(ctx, workspace.ID)
+			if err != nil {
+				return workspace, err
+			}
+			workspace = updated
+		}
+	}
 }
 
 func (api *ControlAPI) sandboxToV1(sb models.Sandbox) V1SandboxResponse {

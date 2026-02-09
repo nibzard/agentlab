@@ -30,7 +30,9 @@ curl --unix-socket /run/agentlab/agentlabd.sock http://localhost/healthz
   "task": "fix the failing tests",
   "mode": "dangerous",
   "ttl_minutes": 120,
-  "keepalive": false
+  "keepalive": false,
+  "workspace_id": "workspace-001",
+  "workspace_wait_seconds": 60
 }
 ```
 
@@ -45,6 +47,7 @@ curl --unix-socket /run/agentlab/agentlabd.sock http://localhost/healthz
   "mode": "dangerous",
   "ttl_minutes": 120,
   "keepalive": false,
+  "workspace_id": "workspace-001",
   "status": "QUEUED",
   "sandbox_vmid": 1000,
   "created_at": "2026-01-29T23:45:00Z",
@@ -209,6 +212,7 @@ Create a job record.
 
 - Required: `repo_url`, `profile`, `task`
 - Defaults: `ref=main`, `mode=dangerous`
+- Optional workspace selection fields: `workspace_id` (id or name), `workspace_create` (new workspace `{ "name": "...", "size_gb": 80, "storage": "local-zfs" }`), `workspace_wait_seconds` (wait for detach; 409 on timeout). `workspace_id` and `workspace_create` are mutually exclusive.
 
 ### GET /v1/jobs/{id}
 Fetch a job by id.
