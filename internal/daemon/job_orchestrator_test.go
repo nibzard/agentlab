@@ -427,6 +427,23 @@ func TestJobOrchestratorHandleReportComplete(t *testing.T) {
 		CreatedAt:   now,
 		UpdatedAt:   now,
 	}
+	workspace := models.Workspace{
+		ID:          "ws-complete",
+		Name:        "ws-complete",
+		Storage:     "local-zfs",
+		VolumeID:    "local-zfs:vm-200-disk-1",
+		SizeGB:      20,
+		CreatedAt:   now,
+		LastUpdated: now,
+	}
+	if err := store.CreateWorkspace(ctx, workspace); err != nil {
+		t.Fatalf("create workspace: %v", err)
+	}
+	job.WorkspaceID = &workspace.ID
+	leaseOwner := workspaceLeaseOwnerForJob(job.ID)
+	if _, err := store.TryAcquireWorkspaceLease(ctx, workspace.ID, leaseOwner, "nonce-complete", now.Add(10*time.Minute)); err != nil {
+		t.Fatalf("acquire lease: %v", err)
+	}
 	if err := store.CreateJob(ctx, job); err != nil {
 		t.Fatalf("create job: %v", err)
 	}
@@ -461,6 +478,88 @@ func TestJobOrchestratorHandleReportComplete(t *testing.T) {
 	}
 	if updatedSandbox.State != models.SandboxDestroyed {
 		t.Fatalf("expected sandbox DESTROYED, got %s", updatedSandbox.State)
+	}
+	updatedWorkspace, err := store.GetWorkspace(ctx, workspace.ID)
+	if err != nil {
+		t.Fatalf("get workspace: %v", err)
+	}
+	if updatedWorkspace.LeaseOwner != "" || updatedWorkspace.LeaseNonce != "" || !updatedWorkspace.LeaseExpires.IsZero() {
+		t.Fatalf("expected workspace lease released")
+	}
+}
+
+func TestJobOrchestratorHandleReportKeepalivePreservesLease(t *testing.T) {
+	ctx := context.Background()
+	store := newTestStore(t)
+	backend := &orchestratorBackend{}
+	manager := NewSandboxManager(store, backend, log.New(io.Discard, "", 0))
+	profiles := map[string]models.Profile{
+		"yolo": {Name: "yolo", TemplateVM: 9000},
+	}
+	orchestrator := NewJobOrchestrator(store, profiles, backend, manager, nil, proxmox.SnippetStore{}, "", "http://10.77.0.1:8844", log.New(io.Discard, "", 0), nil, nil)
+
+	now := time.Date(2026, 1, 29, 12, 45, 0, 0, time.UTC)
+	sandbox := models.Sandbox{
+		VMID:          1101,
+		Name:          "sandbox-1101",
+		Profile:       "yolo",
+		State:         models.SandboxRunning,
+		Keepalive:     true,
+		CreatedAt:     now,
+		LastUpdatedAt: now,
+	}
+	if err := store.CreateSandbox(ctx, sandbox); err != nil {
+		t.Fatalf("create sandbox: %v", err)
+	}
+	workspace := models.Workspace{
+		ID:          "ws-keepalive",
+		Name:        "ws-keepalive",
+		Storage:     "local-zfs",
+		VolumeID:    "local-zfs:vm-201-disk-1",
+		SizeGB:      20,
+		CreatedAt:   now,
+		LastUpdated: now,
+	}
+	if err := store.CreateWorkspace(ctx, workspace); err != nil {
+		t.Fatalf("create workspace: %v", err)
+	}
+	job := models.Job{
+		ID:          "job_keepalive",
+		RepoURL:     "https://example.com/repo.git",
+		Ref:         "main",
+		Profile:     "yolo",
+		Task:        "ship it",
+		Status:      models.JobRunning,
+		Keepalive:   true,
+		SandboxVMID: &sandbox.VMID,
+		WorkspaceID: &workspace.ID,
+		CreatedAt:   now,
+		UpdatedAt:   now,
+	}
+	leaseOwner := workspaceLeaseOwnerForJob(job.ID)
+	if _, err := store.TryAcquireWorkspaceLease(ctx, workspace.ID, leaseOwner, "nonce-keepalive", now.Add(10*time.Minute)); err != nil {
+		t.Fatalf("acquire lease: %v", err)
+	}
+	if err := store.CreateJob(ctx, job); err != nil {
+		t.Fatalf("create job: %v", err)
+	}
+
+	report := JobReport{
+		JobID:   job.ID,
+		VMID:    sandbox.VMID,
+		Status:  models.JobCompleted,
+		Message: "done",
+	}
+	if err := orchestrator.HandleReport(ctx, report); err != nil {
+		t.Fatalf("handle report: %v", err)
+	}
+
+	updatedWorkspace, err := store.GetWorkspace(ctx, workspace.ID)
+	if err != nil {
+		t.Fatalf("get workspace: %v", err)
+	}
+	if updatedWorkspace.LeaseOwner != leaseOwner {
+		t.Fatalf("expected lease owner preserved, got %s", updatedWorkspace.LeaseOwner)
 	}
 }
 

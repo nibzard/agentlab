@@ -11,20 +11,22 @@ import (
 
 // Metrics collects Prometheus counters and histograms for agentlabd.
 type Metrics struct {
-	registry                *prometheus.Registry
-	sandboxTransitionsTotal *prometheus.CounterVec
-	sandboxProvisionSeconds prometheus.Histogram
-	sandboxReadySeconds     prometheus.Histogram
-	sandboxSSHSeconds       prometheus.Histogram
-	sandboxStartSeconds     *prometheus.HistogramVec
-	sandboxStopSeconds      *prometheus.HistogramVec
-	sandboxDestroySeconds   *prometheus.HistogramVec
-	sandboxRevertTotal      *prometheus.CounterVec
-	sandboxRevertSeconds    *prometheus.HistogramVec
-	sandboxIdleStopTotal    *prometheus.CounterVec
-	jobStatusTotal          *prometheus.CounterVec
-	jobDurationSeconds      *prometheus.HistogramVec
-	jobTimeToStartSeconds   prometheus.Histogram
+	registry                      *prometheus.Registry
+	sandboxTransitionsTotal       *prometheus.CounterVec
+	sandboxProvisionSeconds       prometheus.Histogram
+	sandboxReadySeconds           prometheus.Histogram
+	sandboxSSHSeconds             prometheus.Histogram
+	sandboxStartSeconds           *prometheus.HistogramVec
+	sandboxStopSeconds            *prometheus.HistogramVec
+	sandboxDestroySeconds         *prometheus.HistogramVec
+	sandboxRevertTotal            *prometheus.CounterVec
+	sandboxRevertSeconds          *prometheus.HistogramVec
+	sandboxIdleStopTotal          *prometheus.CounterVec
+	jobStatusTotal                *prometheus.CounterVec
+	jobDurationSeconds            *prometheus.HistogramVec
+	jobTimeToStartSeconds         prometheus.Histogram
+	workspaceLeaseContentionTotal prometheus.Counter
+	workspaceLeaseWaitSeconds     prometheus.Histogram
 }
 
 // NewMetrics constructs a metrics registry and registers all collectors.
@@ -155,6 +157,23 @@ func NewMetrics() *Metrics {
 			Buckets:   sloBuckets,
 		},
 	)
+	workspaceLeaseContentionTotal := prometheus.NewCounter(
+		prometheus.CounterOpts{
+			Namespace: "agentlab",
+			Subsystem: "workspace",
+			Name:      "lease_contention_total",
+			Help:      "Total number of workspace lease acquisition conflicts.",
+		},
+	)
+	workspaceLeaseWaitSeconds := prometheus.NewHistogram(
+		prometheus.HistogramOpts{
+			Namespace: "agentlab",
+			Subsystem: "workspace",
+			Name:      "lease_wait_duration_seconds",
+			Help:      "Time spent waiting to acquire a workspace lease.",
+			Buckets:   []float64{0.05, 0.1, 0.25, 0.5, 1, 2, 5, 10, 30, 60},
+		},
+	)
 
 	registry.MustRegister(
 		sandboxTransitionsTotal,
@@ -170,23 +189,27 @@ func NewMetrics() *Metrics {
 		jobStatusTotal,
 		jobDurationSeconds,
 		jobTimeToStartSeconds,
+		workspaceLeaseContentionTotal,
+		workspaceLeaseWaitSeconds,
 	)
 
 	return &Metrics{
-		registry:                registry,
-		sandboxTransitionsTotal: sandboxTransitionsTotal,
-		sandboxProvisionSeconds: sandboxProvisionSeconds,
-		sandboxReadySeconds:     sandboxReadySeconds,
-		sandboxSSHSeconds:       sandboxSSHSeconds,
-		sandboxStartSeconds:     sandboxStartSeconds,
-		sandboxStopSeconds:      sandboxStopSeconds,
-		sandboxDestroySeconds:   sandboxDestroySeconds,
-		sandboxRevertTotal:      sandboxRevertTotal,
-		sandboxRevertSeconds:    sandboxRevertSeconds,
-		sandboxIdleStopTotal:    sandboxIdleStopTotal,
-		jobStatusTotal:          jobStatusTotal,
-		jobDurationSeconds:      jobDurationSeconds,
-		jobTimeToStartSeconds:   jobTimeToStartSeconds,
+		registry:                      registry,
+		sandboxTransitionsTotal:       sandboxTransitionsTotal,
+		sandboxProvisionSeconds:       sandboxProvisionSeconds,
+		sandboxReadySeconds:           sandboxReadySeconds,
+		sandboxSSHSeconds:             sandboxSSHSeconds,
+		sandboxStartSeconds:           sandboxStartSeconds,
+		sandboxStopSeconds:            sandboxStopSeconds,
+		sandboxDestroySeconds:         sandboxDestroySeconds,
+		sandboxRevertTotal:            sandboxRevertTotal,
+		sandboxRevertSeconds:          sandboxRevertSeconds,
+		sandboxIdleStopTotal:          sandboxIdleStopTotal,
+		jobStatusTotal:                jobStatusTotal,
+		jobDurationSeconds:            jobDurationSeconds,
+		jobTimeToStartSeconds:         jobTimeToStartSeconds,
+		workspaceLeaseContentionTotal: workspaceLeaseContentionTotal,
+		workspaceLeaseWaitSeconds:     workspaceLeaseWaitSeconds,
 	}
 }
 
@@ -341,4 +364,22 @@ func (m *Metrics) ObserveJobStart(duration time.Duration) {
 		return
 	}
 	m.jobTimeToStartSeconds.Observe(seconds)
+}
+
+func (m *Metrics) IncWorkspaceLeaseContention() {
+	if m == nil {
+		return
+	}
+	m.workspaceLeaseContentionTotal.Inc()
+}
+
+func (m *Metrics) ObserveWorkspaceLeaseWait(duration time.Duration) {
+	if m == nil {
+		return
+	}
+	seconds := duration.Seconds()
+	if seconds < 0 {
+		return
+	}
+	m.workspaceLeaseWaitSeconds.Observe(seconds)
 }

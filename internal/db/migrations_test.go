@@ -22,7 +22,7 @@ func TestMigrate(t *testing.T) {
 		var count int
 		err = conn.QueryRow("SELECT COUNT(*) FROM schema_migrations").Scan(&count)
 		require.NoError(t, err)
-		assert.Equal(t, 6, count) // We have 6 migrations
+		assert.Equal(t, 7, count) // We have 7 migrations
 
 		// Verify version numbers
 		rows, err := conn.Query("SELECT version FROM schema_migrations ORDER BY version")
@@ -36,7 +36,7 @@ func TestMigrate(t *testing.T) {
 			require.NoError(t, err)
 			versions = append(versions, v)
 		}
-		assert.Equal(t, []int{1, 2, 3, 4, 5, 6}, versions)
+		assert.Equal(t, []int{1, 2, 3, 4, 5, 6, 7}, versions)
 	})
 
 	t.Run("idempotent - re-running is safe", func(t *testing.T) {
@@ -53,11 +53,11 @@ func TestMigrate(t *testing.T) {
 		err = Migrate(conn)
 		require.NoError(t, err)
 
-		// Verify only 6 migrations recorded
+		// Verify only 7 migrations recorded
 		var count int
 		err = conn.QueryRow("SELECT COUNT(*) FROM schema_migrations").Scan(&count)
 		require.NoError(t, err)
-		assert.Equal(t, 6, count)
+		assert.Equal(t, 7, count)
 	})
 
 	t.Run("creates all core tables", func(t *testing.T) {
@@ -382,6 +382,41 @@ func TestMigrationVersion6(t *testing.T) {
 	})
 }
 
+func TestMigrationVersion7(t *testing.T) {
+	t.Run("adds workspace lease columns", func(t *testing.T) {
+		path := t.TempDir() + "/test.db"
+		conn, err := sql.Open("sqlite", path)
+		require.NoError(t, err)
+		defer conn.Close()
+
+		err = Migrate(conn)
+		require.NoError(t, err)
+
+		columns := []string{"lease_owner", "lease_nonce", "lease_expires_at"}
+		for _, col := range columns {
+			var count int
+			err = conn.QueryRow("SELECT COUNT(*) FROM pragma_table_info('workspaces') WHERE name=?", col).Scan(&count)
+			require.NoError(t, err)
+			assert.Equal(t, 1, count, "workspaces.%s column should exist", col)
+		}
+	})
+
+	t.Run("creates workspace lease expiry index", func(t *testing.T) {
+		path := t.TempDir() + "/test.db"
+		conn, err := sql.Open("sqlite", path)
+		require.NoError(t, err)
+		defer conn.Close()
+
+		err = Migrate(conn)
+		require.NoError(t, err)
+
+		var count int
+		err = conn.QueryRow("SELECT COUNT(*) FROM sqlite_master WHERE type='index' AND name='idx_workspaces_lease_expires'").Scan(&count)
+		require.NoError(t, err)
+		assert.Equal(t, 1, count)
+	})
+}
+
 func TestPartialMigration(t *testing.T) {
 	t.Run("applies only pending migrations", func(t *testing.T) {
 		path := t.TempDir() + "/test.db"
@@ -409,15 +444,15 @@ func TestPartialMigration(t *testing.T) {
 			}
 		}
 
-		// Run migrations - should apply 2, 3, 4, 5, and 6
+		// Run migrations - should apply 2, 3, 4, 5, 6, and 7
 		err = Migrate(conn)
 		require.NoError(t, err)
 
-		// Verify all 6 migrations applied
+		// Verify all 7 migrations applied
 		var count int
 		err = conn.QueryRow("SELECT COUNT(*) FROM schema_migrations").Scan(&count)
 		require.NoError(t, err)
-		assert.Equal(t, 6, count)
+		assert.Equal(t, 7, count)
 
 		// Verify tables from migration 2 and 3 exist
 		var tables int

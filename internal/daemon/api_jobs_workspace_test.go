@@ -60,6 +60,17 @@ func TestJobCreateWithWorkspaceSelection(t *testing.T) {
 	if job.WorkspaceID == nil || *job.WorkspaceID != workspace.ID {
 		t.Fatalf("expected job workspace_id %s, got %#v", workspace.ID, job.WorkspaceID)
 	}
+	updatedWorkspace, err := store.GetWorkspace(ctx, workspace.ID)
+	if err != nil {
+		t.Fatalf("get workspace: %v", err)
+	}
+	expectedOwner := workspaceLeaseOwnerForJob(resp.ID)
+	if updatedWorkspace.LeaseOwner != expectedOwner {
+		t.Fatalf("expected lease owner %s, got %s", expectedOwner, updatedWorkspace.LeaseOwner)
+	}
+	if updatedWorkspace.LeaseExpires.IsZero() {
+		t.Fatalf("expected lease expires set")
+	}
 }
 
 func TestJobCreateWorkspaceConflict(t *testing.T) {
@@ -71,8 +82,10 @@ func TestJobCreateWorkspaceConflict(t *testing.T) {
 	if err != nil {
 		t.Fatalf("create workspace: %v", err)
 	}
-	if _, err := store.AttachWorkspace(ctx, workspace.ID, 200); err != nil {
-		t.Fatalf("attach workspace: %v", err)
+	leaseOwner := workspaceLeaseOwnerForJob("job-existing")
+	leaseNonce := "nonce-existing"
+	if _, err := store.TryAcquireWorkspaceLease(ctx, workspace.ID, leaseOwner, leaseNonce, time.Now().UTC().Add(10*time.Minute)); err != nil {
+		t.Fatalf("acquire lease: %v", err)
 	}
 	profiles := map[string]models.Profile{
 		"default": {Name: "default", TemplateVM: 9000},
@@ -101,8 +114,8 @@ func TestJobCreateWorkspaceConflict(t *testing.T) {
 		t.Fatalf("decode response: %v", err)
 	}
 	details := resp["details"]
-	if !strings.Contains(details, "attached_vmid=200") {
-		t.Fatalf("expected details to include attached_vmid, got %q", details)
+	if !strings.Contains(details, "lease_owner="+leaseOwner) {
+		t.Fatalf("expected details to include lease_owner, got %q", details)
 	}
 }
 
@@ -115,12 +128,14 @@ func TestJobCreateWorkspaceWait(t *testing.T) {
 	if err != nil {
 		t.Fatalf("create workspace: %v", err)
 	}
-	if _, err := store.AttachWorkspace(ctx, workspace.ID, 200); err != nil {
-		t.Fatalf("attach workspace: %v", err)
+	leaseOwner := workspaceLeaseOwnerForJob("job-existing")
+	leaseNonce := "nonce-wait"
+	if _, err := store.TryAcquireWorkspaceLease(ctx, workspace.ID, leaseOwner, leaseNonce, time.Now().UTC().Add(10*time.Minute)); err != nil {
+		t.Fatalf("acquire lease: %v", err)
 	}
 	go func() {
 		time.Sleep(150 * time.Millisecond)
-		_, _ = store.DetachWorkspace(ctx, workspace.ID, 200)
+		_, _ = store.ReleaseWorkspaceLease(ctx, workspace.ID, leaseOwner, leaseNonce)
 	}()
 
 	profiles := map[string]models.Profile{

@@ -74,18 +74,36 @@ func (o *JobOrchestrator) RebindWorkspace(ctx context.Context, workspaceID, prof
 	now := o.now().UTC()
 	var leaseExpires time.Time
 	keepalive := false
+	appliedTTL := 0
 	if profile.Name != "" {
-		appliedTTL, appliedKeepalive, err := applyProfileBehaviorDefaults(profile, ttlMinutes, nil)
+		appliedTTLValue, appliedKeepalive, err := applyProfileBehaviorDefaults(profile, ttlMinutes, nil)
 		if err != nil {
 			return result, err
 		}
-		if appliedTTL > 0 {
-			leaseExpires = now.Add(time.Duration(appliedTTL) * time.Minute)
+		appliedTTL = appliedTTLValue
+		if appliedTTLValue > 0 {
+			leaseExpires = now.Add(time.Duration(appliedTTLValue) * time.Minute)
 		}
 		keepalive = appliedKeepalive
 	} else if ttlMinutes != nil && *ttlMinutes > 0 {
+		appliedTTL = *ttlMinutes
 		leaseExpires = now.Add(time.Duration(*ttlMinutes) * time.Minute)
 	}
+	leaseTTL := workspaceLeaseDuration(appliedTTL)
+
+	leaseOwner := workspaceLeaseOwnerForSandbox(newVMID)
+	leaseNonce, err := newWorkspaceLeaseNonce(o.randReader())
+	if err != nil {
+		return result, err
+	}
+	leaseAcquired, err := o.store.TryAcquireWorkspaceLease(ctx, workspace.ID, leaseOwner, leaseNonce, now.Add(leaseTTL))
+	if err != nil {
+		return result, err
+	}
+	if !leaseAcquired {
+		return result, ErrWorkspaceLeaseHeld
+	}
+	recordWorkspaceLeaseEvent(ctx, o.store, "workspace.lease.acquired", &newVMID, nil, workspace.ID, leaseOwner, now.Add(leaseTTL))
 
 	sandbox := models.Sandbox{
 		VMID:          newVMID,
@@ -100,6 +118,10 @@ func (o *JobOrchestrator) RebindWorkspace(ctx context.Context, workspaceID, prof
 
 	created, err := createSandboxWithRetry(ctx, o.store, sandbox)
 	if err != nil {
+		if released, _ := o.store.ReleaseWorkspaceLease(ctx, workspace.ID, leaseOwner, leaseNonce); released {
+			vmid := newVMID
+			recordWorkspaceLeaseEvent(ctx, o.store, "workspace.lease.released", &vmid, nil, workspace.ID, leaseOwner, time.Time{})
+		}
 		return result, err
 	}
 
@@ -109,6 +131,7 @@ func (o *JobOrchestrator) RebindWorkspace(ctx context.Context, workspaceID, prof
 		attachedToNew  bool
 		detachedOld    bool
 		ipAddress      string
+		releaseLease   bool = true
 	)
 
 	defer func() {
@@ -117,6 +140,12 @@ func (o *JobOrchestrator) RebindWorkspace(ctx context.Context, workspaceID, prof
 		}
 		cleanupCtx, cancel := o.withFailureTimeout()
 		defer cancel()
+		if releaseLease {
+			if released, _ := o.store.ReleaseWorkspaceLease(cleanupCtx, workspace.ID, leaseOwner, leaseNonce); released {
+				vmid := newVMID
+				recordWorkspaceLeaseEvent(cleanupCtx, o.store, "workspace.lease.released", &vmid, nil, workspace.ID, leaseOwner, time.Time{})
+			}
+		}
 		if attachedToNew {
 			_, _ = o.workspaceMgr.Detach(cleanupCtx, workspace.ID)
 		}
@@ -218,6 +247,8 @@ func (o *JobOrchestrator) RebindWorkspace(ctx context.Context, workspaceID, prof
 		return result, err
 	}
 	o.createCleanSnapshot(ctx, created.VMID, nil)
+	releaseLease = false
+	o.startWorkspaceLeaseRenewal("", workspace.ID, leaseOwner, leaseTTL, keepalive, created.VMID)
 
 	if !keepOld && oldVMID != nil {
 		if destroyErr := o.sandboxManager.Destroy(ctx, *oldVMID); destroyErr != nil && !errors.Is(destroyErr, ErrSandboxNotFound) {

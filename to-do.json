@@ -2049,25 +2049,26 @@
         "workspaces"
       ],
       "files": [
+        "README.md",
         "cmd/agentlab/commands.go",
-        "cmd/agentlab/main.go",
-        "cmd/agentlab/suggestions.go",
         "cmd/agentlab/commands_helpers_test.go",
         "cmd/agentlab/commands_job_run_workspace_test.go",
-        "README.md"
+        "cmd/agentlab/main.go",
+        "cmd/agentlab/suggestions.go",
+        "to-do.json"
       ],
       "depends_on": [
         "T089",
         "T022"
       ],
       "created_at": "2026-02-09T09:49:20Z",
-      "updated_at": "2026-02-09T13:32:34Z"
+      "updated_at": "2026-02-09T13:33:25Z"
     },
     {
       "id": "T091",
       "title": "Workspace lease/lock: single-writer semantics with wait/renew/release",
       "priority": 1,
-      "status": "todo",
+      "status": "done",
       "details": "Implement workspace leases to make persistent state safe under concurrency and daemon restarts. A lease is (owner, nonce, expires_at). Stateful jobs/sessions acquire a lease before provisioning, renew while active, and release on completion. Waiting (`--workspace-wait`) should block on the lease, not just attached_vmid, to support detached-but-reserved sessions.",
       "steps": [
         "DB: add workspaces.lease_owner, lease_nonce, lease_expires_at; add index for expiry queries; add migration tests.",
@@ -2086,22 +2087,28 @@
         "metrics"
       ],
       "files": [
+        "internal/daemon/*_test.go",
+        "internal/daemon/api.go",
+        "internal/daemon/api_jobs_workspace_test.go",
+        "internal/daemon/api_types.go",
+        "internal/daemon/job_orchestrator.go",
+        "internal/daemon/job_orchestrator_test.go",
+        "internal/daemon/metrics.go",
+        "internal/daemon/sandbox_manager.go",
+        "internal/daemon/sandbox_manager_test.go",
+        "internal/daemon/workspace_lease.go",
+        "internal/daemon/workspace_manager.go",
         "internal/db/migrations.go",
         "internal/db/migrations_test.go",
         "internal/db/workspaces.go",
-        "internal/daemon/workspace_manager.go",
-        "internal/daemon/api.go",
-        "internal/daemon/api_types.go",
-        "internal/daemon/job_orchestrator.go",
-        "internal/daemon/sandbox_manager.go",
-        "internal/daemon/metrics.go",
-        "internal/daemon/*_test.go"
+        "internal/db/workspaces_test.go"
       ],
       "depends_on": [
         "T024",
         "T089"
       ],
-      "created_at": "2026-02-09T09:49:20Z"
+      "created_at": "2026-02-09T09:49:20Z",
+      "updated_at": "2026-02-09T13:58:54Z"
     },
     {
       "id": "T092",

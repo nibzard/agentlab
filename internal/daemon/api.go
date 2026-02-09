@@ -103,6 +103,7 @@ type ControlAPI struct {
 	jobOrchestrator   *JobOrchestrator
 	exposurePublisher ExposurePublisher
 	artifactRoot      string
+	metrics           *Metrics
 	metricsEnabled    bool
 	logger            *log.Logger
 	now               func() time.Time
@@ -142,6 +143,15 @@ func (api *ControlAPI) WithMetricsEnabled(enabled bool) *ControlAPI {
 		return api
 	}
 	api.metricsEnabled = enabled
+	return api
+}
+
+// WithMetrics registers the metrics collector for recording workspace lease stats.
+func (api *ControlAPI) WithMetrics(metrics *Metrics) *ControlAPI {
+	if api == nil {
+		return api
+	}
+	api.metrics = metrics
 	return api
 }
 
@@ -315,13 +325,17 @@ func (api *ControlAPI) handleJobCreate(w http.ResponseWriter, r *http.Request) {
 	}
 
 	ctx := r.Context()
-	var workspaceID *string
+	var (
+		workspaceID       *string
+		workspace         models.Workspace
+		workspaceWaitSec  int
+		workspaceLeaseTTL time.Duration
+	)
 	if req.WorkspaceID != nil || req.WorkspaceCreate != nil {
 		if api.workspaceMgr == nil {
 			writeError(w, http.StatusInternalServerError, "workspace manager unavailable")
 			return
 		}
-		var workspace models.Workspace
 		if req.WorkspaceCreate != nil {
 			if req.WorkspaceCreate.Name == "" {
 				writeError(w, http.StatusBadRequest, "workspace_create.name is required")
@@ -353,28 +367,9 @@ func (api *ControlAPI) handleJobCreate(w http.ResponseWriter, r *http.Request) {
 			}
 			workspace = resolved
 		}
-		if workspace.AttachedVM != nil && *workspace.AttachedVM > 0 {
-			waitSeconds := derefInt(req.WorkspaceWaitSeconds)
-			if waitSeconds <= 0 {
-				writeError(w, http.StatusConflict, "workspace already attached", workspaceConflictDetails(workspace, 0))
-				return
-			}
-			available, err := api.waitForWorkspaceAvailable(ctx, workspace, waitSeconds)
-			if err != nil {
-				if errors.Is(err, errWorkspaceWaitTimeout) {
-					writeError(w, http.StatusConflict, "workspace already attached", workspaceConflictDetails(available, waitSeconds))
-					return
-				}
-				if errors.Is(err, ErrWorkspaceNotFound) {
-					writeError(w, http.StatusNotFound, "workspace not found")
-					return
-				}
-				writeError(w, http.StatusInternalServerError, "failed to wait for workspace")
-				return
-			}
-			workspace = available
-		}
 		workspaceID = &workspace.ID
+		workspaceWaitSec = derefInt(req.WorkspaceWaitSeconds)
+		workspaceLeaseTTL = workspaceLeaseDuration(ttlMinutes)
 	}
 	var job models.Job
 	var createErr error
@@ -383,6 +378,45 @@ func (api *ControlAPI) handleJobCreate(w http.ResponseWriter, r *http.Request) {
 		if err != nil {
 			writeError(w, http.StatusInternalServerError, "failed to create job id")
 			return
+		}
+		var leaseOwner string
+		var leaseNonce string
+		if workspaceID != nil {
+			leaseOwner = workspaceLeaseOwnerForJob(jobID)
+			nonce, _, err := api.acquireWorkspaceLease(ctx, workspace, leaseOwner, workspaceLeaseTTL, workspaceWaitSec)
+			if err != nil {
+				switch {
+				case errors.Is(err, ErrWorkspaceLeaseHeld), errors.Is(err, errWorkspaceWaitTimeout):
+					latest, loadErr := api.workspaceMgr.Resolve(ctx, workspace.ID)
+					if loadErr == nil {
+						workspace = latest
+					}
+					writeError(w, http.StatusConflict, "workspace lease held", workspaceConflictDetails(workspace, workspaceWaitSec))
+				case errors.Is(err, ErrWorkspaceNotFound):
+					writeError(w, http.StatusNotFound, "workspace not found")
+				default:
+					writeError(w, http.StatusInternalServerError, "failed to acquire workspace lease")
+				}
+				return
+			}
+			leaseNonce = nonce
+			latest, err := api.workspaceMgr.Resolve(ctx, workspace.ID)
+			if err != nil {
+				_, _ = api.store.ReleaseWorkspaceLease(ctx, workspace.ID, leaseOwner, leaseNonce)
+				if errors.Is(err, ErrWorkspaceNotFound) {
+					writeError(w, http.StatusNotFound, "workspace not found")
+					return
+				}
+				writeError(w, http.StatusInternalServerError, "failed to load workspace")
+				return
+			}
+			workspace = latest
+			if workspace.AttachedVM != nil && *workspace.AttachedVM > 0 {
+				_, _ = api.store.ReleaseWorkspaceLease(ctx, workspace.ID, leaseOwner, leaseNonce)
+				recordWorkspaceLeaseEvent(ctx, api.store, "workspace.lease.released", nil, nil, workspace.ID, leaseOwner, time.Time{})
+				writeError(w, http.StatusConflict, "workspace already attached", workspaceConflictDetails(workspace, workspaceWaitSec))
+				return
+			}
 		}
 		now := api.now().UTC()
 		job = models.Job{
@@ -401,7 +435,14 @@ func (api *ControlAPI) handleJobCreate(w http.ResponseWriter, r *http.Request) {
 		}
 		createErr = api.store.CreateJob(ctx, job)
 		if createErr == nil {
+			if workspaceID != nil && leaseNonce != "" {
+				recordWorkspaceLeaseEvent(ctx, api.store, "workspace.lease.acquired", nil, &job.ID, workspace.ID, leaseOwner, workspace.LeaseExpires)
+			}
 			break
+		}
+		if workspaceID != nil && leaseNonce != "" {
+			_, _ = api.store.ReleaseWorkspaceLease(ctx, *workspaceID, leaseOwner, leaseNonce)
+			recordWorkspaceLeaseEvent(ctx, api.store, "workspace.lease.released", nil, nil, *workspaceID, leaseOwner, time.Time{})
 		}
 		if !isUniqueConstraint(createErr) {
 			break
@@ -1181,7 +1222,7 @@ func (api *ControlAPI) handleWorkspaceRebind(w http.ResponseWriter, r *http.Requ
 		switch {
 		case errors.Is(err, ErrWorkspaceNotFound):
 			writeError(w, http.StatusNotFound, "workspace not found")
-		case errors.Is(err, ErrWorkspaceAttached), errors.Is(err, ErrWorkspaceVMInUse):
+		case errors.Is(err, ErrWorkspaceAttached), errors.Is(err, ErrWorkspaceVMInUse), errors.Is(err, ErrWorkspaceLeaseHeld):
 			writeError(w, http.StatusConflict, err.Error())
 		case errors.Is(err, ErrSandboxNotFound):
 			writeError(w, http.StatusNotFound, "sandbox not found")
@@ -1811,36 +1852,68 @@ func workspaceConflictDetails(workspace models.Workspace, waitSeconds int) error
 	if workspace.AttachedVM != nil {
 		attached = *workspace.AttachedVM
 	}
-	if waitSeconds > 0 {
-		return fmt.Errorf("workspace_id=%s workspace_name=%s attached_vmid=%d workspace_wait_seconds=%d", workspace.ID, workspace.Name, attached, waitSeconds)
+	leaseOwner := strings.TrimSpace(workspace.LeaseOwner)
+	leaseExpires := ""
+	if !workspace.LeaseExpires.IsZero() {
+		leaseExpires = workspace.LeaseExpires.UTC().Format(time.RFC3339Nano)
 	}
-	return fmt.Errorf("workspace_id=%s workspace_name=%s attached_vmid=%d", workspace.ID, workspace.Name, attached)
+	if waitSeconds > 0 {
+		return fmt.Errorf("workspace_id=%s workspace_name=%s attached_vmid=%d lease_owner=%s lease_expires_at=%s workspace_wait_seconds=%d", workspace.ID, workspace.Name, attached, leaseOwner, leaseExpires, waitSeconds)
+	}
+	return fmt.Errorf("workspace_id=%s workspace_name=%s attached_vmid=%d lease_owner=%s lease_expires_at=%s", workspace.ID, workspace.Name, attached, leaseOwner, leaseExpires)
 }
 
-func (api *ControlAPI) waitForWorkspaceAvailable(ctx context.Context, workspace models.Workspace, waitSeconds int) (models.Workspace, error) {
-	if waitSeconds <= 0 {
-		return workspace, errWorkspaceWaitTimeout
+func (api *ControlAPI) acquireWorkspaceLease(ctx context.Context, workspace models.Workspace, owner string, ttl time.Duration, waitSeconds int) (string, time.Duration, error) {
+	if api == nil || api.store == nil {
+		return "", 0, errors.New("workspace lease store unavailable")
 	}
-	deadline := api.now().Add(time.Duration(waitSeconds) * time.Second)
-	ticker := time.NewTicker(workspaceWaitPollInterval)
-	defer ticker.Stop()
-
+	owner = strings.TrimSpace(owner)
+	if owner == "" {
+		return "", 0, errors.New("workspace lease owner required")
+	}
+	if ttl <= 0 {
+		ttl = workspaceLeaseDefaultTTL
+	}
+	start := api.now().UTC()
+	var deadline time.Time
+	if waitSeconds > 0 {
+		deadline = start.Add(time.Duration(waitSeconds) * time.Second)
+	}
+	backoff := workspaceWaitPollInterval
 	for {
-		if workspace.AttachedVM == nil || *workspace.AttachedVM == 0 {
-			return workspace, nil
+		nonce, err := newWorkspaceLeaseNonce(nil)
+		if err != nil {
+			return "", 0, err
 		}
-		if api.now().After(deadline) {
-			return workspace, errWorkspaceWaitTimeout
+		expiresAt := api.now().UTC().Add(ttl)
+		acquired, err := api.store.TryAcquireWorkspaceLease(ctx, workspace.ID, owner, nonce, expiresAt)
+		if err != nil {
+			return "", 0, err
+		}
+		if acquired {
+			waited := api.now().UTC().Sub(start)
+			if waited > 0 && waitSeconds > 0 && api.metrics != nil {
+				api.metrics.ObserveWorkspaceLeaseWait(waited)
+			}
+			return nonce, waited, nil
+		}
+		if api.metrics != nil {
+			api.metrics.IncWorkspaceLeaseContention()
+		}
+		if waitSeconds <= 0 {
+			return "", api.now().UTC().Sub(start), ErrWorkspaceLeaseHeld
+		}
+		if !deadline.IsZero() && api.now().UTC().After(deadline) {
+			return "", api.now().UTC().Sub(start), errWorkspaceWaitTimeout
 		}
 		select {
 		case <-ctx.Done():
-			return workspace, ctx.Err()
-		case <-ticker.C:
-			updated, err := api.workspaceMgr.Resolve(ctx, workspace.ID)
-			if err != nil {
-				return workspace, err
-			}
-			workspace = updated
+			return "", api.now().UTC().Sub(start), ctx.Err()
+		case <-time.After(backoff):
+		}
+		backoff *= 2
+		if backoff > 2*time.Second {
+			backoff = 2 * time.Second
 		}
 	}
 }

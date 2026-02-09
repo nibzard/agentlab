@@ -308,6 +308,11 @@ func (o *JobOrchestrator) Run(ctx context.Context, jobID string) error {
 	}
 	o.observeJobStart(ctx, job, sandbox.VMID)
 	_ = o.store.RecordEvent(ctx, "job.running", &sandbox.VMID, &job.ID, "sandbox running", "")
+	if job.WorkspaceID != nil && strings.TrimSpace(*job.WorkspaceID) != "" {
+		owner := workspaceLeaseOwnerForJob(job.ID)
+		ttl := workspaceLeaseDuration(job.TTLMinutes)
+		o.startWorkspaceLeaseRenewal(job.ID, *job.WorkspaceID, owner, ttl, job.Keepalive, sandbox.VMID)
+	}
 	return nil
 }
 
@@ -556,6 +561,10 @@ func (o *JobOrchestrator) HandleReport(ctx context.Context, report JobReport) er
 				_ = o.sandboxManager.Transition(ctx, report.VMID, target)
 			}
 		}
+		if job.WorkspaceID != nil && strings.TrimSpace(*job.WorkspaceID) != "" && !job.Keepalive {
+			owner := workspaceLeaseOwnerForJob(job.ID)
+			o.releaseWorkspaceLease(ctx, *job.WorkspaceID, owner, job.ID, report.VMID)
+		}
 		if !job.Keepalive && o.sandboxManager != nil {
 			_ = o.sandboxManager.Destroy(ctx, report.VMID)
 			o.cleanupSnippet(report.VMID)
@@ -654,10 +663,144 @@ func (o *JobOrchestrator) ensureWorkspaceAvailable(ctx context.Context, job mode
 	if err != nil {
 		return err
 	}
+	owner := workspaceLeaseOwnerForJob(job.ID)
+	if owner == "" {
+		return errors.New("workspace lease owner unavailable")
+	}
+	now := o.now().UTC()
+	leaseExpired := workspace.LeaseExpires.IsZero() || workspace.LeaseExpires.Before(now)
+	if workspace.LeaseOwner == "" || leaseExpired {
+		ttl := workspaceLeaseDuration(job.TTLMinutes)
+		nonce, err := newWorkspaceLeaseNonce(o.randReader())
+		if err != nil {
+			return err
+		}
+		acquired, err := o.store.TryAcquireWorkspaceLease(ctx, workspace.ID, owner, nonce, now.Add(ttl))
+		if err != nil {
+			return err
+		}
+		if !acquired {
+			return ErrWorkspaceLeaseHeld
+		}
+		recordWorkspaceLeaseEvent(ctx, o.store, "workspace.lease.acquired", &sandbox.VMID, &job.ID, workspace.ID, owner, now.Add(ttl))
+		workspace, err = o.workspaceMgr.Resolve(ctx, workspace.ID)
+		if err != nil {
+			return err
+		}
+	}
+	if workspace.LeaseOwner != owner {
+		return fmt.Errorf("workspace %s lease held by %s", workspace.ID, workspace.LeaseOwner)
+	}
 	if workspace.AttachedVM != nil && *workspace.AttachedVM != sandbox.VMID {
 		return fmt.Errorf("workspace %s already attached to vmid %d", workspace.ID, *workspace.AttachedVM)
 	}
 	return nil
+}
+
+func (o *JobOrchestrator) startWorkspaceLeaseRenewal(jobID, workspaceID, owner string, ttl time.Duration, keepalive bool, vmid int) {
+	if o == nil || o.store == nil {
+		return
+	}
+	workspaceID = strings.TrimSpace(workspaceID)
+	owner = strings.TrimSpace(owner)
+	if workspaceID == "" || owner == "" {
+		return
+	}
+	interval := workspaceLeaseRenewInterval(ttl)
+	go func() {
+		ticker := time.NewTicker(interval)
+		defer ticker.Stop()
+		for {
+			if !o.shouldKeepWorkspaceLease(jobID, keepalive, vmid) {
+				o.releaseWorkspaceLease(context.Background(), workspaceID, owner, jobID, vmid)
+				return
+			}
+			o.renewWorkspaceLease(context.Background(), workspaceID, owner, ttl, jobID, vmid)
+			<-ticker.C
+		}
+	}()
+}
+
+func (o *JobOrchestrator) shouldKeepWorkspaceLease(jobID string, keepalive bool, vmid int) bool {
+	if o == nil || o.store == nil {
+		return false
+	}
+	if jobID != "" {
+		job, err := o.store.GetJob(context.Background(), jobID)
+		if err != nil {
+			return false
+		}
+		if job.Status == models.JobCompleted || job.Status == models.JobFailed || job.Status == models.JobTimeout {
+			if !keepalive {
+				return false
+			}
+		}
+	}
+	if vmid > 0 {
+		sb, err := o.store.GetSandbox(context.Background(), vmid)
+		if err != nil {
+			return false
+		}
+		if sb.State == models.SandboxDestroyed {
+			return false
+		}
+	}
+	return true
+}
+
+func (o *JobOrchestrator) renewWorkspaceLease(ctx context.Context, workspaceID, owner string, ttl time.Duration, jobID string, vmid int) {
+	if o == nil || o.store == nil {
+		return
+	}
+	workspace, err := o.store.GetWorkspace(ctx, workspaceID)
+	if err != nil {
+		return
+	}
+	if workspace.LeaseOwner != owner || strings.TrimSpace(workspace.LeaseNonce) == "" {
+		return
+	}
+	expiresAt := o.now().UTC().Add(ttl)
+	renewed, err := o.store.RenewWorkspaceLease(ctx, workspaceID, owner, workspace.LeaseNonce, expiresAt)
+	if err != nil || !renewed {
+		return
+	}
+	var jobIDPtr *string
+	if jobID != "" {
+		jobIDPtr = &jobID
+	}
+	var vmidPtr *int
+	if vmid > 0 {
+		vmidValue := vmid
+		vmidPtr = &vmidValue
+	}
+	recordWorkspaceLeaseEvent(ctx, o.store, "workspace.lease.renewed", vmidPtr, jobIDPtr, workspaceID, owner, expiresAt)
+}
+
+func (o *JobOrchestrator) releaseWorkspaceLease(ctx context.Context, workspaceID, owner string, jobID string, vmid int) {
+	if o == nil || o.store == nil {
+		return
+	}
+	workspace, err := o.store.GetWorkspace(ctx, workspaceID)
+	if err != nil {
+		return
+	}
+	if workspace.LeaseOwner != owner || strings.TrimSpace(workspace.LeaseNonce) == "" {
+		return
+	}
+	released, err := o.store.ReleaseWorkspaceLease(ctx, workspaceID, owner, workspace.LeaseNonce)
+	if err != nil || !released {
+		return
+	}
+	var jobIDPtr *string
+	if jobID != "" {
+		jobIDPtr = &jobID
+	}
+	var vmidPtr *int
+	if vmid > 0 {
+		vmidValue := vmid
+		vmidPtr = &vmidValue
+	}
+	recordWorkspaceLeaseEvent(ctx, o.store, "workspace.lease.released", vmidPtr, jobIDPtr, workspaceID, owner, time.Time{})
 }
 
 func (o *JobOrchestrator) failJob(job models.Job, vmid int, cause error) error {
@@ -679,6 +822,10 @@ func (o *JobOrchestrator) failJob(job models.Job, vmid int, cause error) error {
 	defer cancel()
 	_ = o.store.UpdateJobResult(failureCtx, job.ID, models.JobFailed, resultJSON)
 	_ = o.store.RecordEvent(failureCtx, "job.failed", nullableVMID(vmid), &job.ID, message, "")
+	if job.WorkspaceID != nil && strings.TrimSpace(*job.WorkspaceID) != "" && !job.Keepalive {
+		owner := workspaceLeaseOwnerForJob(job.ID)
+		o.releaseWorkspaceLease(failureCtx, *job.WorkspaceID, owner, job.ID, vmid)
+	}
 	if vmid > 0 && !job.Keepalive && o.sandboxManager != nil {
 		_ = o.sandboxManager.Destroy(failureCtx, vmid)
 		o.cleanupSnippet(vmid)
