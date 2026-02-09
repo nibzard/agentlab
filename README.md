@@ -496,6 +496,30 @@ agentlab job run \
   --task "data analysis" \
   --profile yolo-ephemeral \
   --workspace my-workspace
+
+# With workspace wait (wait for detach)
+agentlab job run \
+  --repo https://github.com/user/repo \
+  --task "data analysis" \
+  --profile yolo-ephemeral \
+  --workspace my-workspace \
+  --workspace-wait 2m
+
+# Create workspace on demand
+agentlab job run \
+  --repo https://github.com/user/repo \
+  --task "data analysis" \
+  --profile yolo-ephemeral \
+  --workspace new:ws-data \
+  --workspace-size 80 \
+  --workspace-storage local-zfs
+
+# Stateful shorthand (creates default workspace)
+agentlab job run \
+  --repo https://github.com/user/repo \
+  --task "data analysis" \
+  --profile yolo-ephemeral \
+  --stateful
 ```
 
 **Flags:**
@@ -505,7 +529,14 @@ agentlab job run \
 - `--ref <branch>` (optional): Git branch/commit (default: default branch)
 - `--ttl <duration>` (optional): Sandbox TTL (default from profile)
 - `--keepalive` (optional): Don't auto-destroy on completion
-- `--workspace <name>` (optional): Attach workspace
+- `--workspace <id|name|new:name>` (optional): Attach existing workspace or create `new:<name>`
+- `--workspace-create <name>` (optional): Create workspace with name (requires `--workspace-size` unless `--stateful`)
+- `--workspace-size <size>` (optional): Workspace size for creation (e.g. 80G)
+- `--workspace-storage <name>` (optional): Workspace storage (default `local-zfs` for `--stateful`)
+- `--workspace-wait <duration>` (optional): Wait for workspace detach (e.g. 2m, 30s)
+- `--stateful` (optional): Create a default workspace named `stateful-<repo-slug>` with size 80G on local-zfs
+
+`--stateful` naming rule: `repo-slug` is the repo basename (strip `.git`), lowercased with non-alphanumeric characters replaced by `-`.
 
 API example for a workspace-backed job:
 

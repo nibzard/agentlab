@@ -2005,34 +2005,34 @@
         "api"
       ],
       "files": [
+        "README.md",
+        "cmd/agentlab/api.go",
+        "docs/api.md",
+        "internal/daemon/api.go",
+        "internal/daemon/api_jobs_workspace_test.go",
+        "internal/daemon/api_types.go",
+        "internal/daemon/job_orchestrator.go",
+        "internal/daemon/job_orchestrator_test.go",
+        "internal/db/jobs.go",
+        "internal/db/jobs_test.go",
         "internal/db/migrations.go",
         "internal/db/migrations_test.go",
         "internal/models/models.go",
         "internal/models/models_test.go",
-        "internal/testing/testutil.go",
-        "internal/db/jobs.go",
-        "internal/db/jobs_test.go",
-        "internal/daemon/api_types.go",
-        "internal/daemon/api.go",
-        "internal/daemon/job_orchestrator.go",
-        "internal/daemon/job_orchestrator_test.go",
-        "internal/daemon/api_jobs_workspace_test.go",
-        "cmd/agentlab/api.go",
-        "docs/api.md",
-        "README.md"
+        "internal/testing/testutil.go"
       ],
       "depends_on": [
         "T014",
         "T024"
       ],
       "created_at": "2026-02-09T09:49:20Z",
-      "updated_at": "2026-02-09T13:17:52Z"
+      "updated_at": "2026-02-09T13:18:39Z"
     },
     {
       "id": "T090",
       "title": "CLI: add job run --workspace/--stateful/--workspace-wait (and new:<name>)",
       "priority": 1,
-      "status": "todo",
+      "status": "done",
       "details": "Expose stateful job ergonomics in the CLI: `agentlab job run --workspace <id|name>` plus shorthand `--stateful` and `--workspace-wait <duration>`. Support `--workspace new:<name>` (or `--workspace-create`) with `--workspace-size` and `--workspace-storage` so users can create+run in one command. Ensure errors are actionable and JSON output is stable.",
       "steps": [
         "Add flags to cmd/agentlab/commands.go job run: --workspace, --stateful, --workspace-wait, --workspace-size, --workspace-storage.",
@@ -2051,16 +2051,17 @@
       "files": [
         "cmd/agentlab/commands.go",
         "cmd/agentlab/main.go",
-        "cmd/agentlab/api.go",
-        "cmd/agentlab/api_test.go",
+        "cmd/agentlab/suggestions.go",
         "cmd/agentlab/commands_helpers_test.go",
+        "cmd/agentlab/commands_job_run_workspace_test.go",
         "README.md"
       ],
       "depends_on": [
         "T089",
         "T022"
       ],
-      "created_at": "2026-02-09T09:49:20Z"
+      "created_at": "2026-02-09T09:49:20Z",
+      "updated_at": "2026-02-09T13:32:34Z"
     },
     {
       "id": "T091",

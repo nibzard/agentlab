@@ -173,6 +173,80 @@ func TestParseSizeGB(t *testing.T) {
 	}
 }
 
+func TestParseWorkspaceWaitSeconds(t *testing.T) {
+	tests := []struct {
+		name    string
+		value   string
+		want    *int
+		wantErr bool
+	}{
+		{"empty", "", nil, false},
+		{"seconds", "30", intPtr(30), false},
+		{"duration seconds", "30s", intPtr(30), false},
+		{"duration minutes", "1m30s", intPtr(90), false},
+		{"duration ceil", "500ms", intPtr(1), false},
+		{"zero", "0", nil, true},
+		{"negative", "-1", nil, true},
+		{"bad", "nonsense", nil, true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := parseWorkspaceWaitSeconds(tt.value)
+			if tt.wantErr {
+				if err == nil {
+					t.Fatalf("expected error")
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("parseWorkspaceWaitSeconds() error = %v", err)
+			}
+			if tt.want == nil {
+				if got != nil {
+					t.Fatalf("expected nil, got %v", *got)
+				}
+				return
+			}
+			if got == nil || *got != *tt.want {
+				t.Fatalf("parseWorkspaceWaitSeconds() = %v, want %v", got, *tt.want)
+			}
+		})
+	}
+}
+
+func TestDefaultStatefulWorkspaceName(t *testing.T) {
+	tests := []struct {
+		name    string
+		repo    string
+		want    string
+		wantErr bool
+	}{
+		{"https", "https://github.com/org/repo.git", "stateful-repo", false},
+		{"ssh", "git@github.com:org/repo.git", "stateful-repo", false},
+		{"ssh scheme", "ssh://git@github.com/org/repo", "stateful-repo", false},
+		{"plain", "repo", "stateful-repo", false},
+		{"sanitize", "weird$$name", "stateful-weird-name", false},
+		{"empty", " ", "", true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := defaultStatefulWorkspaceName(tt.repo)
+			if tt.wantErr {
+				if err == nil {
+					t.Fatalf("expected error")
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("defaultStatefulWorkspaceName() error = %v", err)
+			}
+			if got != tt.want {
+				t.Fatalf("defaultStatefulWorkspaceName() = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
 func TestOrDashHelpers(t *testing.T) {
 	if orDash(" ") != "-" {
 		t.Fatalf("orDash should return - for empty")

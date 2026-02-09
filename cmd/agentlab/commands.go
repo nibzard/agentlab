@@ -45,14 +45,16 @@ import (
 )
 
 const (
-	defaultLogTail            = 50
-	eventPollInterval         = 2 * time.Second
-	defaultEventLimit         = 200
-	maxEventLimit             = 1000
-	defaultRequestTimeout     = 10 * time.Minute
-	ttlFlagDescription        = "lease ttl in minutes or duration (e.g. 120 or 2h)"
-	jsonFlagDescription       = "output json"
-	defaultArtifactBundleName = "agentlab-artifacts.tar.gz"
+	defaultLogTail                  = 50
+	eventPollInterval               = 2 * time.Second
+	defaultEventLimit               = 200
+	maxEventLimit                   = 1000
+	defaultRequestTimeout           = 10 * time.Minute
+	ttlFlagDescription              = "lease ttl in minutes or duration (e.g. 120 or 2h)"
+	jsonFlagDescription             = "output json"
+	defaultArtifactBundleName       = "agentlab-artifacts.tar.gz"
+	defaultStatefulWorkspaceSizeGB  = 80
+	defaultStatefulWorkspaceStorage = "local-zfs"
 )
 
 var (
@@ -255,6 +257,12 @@ func runJobRun(ctx context.Context, args []string, base commonFlags) error {
 	var task string
 	var mode string
 	var ttl string
+	var workspace string
+	var workspaceCreate string
+	var workspaceSize string
+	var workspaceStorage string
+	var workspaceWait string
+	var stateful bool
 	var keepalive optionalBool
 	var help bool
 	fs.StringVar(&repo, "repo", "", "git repository url")
@@ -263,6 +271,12 @@ func runJobRun(ctx context.Context, args []string, base commonFlags) error {
 	fs.StringVar(&task, "task", "", "task description")
 	fs.StringVar(&mode, "mode", "", "mode (default dangerous)")
 	fs.StringVar(&ttl, "ttl", "", ttlFlagDescription)
+	fs.StringVar(&workspace, "workspace", "", "workspace id or name (or new:<name>)")
+	fs.StringVar(&workspaceCreate, "workspace-create", "", "create workspace with name")
+	fs.StringVar(&workspaceSize, "workspace-size", "", "workspace size for creation (e.g. 80G)")
+	fs.StringVar(&workspaceStorage, "workspace-storage", "", "workspace storage (default local-zfs)")
+	fs.StringVar(&workspaceWait, "workspace-wait", "", "wait for workspace detach (e.g. 2m, 30s)")
+	fs.BoolVar(&stateful, "stateful", false, "create a default workspace for a stateful job")
 	fs.Var(&keepalive, "keepalive", "keep sandbox after job completion")
 	fs.BoolVar(&help, "help", false, "show help")
 	fs.BoolVar(&help, "h", false, "show help")
@@ -279,19 +293,96 @@ func runJobRun(ctx context.Context, args []string, base commonFlags) error {
 	if err != nil {
 		return err
 	}
+	workspace = strings.TrimSpace(workspace)
+	workspaceCreate = strings.TrimSpace(workspaceCreate)
+	workspaceSize = strings.TrimSpace(workspaceSize)
+	workspaceStorage = strings.TrimSpace(workspaceStorage)
+	workspaceWait = strings.TrimSpace(workspaceWait)
+	if workspace != "" && workspaceCreate != "" {
+		return fmt.Errorf("--workspace and --workspace-create are mutually exclusive")
+	}
+	if strings.HasPrefix(workspace, "new:") {
+		name := strings.TrimSpace(strings.TrimPrefix(workspace, "new:"))
+		if name == "" {
+			return fmt.Errorf("workspace name is required after new:")
+		}
+		if workspaceCreate != "" {
+			return fmt.Errorf("--workspace new:<name> cannot be combined with --workspace-create")
+		}
+		workspaceCreate = name
+		workspace = ""
+	}
+	if stateful && workspace == "" && workspaceCreate == "" {
+		defaultName, err := defaultStatefulWorkspaceName(repo)
+		if err != nil {
+			return err
+		}
+		workspaceCreate = defaultName
+	}
+
+	var workspaceID *string
+	if workspace != "" {
+		value := strings.TrimSpace(workspace)
+		if value != "" {
+			workspaceID = &value
+		}
+	}
+	var workspaceWaitSeconds *int
+	if workspaceWait != "" {
+		workspaceWaitSeconds, err = parseWorkspaceWaitSeconds(workspaceWait)
+		if err != nil {
+			return err
+		}
+		if workspaceID == nil && workspaceCreate == "" {
+			return fmt.Errorf("--workspace-wait requires --workspace or --workspace-create")
+		}
+	}
+	var workspaceCreateReq *workspaceCreateRequest
+	if workspaceCreate != "" {
+		sizeGB := 0
+		if workspaceSize == "" {
+			if stateful {
+				sizeGB = defaultStatefulWorkspaceSizeGB
+			} else {
+				return fmt.Errorf("--workspace-size is required when creating a workspace")
+			}
+		} else {
+			sizeGB, err = parseSizeGB(workspaceSize)
+			if err != nil {
+				return err
+			}
+		}
+		storage := workspaceStorage
+		if storage == "" && stateful {
+			storage = defaultStatefulWorkspaceStorage
+		}
+		workspaceCreateReq = &workspaceCreateRequest{
+			Name:    workspaceCreate,
+			SizeGB:  sizeGB,
+			Storage: storage,
+		}
+	} else if workspaceSize != "" || workspaceStorage != "" {
+		return fmt.Errorf("--workspace-size/--workspace-storage require workspace creation (use --workspace new:<name> or --workspace-create)")
+	}
 
 	client := newAPIClient(opts.socketPath, opts.timeout)
 	req := jobCreateRequest{
-		RepoURL:    repo,
-		Ref:        ref,
-		Profile:    profile,
-		Task:       task,
-		Mode:       mode,
-		TTLMinutes: ttlMinutes,
-		Keepalive:  keepalive.Ptr(),
+		RepoURL:              repo,
+		Ref:                  ref,
+		Profile:              profile,
+		Task:                 task,
+		Mode:                 mode,
+		TTLMinutes:           ttlMinutes,
+		Keepalive:            keepalive.Ptr(),
+		WorkspaceID:          workspaceID,
+		WorkspaceCreate:      workspaceCreateReq,
+		WorkspaceWaitSeconds: workspaceWaitSeconds,
 	}
 	payload, err := client.doJSON(ctx, http.MethodPost, "/v1/jobs", req)
 	if err != nil {
+		err = wrapJobWorkspaceCompatibilityError(err)
+		err = wrapJobWorkspaceConflict(workspaceID, workspaceCreateReq, workspaceWaitSeconds, err)
+		err = wrapWorkspaceNotFound(workspaceTargetName(workspaceID, workspaceCreateReq), err)
 		return wrapUnknownProfileError(ctx, client, profile, err)
 	}
 	if opts.jsonOutput {
@@ -2003,6 +2094,88 @@ func parseSizeGB(value string) (int, error) {
 		return 0, fmt.Errorf("invalid size %q", value)
 	}
 	return size, nil
+}
+
+// parseWorkspaceWaitSeconds parses a wait duration or seconds into seconds.
+// Returns nil if the value is empty.
+func parseWorkspaceWaitSeconds(value string) (*int, error) {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return nil, nil
+	}
+	if seconds, err := strconv.Atoi(value); err == nil {
+		if seconds <= 0 {
+			return nil, fmt.Errorf("workspace-wait must be positive")
+		}
+		return &seconds, nil
+	}
+	dur, err := time.ParseDuration(value)
+	if err != nil {
+		return nil, fmt.Errorf("invalid workspace-wait %q", value)
+	}
+	if dur <= 0 {
+		return nil, fmt.Errorf("workspace-wait must be positive")
+	}
+	seconds := int(math.Ceil(dur.Seconds()))
+	if seconds <= 0 {
+		seconds = 1
+	}
+	return &seconds, nil
+}
+
+func defaultStatefulWorkspaceName(repo string) (string, error) {
+	repo = strings.TrimSpace(repo)
+	if repo == "" {
+		return "", fmt.Errorf("repo is required to derive workspace name")
+	}
+	base := strings.TrimRight(repo, "/")
+	lastSlash := strings.LastIndex(base, "/")
+	lastColon := strings.LastIndex(base, ":")
+	index := lastSlash
+	if lastColon > index {
+		index = lastColon
+	}
+	if index >= 0 && index+1 < len(base) {
+		base = base[index+1:]
+	}
+	base = strings.TrimSuffix(base, ".git")
+	slug := slugifyWorkspaceName(base)
+	if slug == "" {
+		return "stateful-workspace", nil
+	}
+	return "stateful-" + slug, nil
+}
+
+func slugifyWorkspaceName(value string) string {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return ""
+	}
+	var b strings.Builder
+	b.Grow(len(value))
+	lastDash := false
+	for _, r := range strings.ToLower(value) {
+		if (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') {
+			b.WriteRune(r)
+			lastDash = false
+			continue
+		}
+		if !lastDash {
+			b.WriteByte('-')
+			lastDash = true
+		}
+	}
+	return strings.Trim(b.String(), "-")
+}
+
+func workspaceTargetName(workspaceID *string, create *workspaceCreateRequest) string {
+	if create != nil && strings.TrimSpace(create.Name) != "" {
+		return create.Name
+	}
+	if workspaceID != nil {
+		return *workspaceID
+	}
+	return ""
 }
 
 func orDash(value string) string {
