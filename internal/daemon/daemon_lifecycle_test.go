@@ -46,6 +46,9 @@ func cleanupService(t *testing.T, svc *Service, cfg config.Config) {
 	if svc.unixListener != nil {
 		_ = svc.unixListener.Close()
 	}
+	if svc.controlListener != nil {
+		_ = svc.controlListener.Close()
+	}
 	if svc.bootstrapListener != nil {
 		_ = svc.bootstrapListener.Close()
 	}

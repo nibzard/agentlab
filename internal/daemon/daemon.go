@@ -57,10 +57,12 @@ type Service struct {
 	profiles          map[string]models.Profile
 	store             *db.Store
 	unixListener      net.Listener
+	controlListener   net.Listener
 	bootstrapListener net.Listener
 	artifactListener  net.Listener
 	metricsListener   net.Listener
 	unixServer        *http.Server
+	controlServer     *http.Server
 	bootstrapServer   *http.Server
 	artifactServer    *http.Server
 	metricsServer     *http.Server
@@ -153,10 +155,23 @@ func NewService(cfg config.Config, profiles map[string]models.Profile, store *db
 		_ = unixListener.Close()
 		return nil, fmt.Errorf("listen artifact %s: %w", cfg.ArtifactListen, err)
 	}
+	var controlListener net.Listener
+	if strings.TrimSpace(cfg.ControlListen) != "" {
+		controlListener, err = net.Listen("tcp", cfg.ControlListen)
+		if err != nil {
+			_ = artifactListener.Close()
+			_ = bootstrapListener.Close()
+			_ = unixListener.Close()
+			return nil, fmt.Errorf("listen control %s: %w", cfg.ControlListen, err)
+		}
+	}
 	var metricsListener net.Listener
 	if metrics != nil {
 		metricsListener, err = net.Listen("tcp", cfg.MetricsListen)
 		if err != nil {
+			if controlListener != nil {
+				_ = controlListener.Close()
+			}
 			_ = artifactListener.Close()
 			_ = bootstrapListener.Close()
 			_ = unixListener.Close()
@@ -224,11 +239,13 @@ func NewService(cfg config.Config, profiles map[string]models.Profile, store *db
 
 	localMux := http.NewServeMux()
 	localMux.HandleFunc("/healthz", healthHandler)
-	NewControlAPI(store, profiles, sandboxManager, workspaceManager, jobOrchestrator, cfg.ArtifactDir, log.Default()).
+	controlAPI := NewControlAPI(store, profiles, sandboxManager, workspaceManager, jobOrchestrator, cfg.ArtifactDir, log.Default()).
 		WithMetrics(metrics).
 		WithMetricsEnabled(metrics != nil).
 		WithExposurePublisher(exposurePublisher).
-		Register(localMux)
+		WithAgentSubnet(agentCIDR).
+		WithTailscaleStatus(defaultTailscaleDNSName)
+	controlAPI.Register(localMux)
 
 	bootstrapMux := http.NewServeMux()
 	bootstrapMux.HandleFunc("/healthz", healthHandler)
@@ -261,6 +278,25 @@ func NewService(cfg config.Config, profiles map[string]models.Profile, store *db
 		ReadHeaderTimeout: 5 * time.Second,
 		IdleTimeout:       2 * time.Minute,
 	}
+	var controlServer *http.Server
+	if controlListener != nil {
+		auth, err := NewControlAuth(cfg.ControlAuthToken, cfg.ControlAllowCIDRs)
+		if err != nil {
+			if metricsListener != nil {
+				_ = metricsListener.Close()
+			}
+			_ = controlListener.Close()
+			_ = artifactListener.Close()
+			_ = bootstrapListener.Close()
+			_ = unixListener.Close()
+			return nil, fmt.Errorf("control auth setup: %w", err)
+		}
+		controlServer = &http.Server{
+			Handler:           auth.Wrap(localMux),
+			ReadHeaderTimeout: 5 * time.Second,
+			IdleTimeout:       2 * time.Minute,
+		}
+	}
 	bootstrapServer := &http.Server{
 		Handler:           bootstrapMux,
 		ReadHeaderTimeout: 5 * time.Second,
@@ -288,10 +324,12 @@ func NewService(cfg config.Config, profiles map[string]models.Profile, store *db
 		profiles:          profiles,
 		store:             store,
 		unixListener:      unixListener,
+		controlListener:   controlListener,
 		bootstrapListener: bootstrapListener,
 		artifactListener:  artifactListener,
 		metricsListener:   metricsListener,
 		unixServer:        unixServer,
+		controlServer:     controlServer,
 		bootstrapServer:   bootstrapServer,
 		artifactServer:    artifactServer,
 		metricsServer:     metricsServer,
@@ -315,10 +353,16 @@ func NewService(cfg config.Config, profiles map[string]models.Profile, store *db
 // Returns any error that occurred during serving (excluding http.ErrServerClosed).
 func (s *Service) Serve(ctx context.Context) error {
 	serverCount := 3
+	if s.controlServer != nil {
+		serverCount++
+	}
 	if s.metricsServer != nil {
 		serverCount++
 	}
 	log.Printf("agentlabd: listening on unix=%s", s.cfg.SocketPath)
+	if s.controlServer != nil {
+		log.Printf("agentlabd: listening on control=%s", s.cfg.ControlListen)
+	}
 	log.Printf("agentlabd: listening on bootstrap=%s", s.cfg.BootstrapListen)
 	log.Printf("agentlabd: listening on artifacts=%s", s.cfg.ArtifactListen)
 	if s.metricsServer != nil {
@@ -337,6 +381,9 @@ func (s *Service) Serve(ctx context.Context) error {
 
 	errCh := make(chan error, serverCount)
 	go func() { errCh <- s.unixServer.Serve(s.unixListener) }()
+	if s.controlServer != nil {
+		go func() { errCh <- s.controlServer.Serve(s.controlListener) }()
+	}
 	go func() { errCh <- s.bootstrapServer.Serve(s.bootstrapListener) }()
 	go func() { errCh <- s.artifactServer.Serve(s.artifactListener) }()
 	if s.metricsServer != nil {
@@ -372,6 +419,9 @@ func (s *Service) shutdown() {
 	ctx, cancel := context.WithTimeout(context.Background(), shutdownTimeout)
 	defer cancel()
 	_ = s.unixServer.Shutdown(ctx)
+	if s.controlServer != nil {
+		_ = s.controlServer.Shutdown(ctx)
+	}
 	_ = s.bootstrapServer.Shutdown(ctx)
 	_ = s.artifactServer.Shutdown(ctx)
 	if s.metricsServer != nil {

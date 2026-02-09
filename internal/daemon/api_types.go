@@ -27,6 +27,12 @@ type V1StatusResponse struct {
 	RecentFailures []V1Event         `json:"recent_failures"`
 }
 
+type V1HostResponse struct {
+	Version      string `json:"version"`
+	AgentSubnet  string `json:"agent_subnet,omitempty"`
+	TailscaleDNS string `json:"tailscale_dns,omitempty"`
+}
+
 type V1BootstrapFetchRequest struct {
 	Token string `json:"token"`
 	VMID  int    `json:"vmid"`

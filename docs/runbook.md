@@ -221,6 +221,49 @@ If tailnet access fails:
 - Verify nftables rules are active: `systemctl status agentlab-nftables.service`.
 - Re-run `scripts/net/apply.sh --apply` if rules were not installed.
 
+## Remote control plane (tailnet-friendly)
+
+AgentLabd can expose the control API over TCP so you can run `agentlab` from
+another tailnet device. This listener is optional and must be protected with a
+Bearer token.
+
+Recommended pattern A: bind to loopback and publish with Tailscale Serve:
+
+```yaml
+control_listen: "127.0.0.1:8845"
+control_auth_token: "replace-with-generated-token"
+control_allow_cidrs:
+  - "127.0.0.1/32"
+```
+
+```bash
+sudo tailscale serve --tcp=8845 tcp://127.0.0.1:8845
+```
+
+Recommended pattern B: bind directly to the host's tailnet IP:
+
+```yaml
+control_listen: "100.64.12.34:8845"
+control_auth_token: "replace-with-generated-token"
+control_allow_cidrs:
+  - "100.64.0.0/10"
+```
+
+Notes:
+- `control_auth_token` is required whenever `control_listen` is set.
+- Wildcard binds (`0.0.0.0` or `[::]`) are rejected unless `control_allow_cidrs`
+  is explicitly configured.
+- When using Tailscale Serve as a proxy, `RemoteAddr` will typically be
+  `127.0.0.1`, so include `127.0.0.1/32` in the allowlist if you enable it.
+- `GET /v1/host` returns the daemon version, agent subnet, and MagicDNS name
+  (when available), which helps remote clients auto-configure endpoints.
+
+Threat model:
+- The control plane can create/destroy VMs and access artifact metadata.
+  Treat the token as a high-privilege secret and rotate it if exposed.
+- Prefer tailnet-only access; do not expose the control listener to LAN/WAN
+  directly.
+
 ## Tailscale Serve exposures
 
 AgentLab can expose sandbox ports over the tailnet using host-level Tailscale Serve.

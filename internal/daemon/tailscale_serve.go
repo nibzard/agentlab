@@ -142,6 +142,11 @@ func (p *TailscaleServePublisher) resolveDNSName(ctx context.Context) (string, e
 	return dns, nil
 }
 
+func defaultTailscaleDNSName(ctx context.Context) (string, error) {
+	publisher := &TailscaleServePublisher{Runner: proxmox.ExecRunner{}}
+	return publisher.resolveDNSName(ctx)
+}
+
 func (p *TailscaleServePublisher) shouldHTTPCheck(port int) bool {
 	ports := p.HTTPPorts
 	if ports == nil {

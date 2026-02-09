@@ -21,6 +21,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/agentlab/agentlab/internal/buildinfo"
 	"github.com/agentlab/agentlab/internal/db"
 	"github.com/agentlab/agentlab/internal/models"
 )
@@ -105,6 +106,8 @@ type ControlAPI struct {
 	artifactRoot      string
 	metrics           *Metrics
 	metricsEnabled    bool
+	agentSubnet       string
+	tailscaleStatus   func(context.Context) (string, error)
 	logger            *log.Logger
 	now               func() time.Time
 }
@@ -155,6 +158,24 @@ func (api *ControlAPI) WithMetrics(metrics *Metrics) *ControlAPI {
 	return api
 }
 
+// WithAgentSubnet annotates host info responses with the configured agent subnet.
+func (api *ControlAPI) WithAgentSubnet(subnet string) *ControlAPI {
+	if api == nil {
+		return api
+	}
+	api.agentSubnet = strings.TrimSpace(subnet)
+	return api
+}
+
+// WithTailscaleStatus provides a lookup hook for MagicDNS discovery.
+func (api *ControlAPI) WithTailscaleStatus(fn func(context.Context) (string, error)) *ControlAPI {
+	if api == nil {
+		return api
+	}
+	api.tailscaleStatus = fn
+	return api
+}
+
 // WithExposurePublisher wires the exposure publisher used for tailscale serve integration.
 func (api *ControlAPI) WithExposurePublisher(publisher ExposurePublisher) *ControlAPI {
 	if api == nil {
@@ -180,6 +201,7 @@ func (api *ControlAPI) Register(mux *http.ServeMux) {
 	mux.HandleFunc("/v1/jobs/", api.handleJobByID)
 	mux.HandleFunc("/v1/profiles", api.handleProfiles)
 	mux.HandleFunc("/v1/status", api.handleStatus)
+	mux.HandleFunc("/v1/host", api.handleHost)
 	mux.HandleFunc("/v1/sandboxes", api.handleSandboxes)
 	mux.HandleFunc("/v1/sandboxes/", api.handleSandboxByID)
 	mux.HandleFunc("/v1/sandboxes/stop_all", api.handleSandboxStopAll)
@@ -696,6 +718,29 @@ func (api *ControlAPI) handleStatus(w http.ResponseWriter, r *http.Request) {
 	}
 	for _, ev := range failureEvents {
 		resp.RecentFailures = append(resp.RecentFailures, eventToV1(ev))
+	}
+	writeJSON(w, http.StatusOK, resp)
+}
+
+func (api *ControlAPI) handleHost(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		writeMethodNotAllowed(w, []string{http.MethodGet})
+		return
+	}
+	resp := V1HostResponse{
+		Version:     buildinfo.Version,
+		AgentSubnet: strings.TrimSpace(api.agentSubnet),
+	}
+	if api.tailscaleStatus != nil {
+		if dns, err := api.tailscaleStatus(r.Context()); err == nil {
+			dns = strings.TrimSpace(dns)
+			dns = strings.TrimSuffix(dns, ".")
+			if dns != "" {
+				resp.TailscaleDNS = dns
+			}
+		} else if api.logger != nil {
+			api.logger.Printf("host info: tailscale status unavailable: %v", err)
+		}
 	}
 	writeJSON(w, http.StatusOK, resp)
 }

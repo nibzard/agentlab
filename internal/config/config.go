@@ -41,6 +41,9 @@ type Config struct {
 	LogDir                  string
 	RunDir                  string
 	SocketPath              string
+	ControlListen           string
+	ControlAuthToken        string
+	ControlAllowCIDRs       []string
 	DBPath                  string
 	BootstrapListen         string
 	ArtifactListen          string
@@ -90,6 +93,9 @@ type FileConfig struct {
 	LogDir                  string   `yaml:"log_dir"`
 	RunDir                  string   `yaml:"run_dir"`
 	SocketPath              string   `yaml:"socket_path"`
+	ControlListen           string   `yaml:"control_listen"`
+	ControlAuthToken        string   `yaml:"control_auth_token"`
+	ControlAllowCIDRs       []string `yaml:"control_allow_cidrs"`
 	DBPath                  string   `yaml:"db_path"`
 	BootstrapListen         string   `yaml:"bootstrap_listen"`
 	ArtifactListen          string   `yaml:"artifact_listen"`
@@ -132,6 +138,7 @@ type FileConfig struct {
 //   - DataDir: /var/lib/agentlab
 //   - RunDir: /run/agentlab
 //   - SocketPath: /run/agentlab/agentlabd.sock
+//   - ControlListen: "" (disabled)
 //   - BootstrapListen: 10.77.0.1:8844
 //   - ArtifactListen: 10.77.0.1:8846
 //   - MetricsListen: "" (disabled)
@@ -159,6 +166,9 @@ func DefaultConfig() Config {
 		LogDir:                  "/var/log/agentlab",
 		RunDir:                  runDir,
 		SocketPath:              filepath.Join(runDir, "agentlabd.sock"),
+		ControlListen:           "",
+		ControlAuthToken:        "",
+		ControlAllowCIDRs:       nil,
 		DBPath:                  filepath.Join(dataDir, "agentlab.db"),
 		BootstrapListen:         "10.77.0.1:8844",
 		ArtifactListen:          "10.77.0.1:8846",
@@ -178,13 +188,13 @@ func DefaultConfig() Config {
 		IdleStopInterval:        1 * time.Minute,
 		IdleStopMinutesDefault:  30,
 		IdleStopCPUThreshold:    0.05,
-		ProxmoxBackend:     "shell",
-		ProxmoxCloneMode:   "linked",
-		ProxmoxAPIURL:      "https://localhost:8006",
-		ProxmoxAPIToken:    "", // Must be configured
-		ProxmoxNode:        "", // Auto-detected if empty
-		ProxmoxTLSInsecure: true,
-		ProxmoxTLSCAPath:   "",
+		ProxmoxBackend:          "shell",
+		ProxmoxCloneMode:        "linked",
+		ProxmoxAPIURL:           "https://localhost:8006",
+		ProxmoxAPIToken:         "", // Must be configured
+		ProxmoxNode:             "", // Auto-detected if empty
+		ProxmoxTLSInsecure:      true,
+		ProxmoxTLSCAPath:        "",
 	}
 }
 
@@ -260,6 +270,15 @@ func applyFileConfig(cfg *Config, fileCfg FileConfig) error {
 	}
 	if fileCfg.SocketPath != "" {
 		cfg.SocketPath = fileCfg.SocketPath
+	}
+	if fileCfg.ControlListen != "" {
+		cfg.ControlListen = fileCfg.ControlListen
+	}
+	if fileCfg.ControlAuthToken != "" {
+		cfg.ControlAuthToken = fileCfg.ControlAuthToken
+	}
+	if len(fileCfg.ControlAllowCIDRs) > 0 {
+		cfg.ControlAllowCIDRs = append([]string(nil), fileCfg.ControlAllowCIDRs...)
 	}
 	if fileCfg.DBPath != "" {
 		cfg.DBPath = fileCfg.DBPath
@@ -386,6 +405,8 @@ func applyFileConfig(cfg *Config, fileCfg FileConfig) error {
 //   - When using wildcard listen addresses (0.0.0.0 or [::]),
 //     agent_subnet and appropriate controller URLs must be set
 //   - metrics_listen must bind to loopback only
+//   - control_listen requires control_auth_token
+//   - control_allow_cidrs entries must be valid CIDRs; required for wildcard control_listen
 //   - proxmox_backend must be "shell" or "api"
 //   - proxmox_api_token is required when using "api" backend
 //   - URLs must use http or https schemes
@@ -403,6 +424,27 @@ func (c Config) Validate() error {
 	}
 	if c.SocketPath == "" {
 		return fmt.Errorf("socket_path is required")
+	}
+	controlListen := strings.TrimSpace(c.ControlListen)
+	if controlListen != "" {
+		controlHost, _, err := net.SplitHostPort(controlListen)
+		if err != nil {
+			return fmt.Errorf("control_listen must be host:port: %w", err)
+		}
+		if strings.TrimSpace(c.ControlAuthToken) == "" {
+			return fmt.Errorf("control_auth_token is required when control_listen is set")
+		}
+		allowCIDRs, err := validateCIDRList(c.ControlAllowCIDRs, "control_allow_cidrs")
+		if err != nil {
+			return err
+		}
+		if isWildcardHost(controlHost) && len(allowCIDRs) == 0 {
+			return fmt.Errorf("control_allow_cidrs is required when control_listen binds to wildcard")
+		}
+	} else {
+		if _, err := validateCIDRList(c.ControlAllowCIDRs, "control_allow_cidrs"); err != nil {
+			return err
+		}
 	}
 	if c.BootstrapListen == "" {
 		return fmt.Errorf("bootstrap_listen is required")
@@ -526,6 +568,21 @@ func isWildcardHost(host string) bool {
 		return false
 	}
 	return ip.IsUnspecified()
+}
+
+func validateCIDRList(values []string, field string) ([]string, error) {
+	clean := make([]string, 0, len(values))
+	for _, raw := range values {
+		value := strings.TrimSpace(raw)
+		if value == "" {
+			continue
+		}
+		if _, _, err := net.ParseCIDR(value); err != nil {
+			return nil, fmt.Errorf("%s must contain valid CIDR entries: %w", field, err)
+		}
+		clean = append(clean, value)
+	}
+	return clean, nil
 }
 
 func validateURL(value, field string) error {
