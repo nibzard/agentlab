@@ -230,6 +230,34 @@ type V1WorkspacesResponse struct {
 	Workspaces []V1WorkspaceResponse `json:"workspaces"`
 }
 
+type V1WorkspaceCheckVolume struct {
+	VolumeID string `json:"volid"`
+	Storage  string `json:"storage,omitempty"`
+	Path     string `json:"path,omitempty"`
+	Exists   bool   `json:"exists"`
+}
+
+type V1WorkspaceCheckRemediation struct {
+	Action  string `json:"action"`
+	Command string `json:"command,omitempty"`
+	Note    string `json:"note,omitempty"`
+}
+
+type V1WorkspaceCheckFinding struct {
+	Code        string                        `json:"code"`
+	Severity    string                        `json:"severity"`
+	Message     string                        `json:"message"`
+	Details     map[string]string             `json:"details,omitempty"`
+	Remediation []V1WorkspaceCheckRemediation `json:"remediation,omitempty"`
+}
+
+type V1WorkspaceCheckResponse struct {
+	Workspace V1WorkspaceResponse       `json:"workspace"`
+	Volume    V1WorkspaceCheckVolume    `json:"volume"`
+	Findings  []V1WorkspaceCheckFinding `json:"findings"`
+	CheckedAt string                    `json:"checked_at"`
+}
+
 type V1WorkspaceRebindResponse struct {
 	Workspace V1WorkspaceResponse `json:"workspace"`
 	Sandbox   V1SandboxResponse   `json:"sandbox"`

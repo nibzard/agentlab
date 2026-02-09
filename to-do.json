@@ -2117,7 +2117,7 @@
       "id": "T092",
       "title": "Workspace check: DB <-> Proxmox reconciliation and invariants",
       "priority": 2,
-      "status": "todo",
+      "status": "done",
       "details": "Add `agentlab workspace check <workspace>` to detect and explain inconsistencies (missing volume, stale attached_vmid, VM missing, sandbox record drift, wrong disk slot). Output should be actionable: exact remediation steps, and non-destructive by default.",
       "steps": [
         "Extend proxmox.Backend with minimal inspection primitives (VM config read + volume existence/path) needed for checks.",
@@ -2136,20 +2136,28 @@
       ],
       "files": [
         "internal/proxmox/proxmox.go",
-        "internal/proxmox/api_backend.go",
+        "internal/proxmox/errors.go",
+        "internal/proxmox/volume_helpers.go",
         "internal/proxmox/shell_backend.go",
+        "internal/proxmox/api_backend.go",
+        "internal/daemon/workspace_check.go",
         "internal/daemon/api.go",
         "internal/daemon/api_types.go",
-        "internal/daemon/workspace_manager.go",
         "cmd/agentlab/commands.go",
         "cmd/agentlab/main.go",
-        "internal/daemon/*_test.go",
-        "internal/proxmox/*_test.go"
+        "cmd/agentlab/api.go",
+        "internal/daemon/workspace_check_test.go",
+        "internal/proxmox/shell_backend_test.go",
+        "internal/proxmox/api_backend_test.go",
+        "internal/daemon/sandbox_manager_test.go",
+        "internal/daemon/job_orchestrator_test.go",
+        "cmd/agentlab/main_test.go"
       ],
       "depends_on": [
         "T024"
       ],
-      "created_at": "2026-02-09T09:49:20Z"
+      "created_at": "2026-02-09T09:49:20Z",
+      "updated_at": "2026-02-09T14:58:45Z"
     },
     {
       "id": "T093",
@@ -2679,13 +2687,14 @@
         "cmd/agentlab/ssh.go",
         "cmd/agentlab/ssh_test.go",
         "docs/runbook.md",
-        "docs/troubleshooting.md"
+        "docs/troubleshooting.md",
+        "to-do.json"
       ],
       "depends_on": [
         "T106"
       ],
       "created_at": "2026-02-09T12:17:58Z",
-      "updated_at": "2026-02-09T14:37:43Z"
+      "updated_at": "2026-02-09T14:40:01Z"
     },
     {
       "id": "T109",

@@ -360,6 +360,55 @@ func TestShellBackendGuestIPDHCPFallback(t *testing.T) {
 	}
 }
 
+func TestShellBackendVMConfig(t *testing.T) {
+	config := "name: test-vm\nscsi1: local-zfs:vm-101-disk-1,size=10G\nagent: 1\n"
+	runner := &fakeRunner{responses: []runnerResponse{{stdout: config}}}
+	backend := &ShellBackend{Runner: runner}
+
+	got, err := backend.VMConfig(context.Background(), 101)
+	if err != nil {
+		t.Fatalf("VMConfig() error = %v", err)
+	}
+	if got["name"] != "test-vm" {
+		t.Fatalf("VMConfig name = %q", got["name"])
+	}
+	if got["scsi1"] != "local-zfs:vm-101-disk-1,size=10G" {
+		t.Fatalf("VMConfig scsi1 = %q", got["scsi1"])
+	}
+
+	want := []runnerCall{{
+		name: "qm",
+		args: []string{"config", "101"},
+	}}
+	if !reflect.DeepEqual(runner.calls, want) {
+		t.Fatalf("VMConfig calls = %#v, want %#v", runner.calls, want)
+	}
+}
+
+func TestShellBackendVolumeInfo(t *testing.T) {
+	runner := &fakeRunner{responses: []runnerResponse{{stdout: "/rpool/data/vm-0-disk-0\n"}}}
+	backend := &ShellBackend{Runner: runner}
+
+	info, err := backend.VolumeInfo(context.Background(), "local-zfs:vm-0-disk-0")
+	if err != nil {
+		t.Fatalf("VolumeInfo() error = %v", err)
+	}
+	if info.Path != "/rpool/data/vm-0-disk-0" {
+		t.Fatalf("VolumeInfo path = %q", info.Path)
+	}
+	if info.Storage != "local-zfs" {
+		t.Fatalf("VolumeInfo storage = %q", info.Storage)
+	}
+
+	want := []runnerCall{{
+		name: "pvesm",
+		args: []string{"path", "local-zfs:vm-0-disk-0"},
+	}}
+	if !reflect.DeepEqual(runner.calls, want) {
+		t.Fatalf("VolumeInfo calls = %#v, want %#v", runner.calls, want)
+	}
+}
+
 func TestShellBackendCreateVolume(t *testing.T) {
 	runner := &fakeRunner{responses: []runnerResponse{{stdout: "local-zfs:vm-0-disk-1\n"}}}
 	backend := &ShellBackend{Runner: runner}

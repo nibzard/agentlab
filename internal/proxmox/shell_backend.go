@@ -377,6 +377,17 @@ func (b *ShellBackend) GuestIP(ctx context.Context, vmid VMID) (string, error) {
 	return "", fmt.Errorf("%w: dhcp=%v qemu-guest-agent=%v", ErrGuestIPNotFound, dhcpErr, qgaErr)
 }
 
+func (b *ShellBackend) VMConfig(ctx context.Context, vmid VMID) (map[string]string, error) {
+	out, err := b.run(ctx, b.qmPath(), "config", strconv.Itoa(int(vmid)))
+	if err != nil {
+		if isMissingVMError(err) {
+			return nil, fmt.Errorf("%w: %v", ErrVMNotFound, err)
+		}
+		return nil, err
+	}
+	return parseQMConfig(out), nil
+}
+
 func (b *ShellBackend) runner() CommandRunner {
 	if b.Runner != nil {
 		return b.Runner
@@ -588,6 +599,26 @@ func (b *ShellBackend) DeleteVolume(ctx context.Context, volumeID string) error 
 	return err
 }
 
+func (b *ShellBackend) VolumeInfo(ctx context.Context, volumeID string) (VolumeInfo, error) {
+	volumeID = strings.TrimSpace(volumeID)
+	if volumeID == "" {
+		return VolumeInfo{}, errors.New("volume id is required")
+	}
+	out, err := b.run(ctx, b.pvesmPath(), "path", volumeID)
+	if err != nil {
+		if isMissingVolumeError(err) {
+			return VolumeInfo{}, fmt.Errorf("%w: %v", ErrVolumeNotFound, err)
+		}
+		return VolumeInfo{}, err
+	}
+	info := VolumeInfo{
+		VolumeID: volumeID,
+		Storage:  volumeStorage(volumeID),
+		Path:     strings.TrimSpace(out),
+	}
+	return info, nil
+}
+
 func (b *ShellBackend) ValidateTemplate(ctx context.Context, template VMID) error {
 	// Check if VM exists
 	out, err := b.run(ctx, b.qmPath(), "config", strconv.Itoa(int(template)))
@@ -719,6 +750,26 @@ func (b *ShellBackend) leasePaths() []string {
 
 func hasGlob(path string) bool {
 	return strings.ContainsAny(path, "*?[")
+}
+
+func parseQMConfig(config string) map[string]string {
+	out := make(map[string]string)
+	for _, line := range strings.Split(config, "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+		parts := strings.SplitN(line, ":", 2)
+		if len(parts) != 2 {
+			continue
+		}
+		key := strings.TrimSpace(parts[0])
+		if key == "" {
+			continue
+		}
+		out[key] = strings.TrimSpace(parts[1])
+	}
+	return out
 }
 
 func parseNetMACs(config string) []string {

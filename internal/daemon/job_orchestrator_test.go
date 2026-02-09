@@ -92,6 +92,10 @@ func (b *orchestratorBackend) GuestIP(context.Context, proxmox.VMID) (string, er
 	return b.guestIP, nil
 }
 
+func (b *orchestratorBackend) VMConfig(context.Context, proxmox.VMID) (map[string]string, error) {
+	return map[string]string{}, nil
+}
+
 func (b *orchestratorBackend) CreateVolume(context.Context, string, string, int) (string, error) {
 	return "local-zfs:workspace", nil
 }
@@ -106,6 +110,10 @@ func (b *orchestratorBackend) DetachVolume(context.Context, proxmox.VMID, string
 
 func (b *orchestratorBackend) DeleteVolume(context.Context, string) error {
 	return nil
+}
+
+func (b *orchestratorBackend) VolumeInfo(context.Context, string) (proxmox.VolumeInfo, error) {
+	return proxmox.VolumeInfo{}, nil
 }
 
 func (b *orchestratorBackend) ValidateTemplate(context.Context, proxmox.VMID) error {

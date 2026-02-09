@@ -90,6 +90,7 @@ var (
 //   - POST   /v1/workspaces           - Create a workspace
 //   - GET    /v1/workspaces           - List workspaces
 //   - GET    /v1/workspaces/{id}      - Get workspace details
+//   - GET    /v1/workspaces/{id}/check  - Check workspace consistency
 //   - POST   /v1/workspaces/{id}/attach  - Attach workspace to VM
 //   - POST   /v1/workspaces/{id}/detach  - Detach workspace from VM
 //   - POST   /v1/workspaces/{id}/rebind   - Rebind workspace to new VM
@@ -869,6 +870,13 @@ func (api *ControlAPI) handleWorkspaceByID(w http.ResponseWriter, r *http.Reques
 		return
 	case 2:
 		switch parts[1] {
+		case "check":
+			if r.Method != http.MethodGet {
+				writeMethodNotAllowed(w, []string{http.MethodGet})
+				return
+			}
+			api.handleWorkspaceCheck(w, r, id)
+			return
 		case "attach":
 			if r.Method != http.MethodPost {
 				writeMethodNotAllowed(w, []string{http.MethodPost})
@@ -1180,6 +1188,23 @@ func (api *ControlAPI) handleWorkspaceGet(w http.ResponseWriter, r *http.Request
 		return
 	}
 	writeJSON(w, http.StatusOK, workspaceToV1(workspace))
+}
+
+func (api *ControlAPI) handleWorkspaceCheck(w http.ResponseWriter, r *http.Request, id string) {
+	if api.workspaceMgr == nil {
+		writeError(w, http.StatusInternalServerError, "workspace manager unavailable")
+		return
+	}
+	result, err := api.workspaceMgr.Check(r.Context(), id)
+	if err != nil {
+		if errors.Is(err, ErrWorkspaceNotFound) {
+			writeError(w, http.StatusNotFound, "workspace not found")
+			return
+		}
+		writeError(w, http.StatusInternalServerError, "failed to check workspace")
+		return
+	}
+	writeJSON(w, http.StatusOK, workspaceCheckToV1(result))
 }
 
 func (api *ControlAPI) handleWorkspaceAttach(w http.ResponseWriter, r *http.Request, id string) {
@@ -2044,6 +2069,45 @@ func workspaceToV1(ws models.Workspace) V1WorkspaceResponse {
 		resp.AttachedVMID = &value
 	}
 	return resp
+}
+
+func workspaceCheckToV1(result WorkspaceCheckResult) V1WorkspaceCheckResponse {
+	resp := V1WorkspaceCheckResponse{
+		Workspace: workspaceToV1(result.Workspace),
+		Volume: V1WorkspaceCheckVolume{
+			VolumeID: result.Volume.VolumeID,
+			Storage:  result.Volume.Storage,
+			Path:     result.Volume.Path,
+			Exists:   result.Volume.Exists,
+		},
+		Findings:  make([]V1WorkspaceCheckFinding, 0, len(result.Findings)),
+		CheckedAt: result.CheckedAt.UTC().Format(time.RFC3339Nano),
+	}
+	for _, finding := range result.Findings {
+		resp.Findings = append(resp.Findings, V1WorkspaceCheckFinding{
+			Code:        finding.Code,
+			Severity:    finding.Severity,
+			Message:     finding.Message,
+			Details:     finding.Details,
+			Remediation: workspaceRemediationToV1(finding.Remediation),
+		})
+	}
+	return resp
+}
+
+func workspaceRemediationToV1(remediation []WorkspaceCheckRemediation) []V1WorkspaceCheckRemediation {
+	if len(remediation) == 0 {
+		return nil
+	}
+	out := make([]V1WorkspaceCheckRemediation, 0, len(remediation))
+	for _, item := range remediation {
+		out = append(out, V1WorkspaceCheckRemediation{
+			Action:  item.Action,
+			Command: item.Command,
+			Note:    item.Note,
+		})
+	}
+	return out
 }
 
 func exposureToV1(exposure db.Exposure) V1Exposure {

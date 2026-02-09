@@ -9,7 +9,7 @@
 //
 //	job:       Manage jobs (run, show, artifacts)
 //	sandbox:   Manage sandboxes (new, list, show, start, stop, revert, destroy, lease, prune, expose, exposed, unexpose)
-//	workspace: Manage workspaces (create, list, attach, detach, rebind)
+//	workspace: Manage workspaces (create, list, check, attach, detach, rebind)
 //	profile:   Manage profiles (list)
 //	ssh:       Generate SSH connection parameters
 //	logs:      View sandbox event logs
@@ -836,6 +836,8 @@ func runWorkspaceCommand(ctx context.Context, args []string, base commonFlags) e
 		return runWorkspaceCreate(ctx, args[1:], base)
 	case "list":
 		return runWorkspaceList(ctx, args[1:], base)
+	case "check":
+		return runWorkspaceCheck(ctx, args[1:], base)
 	case "attach":
 		return runWorkspaceAttach(ctx, args[1:], base)
 	case "detach":
@@ -846,7 +848,7 @@ func runWorkspaceCommand(ctx context.Context, args []string, base commonFlags) e
 		if !base.jsonOutput {
 			printWorkspaceUsage()
 		}
-		return unknownSubcommandError("workspace", args[0], []string{"create", "list", "attach", "detach", "rebind"})
+		return unknownSubcommandError("workspace", args[0], []string{"create", "list", "check", "attach", "detach", "rebind"})
 	}
 }
 
@@ -1660,6 +1662,45 @@ func runWorkspaceList(ctx context.Context, args []string, base commonFlags) erro
 	return nil
 }
 
+func runWorkspaceCheck(ctx context.Context, args []string, base commonFlags) error {
+	fs := newFlagSet("workspace check")
+	opts := base
+	opts.bind(fs)
+	var help bool
+	fs.BoolVar(&help, "help", false, "show help")
+	fs.BoolVar(&help, "h", false, "show help")
+	if err := parseFlags(fs, args, printWorkspaceCheckUsage, &help, opts.jsonOutput); err != nil {
+		return err
+	}
+	if fs.NArg() < 1 {
+		if !opts.jsonOutput {
+			printWorkspaceCheckUsage()
+		}
+		return fmt.Errorf("workspace is required")
+	}
+	workspace := strings.TrimSpace(fs.Arg(0))
+	if workspace == "" {
+		return fmt.Errorf("workspace is required")
+	}
+	client, err := apiClientFromFlags(opts)
+	if err != nil {
+		return err
+	}
+	payload, err := client.doJSON(ctx, http.MethodGet, fmt.Sprintf("/v1/workspaces/%s/check", workspace), nil)
+	if err != nil {
+		return wrapWorkspaceNotFound(workspace, err)
+	}
+	if opts.jsonOutput {
+		return prettyPrintJSON(os.Stdout, payload)
+	}
+	var resp workspaceCheckResponse
+	if err := json.Unmarshal(payload, &resp); err != nil {
+		return err
+	}
+	printWorkspaceCheck(resp)
+	return nil
+}
+
 func runWorkspaceAttach(ctx context.Context, args []string, base commonFlags) error {
 	fs := newFlagSet("workspace attach")
 	opts := base
@@ -2041,6 +2082,43 @@ func printWorkspaceList(workspaces []workspaceResponse) {
 	_ = w.Flush()
 }
 
+func printWorkspaceCheck(resp workspaceCheckResponse) {
+	ws := resp.Workspace
+	fmt.Printf("Workspace: %s\n", ws.Name)
+	fmt.Printf("ID: %s\n", ws.ID)
+	fmt.Printf("Storage: %s\n", ws.Storage)
+	fmt.Printf("Volume ID: %s\n", ws.VolumeID)
+	fmt.Printf("Volume Exists: %t\n", resp.Volume.Exists)
+	fmt.Printf("Volume Path: %s\n", orDash(resp.Volume.Path))
+	fmt.Printf("Attached VMID: %s\n", vmidString(ws.AttachedVMID))
+	fmt.Printf("Checked At: %s\n", resp.CheckedAt)
+	if len(resp.Findings) == 0 {
+		fmt.Println("Findings: none")
+		return
+	}
+	fmt.Println("Findings:")
+	for i, finding := range resp.Findings {
+		sev := strings.ToUpper(strings.TrimSpace(finding.Severity))
+		if sev == "" {
+			sev = "INFO"
+		}
+		fmt.Printf("%d. %s: %s\n", i+1, sev, finding.Message)
+		if details := formatWorkspaceCheckDetails(finding.Details); details != "" {
+			fmt.Printf("Details: %s\n", details)
+		}
+		for _, fix := range finding.Remediation {
+			switch {
+			case strings.TrimSpace(fix.Command) != "":
+				fmt.Printf("Suggested fix: %s\n", fix.Command)
+			case strings.TrimSpace(fix.Note) != "":
+				fmt.Printf("Suggested fix: %s\n", fix.Note)
+			case strings.TrimSpace(fix.Action) != "":
+				fmt.Printf("Suggested fix: %s\n", fix.Action)
+			}
+		}
+	}
+}
+
 func printProfileList(profiles []profileResponse) {
 	w := tabwriter.NewWriter(os.Stdout, 2, 8, 2, ' ', 0)
 	fmt.Fprintln(w, "NAME\tTEMPLATE\tUPDATED")
@@ -2399,6 +2477,26 @@ func workspaceTargetName(workspaceID *string, create *workspaceCreateRequest) st
 		return *workspaceID
 	}
 	return ""
+}
+
+func formatWorkspaceCheckDetails(details map[string]string) string {
+	if len(details) == 0 {
+		return ""
+	}
+	keys := make([]string, 0, len(details))
+	for key := range details {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	parts := make([]string, 0, len(keys))
+	for _, key := range keys {
+		value := strings.TrimSpace(details[key])
+		if value == "" {
+			continue
+		}
+		parts = append(parts, fmt.Sprintf("%s=%s", key, value))
+	}
+	return strings.Join(parts, " ")
 }
 
 func orDash(value string) string {

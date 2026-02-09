@@ -13,6 +13,10 @@ var (
 	// when the target VMID cannot be found.
 	ErrVMNotFound = errors.New("vm not found")
 
+	// ErrVolumeNotFound is returned when a volume does not exist in Proxmox storage.
+	// ABOUTME: This error is returned by VolumeInfo when the volume cannot be located.
+	ErrVolumeNotFound = errors.New("volume not found")
+
 	// ErrGuestIPNotFound is returned when the guest IP address cannot be determined.
 	// ABOUTME: This occurs when both guest agent queries and DHCP lease lookups fail
 	// to find an IP address for the VM.
