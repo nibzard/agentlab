@@ -2558,27 +2558,28 @@
         "api"
       ],
       "files": [
+        "docs/configuration.md",
+        "docs/runbook.md",
         "internal/config/config.go",
         "internal/config/config_test.go",
-        "internal/daemon/daemon.go",
-        "internal/daemon/daemon_lifecycle_test.go",
         "internal/daemon/api.go",
-        "internal/daemon/api_types.go",
         "internal/daemon/api_host_test.go",
+        "internal/daemon/api_types.go",
         "internal/daemon/control_auth.go",
         "internal/daemon/control_auth_test.go",
+        "internal/daemon/daemon.go",
+        "internal/daemon/daemon_lifecycle_test.go",
         "internal/daemon/tailscale_serve.go",
-        "docs/configuration.md",
-        "docs/runbook.md"
+        "to-do.json"
       ],
       "created_at": "2026-02-09T12:17:58Z",
-      "updated_at": "2026-02-09T14:07:51Z"
+      "updated_at": "2026-02-09T14:08:27Z"
     },
     {
       "id": "T106",
       "title": "CLI remote mode: --endpoint/--token + persistent client config + connect",
       "priority": 1,
-      "status": "todo",
+      "status": "done",
       "details": "Allow `agentlab` to talk to a remote agentlabd over HTTP (tailnet) instead of requiring a local Unix socket. Add global flags `--endpoint` and `--token`, environment variables, and a local config file so users/agents can run commands without repeating parameters. This must support non-interactive automation.",
       "steps": [
         "Global flags: extend cmd/agentlab/main.go parseGlobal() and usageText with --endpoint and --token. Keep --socket for local-only mode; endpoint takes precedence when set.",
@@ -2597,17 +2598,24 @@
       ],
       "files": [
         "cmd/agentlab/main.go",
-        "cmd/agentlab/api.go",
         "cmd/agentlab/commands.go",
+        "cmd/agentlab/api.go",
         "cmd/agentlab/ssh.go",
-        "cmd/agentlab/*_test.go",
+        "cmd/agentlab/client_config.go",
+        "cmd/agentlab/client_options.go",
+        "cmd/agentlab/client_config_test.go",
+        "cmd/agentlab/api_test.go",
+        "cmd/agentlab/main_test.go",
+        "cmd/agentlab/suggestions_test.go",
         "README.md",
-        "docs/runbook.md"
+        "docs/runbook.md",
+        "to-do.json"
       ],
       "depends_on": [
         "T105"
       ],
-      "created_at": "2026-02-09T12:17:58Z"
+      "created_at": "2026-02-09T12:17:58Z",
+      "updated_at": "2026-02-09T14:25:50Z"
     },
     {
       "id": "T107",

@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"io"
 	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 	"time"
@@ -26,7 +27,7 @@ func newTestResponse(status int, body string) *http.Response {
 }
 
 func TestNewAPIClientDefaults(t *testing.T) {
-	client := newAPIClient("", 0)
+	client := newAPIClient(clientOptions{}, 0)
 	if client.socketPath != defaultSocketPath {
 		t.Fatalf("socketPath = %q, want %q", client.socketPath, defaultSocketPath)
 	}
@@ -107,6 +108,7 @@ func TestAPIClientDoJSONSuccess(t *testing.T) {
 	var gotBody []byte
 	client := &apiClient{
 		socketPath: "/tmp/agentlab.sock",
+		baseURL:    "http://unix",
 		httpClient: &http.Client{Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
 			gotReq = req
 			body, _ := io.ReadAll(req.Body)
@@ -150,6 +152,7 @@ func TestAPIClientDoJSONSuccess(t *testing.T) {
 func TestAPIClientDoJSONEncodeError(t *testing.T) {
 	called := false
 	client := &apiClient{
+		baseURL: "http://unix",
 		httpClient: &http.Client{Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
 			called = true
 			return newTestResponse(http.StatusOK, `{}`), nil
@@ -168,6 +171,7 @@ func TestAPIClientDoJSONEncodeError(t *testing.T) {
 func TestAPIClientDoJSONErrorResponse(t *testing.T) {
 	client := &apiClient{
 		socketPath: "/tmp/agentlab.sock",
+		baseURL:    "http://unix",
 		httpClient: &http.Client{Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
 			return newTestResponse(http.StatusBadRequest, `{"error":"bad request"}`), nil
 		})},
@@ -186,6 +190,7 @@ func TestAPIClientDoRequestHeadersAndErrorHandling(t *testing.T) {
 	var gotReq *http.Request
 	client := &apiClient{
 		socketPath: "/tmp/agentlab.sock",
+		baseURL:    "http://unix",
 		httpClient: &http.Client{Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
 			gotReq = req
 			return newTestResponse(http.StatusOK, "ok"), nil
@@ -222,6 +227,29 @@ func TestAPIClientDoRequestHeadersAndErrorHandling(t *testing.T) {
 	}
 	if err.Error() != "not found" {
 		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestAPIClientAuthHeaderRemote(t *testing.T) {
+	var gotAuth string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotAuth = r.Header.Get("Authorization")
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"ok":true}`))
+	}))
+	defer srv.Close()
+
+	endpoint, err := normalizeEndpoint(srv.URL)
+	if err != nil {
+		t.Fatalf("normalizeEndpoint() error = %v", err)
+	}
+	client := newAPIClient(clientOptions{Endpoint: endpoint, Token: "secret-token"}, time.Second)
+	_, err = client.doJSON(context.Background(), http.MethodGet, "/v1/status", nil)
+	if err != nil {
+		t.Fatalf("doJSON() error = %v", err)
+	}
+	if gotAuth != "Bearer secret-token" {
+		t.Fatalf("Authorization header = %q, want %q", gotAuth, "Bearer secret-token")
 	}
 }
 

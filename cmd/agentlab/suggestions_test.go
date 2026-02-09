@@ -56,7 +56,7 @@ func TestWrapSandboxNotFoundHints(t *testing.T) {
 	})
 
 	socketPath := startUnixHTTPServer(t, mux)
-	client := newAPIClient(socketPath, time.Second)
+	client := newAPIClient(clientOptions{SocketPath: socketPath}, time.Second)
 
 	err := wrapSandboxNotFound(context.Background(), client, 100, errors.New("sandbox not found"))
 	if err == nil {

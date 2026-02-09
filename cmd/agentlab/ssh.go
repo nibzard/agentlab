@@ -142,7 +142,10 @@ func runSSHCommand(ctx context.Context, args []string, base commonFlags) error {
 	}
 	waitCtx, cancel := withWaitTimeout(ctx, opts.timeout)
 	defer cancel()
-	client := newAPIClient(opts.socketPath, opts.timeout)
+	client, err := apiClientFromFlags(opts)
+	if err != nil {
+		return err
+	}
 	resp, err := fetchSandbox(waitCtx, client, vmid)
 	if err != nil {
 		return err
