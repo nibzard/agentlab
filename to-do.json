@@ -2098,17 +2098,20 @@
         "internal/daemon/sandbox_manager_test.go",
         "internal/daemon/workspace_lease.go",
         "internal/daemon/workspace_manager.go",
+        "internal/daemon/workspace_rebind.go",
         "internal/db/migrations.go",
         "internal/db/migrations_test.go",
         "internal/db/workspaces.go",
-        "internal/db/workspaces_test.go"
+        "internal/db/workspaces_test.go",
+        "internal/models/models.go",
+        "to-do.json"
       ],
       "depends_on": [
         "T024",
         "T089"
       ],
       "created_at": "2026-02-09T09:49:20Z",
-      "updated_at": "2026-02-09T13:58:54Z"
+      "updated_at": "2026-02-09T13:59:20Z"
     },
     {
       "id": "T092",
@@ -2536,7 +2539,7 @@
       "id": "T105",
       "title": "Remote control plane: authenticated TCP control listener (tailnet-friendly)",
       "priority": 1,
-      "status": "todo",
+      "status": "done",
       "details": "Enable running `agentlab` from any tailnet machine (MacBook, CI runner, another VM) while `agentlabd` runs on the Proxmox host. Add an optional TCP listener for the existing Control API, protected by Bearer token auth, with safe defaults that avoid LAN/WAN exposure. This is the foundation for remote CLI + automation.",
       "steps": [
         "Config: extend internal/config/config.go with control_listen (string, default empty/disabled) and control_auth_token (string). Add optional control_allow_cidrs (list) for defense-in-depth. Update FileConfig + applyFileConfig + Validate rules (require token if control_listen set; forbid wildcard binds unless explicitly allowed; recommend binding to 127.0.0.1).",
@@ -2558,13 +2561,18 @@
         "internal/config/config.go",
         "internal/config/config_test.go",
         "internal/daemon/daemon.go",
+        "internal/daemon/daemon_lifecycle_test.go",
         "internal/daemon/api.go",
         "internal/daemon/api_types.go",
+        "internal/daemon/api_host_test.go",
+        "internal/daemon/control_auth.go",
+        "internal/daemon/control_auth_test.go",
         "internal/daemon/tailscale_serve.go",
         "docs/configuration.md",
         "docs/runbook.md"
       ],
-      "created_at": "2026-02-09T12:17:58Z"
+      "created_at": "2026-02-09T12:17:58Z",
+      "updated_at": "2026-02-09T14:07:51Z"
     },
     {
       "id": "T106",

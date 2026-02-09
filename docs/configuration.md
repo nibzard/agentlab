@@ -23,6 +23,9 @@ The main configuration file is located at `/etc/agentlab/config.yaml` by default
 | `log_dir` | string | `/var/log/agentlab` | Directory for log files |
 | `run_dir` | string | `/run/agentlab` | Directory for runtime socket files |
 | `socket_path` | string | `/run/agentlab/agentlabd.sock` | Unix socket path for CLI communication |
+| `control_listen` | string | `""` (disabled) | Optional TCP listen address for remote control plane |
+| `control_auth_token` | string | `""` | Bearer token required when `control_listen` is set |
+| `control_allow_cidrs` | []string | `[]` | Optional CIDR allowlist for remote control (defense in depth) |
 | `db_path` | string | `/var/lib/agentlab/agentlab.db` | SQLite database path |
 | `bootstrap_listen` | string | `10.77.0.1:8844` | Bootstrap API listen address |
 | `artifact_listen` | string | `10.77.0.1:8846` | Artifact upload API listen address |
@@ -76,6 +79,32 @@ The `metrics_listen` endpoint exposes Prometheus metrics and **must** be localho
 
 - Valid: `localhost:9090`, `127.0.0.1:9090`, `[::1]:9090`
 - Invalid: `0.0.0.0:9090`, `10.77.0.1:9090`
+
+#### Remote Control Plane
+
+To enable remote control (tailnet-friendly), set `control_listen` and a bearer token.
+The listener is disabled by default and should be bound to loopback or a Tailscale IP.
+
+Example (loopback + Tailscale Serve proxy):
+```yaml
+control_listen: "127.0.0.1:8845"
+control_auth_token: "replace-with-generated-token"
+control_allow_cidrs:
+  - "127.0.0.1/32"
+```
+
+Example (bind directly to tailnet IP):
+```yaml
+control_listen: "100.64.12.34:8845"
+control_auth_token: "replace-with-generated-token"
+control_allow_cidrs:
+  - "100.64.0.0/10"
+```
+
+Notes:
+- `control_auth_token` is required when `control_listen` is set.
+- Wildcard binds (`0.0.0.0` or `[::]`) are rejected unless `control_allow_cidrs` is set.
+- `control_allow_cidrs` is optional but recommended for defense in depth.
 
 ### Proxmox Backend Configuration
 

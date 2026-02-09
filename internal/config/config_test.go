@@ -310,6 +310,88 @@ func TestValidateMetricsListen(t *testing.T) {
 	}
 }
 
+func TestValidateControlListen(t *testing.T) {
+	tests := []struct {
+		name        string
+		setup       func(*Config)
+		wantErr     bool
+		errContains string
+	}{
+		{
+			name: "control listen requires token",
+			setup: func(c *Config) {
+				c.ControlListen = "127.0.0.1:8845"
+				c.ControlAuthToken = ""
+			},
+			wantErr:     true,
+			errContains: "control_auth_token",
+		},
+		{
+			name: "control listen with token is valid",
+			setup: func(c *Config) {
+				c.ControlListen = "127.0.0.1:8845"
+				c.ControlAuthToken = "secret-token"
+			},
+			wantErr: false,
+		},
+		{
+			name: "control listen invalid format",
+			setup: func(c *Config) {
+				c.ControlListen = "not-host-port"
+				c.ControlAuthToken = "secret-token"
+			},
+			wantErr:     true,
+			errContains: "control_listen",
+		},
+		{
+			name: "wildcard control listen requires allowlist",
+			setup: func(c *Config) {
+				c.ControlListen = "0.0.0.0:8845"
+				c.ControlAuthToken = "secret-token"
+				c.ControlAllowCIDRs = nil
+			},
+			wantErr:     true,
+			errContains: "control_allow_cidrs",
+		},
+		{
+			name: "wildcard control listen with allowlist is valid",
+			setup: func(c *Config) {
+				c.ControlListen = "0.0.0.0:8845"
+				c.ControlAuthToken = "secret-token"
+				c.ControlAllowCIDRs = []string{"100.64.0.0/10"}
+			},
+			wantErr: false,
+		},
+		{
+			name: "invalid control allowlist cidr",
+			setup: func(c *Config) {
+				c.ControlListen = "127.0.0.1:8845"
+				c.ControlAuthToken = "secret-token"
+				c.ControlAllowCIDRs = []string{"not-a-cidr"}
+			},
+			wantErr:     true,
+			errContains: "control_allow_cidrs",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cfg := DefaultConfig()
+			if tt.setup != nil {
+				tt.setup(&cfg)
+			}
+			err := cfg.Validate()
+			if tt.wantErr {
+				require.Error(t, err)
+				if tt.errContains != "" {
+					assert.Contains(t, err.Error(), tt.errContains)
+				}
+			} else {
+				assert.NoError(t, err)
+			}
+		})
+	}
+}
+
 func TestValidateRequiredFields(t *testing.T) {
 	tests := []struct {
 		name        string
@@ -681,6 +763,8 @@ func TestDefaultConfig(t *testing.T) {
 	assert.NotEmpty(t, cfg.LogDir)
 	assert.NotEmpty(t, cfg.RunDir)
 	assert.NotEmpty(t, cfg.SocketPath)
+	assert.Empty(t, cfg.ControlListen)
+	assert.Empty(t, cfg.ControlAuthToken)
 	assert.NotEmpty(t, cfg.DBPath)
 	assert.NotEmpty(t, cfg.BootstrapListen)
 	assert.NotEmpty(t, cfg.ArtifactListen)
