@@ -162,6 +162,16 @@ var migrations = []migration{
 			`CREATE INDEX IF NOT EXISTS idx_jobs_workspace ON jobs(workspace_id)`,
 		},
 	},
+	{
+		version: 7,
+		name:    "add_workspace_leases",
+		statements: []string{
+			`ALTER TABLE workspaces ADD COLUMN lease_owner TEXT`,
+			`ALTER TABLE workspaces ADD COLUMN lease_nonce TEXT`,
+			`ALTER TABLE workspaces ADD COLUMN lease_expires_at TEXT`,
+			`CREATE INDEX IF NOT EXISTS idx_workspaces_lease_expires ON workspaces(lease_expires_at)`,
+		},
+	},
 }
 
 // Migrate runs any pending migrations against the provided database.

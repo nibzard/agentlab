@@ -698,6 +698,7 @@ func (m *SandboxManager) Destroy(ctx context.Context, vmid int) (err error) {
 			return fmt.Errorf("detach workspace for vmid %d: %w", vmid, err)
 		}
 	}
+	m.releaseWorkspaceLeases(ctx, vmid)
 	if err = m.destroySandbox(ctx, vmid); err != nil {
 		return err
 	}
@@ -748,6 +749,7 @@ func (m *SandboxManager) expireSandbox(ctx context.Context, sandbox models.Sandb
 			return fmt.Errorf("detach workspace for vmid %d: %w", sandbox.VMID, err)
 		}
 	}
+	m.releaseWorkspaceLeases(ctx, sandbox.VMID)
 	if err := m.destroySandbox(ctx, sandbox.VMID); err != nil {
 		return err
 	}
@@ -904,6 +906,37 @@ func (m *SandboxManager) recordStateEvent(ctx context.Context, vmid int, from, t
 func (m *SandboxManager) recordLeaseEvent(ctx context.Context, vmid int, expiresAt time.Time) {
 	msg := fmt.Sprintf("renewed until %s", expiresAt.UTC().Format(time.RFC3339Nano))
 	_ = m.store.RecordEvent(ctx, "sandbox.lease", &vmid, nil, msg, "")
+}
+
+func (m *SandboxManager) releaseWorkspaceLeases(ctx context.Context, vmid int) {
+	if m == nil || m.store == nil || vmid <= 0 {
+		return
+	}
+	if job, err := m.store.GetJobBySandboxVMID(ctx, vmid); err == nil {
+		if job.WorkspaceID != nil && strings.TrimSpace(*job.WorkspaceID) != "" {
+			workspace, err := m.store.GetWorkspace(ctx, *job.WorkspaceID)
+			if err == nil && workspace.LeaseOwner == workspaceLeaseOwnerForJob(job.ID) && strings.TrimSpace(workspace.LeaseNonce) != "" {
+				if released, err := m.store.ReleaseWorkspaceLease(ctx, workspace.ID, workspace.LeaseOwner, workspace.LeaseNonce); err == nil && released {
+					jobID := job.ID
+					recordWorkspaceLeaseEvent(ctx, m.store, "workspace.lease.released", &vmid, &jobID, workspace.ID, workspace.LeaseOwner, time.Time{})
+				}
+			}
+		}
+	}
+	owner := workspaceLeaseOwnerForSandbox(vmid)
+	if owner == "" {
+		return
+	}
+	workspace, err := m.store.GetWorkspaceByLeaseOwner(ctx, owner)
+	if err != nil {
+		return
+	}
+	if strings.TrimSpace(workspace.LeaseNonce) == "" {
+		return
+	}
+	if released, err := m.store.ReleaseWorkspaceLease(ctx, workspace.ID, owner, workspace.LeaseNonce); err == nil && released {
+		recordWorkspaceLeaseEvent(ctx, m.store, "workspace.lease.released", &vmid, nil, workspace.ID, owner, time.Time{})
+	}
 }
 
 func (m *SandboxManager) recordRevertEvent(ctx context.Context, vmid int, kind string, msg string, payload revertEventPayload) {

@@ -28,6 +28,7 @@ var (
 	ErrWorkspaceAttached    = errors.New("workspace already attached")
 	ErrWorkspaceNotAttached = errors.New("workspace not attached")
 	ErrWorkspaceVMInUse     = errors.New("vmid already has workspace attached")
+	ErrWorkspaceLeaseHeld   = errors.New("workspace lease already held")
 )
 
 // WorkspaceManager handles persistent workspace volumes.

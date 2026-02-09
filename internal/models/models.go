@@ -169,15 +169,21 @@ type Profile struct {
 //   - VolumeID: Proxmox volume identifier
 //   - SizeGB: Size in gigabytes
 //   - AttachedVM: VM ID of currently attached sandbox (nil if detached)
+//   - LeaseOwner: Current lease owner identifier (empty if unleased)
+//   - LeaseNonce: Lease CAS nonce for renew/release operations
+//   - LeaseExpires: Lease expiration timestamp (zero if no lease)
 //   - CreatedAt: When the workspace was created
 //   - LastUpdated: When the workspace was last attached/detached
 type Workspace struct {
-	ID          string
-	Name        string
-	Storage     string
-	VolumeID    string
-	SizeGB      int
-	AttachedVM  *int
-	CreatedAt   time.Time
-	LastUpdated time.Time
+	ID           string
+	Name         string
+	Storage      string
+	VolumeID     string
+	SizeGB       int
+	AttachedVM   *int
+	LeaseOwner   string
+	LeaseNonce   string
+	LeaseExpires time.Time
+	CreatedAt    time.Time
+	LastUpdated  time.Time
 }

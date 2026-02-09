@@ -456,6 +456,62 @@ func TestSandboxLeaseGCDetachesWorkspace(t *testing.T) {
 	}
 }
 
+func TestSandboxDestroyReleasesWorkspaceLease(t *testing.T) {
+	ctx := context.Background()
+	store := newTestStore(t)
+	backend := &stubBackend{}
+	workspaceMgr := NewWorkspaceManager(store, backend, log.New(io.Discard, "", 0))
+	mgr := NewSandboxManager(store, backend, log.New(io.Discard, "", 0)).WithWorkspaceManager(workspaceMgr)
+
+	now := time.Date(2026, 1, 29, 12, 15, 0, 0, time.UTC)
+	sandbox := models.Sandbox{
+		VMID:          106,
+		Name:          "lease-sandbox",
+		Profile:       "default",
+		State:         models.SandboxRunning,
+		Keepalive:     false,
+		CreatedAt:     now,
+		LastUpdatedAt: now,
+	}
+	if err := store.CreateSandbox(ctx, sandbox); err != nil {
+		t.Fatalf("create sandbox: %v", err)
+	}
+	workspace, err := workspaceMgr.Create(ctx, "lease-ws", "", 10)
+	if err != nil {
+		t.Fatalf("create workspace: %v", err)
+	}
+	job := models.Job{
+		ID:          "job-lease",
+		RepoURL:     "https://example.com/repo.git",
+		Ref:         "main",
+		Profile:     "default",
+		Task:        "run tests",
+		Status:      models.JobRunning,
+		SandboxVMID: &sandbox.VMID,
+		WorkspaceID: &workspace.ID,
+		CreatedAt:   now,
+		UpdatedAt:   now,
+	}
+	if err := store.CreateJob(ctx, job); err != nil {
+		t.Fatalf("create job: %v", err)
+	}
+	leaseOwner := workspaceLeaseOwnerForJob(job.ID)
+	if _, err := store.TryAcquireWorkspaceLease(ctx, workspace.ID, leaseOwner, "nonce-lease", now.Add(10*time.Minute)); err != nil {
+		t.Fatalf("acquire lease: %v", err)
+	}
+
+	if err := mgr.Destroy(ctx, sandbox.VMID); err != nil {
+		t.Fatalf("destroy sandbox: %v", err)
+	}
+	updatedWorkspace, err := store.GetWorkspace(ctx, workspace.ID)
+	if err != nil {
+		t.Fatalf("get workspace: %v", err)
+	}
+	if updatedWorkspace.LeaseOwner != "" || updatedWorkspace.LeaseNonce != "" || !updatedWorkspace.LeaseExpires.IsZero() {
+		t.Fatalf("expected workspace lease released")
+	}
+}
+
 func newTestStore(t *testing.T) *db.Store {
 	t.Helper()
 	path := filepath.Join(t.TempDir(), "agentlab.db")

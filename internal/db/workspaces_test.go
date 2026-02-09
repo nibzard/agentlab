@@ -505,6 +505,92 @@ func TestAttachWorkspace(t *testing.T) {
 	})
 }
 
+func TestWorkspaceLeaseLifecycle(t *testing.T) {
+	ctx := context.Background()
+	store := openTestStore(t)
+	ws := models.Workspace{
+		ID:          "ws-lease",
+		Name:        "lease-workspace",
+		Storage:     "local-zfs",
+		VolumeID:    "local-zfs:vm-200-disk-1",
+		SizeGB:      20,
+		CreatedAt:   time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC),
+		LastUpdated: time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC),
+	}
+	require.NoError(t, store.CreateWorkspace(ctx, ws))
+
+	now := time.Now().UTC()
+	expires := now.Add(30 * time.Minute)
+
+	acquired, err := store.TryAcquireWorkspaceLease(ctx, ws.ID, "job:one", "nonce-1", expires)
+	require.NoError(t, err)
+	assert.True(t, acquired)
+
+	updated, err := store.GetWorkspace(ctx, ws.ID)
+	require.NoError(t, err)
+	assert.Equal(t, "job:one", updated.LeaseOwner)
+	assert.Equal(t, "nonce-1", updated.LeaseNonce)
+	assert.WithinDuration(t, expires, updated.LeaseExpires, time.Second)
+
+	acquired, err = store.TryAcquireWorkspaceLease(ctx, ws.ID, "job:two", "nonce-2", now.Add(time.Hour))
+	require.NoError(t, err)
+	assert.False(t, acquired)
+
+	renewed, err := store.RenewWorkspaceLease(ctx, ws.ID, "job:one", "bad-nonce", now.Add(time.Hour))
+	require.NoError(t, err)
+	assert.False(t, renewed)
+
+	renewed, err = store.RenewWorkspaceLease(ctx, ws.ID, "job:one", "nonce-1", now.Add(time.Hour))
+	require.NoError(t, err)
+	assert.True(t, renewed)
+
+	released, err := store.ReleaseWorkspaceLease(ctx, ws.ID, "job:one", "bad-nonce")
+	require.NoError(t, err)
+	assert.False(t, released)
+
+	released, err = store.ReleaseWorkspaceLease(ctx, ws.ID, "job:one", "nonce-1")
+	require.NoError(t, err)
+	assert.True(t, released)
+
+	cleared, err := store.GetWorkspace(ctx, ws.ID)
+	require.NoError(t, err)
+	assert.Empty(t, cleared.LeaseOwner)
+	assert.Empty(t, cleared.LeaseNonce)
+	assert.True(t, cleared.LeaseExpires.IsZero())
+}
+
+func TestWorkspaceLeaseExpiryAllowsAcquire(t *testing.T) {
+	ctx := context.Background()
+	store := openTestStore(t)
+	ws := models.Workspace{
+		ID:          "ws-expired",
+		Name:        "expired-workspace",
+		Storage:     "local-zfs",
+		VolumeID:    "local-zfs:vm-300-disk-1",
+		SizeGB:      20,
+		CreatedAt:   time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC),
+		LastUpdated: time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC),
+	}
+	require.NoError(t, store.CreateWorkspace(ctx, ws))
+
+	now := time.Now().UTC()
+	expired := now.Add(-1 * time.Minute)
+	acquired, err := store.TryAcquireWorkspaceLease(ctx, ws.ID, "job:old", "nonce-old", expired)
+	require.NoError(t, err)
+	assert.True(t, acquired)
+
+	newExpires := now.Add(15 * time.Minute)
+	acquired, err = store.TryAcquireWorkspaceLease(ctx, ws.ID, "job:new", "nonce-new", newExpires)
+	require.NoError(t, err)
+	assert.True(t, acquired)
+
+	updated, err := store.GetWorkspace(ctx, ws.ID)
+	require.NoError(t, err)
+	assert.Equal(t, "job:new", updated.LeaseOwner)
+	assert.Equal(t, "nonce-new", updated.LeaseNonce)
+	assert.WithinDuration(t, newExpires, updated.LeaseExpires, time.Second)
+}
+
 func TestDetachWorkspace(t *testing.T) {
 	ctx := context.Background()
 
