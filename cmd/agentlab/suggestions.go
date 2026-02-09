@@ -212,6 +212,41 @@ func wrapWorkspaceNotFound(workspace string, err error) error {
 	return wrapCLIError(err, msg, "agentlab workspace list")
 }
 
+func wrapJobWorkspaceCompatibilityError(err error) error {
+	if err == nil {
+		return nil
+	}
+	msg := strings.ToLower(err.Error())
+	if strings.Contains(msg, "unknown field") && strings.Contains(msg, "workspace") {
+		return wrapCLIError(err, "agentlabd does not support job workspaces", "upgrade agentlabd", "or omit workspace flags and use agentlab sandbox new --workspace <name> with manual SSH if needed")
+	}
+	return err
+}
+
+func wrapJobWorkspaceConflict(workspaceID *string, create *workspaceCreateRequest, waitSeconds *int, err error) error {
+	if err == nil {
+		return nil
+	}
+	msg := strings.ToLower(err.Error())
+	workspaceName := workspaceTargetName(workspaceID, create)
+	if strings.Contains(msg, "workspace already exists") {
+		hints := []string{}
+		if workspaceName != "" {
+			hints = append(hints, fmt.Sprintf("use --workspace %s to reuse the existing workspace", workspaceName))
+		}
+		return wrapCLIError(err, "workspace already exists", "agentlab workspace list", hints...)
+	}
+	if strings.Contains(msg, "workspace already attached") {
+		hints := []string{}
+		if waitSeconds == nil || *waitSeconds <= 0 {
+			hints = append(hints, "try --workspace-wait 2m to wait for detach")
+		}
+		hints = append(hints, "or detach with agentlab workspace detach <name>")
+		return wrapCLIError(err, "workspace already attached", "agentlab workspace list", hints...)
+	}
+	return err
+}
+
 func wrapUnknownProfileError(ctx context.Context, client *apiClient, profileName string, err error) error {
 	if err == nil || !isUnknownProfileError(err) {
 		return err

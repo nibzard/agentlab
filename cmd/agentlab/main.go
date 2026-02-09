@@ -50,7 +50,7 @@ const usageText = `agentlab is the CLI for agentlabd.
 Usage:
   agentlab --version
   agentlab [--socket PATH] [--json] [--timeout DURATION] status
-  agentlab [--socket PATH] [--json] [--timeout DURATION] job run --repo <url> --task <task> --profile <profile> [--ref <ref>] [--mode <mode>] [--ttl <ttl>] [--keepalive]
+  agentlab [--socket PATH] [--json] [--timeout DURATION] job run --repo <url> --task <task> --profile <profile> [--ref <ref>] [--mode <mode>] [--ttl <ttl>] [--keepalive] [--workspace <id|name|new:name>] [--workspace-create <name>] [--workspace-size <size>] [--workspace-storage <storage>] [--workspace-wait <duration>] [--stateful]
   agentlab [--socket PATH] [--json] [--timeout DURATION] job show <job_id> [--events-tail <n>]
   agentlab [--socket PATH] [--json] [--timeout DURATION] job artifacts <job_id>
   agentlab [--socket PATH] [--json] [--timeout DURATION] job artifacts download <job_id> [--out <path>] [--path <path>] [--name <name>] [--latest] [--bundle]
@@ -245,7 +245,7 @@ func printStatusUsage() {
 }
 
 func printJobRunUsage() {
-	fmt.Fprintln(os.Stdout, "Usage: agentlab job run --repo <url> --task <task> --profile <profile> [--ref <ref>] [--mode <mode>] [--ttl <ttl>] [--keepalive]")
+	fmt.Fprintln(os.Stdout, "Usage: agentlab job run --repo <url> --task <task> --profile <profile> [--ref <ref>] [--mode <mode>] [--ttl <ttl>] [--keepalive] [--workspace <id|name|new:name>] [--workspace-create <name>] [--workspace-size <size>] [--workspace-storage <storage>] [--workspace-wait <duration>] [--stateful]")
 }
 
 func printJobShowUsage() {
