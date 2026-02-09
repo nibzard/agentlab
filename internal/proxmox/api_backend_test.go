@@ -209,3 +209,82 @@ func TestAPIBackendConfigure(t *testing.T) {
 		t.Fatalf("cicustom = %q", got)
 	}
 }
+
+func TestAPIBackendVMConfig(t *testing.T) {
+	var call apiRequest
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, _ := io.ReadAll(r.Body)
+		_ = r.Body.Close()
+		form, _ := url.ParseQuery(string(body))
+		call = apiRequest{
+			method:   r.Method,
+			path:     r.URL.Path,
+			rawQuery: r.URL.RawQuery,
+			form:     form,
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"data":{"name":"vm-test","scsi1":"local-zfs:vm-101-disk-1,size=10G","cores":2}}`))
+	}))
+	defer srv.Close()
+
+	backend := &APIBackend{
+		BaseURL:    srv.URL + "/api2/json",
+		Node:       "pve",
+		HTTPClient: srv.Client(),
+	}
+
+	cfg, err := backend.VMConfig(context.Background(), 101)
+	if err != nil {
+		t.Fatalf("VMConfig() error = %v", err)
+	}
+	if cfg["name"] != "vm-test" {
+		t.Fatalf("VMConfig name = %q", cfg["name"])
+	}
+	if cfg["scsi1"] != "local-zfs:vm-101-disk-1,size=10G" {
+		t.Fatalf("VMConfig scsi1 = %q", cfg["scsi1"])
+	}
+	if cfg["cores"] != "2" {
+		t.Fatalf("VMConfig cores = %q", cfg["cores"])
+	}
+	if call.method != http.MethodGet || call.path != "/api2/json/nodes/pve/qemu/101/config" {
+		t.Fatalf("VMConfig call = %s %s", call.method, call.path)
+	}
+}
+
+func TestAPIBackendVolumeInfo(t *testing.T) {
+	var call apiRequest
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, _ := io.ReadAll(r.Body)
+		_ = r.Body.Close()
+		form, _ := url.ParseQuery(string(body))
+		call = apiRequest{
+			method:   r.Method,
+			path:     r.URL.Path,
+			rawQuery: r.URL.RawQuery,
+			form:     form,
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"data":{"volid":"local-zfs:vm-0-disk-0","path":"/rpool/data/vm-0-disk-0"}}`))
+	}))
+	defer srv.Close()
+
+	backend := &APIBackend{
+		BaseURL:    srv.URL + "/api2/json",
+		Node:       "pve",
+		HTTPClient: srv.Client(),
+	}
+
+	info, err := backend.VolumeInfo(context.Background(), "local-zfs:vm-0-disk-0")
+	if err != nil {
+		t.Fatalf("VolumeInfo() error = %v", err)
+	}
+	if info.Path != "/rpool/data/vm-0-disk-0" {
+		t.Fatalf("VolumeInfo path = %q", info.Path)
+	}
+	if info.Storage != "local-zfs" {
+		t.Fatalf("VolumeInfo storage = %q", info.Storage)
+	}
+	if call.method != http.MethodGet || call.path != "/api2/json/nodes/pve/storage/local-zfs/content/local-zfs:vm-0-disk-0" {
+		t.Fatalf("VolumeInfo call = %s %s", call.method, call.path)
+	}
+}

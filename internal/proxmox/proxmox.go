@@ -33,6 +33,13 @@ type VMStats struct {
 	CPUUsage float64 // Fractional CPU usage from status/current (0.0-1.0+).
 }
 
+// VolumeInfo contains metadata about a storage volume.
+type VolumeInfo struct {
+	VolumeID string // Proxmox volume identifier (e.g., "local-zfs:vm-0-disk-0")
+	Storage  string // Storage name (e.g., "local-zfs")
+	Path     string // Resolved filesystem path (if available)
+}
+
 // VMConfig contains configuration parameters for a VM.
 type VMConfig struct {
 	Name          string // VM name
@@ -93,6 +100,10 @@ type Backend interface {
 	// Returns ErrGuestIPNotFound if no IP can be determined.
 	GuestIP(ctx context.Context, vmid VMID) (string, error)
 
+	// VMConfig retrieves the raw configuration map for a VM.
+	// ABOUTME: Returns ErrVMNotFound if the VM does not exist.
+	VMConfig(ctx context.Context, vmid VMID) (map[string]string, error)
+
 	// CreateVolume creates a new disk volume in the specified storage.
 	// ABOUTME: Returns the volume ID (e.g., "local-zfs:vm-0-disk-0").
 	CreateVolume(ctx context.Context, storage, name string, sizeGB int) (string, error)
@@ -108,6 +119,10 @@ type Backend interface {
 	// DeleteVolume permanently deletes a volume from storage.
 	// ABOUTME: This operation is irreversible.
 	DeleteVolume(ctx context.Context, volumeID string) error
+
+	// VolumeInfo retrieves volume metadata and path.
+	// ABOUTME: Returns ErrVolumeNotFound if the volume does not exist.
+	VolumeInfo(ctx context.Context, volumeID string) (VolumeInfo, error)
 
 	// ValidateTemplate checks if a template VM is suitable for provisioning.
 	// ABOUTME: Returns nil if the template exists and has qemu-guest-agent enabled.

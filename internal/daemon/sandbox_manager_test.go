@@ -25,6 +25,10 @@ type stubBackend struct {
 	status                proxmox.Status
 	statsErr              error
 	cpuUsage              float64
+	vmConfig              map[string]string
+	vmConfigErr           error
+	volumeInfo            proxmox.VolumeInfo
+	volumeErr             error
 	startCalls            int
 	stopCalls             int
 	detachCalls           int
@@ -87,6 +91,20 @@ func (s *stubBackend) GuestIP(context.Context, proxmox.VMID) (string, error) {
 	return "", nil
 }
 
+func (s *stubBackend) VMConfig(context.Context, proxmox.VMID) (map[string]string, error) {
+	if s.vmConfigErr != nil {
+		return nil, s.vmConfigErr
+	}
+	if s.vmConfig == nil {
+		return map[string]string{}, nil
+	}
+	out := make(map[string]string, len(s.vmConfig))
+	for key, value := range s.vmConfig {
+		out[key] = value
+	}
+	return out, nil
+}
+
 func (s *stubBackend) CreateVolume(context.Context, string, string, int) (string, error) {
 	return "local-zfs:workspace", nil
 }
@@ -102,6 +120,16 @@ func (s *stubBackend) DetachVolume(context.Context, proxmox.VMID, string) error 
 
 func (s *stubBackend) DeleteVolume(context.Context, string) error {
 	return nil
+}
+
+func (s *stubBackend) VolumeInfo(_ context.Context, volumeID string) (proxmox.VolumeInfo, error) {
+	if s.volumeErr != nil {
+		return proxmox.VolumeInfo{}, s.volumeErr
+	}
+	if s.volumeInfo.VolumeID != "" || s.volumeInfo.Path != "" || s.volumeInfo.Storage != "" {
+		return s.volumeInfo, nil
+	}
+	return proxmox.VolumeInfo{VolumeID: volumeID}, nil
 }
 
 func (s *stubBackend) ValidateTemplate(context.Context, proxmox.VMID) error {

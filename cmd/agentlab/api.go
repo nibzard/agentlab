@@ -281,6 +281,34 @@ type workspaceRebindResponse struct {
 	OldVMID   *int              `json:"old_vmid,omitempty"`
 }
 
+type workspaceCheckVolume struct {
+	VolumeID string `json:"volid"`
+	Storage  string `json:"storage,omitempty"`
+	Path     string `json:"path,omitempty"`
+	Exists   bool   `json:"exists"`
+}
+
+type workspaceCheckRemediation struct {
+	Action  string `json:"action"`
+	Command string `json:"command,omitempty"`
+	Note    string `json:"note,omitempty"`
+}
+
+type workspaceCheckFinding struct {
+	Code        string                      `json:"code"`
+	Severity    string                      `json:"severity"`
+	Message     string                      `json:"message"`
+	Details     map[string]string           `json:"details,omitempty"`
+	Remediation []workspaceCheckRemediation `json:"remediation,omitempty"`
+}
+
+type workspaceCheckResponse struct {
+	Workspace workspaceResponse       `json:"workspace"`
+	Volume    workspaceCheckVolume    `json:"volume"`
+	Findings  []workspaceCheckFinding `json:"findings"`
+	CheckedAt string                  `json:"checked_at"`
+}
+
 // exposureCreateRequest contains parameters for creating a new exposure.
 type exposureCreateRequest struct {
 	Name     string `json:"name"`

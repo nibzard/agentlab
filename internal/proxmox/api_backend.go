@@ -309,6 +309,46 @@ func (b *APIBackend) GuestIP(ctx context.Context, vmid VMID) (string, error) {
 	return "", dhcpErr
 }
 
+// VMConfig retrieves the raw VM configuration map.
+func (b *APIBackend) VMConfig(ctx context.Context, vmid VMID) (map[string]string, error) {
+	node, err := b.ensureNode(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	endpoint := fmt.Sprintf("/nodes/%s/qemu/%d/config", node, vmid)
+	data, err := b.doGet(ctx, endpoint)
+	if err != nil {
+		if isAPIVMNotFound(err) {
+			return nil, fmt.Errorf("%w: %v", ErrVMNotFound, err)
+		}
+		return nil, err
+	}
+
+	var raw map[string]interface{}
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return nil, fmt.Errorf("parse vm config: %w", err)
+	}
+
+	out := make(map[string]string, len(raw))
+	for key, value := range raw {
+		if value == nil {
+			continue
+		}
+		switch v := value.(type) {
+		case string:
+			out[key] = v
+		case float64:
+			out[key] = strconv.FormatFloat(v, 'f', -1, 64)
+		case bool:
+			out[key] = strconv.FormatBool(v)
+		default:
+			out[key] = fmt.Sprint(v)
+		}
+	}
+	return out, nil
+}
+
 // CreateVolume creates a new volume.
 // ABOUTME: Creates a disk volume in the specified storage with the given size.
 // Returns the volume ID (e.g., "local-zfs:vm-0-disk-0").
@@ -431,6 +471,49 @@ func (b *APIBackend) DeleteVolume(ctx context.Context, volumeID string) error {
 	endpoint := fmt.Sprintf("/nodes/%s/storage/%s/content/%s", node, storage, volumeID)
 	_, err = b.doDelete(ctx, endpoint, nil)
 	return err
+}
+
+// VolumeInfo retrieves volume metadata.
+func (b *APIBackend) VolumeInfo(ctx context.Context, volumeID string) (VolumeInfo, error) {
+	volumeID = strings.TrimSpace(volumeID)
+	if volumeID == "" {
+		return VolumeInfo{}, fmt.Errorf("volume id is required")
+	}
+	storage := volumeStorage(volumeID)
+	if storage == "" {
+		return VolumeInfo{}, fmt.Errorf("invalid volume id format: %s", volumeID)
+	}
+
+	node, err := b.ensureNode(ctx)
+	if err != nil {
+		return VolumeInfo{}, err
+	}
+
+	endpoint := fmt.Sprintf("/nodes/%s/storage/%s/content/%s", node, storage, url.PathEscape(volumeID))
+	data, err := b.doGet(ctx, endpoint)
+	if err != nil {
+		if isMissingVolumeError(err) {
+			return VolumeInfo{}, fmt.Errorf("%w: %v", ErrVolumeNotFound, err)
+		}
+		return VolumeInfo{}, err
+	}
+
+	var result struct {
+		VolID string `json:"volid"`
+		Path  string `json:"path"`
+	}
+	if err := json.Unmarshal(data, &result); err != nil {
+		return VolumeInfo{}, fmt.Errorf("parse volume info: %w", err)
+	}
+	info := VolumeInfo{
+		VolumeID: volumeID,
+		Storage:  storage,
+		Path:     result.Path,
+	}
+	if strings.TrimSpace(result.VolID) != "" {
+		info.VolumeID = strings.TrimSpace(result.VolID)
+	}
+	return info, nil
 }
 
 // ValidateTemplate checks if a template VM is suitable for provisioning.
