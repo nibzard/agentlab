@@ -22,7 +22,7 @@ func TestMigrate(t *testing.T) {
 		var count int
 		err = conn.QueryRow("SELECT COUNT(*) FROM schema_migrations").Scan(&count)
 		require.NoError(t, err)
-		assert.Equal(t, 5, count) // We have 5 migrations
+		assert.Equal(t, 6, count) // We have 6 migrations
 
 		// Verify version numbers
 		rows, err := conn.Query("SELECT version FROM schema_migrations ORDER BY version")
@@ -36,7 +36,7 @@ func TestMigrate(t *testing.T) {
 			require.NoError(t, err)
 			versions = append(versions, v)
 		}
-		assert.Equal(t, []int{1, 2, 3, 4, 5}, versions)
+		assert.Equal(t, []int{1, 2, 3, 4, 5, 6}, versions)
 	})
 
 	t.Run("idempotent - re-running is safe", func(t *testing.T) {
@@ -53,11 +53,11 @@ func TestMigrate(t *testing.T) {
 		err = Migrate(conn)
 		require.NoError(t, err)
 
-		// Verify only 5 migrations recorded
+		// Verify only 6 migrations recorded
 		var count int
 		err = conn.QueryRow("SELECT COUNT(*) FROM schema_migrations").Scan(&count)
 		require.NoError(t, err)
-		assert.Equal(t, 5, count)
+		assert.Equal(t, 6, count)
 	})
 
 	t.Run("creates all core tables", func(t *testing.T) {
@@ -94,7 +94,7 @@ func TestMigrate(t *testing.T) {
 
 		// Check some key indexes exist
 		indexes := []string{
-			"idx_sandboxes_state", "idx_jobs_status",
+			"idx_sandboxes_state", "idx_jobs_status", "idx_jobs_workspace",
 			"idx_workspaces_attached", "idx_artifacts_job", "idx_exposures_vmid",
 		}
 
@@ -350,6 +350,38 @@ func TestMigrationVersion4(t *testing.T) {
 	})
 }
 
+func TestMigrationVersion6(t *testing.T) {
+	t.Run("adds jobs workspace_id column", func(t *testing.T) {
+		path := t.TempDir() + "/test.db"
+		conn, err := sql.Open("sqlite", path)
+		require.NoError(t, err)
+		defer conn.Close()
+
+		err = Migrate(conn)
+		require.NoError(t, err)
+
+		var count int
+		err = conn.QueryRow("SELECT COUNT(*) FROM pragma_table_info('jobs') WHERE name='workspace_id'").Scan(&count)
+		require.NoError(t, err)
+		assert.Equal(t, 1, count)
+	})
+
+	t.Run("creates jobs workspace index", func(t *testing.T) {
+		path := t.TempDir() + "/test.db"
+		conn, err := sql.Open("sqlite", path)
+		require.NoError(t, err)
+		defer conn.Close()
+
+		err = Migrate(conn)
+		require.NoError(t, err)
+
+		var count int
+		err = conn.QueryRow("SELECT COUNT(*) FROM sqlite_master WHERE type='index' AND name='idx_jobs_workspace'").Scan(&count)
+		require.NoError(t, err)
+		assert.Equal(t, 1, count)
+	})
+}
+
 func TestPartialMigration(t *testing.T) {
 	t.Run("applies only pending migrations", func(t *testing.T) {
 		path := t.TempDir() + "/test.db"
@@ -377,15 +409,15 @@ func TestPartialMigration(t *testing.T) {
 			}
 		}
 
-		// Run migrations - should apply 2, 3, 4, and 5
+		// Run migrations - should apply 2, 3, 4, 5, and 6
 		err = Migrate(conn)
 		require.NoError(t, err)
 
-		// Verify all 5 migrations applied
+		// Verify all 6 migrations applied
 		var count int
 		err = conn.QueryRow("SELECT COUNT(*) FROM schema_migrations").Scan(&count)
 		require.NoError(t, err)
-		assert.Equal(t, 5, count)
+		assert.Equal(t, 6, count)
 
 		// Verify tables from migration 2 and 3 exist
 		var tables int

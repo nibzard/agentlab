@@ -114,12 +114,14 @@ func TestCreateJob(t *testing.T) {
 	t.Run("with optional fields", func(t *testing.T) {
 		store := openTestStore(t)
 		vmid := 123
+		workspaceID := "workspace-123"
 		job := testutil.NewTestJob(testutil.JobOpts{
 			ID:          "job-1",
 			Task:        "test-task",
 			Mode:        "test-mode",
 			TTLMinutes:  60,
 			Keepalive:   true,
+			WorkspaceID: &workspaceID,
 			SandboxVMID: &vmid,
 			ResultJSON:  `{"output": "test"}`,
 		})
@@ -128,6 +130,7 @@ func TestCreateJob(t *testing.T) {
 		job.Mode = "test-mode"
 		job.TTLMinutes = 60
 		job.Keepalive = true
+		job.WorkspaceID = &workspaceID
 		job.SandboxVMID = &vmid
 		job.ResultJSON = `{"output": "test"}`
 
@@ -140,6 +143,8 @@ func TestCreateJob(t *testing.T) {
 		assert.Equal(t, "test-mode", got.Mode)
 		assert.Equal(t, 60, got.TTLMinutes)
 		assert.True(t, got.Keepalive)
+		assert.NotNil(t, got.WorkspaceID)
+		assert.Equal(t, "workspace-123", *got.WorkspaceID)
 		assert.Equal(t, 123, *got.SandboxVMID)
 		assert.Equal(t, `{"output": "test"}`, got.ResultJSON)
 	})

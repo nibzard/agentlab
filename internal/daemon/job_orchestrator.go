@@ -211,6 +211,10 @@ func (o *JobOrchestrator) Run(ctx context.Context, jobID string) error {
 		}
 	}
 
+	if err := o.ensureWorkspaceAvailable(ctx, job, sandbox); err != nil {
+		return o.failJob(job, sandbox.VMID, err)
+	}
+
 	if err := o.sandboxManager.Transition(ctx, sandbox.VMID, models.SandboxProvisioning); err != nil {
 		return o.failJob(job, sandbox.VMID, err)
 	}
@@ -591,6 +595,17 @@ func (o *JobOrchestrator) ensureSandbox(ctx context.Context, job models.Job) (mo
 	if job.SandboxVMID != nil && *job.SandboxVMID > 0 {
 		sandbox, err := o.store.GetSandbox(ctx, *job.SandboxVMID)
 		if err == nil {
+			if job.WorkspaceID != nil && strings.TrimSpace(*job.WorkspaceID) != "" {
+				workspaceID := strings.TrimSpace(*job.WorkspaceID)
+				if sandbox.WorkspaceID == nil || strings.TrimSpace(*sandbox.WorkspaceID) == "" {
+					if err := o.store.UpdateSandboxWorkspace(ctx, sandbox.VMID, &workspaceID); err != nil {
+						return models.Sandbox{}, false, err
+					}
+					sandbox.WorkspaceID = &workspaceID
+				} else if strings.TrimSpace(*sandbox.WorkspaceID) != workspaceID {
+					return models.Sandbox{}, false, fmt.Errorf("sandbox %d workspace mismatch: %s != %s", sandbox.VMID, *sandbox.WorkspaceID, workspaceID)
+				}
+			}
 			return sandbox, false, nil
 		}
 		if !errors.Is(err, sql.ErrNoRows) {
@@ -617,11 +632,32 @@ func (o *JobOrchestrator) ensureSandbox(ctx context.Context, job models.Job) (mo
 		CreatedAt:     now,
 		LastUpdatedAt: now,
 	}
+	if job.WorkspaceID != nil && strings.TrimSpace(*job.WorkspaceID) != "" {
+		workspaceID := strings.TrimSpace(*job.WorkspaceID)
+		sandbox.WorkspaceID = &workspaceID
+	}
 	created, err := createSandboxWithRetry(ctx, o.store, sandbox)
 	if err != nil {
 		return models.Sandbox{}, false, err
 	}
 	return created, true, nil
+}
+
+func (o *JobOrchestrator) ensureWorkspaceAvailable(ctx context.Context, job models.Job, sandbox models.Sandbox) error {
+	if job.WorkspaceID == nil || strings.TrimSpace(*job.WorkspaceID) == "" {
+		return nil
+	}
+	if o.workspaceMgr == nil {
+		return errors.New("workspace manager unavailable")
+	}
+	workspace, err := o.workspaceMgr.Resolve(ctx, *job.WorkspaceID)
+	if err != nil {
+		return err
+	}
+	if workspace.AttachedVM != nil && *workspace.AttachedVM != sandbox.VMID {
+		return fmt.Errorf("workspace %s already attached to vmid %d", workspace.ID, *workspace.AttachedVM)
+	}
+	return nil
 }
 
 func (o *JobOrchestrator) failJob(job models.Job, vmid int, cause error) error {

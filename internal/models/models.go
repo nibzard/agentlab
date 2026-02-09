@@ -102,6 +102,7 @@ const (
 //   - A profile for sandbox provisioning
 //   - A task/command to execute
 //   - Optional TTL and keepalive settings
+//   - Optional workspace attachment
 //
 // Fields:
 //   - ID: Unique job identifier (job_<hex>)
@@ -112,6 +113,7 @@ const (
 //   - Mode: Execution mode (e.g., "dangerous")
 //   - TTLMinutes: Time-to-live in minutes (0 for no expiry)
 //   - Keepalive: Whether to auto-renew the lease
+//   - WorkspaceID: ID of attached workspace volume (optional)
 //   - Status: Current job status
 //   - SandboxVMID: VM ID of the assigned sandbox (set when RUNNING)
 //   - CreatedAt: When the job was created
@@ -126,6 +128,7 @@ type Job struct {
 	Mode        string
 	TTLMinutes  int
 	Keepalive   bool
+	WorkspaceID *string
 	Status      JobStatus
 	SandboxVMID *int
 	CreatedAt   time.Time

@@ -1977,9 +1977,786 @@
       "details": "docs/api.md references /v1/healthz, but the daemon exposes /healthz on all listeners. Update the doc example (or add a /v1/healthz alias) so documentation matches implementation.",
       "files": [
         "docs/api.md",
-        "internal/daemon/daemon.go"
+        "internal/daemon/daemon.go",
+        "to-do.json"
       ],
-      "updated_at": "2026-02-08T22:04:28Z"
+      "updated_at": "2026-02-08T22:04:47Z"
+    },
+    {
+      "id": "T089",
+      "title": "Stateful jobs: add workspace selection/creation to job create (DB+API+orchestrator)",
+      "priority": 1,
+      "status": "done",
+      "details": "Allow workspace-backed jobs without races and without client-side glue. Extend job create to accept an optional workspace selector (id or name) plus optional workspace creation (new workspace with size/storage) and optional wait timeout. Persist the resolved workspace_id on the job, and ensure the orchestrator allocates the sandbox with sandbox.workspace_id set so provisioning attaches /work automatically. Make conflicts actionable (409 with owner/attached info) and add unit/migration tests.",
+      "steps": [
+        "DB: add jobs.workspace_id (nullable) + index; update internal/models.Job + internal/db/jobs.go CRUD + tests.",
+        "API types: extend internal/daemon/api_types.go V1JobCreateRequest with workspace selector and optional workspace_create + workspace_wait_seconds.",
+        "API handler: in internal/daemon/api.go handleJobCreate resolve/create workspace via WorkspaceManager; if attached and no wait -> 409; if wait -> poll until free or timeout.",
+        "Orchestrator: set sandbox.WorkspaceID from job.WorkspaceID in ensureSandbox so Attach happens during provisioning; fail fast before clone when workspace is unavailable (avoid expensive clone when doomed).",
+        "Tests: add daemon tests covering (a) job create with workspace stores job.workspace_id, (b) sandbox created with workspace_id, (c) conflict and wait behavior.",
+        "Docs: update README and docs/api.md with the new job create fields and examples."
+      ],
+      "blockers": [],
+      "tags": [
+        "prd-stateful",
+        "jobs",
+        "workspaces",
+        "db",
+        "api"
+      ],
+      "files": [
+        "internal/db/migrations.go",
+        "internal/db/migrations_test.go",
+        "internal/models/models.go",
+        "internal/models/models_test.go",
+        "internal/testing/testutil.go",
+        "internal/db/jobs.go",
+        "internal/db/jobs_test.go",
+        "internal/daemon/api_types.go",
+        "internal/daemon/api.go",
+        "internal/daemon/job_orchestrator.go",
+        "internal/daemon/job_orchestrator_test.go",
+        "internal/daemon/api_jobs_workspace_test.go",
+        "cmd/agentlab/api.go",
+        "docs/api.md",
+        "README.md"
+      ],
+      "depends_on": [
+        "T014",
+        "T024"
+      ],
+      "created_at": "2026-02-09T09:49:20Z",
+      "updated_at": "2026-02-09T13:17:52Z"
+    },
+    {
+      "id": "T090",
+      "title": "CLI: add job run --workspace/--stateful/--workspace-wait (and new:<name>)",
+      "priority": 1,
+      "status": "todo",
+      "details": "Expose stateful job ergonomics in the CLI: `agentlab job run --workspace <id|name>` plus shorthand `--stateful` and `--workspace-wait <duration>`. Support `--workspace new:<name>` (or `--workspace-create`) with `--workspace-size` and `--workspace-storage` so users can create+run in one command. Ensure errors are actionable and JSON output is stable.",
+      "steps": [
+        "Add flags to cmd/agentlab/commands.go job run: --workspace, --stateful, --workspace-wait, --workspace-size, --workspace-storage.",
+        "Update cmd/agentlab/api.go jobCreateRequest to serialize the new fields; keep backward compatibility with older daemons (feature-detect via error message or /v1/status version if available).",
+        "Implement --stateful as sugar that chooses a default workspace name (explicitly document naming rules) and sets defaults for size/storage if omitted.",
+        "Add CLI tests for parsing/validation and request payload construction (cmd/agentlab/*_test.go).",
+        "Update usage text in cmd/agentlab/main.go and README examples."
+      ],
+      "blockers": [],
+      "tags": [
+        "prd-stateful",
+        "cli",
+        "jobs",
+        "workspaces"
+      ],
+      "files": [
+        "cmd/agentlab/commands.go",
+        "cmd/agentlab/main.go",
+        "cmd/agentlab/api.go",
+        "cmd/agentlab/api_test.go",
+        "cmd/agentlab/commands_helpers_test.go",
+        "README.md"
+      ],
+      "depends_on": [
+        "T089",
+        "T022"
+      ],
+      "created_at": "2026-02-09T09:49:20Z"
+    },
+    {
+      "id": "T091",
+      "title": "Workspace lease/lock: single-writer semantics with wait/renew/release",
+      "priority": 1,
+      "status": "todo",
+      "details": "Implement workspace leases to make persistent state safe under concurrency and daemon restarts. A lease is (owner, nonce, expires_at). Stateful jobs/sessions acquire a lease before provisioning, renew while active, and release on completion. Waiting (`--workspace-wait`) should block on the lease, not just attached_vmid, to support detached-but-reserved sessions.",
+      "steps": [
+        "DB: add workspaces.lease_owner, lease_nonce, lease_expires_at; add index for expiry queries; add migration tests.",
+        "Store: implement TryAcquireWorkspaceLease / RenewWorkspaceLease / ReleaseWorkspaceLease with compare-and-swap updates keyed by nonce.",
+        "Daemon: integrate lease acquisition into job create (stateful) and workspace rebind (session resume will reuse this); implement wait by polling or (better) backoff loop with deadline.",
+        "Lifecycle: ensure leases are released on sandbox destroy/GC paths when the lease owner is tied to that sandbox/job; do not accidentally release leases owned by sessions.",
+        "Observability: record events for lease acquire/renew/release and surface contention metrics (count + wait duration).",
+        "Tests: add contention tests (two acquire attempts; wait until released; expiry cleanup)."
+      ],
+      "blockers": [],
+      "tags": [
+        "prd-safety",
+        "workspaces",
+        "locking",
+        "db",
+        "metrics"
+      ],
+      "files": [
+        "internal/db/migrations.go",
+        "internal/db/migrations_test.go",
+        "internal/db/workspaces.go",
+        "internal/daemon/workspace_manager.go",
+        "internal/daemon/api.go",
+        "internal/daemon/api_types.go",
+        "internal/daemon/job_orchestrator.go",
+        "internal/daemon/sandbox_manager.go",
+        "internal/daemon/metrics.go",
+        "internal/daemon/*_test.go"
+      ],
+      "depends_on": [
+        "T024",
+        "T089"
+      ],
+      "created_at": "2026-02-09T09:49:20Z"
+    },
+    {
+      "id": "T092",
+      "title": "Workspace check: DB <-> Proxmox reconciliation and invariants",
+      "priority": 2,
+      "status": "todo",
+      "details": "Add `agentlab workspace check <workspace>` to detect and explain inconsistencies (missing volume, stale attached_vmid, VM missing, sandbox record drift, wrong disk slot). Output should be actionable: exact remediation steps, and non-destructive by default.",
+      "steps": [
+        "Extend proxmox.Backend with minimal inspection primitives (VM config read + volume existence/path) needed for checks.",
+        "Implement for ShellBackend (qm config + pvesm path) and APIBackend (qemu/{vmid}/config + storage content query or safe fallback).",
+        "Add daemon endpoint GET /v1/workspaces/{id}/check returning structured findings + suggested fixes.",
+        "Add CLI command agentlab workspace check that renders findings for humans and supports --json.",
+        "Add unit tests with stub backends for the common failure modes."
+      ],
+      "blockers": [],
+      "tags": [
+        "prd-safety",
+        "workspaces",
+        "proxmox",
+        "cli",
+        "api"
+      ],
+      "files": [
+        "internal/proxmox/proxmox.go",
+        "internal/proxmox/api_backend.go",
+        "internal/proxmox/shell_backend.go",
+        "internal/daemon/api.go",
+        "internal/daemon/api_types.go",
+        "internal/daemon/workspace_manager.go",
+        "cmd/agentlab/commands.go",
+        "cmd/agentlab/main.go",
+        "internal/daemon/*_test.go",
+        "internal/proxmox/*_test.go"
+      ],
+      "depends_on": [
+        "T024"
+      ],
+      "created_at": "2026-02-09T09:49:20Z"
+    },
+    {
+      "id": "T093",
+      "title": "Backend: add workspace volume snapshot/restore/clone primitives (local-zfs first)",
+      "priority": 3,
+      "status": "todo",
+      "details": "Enable workspace snapshots and forks by extending proxmox.Backend with volume snapshot/rollback/clone operations. Implement ZFS-backed storages first (local-zfs) using Proxmox tooling (prefer pvesm) and return a clear unsupported error for other storages.",
+      "steps": [
+        "Extend internal/proxmox/proxmox.go Backend with volume snapshot ops (e.g., VolumeSnapshotCreate/Restore/Delete and VolumeClone).",
+        "ShellBackend: implement using pvesm (snapshot/rollback/clone) or zfs as a fallback; document required host capabilities.",
+        "APIBackend: implement via Proxmox API if supported; otherwise fall back to shell execution in a controlled way (explicitly guarded).",
+        "Add unit tests for command construction and API request paths; include capability detection tests.",
+        "Document the exact consistency/safety model (require detached by default)."
+      ],
+      "blockers": [],
+      "tags": [
+        "prd-safety",
+        "proxmox",
+        "storage",
+        "snapshots"
+      ],
+      "files": [
+        "internal/proxmox/proxmox.go",
+        "internal/proxmox/shell_backend.go",
+        "internal/proxmox/api_backend.go",
+        "internal/proxmox/shell_backend_test.go",
+        "internal/proxmox/api_backend_test.go",
+        "docs/proxmox.md"
+      ],
+      "depends_on": [
+        "T024"
+      ],
+      "created_at": "2026-02-09T09:49:20Z"
+    },
+    {
+      "id": "T094",
+      "title": "Workspaces: implement snapshot create/list/restore (SQLite + API + CLI)",
+      "priority": 3,
+      "status": "todo",
+      "details": "Add workspace snapshot workflows independent of sandboxes. Default safety rule: require workspace detached and lease held; allow attached snapshots only behind an explicit flag once a consistency model is defined. Snapshots must be auditable via events.",
+      "steps": [
+        "DB: add workspace_snapshots table (workspace_id, name, backend_ref, created_at, meta_json) + indexes; add migration tests.",
+        "WorkspaceManager: add SnapshotCreate/List/Restore methods that call backend volume snapshot ops and update DB.",
+        "Control API: add endpoints for snapshot create/list/restore under /v1/workspaces/{id}/snapshots.",
+        "CLI: add agentlab workspace snapshot create/list/restore.",
+        "Events/metrics: record snapshot events and durations."
+      ],
+      "blockers": [],
+      "tags": [
+        "prd-safety",
+        "workspaces",
+        "snapshots",
+        "api",
+        "cli"
+      ],
+      "files": [
+        "internal/db/migrations.go",
+        "internal/db/migrations_test.go",
+        "internal/db/workspaces.go",
+        "internal/daemon/workspace_manager.go",
+        "internal/daemon/api.go",
+        "internal/daemon/api_types.go",
+        "cmd/agentlab/commands.go",
+        "cmd/agentlab/main.go",
+        "docs/faq.md"
+      ],
+      "depends_on": [
+        "T091",
+        "T093"
+      ],
+      "created_at": "2026-02-09T09:49:20Z"
+    },
+    {
+      "id": "T095",
+      "title": "Workspaces: implement fork (clone workspace from current or snapshot)",
+      "priority": 3,
+      "status": "todo",
+      "details": "Implement `agentlab workspace fork` to create an independent workspace volume and DB record, from either the latest state (detached) or a named snapshot. Fork must not mutate the source.",
+      "steps": [
+        "WorkspaceManager: add Fork method that enforces detached+lease rules and calls backend VolumeClone (or clone-from-snapshot).",
+        "Control API + CLI: add workspace fork command and endpoint; accept --from-snapshot.",
+        "Add tests for fork behavior and error handling (unsupported storage, source attached, unknown snapshot)."
+      ],
+      "blockers": [],
+      "tags": [
+        "prd-safety",
+        "workspaces",
+        "clone",
+        "cli",
+        "api"
+      ],
+      "files": [
+        "internal/daemon/workspace_manager.go",
+        "internal/daemon/api.go",
+        "internal/daemon/api_types.go",
+        "cmd/agentlab/commands.go",
+        "cmd/agentlab/main.go",
+        "internal/daemon/*_test.go"
+      ],
+      "depends_on": [
+        "T093",
+        "T094"
+      ],
+      "created_at": "2026-02-09T09:49:20Z"
+    },
+    {
+      "id": "T096",
+      "title": "Workspaces: add fsck helper (read-only default; repair behind flag)",
+      "priority": 4,
+      "status": "todo",
+      "details": "Provide recovery workflows when workspace filesystem becomes inconsistent. `agentlab workspace fsck` should be safe by default (read-only checks) and only repair with an explicit flag. If host-level fsck is storage/format dependent, provision a dedicated maintenance sandbox to run checks in a controlled environment.",
+      "steps": [
+        "Decide execution model per storage: host-level (preferred) vs maintenance sandbox (fallback).",
+        "Implement API + CLI for workspace fsck with --repair gating.",
+        "Record events and produce clear remediation output.",
+        "Add tests for gating and for maintenance-sandbox lifecycle if implemented."
+      ],
+      "blockers": [],
+      "tags": [
+        "prd-safety",
+        "workspaces",
+        "recovery"
+      ],
+      "files": [
+        "internal/daemon/workspace_manager.go",
+        "internal/daemon/api.go",
+        "cmd/agentlab/commands.go",
+        "docs/troubleshooting.md"
+      ],
+      "depends_on": [
+        "T092"
+      ],
+      "created_at": "2026-02-09T09:49:20Z"
+    },
+    {
+      "id": "T097",
+      "title": "Messagebox: append-only messages table + /v1/messages API + CLI msg post/tail",
+      "priority": 2,
+      "status": "todo",
+      "details": "Add a built-in shared mailbox/memory primitive for multi-agent coordination. Implement durable append-only messages scoped to job/workspace/session with tail/follow semantics.",
+      "steps": [
+        "DB: add messages table (id, ts, scope_type, scope_id, author, kind, text, json) + indexes; add migration tests.",
+        "Control API: implement POST /v1/messages and GET /v1/messages with after_id/limit filters; validate scope_type.",
+        "CLI: add agentlab msg post/tail supporting --job/--workspace/--session and --follow.",
+        "Tests: store tests for inserts/queries and API handler tests for filtering and limits.",
+        "Docs: add usage patterns and retention notes."
+      ],
+      "blockers": [],
+      "tags": [
+        "prd-messagebox",
+        "api",
+        "cli",
+        "db"
+      ],
+      "files": [
+        "internal/db/migrations.go",
+        "internal/db/migrations_test.go",
+        "internal/db/events.go",
+        "internal/daemon/api.go",
+        "internal/daemon/api_types.go",
+        "cmd/agentlab/commands.go",
+        "cmd/agentlab/main.go",
+        "docs/architecture.md"
+      ],
+      "created_at": "2026-02-09T09:49:20Z"
+    },
+    {
+      "id": "T098",
+      "title": "Sessions (Option A): persisted sessions + create/list/show/resume/stop/fork/branch",
+      "priority": 2,
+      "status": "todo",
+      "details": "Implement a minimal session model that binds workspace + current sandbox + profile defaults, enabling resume/diagnose workflows. Option A: resume always provisions a fresh sandbox and rebinds the workspace (reuse existing workspace rebind code path).",
+      "steps": [
+        "DB: add sessions table (id, name, workspace_id, current_vmid, profile, branch, created_at, updated_at, meta_json) + indexes; add migration tests.",
+        "Daemon: add endpoints for session create/list/show/resume/stop/fork/doctor (doctor can be stubbed until T100).",
+        "Reuse JobOrchestrator.RebindWorkspace to implement resume; update session.current_vmid.",
+        "CLI: add agentlab session create/list/show/resume/stop/fork/branch.",
+        "Integrate with workspace leases so sessions reserve a workspace even while detached.",
+        "Tests: session lifecycle tests (resume creates new sandbox, stop destroys sandbox but keeps workspace)."
+      ],
+      "blockers": [],
+      "tags": [
+        "prd-sessions",
+        "api",
+        "cli",
+        "db",
+        "workspaces"
+      ],
+      "files": [
+        "internal/db/migrations.go",
+        "internal/db/migrations_test.go",
+        "internal/daemon/api.go",
+        "internal/daemon/api_types.go",
+        "internal/daemon/workspace_rebind.go",
+        "cmd/agentlab/commands.go",
+        "cmd/agentlab/main.go",
+        "docs/faq.md"
+      ],
+      "depends_on": [
+        "T091"
+      ],
+      "created_at": "2026-02-09T09:49:20Z"
+    },
+    {
+      "id": "T099",
+      "title": "Branch ergonomics: job run --branch as session-backed runs",
+      "priority": 2,
+      "status": "todo",
+      "details": "Make sessions feel like lightweight branches. Implement `agentlab session branch <branch>` to create/switch to a deterministic session for that branch, and `agentlab job run --branch <branch>` as sugar for running against the session workspace (updating session.current_vmid to the latest sandbox).",
+      "steps": [
+        "CLI: add --branch to job run; resolve branch -> session (create if missing) and pass session.workspace_id to job create.",
+        "Daemon: optionally add job.session_id on create so the daemon can update session.current_vmid when the sandbox is allocated.",
+        "Define deterministic naming rules and collision handling (branch names -> safe session names).",
+        "Tests: branch creates session, runs job with correct workspace, session current_vmid updates."
+      ],
+      "blockers": [],
+      "tags": [
+        "prd-sessions",
+        "cli",
+        "jobs"
+      ],
+      "files": [
+        "cmd/agentlab/commands.go",
+        "cmd/agentlab/api.go",
+        "internal/daemon/api.go",
+        "internal/db/migrations.go",
+        "internal/models/models.go",
+        "docs/runbook.md"
+      ],
+      "depends_on": [
+        "T089",
+        "T098"
+      ],
+      "created_at": "2026-02-09T09:49:20Z"
+    },
+    {
+      "id": "T100",
+      "title": "Doctor bundles: sandbox/job/session doctor to produce a deterministic debug bundle",
+      "priority": 2,
+      "status": "todo",
+      "details": "Add a doctor workflow that bundles DB records, recent events, Proxmox status/config, and artifact inventory into a single deterministic file for debugging. Doctor output must redact secrets.",
+      "steps": [
+        "Implement daemon endpoints for doctor bundle creation (sandbox/job/session) writing a tar.gz/zip to a safe location or streaming to client.",
+        "Bundle contents: DB records, recent events, proxmox runtime status+config, artifact metadata; optionally include latest artifact bundle.",
+        "Add redaction rules using existing Redactor; explicitly exclude secrets bundles and env values.",
+        "CLI: add agentlab sandbox doctor / job doctor / session doctor with --out <path>.",
+        "Tests: ensure doctor never includes known secret markers; verify deterministic file structure."
+      ],
+      "blockers": [],
+      "tags": [
+        "prd-doctor",
+        "diagnostics",
+        "security",
+        "api",
+        "cli"
+      ],
+      "files": [
+        "internal/daemon/api.go",
+        "internal/daemon/redactor.go",
+        "internal/db/events.go",
+        "cmd/agentlab/commands.go",
+        "docs/troubleshooting.md"
+      ],
+      "created_at": "2026-02-09T09:49:20Z"
+    },
+    {
+      "id": "T101",
+      "title": "One-command onboarding: implement agentlab init (checks + --apply + smoke-test)",
+      "priority": 4,
+      "status": "todo",
+      "details": "Provide an appliance-like onboarding flow for new Proxmox hosts. `agentlab init` should run a read-only checklist, `agentlab init --apply` should execute safe/reversible steps, and `agentlab init --smoke-test` should validate end-to-end provisioning.",
+      "steps": [
+        "CLI: add init command group with read-only checks (bridges, nftables, snippet dir, template presence, profiles present).",
+        "Implement --apply by reusing existing scripts in scripts/net and scripts/create_template.sh; ensure idempotence and clear output.",
+        "Implement --smoke-test to provision a small sandbox/job and validate bootstrap + artifact upload.",
+        "Docs: add a runbook section and troubleshooting for init."
+      ],
+      "blockers": [],
+      "tags": [
+        "prd-init",
+        "cli",
+        "onboarding"
+      ],
+      "files": [
+        "cmd/agentlab/commands.go",
+        "cmd/agentlab/main.go",
+        "scripts/net/setup_vmbr1.sh",
+        "scripts/net/apply.sh",
+        "scripts/create_template.sh",
+        "docs/runbook.md"
+      ],
+      "depends_on": [
+        "T002",
+        "T003",
+        "T004",
+        "T018"
+      ],
+      "created_at": "2026-02-09T09:49:20Z"
+    },
+    {
+      "id": "T102",
+      "title": "Docs: persistent state model and safety guides (workspaces vs sessions vs sandboxes)",
+      "priority": 4,
+      "status": "todo",
+      "details": "Document the mental model and safety rails: what persists (workspace) vs what is ephemeral (sandbox root), how sessions relate, and how to safely use snapshots/forks/fsck/doctor/messagebox. This should become the default reference for users adopting stateful workflows.",
+      "steps": [
+        "Add docs page describing sandbox/workspace/session with diagrams and common workflows (stateful dev loop, resume, fork, recover).",
+        "Add safety guides for snapshots/restore/fork/fsck and explicit destructive-operation flags.",
+        "Document Messagebox usage patterns for multi-agent teams.",
+        "Ensure README points to these docs and examples use the current CLI flags."
+      ],
+      "blockers": [],
+      "tags": [
+        "docs",
+        "prd-stateful",
+        "prd-safety"
+      ],
+      "files": [
+        "docs/architecture.md",
+        "docs/faq.md",
+        "docs/troubleshooting.md",
+        "README.md"
+      ],
+      "created_at": "2026-02-09T09:49:20Z"
+    },
+    {
+      "id": "T103",
+      "title": "Sandbox pause/resume: add Proxmox suspend/resume to backend + CLI",
+      "priority": 5,
+      "status": "todo",
+      "details": "Add `agentlab sandbox pause`/`resume` built on Proxmox suspend/resume (future-friendly for sessions that want long-running processes). Keep conservative safety rules when workspaces are attached.",
+      "steps": [
+        "Extend proxmox.Backend with Suspend/Resume.",
+        "Implement for APIBackend and ShellBackend.",
+        "Add control API endpoints + CLI commands; record events and validate state transitions.",
+        "Add unit tests for backend calls and state gating."
+      ],
+      "blockers": [],
+      "tags": [
+        "prd-sessions",
+        "proxmox",
+        "cli",
+        "api"
+      ],
+      "files": [
+        "internal/proxmox/proxmox.go",
+        "internal/proxmox/api_backend.go",
+        "internal/proxmox/shell_backend.go",
+        "internal/daemon/api.go",
+        "internal/daemon/sandbox_manager.go",
+        "cmd/agentlab/commands.go",
+        "cmd/agentlab/main.go"
+      ],
+      "created_at": "2026-02-09T09:49:20Z"
+    },
+    {
+      "id": "T104",
+      "title": "Sandbox named snapshots: expose snapshot save/restore CLI with safety checks",
+      "priority": 5,
+      "status": "todo",
+      "details": "Expose named sandbox snapshots beyond the canonical clean snapshot, with conservative safety rules around attached workspaces. This enables explicit checkpoint/restore workflows for long-running sessions.",
+      "steps": [
+        "Add control API endpoints for sandbox snapshot save/list/restore that wrap backend SnapshotCreate/Rollback/Delete.",
+        "Add CLI commands agentlab sandbox snapshot save/list/restore.",
+        "Implement safety gates: default require sandbox stopped and (optionally) no workspace attached unless forced.",
+        "Add tests for validation and error messages."
+      ],
+      "blockers": [],
+      "tags": [
+        "snapshots",
+        "cli",
+        "api"
+      ],
+      "files": [
+        "internal/daemon/api.go",
+        "internal/daemon/api_types.go",
+        "cmd/agentlab/commands.go",
+        "cmd/agentlab/main.go",
+        "docs/faq.md"
+      ],
+      "depends_on": [
+        "T065"
+      ],
+      "created_at": "2026-02-09T09:49:20Z"
+    },
+    {
+      "id": "T105",
+      "title": "Remote control plane: authenticated TCP control listener (tailnet-friendly)",
+      "priority": 1,
+      "status": "todo",
+      "details": "Enable running `agentlab` from any tailnet machine (MacBook, CI runner, another VM) while `agentlabd` runs on the Proxmox host. Add an optional TCP listener for the existing Control API, protected by Bearer token auth, with safe defaults that avoid LAN/WAN exposure. This is the foundation for remote CLI + automation.",
+      "steps": [
+        "Config: extend internal/config/config.go with control_listen (string, default empty/disabled) and control_auth_token (string). Add optional control_allow_cidrs (list) for defense-in-depth. Update FileConfig + applyFileConfig + Validate rules (require token if control_listen set; forbid wildcard binds unless explicitly allowed; recommend binding to 127.0.0.1).",
+        "Daemon wiring: in internal/daemon/daemon.go add a new listener+server pair for the TCP control plane when cfg.ControlListen != \"\". Reuse the same ControlAPI mux but wrap it in auth middleware.",
+        "Auth middleware: implement an http.Handler wrapper that enforces Authorization: Bearer <token> for all /v1/* paths (optionally allow /healthz unauthenticated). Use constant-time compare and never log the token.",
+        "CIDR allowlist (optional): if configured, reject requests whose RemoteAddr is not in allowlisted ranges. If tailscale serve is used as a proxy, document how RemoteAddr behaves and treat allowlist as best-effort.",
+        "Host info: add a small read-only endpoint (e.g. GET /v1/host) that returns daemon version, agent_subnet, and (if tailscale is present) MagicDNS name. This enables client-side UX (connect/jump-host hints) without shelling out on the client.",
+        "Tests: add daemon tests for auth required/accepted/rejected, healthz bypass, and that errors do not echo secrets. Add config validation tests.",
+        "Docs: document remote control setup patterns: (A) bind 127.0.0.1 + tailscale serve, (B) bind to tailscale IP. Include threat model and recommended defaults."
+      ],
+      "tags": [
+        "remote-cli",
+        "control-plane",
+        "security",
+        "tailscale",
+        "api"
+      ],
+      "files": [
+        "internal/config/config.go",
+        "internal/config/config_test.go",
+        "internal/daemon/daemon.go",
+        "internal/daemon/api.go",
+        "internal/daemon/api_types.go",
+        "internal/daemon/tailscale_serve.go",
+        "docs/configuration.md",
+        "docs/runbook.md"
+      ],
+      "created_at": "2026-02-09T12:17:58Z"
+    },
+    {
+      "id": "T106",
+      "title": "CLI remote mode: --endpoint/--token + persistent client config + connect",
+      "priority": 1,
+      "status": "todo",
+      "details": "Allow `agentlab` to talk to a remote agentlabd over HTTP (tailnet) instead of requiring a local Unix socket. Add global flags `--endpoint` and `--token`, environment variables, and a local config file so users/agents can run commands without repeating parameters. This must support non-interactive automation.",
+      "steps": [
+        "Global flags: extend cmd/agentlab/main.go parseGlobal() and usageText with --endpoint and --token. Keep --socket for local-only mode; endpoint takes precedence when set.",
+        "Client transport: refactor cmd/agentlab/api.go newAPIClient() to support both (A) unix-socket HTTP and (B) tcp/http(s) base URL. When endpoint mode is used, automatically add Authorization header if token is configured.",
+        "Persisted config: add a minimal client config file (XDG-friendly) storing endpoint, token, and ssh jump defaults. Ensure file permissions are 0600 and never print token in logs/errors.",
+        "Connect command: implement `agentlab connect --endpoint ... --token ...` that verifies connectivity (`/v1/status`), optionally discovers host info (`/v1/host`), then writes the config. Also add `agentlab disconnect` to remove config.",
+        "Precedence rules: CLI flags > env vars > config file > defaults. Document them.",
+        "Tests: add unit tests for precedence, header injection, and endpoint URL parsing; add a small httptest server to assert auth header is sent.",
+        "Docs: update README + docs/runbook.md with remote usage examples (Mac)."
+      ],
+      "tags": [
+        "remote-cli",
+        "cli",
+        "auth",
+        "config"
+      ],
+      "files": [
+        "cmd/agentlab/main.go",
+        "cmd/agentlab/api.go",
+        "cmd/agentlab/commands.go",
+        "cmd/agentlab/ssh.go",
+        "cmd/agentlab/*_test.go",
+        "README.md",
+        "docs/runbook.md"
+      ],
+      "depends_on": [
+        "T105"
+      ],
+      "created_at": "2026-02-09T12:17:58Z"
+    },
+    {
+      "id": "T107",
+      "title": "Host setup: enable remote control + tailscale serve publishing in install/init",
+      "priority": 2,
+      "status": "todo",
+      "details": "Make the proxmox-side setup one-and-done: install agentlabd, enable a local-only TCP control port, generate a control token, and (if tailscale is available) publish that control port to the tailnet via `tailscale serve`. The script should print a copy-pastable `agentlab connect ...` command.",
+      "steps": [
+        "scripts/install_host.sh: add optional flags like --enable-remote-control, --control-port 8845, --control-token (optional, else generate), and --tailscale-serve (auto if tailscale is running).",
+        "Config writing: ensure /etc/agentlab/config.yaml gains control_listen=127.0.0.1:<port> and control_auth_token=<token>. Keep token file permissions strict.",
+        "Tailscale serve: if tailscale is installed+running, run `tailscale serve --tcp=<port> tcp://127.0.0.1:<port>` and print the MagicDNS hostname (tailscale status --json) so users know the endpoint.",
+        "Idempotence: re-running install_host.sh must not rotate tokens unless explicitly requested; it should converge config and serve rules safely.",
+        "Integrate with agentlab init (T101): add checks for control plane and tailscale serve rule, and allow `agentlab init --apply` to configure them.",
+        "Docs: add a short remote setup section that matches the script behavior exactly."
+      ],
+      "tags": [
+        "remote-cli",
+        "install",
+        "tailscale",
+        "onboarding"
+      ],
+      "files": [
+        "scripts/install_host.sh",
+        "internal/config/config.go",
+        "docs/runbook.md",
+        "docs/configuration.md",
+        "scripts/net/setup_tailscale_router.sh"
+      ],
+      "depends_on": [
+        "T002",
+        "T105",
+        "T101"
+      ],
+      "created_at": "2026-02-09T12:17:58Z"
+    },
+    {
+      "id": "T108",
+      "title": "agentlab ssh must work remotely: subnet-route UX + ProxyJump fallback",
+      "priority": 1,
+      "status": "todo",
+      "details": "Guarantee `agentlab ssh <vmid>` works from a Mac/tailnet device. Primary path is direct SSH via tailnet subnet routing to 10.77.0.0/16. Fallback path is an automatic jump host (ProxyJump) through the Proxmox host when subnet routes are not accepted. This must be non-interactive friendly.",
+      "steps": [
+        "Connectivity probe: in cmd/agentlab/ssh.go, after resolving sandbox IP, attempt a fast TCP dial to ip:22. If reachable, output the normal direct ssh command.",
+        "If not reachable: use configured jump host settings (from `agentlab connect` config or explicit flags) to output `ssh -J <jump_user>@<jump_host> agent@<sandbox_ip>` (and support --exec).",
+        "Jump host defaults: when endpoint mode is used, default jump_host to the endpoint host (MagicDNS) and default jump_user to a configurable value (do not assume root; require explicit config or infer from current user).",
+        "Route guidance: when direct dial fails and no jump host configured, print a hard actionable message: enable tailnet subnet route (accept-routes) and/or configure jump host via `agentlab connect --jump-user ...`.",
+        "Wait semantics: when --wait is used and jump mode is selected, implement readiness probing via SSH transport (e.g., run `ssh -J ... -o BatchMode=yes -o ConnectTimeout=...` and treat auth failure as readiness) instead of direct TCP dialing.",
+        "Tests: add ssh tests for (a) direct path, (b) jump path formatting, (c) precedence of jump flags/config, and (d) --exec incompatibilities with --json.",
+        "Docs: add a short 'Remote SSH' section explaining both modes and how to make it non-interactive (keys or Tailscale SSH)."
+      ],
+      "tags": [
+        "remote-cli",
+        "ssh",
+        "tailscale",
+        "ux"
+      ],
+      "files": [
+        "cmd/agentlab/ssh.go",
+        "cmd/agentlab/main.go",
+        "cmd/agentlab/*_test.go",
+        "docs/runbook.md",
+        "docs/troubleshooting.md"
+      ],
+      "depends_on": [
+        "T106"
+      ],
+      "created_at": "2026-02-09T12:17:58Z"
+    },
+    {
+      "id": "T109",
+      "title": "Magical bootstrap: run `agentlab bootstrap` from Mac to provision Proxmox host",
+      "priority": 3,
+      "status": "todo",
+      "details": "Provide a single command run on the user's laptop that provisions the Proxmox host end-to-end (install agentlabd, configure networking, optional tailscale subnet routing, and remote control plane), then writes local client config so subsequent `agentlab ...` commands work with no flags. This is an orchestrator over SSH, not an extra daemon backdoor.",
+      "steps": [
+        "CLI command: implement `agentlab bootstrap --host <ssh_host> [--ssh-user ...] [--ssh-port ...] [--identity ...]` that executes host-side steps over SSH (non-interactive; require key or Tailscale SSH).",
+        "Installation strategy: prefer running scripts that already exist on the host (install_host.sh, net scripts). If the host is clean, bootstrap should upload the minimal assets needed (unit file + config + profiles) and/or download binaries from a release URL (explicitly configurable).",
+        "Remote control enablement: as part of bootstrap, enable control_listen + token + tailscale serve publishing (T107) and then run `agentlab connect` locally with the discovered endpoint+token.",
+        "Tailscale setup (optional): support `--tailscale-authkey` to run tailscale up and advertise routes using scripts/net/setup_tailscale_router.sh; clearly indicate that admin approval may still be required unless T110 is enabled.",
+        "Safety: bootstrap must be idempotent and reversible where possible; print a plan and what it changed; never overwrite existing /etc/agentlab config without backup unless forced.",
+        "Tests: unit-test SSH command construction and config writing; integration testing can be manual-runbook initially."
+      ],
+      "blockers": [
+        "Requires a defined distribution story for linux binaries (download URL or upload path)."
+      ],
+      "tags": [
+        "remote-cli",
+        "bootstrap",
+        "onboarding",
+        "ssh"
+      ],
+      "files": [
+        "cmd/agentlab/main.go",
+        "cmd/agentlab/commands.go",
+        "cmd/agentlab/api.go",
+        "scripts/install_host.sh",
+        "scripts/net/*",
+        "docs/runbook.md"
+      ],
+      "depends_on": [
+        "T107",
+        "T106"
+      ],
+      "created_at": "2026-02-09T12:17:58Z"
+    },
+    {
+      "id": "T110",
+      "title": "Optional: Tailscale Admin API integration to auto-approve routes and validate client accept-routes",
+      "priority": 5,
+      "status": "todo",
+      "details": "Make the subnet-route path truly zero-touch by optionally integrating with the Tailscale Admin API to approve advertised routes and verify the client device is accepting them. This is strictly opt-in due to the sensitivity of tailnet admin credentials.",
+      "steps": [
+        "Design: define an opt-in config section for tailscale admin API (tailnet name, api key or oauth client) and a clear threat model. Never store admin credentials in world-readable files.",
+        "Implement: add a small client-side helper in `agentlab bootstrap` that calls the Admin API to approve the proxmox-advertised route (10.77.0.0/16) when possible.",
+        "Validation UX: during `agentlab connect` or `agentlab bootstrap`, detect route availability and print whether the sandbox subnet is reachable from this machine.",
+        "Fallback: if API not configured, print exact manual steps in the Tailscale admin console.",
+        "Docs: clearly document how to enable this and why it is optional."
+      ],
+      "tags": [
+        "tailscale",
+        "onboarding",
+        "security",
+        "optional"
+      ],
+      "files": [
+        "cmd/agentlab/*",
+        "docs/runbook.md",
+        "docs/security.md"
+      ],
+      "depends_on": [
+        "T109"
+      ],
+      "created_at": "2026-02-09T12:17:58Z"
+    },
+    {
+      "id": "T111",
+      "title": "Docs: remote CLI quickstart (connect/bootstrap) + non-interactive SSH guidance",
+      "priority": 4,
+      "status": "todo",
+      "details": "Write a single page that a user (or coding agent) can follow to get from zero to fully-remote control: install on proxmox, enable tailnet access, connect from Mac, and ensure `agentlab ssh` works (direct or jump). Include copy/paste commands and troubleshooting.",
+      "steps": [
+        "Document the two recommended control-plane topologies: (A) 127.0.0.1:8845 + tailscale serve, (B) bind to tailscale IP.",
+        "Document how to run scripts/install_host.sh with remote-control flags and the resulting `agentlab connect` command.",
+        "Document `agentlab connect` precedence rules and where config is stored.",
+        "Document `agentlab ssh` direct vs ProxyJump mode, and how to make it non-interactive (keys / Tailscale SSH).",
+        "Add troubleshooting for: no route to 10.77.0.0/16, route not approved, mac not accepting routes, and jump host auth failures."
+      ],
+      "tags": [
+        "docs",
+        "remote-cli",
+        "tailscale",
+        "ssh"
+      ],
+      "files": [
+        "docs/runbook.md",
+        "docs/troubleshooting.md",
+        "README.md"
+      ],
+      "depends_on": [
+        "T105",
+        "T106",
+        "T108",
+        "T107"
+      ],
+      "created_at": "2026-02-09T12:17:58Z"
     }
   ]
 }

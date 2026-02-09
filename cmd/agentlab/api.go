@@ -52,13 +52,16 @@ type apiError struct {
 
 // jobCreateRequest contains parameters for creating a new job.
 type jobCreateRequest struct {
-	RepoURL    string `json:"repo_url"`
-	Ref        string `json:"ref,omitempty"`
-	Profile    string `json:"profile"`
-	Task       string `json:"task"`
-	Mode       string `json:"mode,omitempty"`
-	TTLMinutes *int   `json:"ttl_minutes,omitempty"`
-	Keepalive  *bool  `json:"keepalive,omitempty"`
+	RepoURL              string                  `json:"repo_url"`
+	Ref                  string                  `json:"ref,omitempty"`
+	Profile              string                  `json:"profile"`
+	Task                 string                  `json:"task"`
+	Mode                 string                  `json:"mode,omitempty"`
+	TTLMinutes           *int                    `json:"ttl_minutes,omitempty"`
+	Keepalive            *bool                   `json:"keepalive,omitempty"`
+	WorkspaceID          *string                 `json:"workspace_id,omitempty"`
+	WorkspaceCreate      *workspaceCreateRequest `json:"workspace_create,omitempty"`
+	WorkspaceWaitSeconds *int                    `json:"workspace_wait_seconds,omitempty"`
 }
 
 // jobResponse represents a job returned from the API.
@@ -71,6 +74,7 @@ type jobResponse struct {
 	Mode        string          `json:"mode,omitempty"`
 	TTLMinutes  *int            `json:"ttl_minutes,omitempty"`
 	Keepalive   bool            `json:"keepalive"`
+	WorkspaceID *string         `json:"workspace_id,omitempty"`
 	Status      string          `json:"status"`
 	SandboxVMID *int            `json:"sandbox_vmid,omitempty"`
 	Result      json.RawMessage `json:"result,omitempty"`

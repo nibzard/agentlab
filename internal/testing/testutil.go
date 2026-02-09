@@ -146,6 +146,7 @@ type JobOpts struct {
 	Mode        string
 	TTLMinutes  int
 	Keepalive   bool
+	WorkspaceID *string
 	Status      models.JobStatus
 	SandboxVMID *int
 	ResultJSON  string
@@ -197,6 +198,7 @@ func NewTestJob(opts JobOpts) models.Job {
 		Mode:        opts.Mode,
 		TTLMinutes:  opts.TTLMinutes,
 		Keepalive:   opts.Keepalive,
+		WorkspaceID: opts.WorkspaceID,
 		Status:      opts.Status,
 		SandboxVMID: opts.SandboxVMID,
 		ResultJSON:  opts.ResultJSON,

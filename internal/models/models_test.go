@@ -117,6 +117,7 @@ func TestSandboxJSONWithNilWorkspaceID(t *testing.T) {
 func TestJobJSONSerialization(t *testing.T) {
 	now := time.Now().UTC()
 	sandboxVMID := 100
+	workspaceID := "workspace-123"
 
 	j := Job{
 		ID:          "job-123",
@@ -127,6 +128,7 @@ func TestJobJSONSerialization(t *testing.T) {
 		Mode:        "dangerous",
 		TTLMinutes:  120,
 		Keepalive:   true,
+		WorkspaceID: &workspaceID,
 		Status:      JobRunning,
 		SandboxVMID: &sandboxVMID,
 		CreatedAt:   now,
@@ -151,6 +153,7 @@ func TestJobJSONSerialization(t *testing.T) {
 	assert.Equal(t, j.Mode, unmarshaled.Mode)
 	assert.Equal(t, j.TTLMinutes, unmarshaled.TTLMinutes)
 	assert.Equal(t, j.Keepalive, unmarshaled.Keepalive)
+	assert.Equal(t, j.WorkspaceID, unmarshaled.WorkspaceID)
 	assert.Equal(t, j.Status, unmarshaled.Status)
 	assert.Equal(t, j.SandboxVMID, unmarshaled.SandboxVMID)
 	assert.Equal(t, j.ResultJSON, unmarshaled.ResultJSON)
@@ -168,6 +171,7 @@ func TestJobJSONWithNilSandboxVMID(t *testing.T) {
 		Mode:        "dangerous",
 		TTLMinutes:  0,
 		Keepalive:   false,
+		WorkspaceID: nil,
 		Status:      JobQueued,
 		SandboxVMID: nil,
 		CreatedAt:   time.Now(),
@@ -183,6 +187,7 @@ func TestJobJSONWithNilSandboxVMID(t *testing.T) {
 	require.NoError(t, err)
 
 	assert.Nil(t, unmarshaled.SandboxVMID)
+	assert.Nil(t, unmarshaled.WorkspaceID)
 	assert.Empty(t, unmarshaled.ResultJSON)
 }
 

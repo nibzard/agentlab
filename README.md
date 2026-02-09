@@ -507,6 +507,33 @@ agentlab job run \
 - `--keepalive` (optional): Don't auto-destroy on completion
 - `--workspace <name>` (optional): Attach workspace
 
+API example for a workspace-backed job:
+
+```json
+{
+  "repo_url": "https://github.com/user/repo",
+  "ref": "main",
+  "profile": "yolo-ephemeral",
+  "task": "data analysis",
+  "mode": "dangerous",
+  "workspace_id": "workspace-001",
+  "workspace_wait_seconds": 60
+}
+```
+
+API example creating a workspace during job create:
+
+```json
+{
+  "repo_url": "https://github.com/user/repo",
+  "ref": "main",
+  "profile": "yolo-ephemeral",
+  "task": "data analysis",
+  "mode": "dangerous",
+  "workspace_create": { "name": "ws-data", "size_gb": 80, "storage": "local-zfs" }
+}
+```
+
 #### Show Job Status
 
 ```bash
