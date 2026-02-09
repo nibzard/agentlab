@@ -103,6 +103,13 @@ var (
 //   - POST   /v1/workspaces/{id}/attach  - Attach workspace to VM
 //   - POST   /v1/workspaces/{id}/detach  - Detach workspace from VM
 //   - POST   /v1/workspaces/{id}/rebind   - Rebind workspace to new VM
+//   - POST   /v1/sessions             - Create a session
+//   - GET    /v1/sessions             - List sessions
+//   - GET    /v1/sessions/{id}        - Get session details
+//   - POST   /v1/sessions/{id}/resume - Resume a session (rebind workspace)
+//   - POST   /v1/sessions/{id}/stop   - Stop a session (destroy sandbox)
+//   - POST   /v1/sessions/{id}/fork   - Fork a session (new workspace required)
+//   - POST   /v1/sessions/{id}/doctor - Stub session doctor endpoint
 //   - POST   /v1/exposures            - Create a new exposure
 //   - GET    /v1/exposures            - List exposures
 //   - DELETE /v1/exposures/{name}     - Delete exposure
@@ -219,6 +226,8 @@ func (api *ControlAPI) Register(mux *http.ServeMux) {
 	mux.HandleFunc("/v1/sandboxes/prune", api.handleSandboxPrune)
 	mux.HandleFunc("/v1/workspaces", api.handleWorkspaces)
 	mux.HandleFunc("/v1/workspaces/", api.handleWorkspaceByID)
+	mux.HandleFunc("/v1/sessions", api.handleSessions)
+	mux.HandleFunc("/v1/sessions/", api.handleSessionByID)
 	mux.HandleFunc("/v1/exposures", api.handleExposures)
 	mux.HandleFunc("/v1/exposures/", api.handleExposureByName)
 }
@@ -1017,6 +1026,68 @@ func (api *ControlAPI) handleWorkspaceByID(w http.ResponseWriter, r *http.Reques
 	writeError(w, http.StatusNotFound, "workspace not found")
 }
 
+func (api *ControlAPI) handleSessions(w http.ResponseWriter, r *http.Request) {
+	switch r.Method {
+	case http.MethodPost:
+		api.handleSessionCreate(w, r)
+	case http.MethodGet:
+		api.handleSessionList(w, r)
+	default:
+		writeMethodNotAllowed(w, []string{http.MethodGet, http.MethodPost})
+	}
+}
+
+func (api *ControlAPI) handleSessionByID(w http.ResponseWriter, r *http.Request) {
+	tail := strings.TrimPrefix(r.URL.Path, "/v1/sessions/")
+	parts := strings.Split(strings.Trim(tail, "/"), "/")
+	if len(parts) == 0 || parts[0] == "" {
+		writeError(w, http.StatusNotFound, "session not found")
+		return
+	}
+	id := parts[0]
+	switch len(parts) {
+	case 1:
+		if r.Method != http.MethodGet {
+			writeMethodNotAllowed(w, []string{http.MethodGet})
+			return
+		}
+		api.handleSessionGet(w, r, id)
+		return
+	case 2:
+		switch parts[1] {
+		case "resume":
+			if r.Method != http.MethodPost {
+				writeMethodNotAllowed(w, []string{http.MethodPost})
+				return
+			}
+			api.handleSessionResume(w, r, id)
+			return
+		case "stop":
+			if r.Method != http.MethodPost {
+				writeMethodNotAllowed(w, []string{http.MethodPost})
+				return
+			}
+			api.handleSessionStop(w, r, id)
+			return
+		case "fork":
+			if r.Method != http.MethodPost {
+				writeMethodNotAllowed(w, []string{http.MethodPost})
+				return
+			}
+			api.handleSessionFork(w, r, id)
+			return
+		case "doctor":
+			if r.Method != http.MethodPost {
+				writeMethodNotAllowed(w, []string{http.MethodPost})
+				return
+			}
+			api.handleSessionDoctor(w, r, id)
+			return
+		}
+	}
+	writeError(w, http.StatusNotFound, "session not found")
+}
+
 func (api *ControlAPI) handleExposures(w http.ResponseWriter, r *http.Request) {
 	switch r.Method {
 	case http.MethodPost:
@@ -1423,6 +1494,514 @@ func (api *ControlAPI) handleWorkspaceRebind(w http.ResponseWriter, r *http.Requ
 		OldVMID:   result.OldVMID,
 	}
 	writeJSON(w, http.StatusOK, resp)
+}
+
+func (api *ControlAPI) handleSessionCreate(w http.ResponseWriter, r *http.Request) {
+	if api.store == nil {
+		writeError(w, http.StatusServiceUnavailable, "session store unavailable")
+		return
+	}
+	if api.workspaceMgr == nil {
+		writeError(w, http.StatusInternalServerError, "workspace manager unavailable")
+		return
+	}
+	var req V1SessionCreateRequest
+	if err := decodeJSON(w, r, &req); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	req.Name = strings.TrimSpace(req.Name)
+	req.Profile = strings.TrimSpace(req.Profile)
+	req.Branch = strings.TrimSpace(req.Branch)
+	if req.Name == "" {
+		writeError(w, http.StatusBadRequest, "name is required")
+		return
+	}
+	if req.Profile == "" {
+		writeError(w, http.StatusBadRequest, "profile is required")
+		return
+	}
+	if !api.profileExists(req.Profile) {
+		writeError(w, http.StatusBadRequest, "unknown profile")
+		return
+	}
+	if req.WorkspaceID != nil && req.WorkspaceCreate != nil {
+		writeError(w, http.StatusBadRequest, "workspace_id and workspace_create are mutually exclusive")
+		return
+	}
+	if req.WorkspaceID == nil && req.WorkspaceCreate == nil {
+		writeError(w, http.StatusBadRequest, "workspace_id or workspace_create is required")
+		return
+	}
+
+	ctx := r.Context()
+	if _, err := api.store.GetSessionByName(ctx, req.Name); err == nil {
+		writeError(w, http.StatusConflict, "session already exists")
+		return
+	} else if err != nil && !errors.Is(err, sql.ErrNoRows) {
+		writeError(w, http.StatusInternalServerError, "failed to check session")
+		return
+	}
+
+	var workspace models.Workspace
+	if req.WorkspaceCreate != nil {
+		req.WorkspaceCreate.Name = strings.TrimSpace(req.WorkspaceCreate.Name)
+		if req.WorkspaceCreate.Name == "" {
+			writeError(w, http.StatusBadRequest, "workspace_create.name is required")
+			return
+		}
+		if req.WorkspaceCreate.SizeGB <= 0 {
+			writeError(w, http.StatusBadRequest, "workspace_create.size_gb must be positive")
+			return
+		}
+		created, err := api.workspaceMgr.Create(ctx, req.WorkspaceCreate.Name, req.WorkspaceCreate.Storage, req.WorkspaceCreate.SizeGB)
+		if err != nil {
+			if errors.Is(err, ErrWorkspaceExists) {
+				writeError(w, http.StatusConflict, "workspace already exists")
+				return
+			}
+			writeError(w, http.StatusInternalServerError, "failed to create workspace")
+			return
+		}
+		workspace = created
+	} else if req.WorkspaceID != nil {
+		resolved, err := api.workspaceMgr.Resolve(ctx, *req.WorkspaceID)
+		if err != nil {
+			if errors.Is(err, ErrWorkspaceNotFound) {
+				writeError(w, http.StatusNotFound, "workspace not found")
+				return
+			}
+			writeError(w, http.StatusInternalServerError, "failed to load workspace")
+			return
+		}
+		workspace = resolved
+	}
+
+	sessionID, err := newSessionID()
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to create session id")
+		return
+	}
+
+	var (
+		leaseOwner string
+		leaseNonce string
+	)
+	if workspace.AttachedVM == nil || *workspace.AttachedVM <= 0 {
+		leaseOwner = workspaceLeaseOwnerForSession(sessionID)
+		nonce, _, err := api.acquireWorkspaceLease(ctx, workspace, leaseOwner, workspaceLeaseDefaultTTL, 0)
+		if err != nil {
+			switch {
+			case errors.Is(err, ErrWorkspaceLeaseHeld), errors.Is(err, errWorkspaceWaitTimeout):
+				latest, loadErr := api.workspaceMgr.Resolve(ctx, workspace.ID)
+				if loadErr == nil {
+					workspace = latest
+				}
+				writeError(w, http.StatusConflict, "workspace lease held", workspaceConflictDetails(workspace, 0))
+			case errors.Is(err, ErrWorkspaceNotFound):
+				writeError(w, http.StatusNotFound, "workspace not found")
+			default:
+				writeError(w, http.StatusInternalServerError, "failed to acquire workspace lease")
+			}
+			return
+		}
+		leaseNonce = nonce
+		recordWorkspaceLeaseEvent(ctx, api.store, "workspace.lease.acquired", nil, nil, workspace.ID, leaseOwner, api.now().UTC().Add(workspaceLeaseDefaultTTL))
+	}
+
+	var currentVMID *int
+	if workspace.AttachedVM != nil && *workspace.AttachedVM > 0 {
+		value := *workspace.AttachedVM
+		currentVMID = &value
+	}
+
+	now := api.now().UTC()
+	session := models.Session{
+		ID:          sessionID,
+		Name:        req.Name,
+		WorkspaceID: workspace.ID,
+		CurrentVMID: currentVMID,
+		Profile:     req.Profile,
+		Branch:      req.Branch,
+		CreatedAt:   now,
+		UpdatedAt:   now,
+	}
+	if err := api.store.CreateSession(ctx, session); err != nil {
+		if leaseOwner != "" && leaseNonce != "" {
+			_, _ = api.store.ReleaseWorkspaceLease(ctx, workspace.ID, leaseOwner, leaseNonce)
+			recordWorkspaceLeaseEvent(ctx, api.store, "workspace.lease.released", nil, nil, workspace.ID, leaseOwner, time.Time{})
+		}
+		if isUniqueConstraint(err) {
+			writeError(w, http.StatusConflict, "session already exists")
+			return
+		}
+		writeError(w, http.StatusInternalServerError, "failed to create session")
+		return
+	}
+	writeJSON(w, http.StatusCreated, api.sessionToV1(session))
+}
+
+func (api *ControlAPI) handleSessionList(w http.ResponseWriter, r *http.Request) {
+	if api.store == nil {
+		writeError(w, http.StatusServiceUnavailable, "session store unavailable")
+		return
+	}
+	sessions, err := api.store.ListSessions(r.Context())
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to list sessions")
+		return
+	}
+	resp := V1SessionsResponse{Sessions: make([]V1SessionResponse, 0, len(sessions))}
+	for _, session := range sessions {
+		resp.Sessions = append(resp.Sessions, api.sessionToV1(session))
+	}
+	writeJSON(w, http.StatusOK, resp)
+}
+
+func (api *ControlAPI) handleSessionGet(w http.ResponseWriter, r *http.Request, id string) {
+	session, err := api.resolveSession(r.Context(), id)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			writeError(w, http.StatusNotFound, "session not found")
+			return
+		}
+		writeError(w, http.StatusInternalServerError, "failed to load session")
+		return
+	}
+	writeJSON(w, http.StatusOK, api.sessionToV1(session))
+}
+
+func (api *ControlAPI) handleSessionResume(w http.ResponseWriter, r *http.Request, id string) {
+	if api.jobOrchestrator == nil {
+		writeError(w, http.StatusServiceUnavailable, "session resume unavailable")
+		return
+	}
+	if api.workspaceMgr == nil {
+		writeError(w, http.StatusInternalServerError, "workspace manager unavailable")
+		return
+	}
+	var payload struct{}
+	if err := decodeOptionalJSON(w, r, &payload); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	ctx := r.Context()
+	session, err := api.resolveSession(ctx, id)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			writeError(w, http.StatusNotFound, "session not found")
+			return
+		}
+		writeError(w, http.StatusInternalServerError, "failed to load session")
+		return
+	}
+	if strings.TrimSpace(session.WorkspaceID) == "" {
+		writeError(w, http.StatusBadRequest, "session workspace_id is required")
+		return
+	}
+	workspace, err := api.workspaceMgr.Resolve(ctx, session.WorkspaceID)
+	if err != nil {
+		if errors.Is(err, ErrWorkspaceNotFound) {
+			writeError(w, http.StatusNotFound, "workspace not found")
+			return
+		}
+		writeError(w, http.StatusInternalServerError, "failed to load workspace")
+		return
+	}
+	if owner := workspaceLeaseOwnerForSession(session.ID); owner != "" && workspace.LeaseOwner == owner && strings.TrimSpace(workspace.LeaseNonce) != "" {
+		if released, err := api.store.ReleaseWorkspaceLease(ctx, workspace.ID, owner, workspace.LeaseNonce); err == nil && released {
+			recordWorkspaceLeaseEvent(ctx, api.store, "workspace.lease.released", nil, nil, workspace.ID, owner, time.Time{})
+		}
+	}
+	if session.CurrentVMID != nil && *session.CurrentVMID > 0 {
+		owner := workspaceLeaseOwnerForSandbox(*session.CurrentVMID)
+		if owner != "" && workspace.LeaseOwner == owner && strings.TrimSpace(workspace.LeaseNonce) != "" {
+			vmid := *session.CurrentVMID
+			if released, err := api.store.ReleaseWorkspaceLease(ctx, workspace.ID, owner, workspace.LeaseNonce); err == nil && released {
+				recordWorkspaceLeaseEvent(ctx, api.store, "workspace.lease.released", &vmid, nil, workspace.ID, owner, time.Time{})
+			}
+		}
+	}
+
+	result, err := api.jobOrchestrator.RebindWorkspace(ctx, session.WorkspaceID, session.Profile, nil, false)
+	if err != nil {
+		switch {
+		case errors.Is(err, ErrWorkspaceNotFound):
+			writeError(w, http.StatusNotFound, "workspace not found")
+		case errors.Is(err, ErrWorkspaceAttached), errors.Is(err, ErrWorkspaceVMInUse), errors.Is(err, ErrWorkspaceLeaseHeld):
+			writeError(w, http.StatusConflict, err.Error())
+		case errors.Is(err, ErrSandboxNotFound):
+			writeError(w, http.StatusNotFound, "sandbox not found")
+		case errors.Is(err, ErrInvalidTransition):
+			writeError(w, http.StatusConflict, "invalid sandbox state")
+		default:
+			writeError(w, http.StatusInternalServerError, "failed to resume session")
+		}
+		return
+	}
+	if err := api.store.UpdateSessionCurrentVMID(ctx, session.ID, &result.Sandbox.VMID); err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to update session")
+		return
+	}
+	updated, loadErr := api.store.GetSession(ctx, session.ID)
+	if loadErr != nil {
+		updated = session
+		value := result.Sandbox.VMID
+		updated.CurrentVMID = &value
+		updated.UpdatedAt = api.now().UTC()
+	}
+	resp := V1SessionResumeResponse{
+		Session:   api.sessionToV1(updated),
+		Workspace: workspaceToV1(result.Workspace),
+		Sandbox:   api.sandboxToV1(result.Sandbox),
+		OldVMID:   result.OldVMID,
+	}
+	writeJSON(w, http.StatusOK, resp)
+}
+
+func (api *ControlAPI) handleSessionStop(w http.ResponseWriter, r *http.Request, id string) {
+	if api.sandboxManager == nil {
+		writeError(w, http.StatusInternalServerError, "sandbox manager unavailable")
+		return
+	}
+	if api.workspaceMgr == nil {
+		writeError(w, http.StatusInternalServerError, "workspace manager unavailable")
+		return
+	}
+	ctx := r.Context()
+	session, err := api.resolveSession(ctx, id)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			writeError(w, http.StatusNotFound, "session not found")
+			return
+		}
+		writeError(w, http.StatusInternalServerError, "failed to load session")
+		return
+	}
+	if session.CurrentVMID != nil && *session.CurrentVMID > 0 {
+		if err := api.sandboxManager.Destroy(ctx, *session.CurrentVMID); err != nil && !errors.Is(err, ErrSandboxNotFound) {
+			writeError(w, http.StatusInternalServerError, fmt.Sprintf("failed to destroy sandbox: %v", err))
+			return
+		}
+	}
+	if err := api.store.UpdateSessionCurrentVMID(ctx, session.ID, nil); err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to update session")
+		return
+	}
+	workspace, err := api.workspaceMgr.Resolve(ctx, session.WorkspaceID)
+	if err != nil {
+		if errors.Is(err, ErrWorkspaceNotFound) {
+			writeError(w, http.StatusNotFound, "workspace not found")
+			return
+		}
+		writeError(w, http.StatusInternalServerError, "failed to load workspace")
+		return
+	}
+	if workspace.AttachedVM != nil && *workspace.AttachedVM > 0 {
+		writeError(w, http.StatusConflict, "workspace already attached")
+		return
+	}
+	owner := workspaceLeaseOwnerForSession(session.ID)
+	switch {
+	case owner == "":
+		// nothing to do
+	case workspace.LeaseOwner == owner && strings.TrimSpace(workspace.LeaseNonce) != "":
+		expiresAt := api.now().UTC().Add(workspaceLeaseDefaultTTL)
+		if renewed, err := api.store.RenewWorkspaceLease(ctx, workspace.ID, owner, workspace.LeaseNonce, expiresAt); err == nil && renewed {
+			recordWorkspaceLeaseEvent(ctx, api.store, "workspace.lease.renewed", nil, nil, workspace.ID, owner, expiresAt)
+		}
+	case workspace.LeaseOwner != "" && workspace.LeaseOwner != owner:
+		writeError(w, http.StatusConflict, "workspace lease held", workspaceConflictDetails(workspace, 0))
+		return
+	default:
+		nonce, _, err := api.acquireWorkspaceLease(ctx, workspace, owner, workspaceLeaseDefaultTTL, 0)
+		if err != nil {
+			switch {
+			case errors.Is(err, ErrWorkspaceLeaseHeld), errors.Is(err, errWorkspaceWaitTimeout):
+				latest, loadErr := api.workspaceMgr.Resolve(ctx, workspace.ID)
+				if loadErr == nil {
+					workspace = latest
+				}
+				writeError(w, http.StatusConflict, "workspace lease held", workspaceConflictDetails(workspace, 0))
+			case errors.Is(err, ErrWorkspaceNotFound):
+				writeError(w, http.StatusNotFound, "workspace not found")
+			default:
+				writeError(w, http.StatusInternalServerError, "failed to acquire workspace lease")
+			}
+			return
+		}
+		recordWorkspaceLeaseEvent(ctx, api.store, "workspace.lease.acquired", nil, nil, workspace.ID, owner, api.now().UTC().Add(workspaceLeaseDefaultTTL))
+		_ = nonce
+	}
+
+	updated, loadErr := api.store.GetSession(ctx, session.ID)
+	if loadErr != nil {
+		updated = session
+		updated.CurrentVMID = nil
+		updated.UpdatedAt = api.now().UTC()
+	}
+	writeJSON(w, http.StatusOK, api.sessionToV1(updated))
+}
+
+func (api *ControlAPI) handleSessionFork(w http.ResponseWriter, r *http.Request, id string) {
+	if api.workspaceMgr == nil {
+		writeError(w, http.StatusInternalServerError, "workspace manager unavailable")
+		return
+	}
+	var req V1SessionForkRequest
+	if err := decodeJSON(w, r, &req); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	req.Name = strings.TrimSpace(req.Name)
+	req.Profile = strings.TrimSpace(req.Profile)
+	req.Branch = strings.TrimSpace(req.Branch)
+	if req.Name == "" {
+		writeError(w, http.StatusBadRequest, "name is required")
+		return
+	}
+	if req.WorkspaceID != nil && req.WorkspaceCreate != nil {
+		writeError(w, http.StatusBadRequest, "workspace_id and workspace_create are mutually exclusive")
+		return
+	}
+	if req.WorkspaceID == nil && req.WorkspaceCreate == nil {
+		writeError(w, http.StatusBadRequest, "workspace_id or workspace_create is required")
+		return
+	}
+
+	ctx := r.Context()
+	origin, err := api.resolveSession(ctx, id)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			writeError(w, http.StatusNotFound, "session not found")
+			return
+		}
+		writeError(w, http.StatusInternalServerError, "failed to load session")
+		return
+	}
+	if _, err := api.store.GetSessionByName(ctx, req.Name); err == nil {
+		writeError(w, http.StatusConflict, "session already exists")
+		return
+	} else if err != nil && !errors.Is(err, sql.ErrNoRows) {
+		writeError(w, http.StatusInternalServerError, "failed to check session")
+		return
+	}
+
+	profile := req.Profile
+	if profile == "" {
+		profile = origin.Profile
+	}
+	if profile == "" {
+		writeError(w, http.StatusBadRequest, "profile is required")
+		return
+	}
+	if !api.profileExists(profile) {
+		writeError(w, http.StatusBadRequest, "unknown profile")
+		return
+	}
+
+	var workspace models.Workspace
+	if req.WorkspaceCreate != nil {
+		req.WorkspaceCreate.Name = strings.TrimSpace(req.WorkspaceCreate.Name)
+		if req.WorkspaceCreate.Name == "" {
+			writeError(w, http.StatusBadRequest, "workspace_create.name is required")
+			return
+		}
+		if req.WorkspaceCreate.SizeGB <= 0 {
+			writeError(w, http.StatusBadRequest, "workspace_create.size_gb must be positive")
+			return
+		}
+		created, err := api.workspaceMgr.Create(ctx, req.WorkspaceCreate.Name, req.WorkspaceCreate.Storage, req.WorkspaceCreate.SizeGB)
+		if err != nil {
+			if errors.Is(err, ErrWorkspaceExists) {
+				writeError(w, http.StatusConflict, "workspace already exists")
+				return
+			}
+			writeError(w, http.StatusInternalServerError, "failed to create workspace")
+			return
+		}
+		workspace = created
+	} else if req.WorkspaceID != nil {
+		resolved, err := api.workspaceMgr.Resolve(ctx, *req.WorkspaceID)
+		if err != nil {
+			if errors.Is(err, ErrWorkspaceNotFound) {
+				writeError(w, http.StatusNotFound, "workspace not found")
+				return
+			}
+			writeError(w, http.StatusInternalServerError, "failed to load workspace")
+			return
+		}
+		workspace = resolved
+	}
+
+	sessionID, err := newSessionID()
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to create session id")
+		return
+	}
+	var (
+		leaseOwner string
+		leaseNonce string
+	)
+	if workspace.AttachedVM == nil || *workspace.AttachedVM <= 0 {
+		leaseOwner = workspaceLeaseOwnerForSession(sessionID)
+		nonce, _, err := api.acquireWorkspaceLease(ctx, workspace, leaseOwner, workspaceLeaseDefaultTTL, 0)
+		if err != nil {
+			switch {
+			case errors.Is(err, ErrWorkspaceLeaseHeld), errors.Is(err, errWorkspaceWaitTimeout):
+				latest, loadErr := api.workspaceMgr.Resolve(ctx, workspace.ID)
+				if loadErr == nil {
+					workspace = latest
+				}
+				writeError(w, http.StatusConflict, "workspace lease held", workspaceConflictDetails(workspace, 0))
+			case errors.Is(err, ErrWorkspaceNotFound):
+				writeError(w, http.StatusNotFound, "workspace not found")
+			default:
+				writeError(w, http.StatusInternalServerError, "failed to acquire workspace lease")
+			}
+			return
+		}
+		leaseNonce = nonce
+		recordWorkspaceLeaseEvent(ctx, api.store, "workspace.lease.acquired", nil, nil, workspace.ID, leaseOwner, api.now().UTC().Add(workspaceLeaseDefaultTTL))
+	}
+
+	branch := req.Branch
+	if branch == "" {
+		branch = origin.Branch
+	}
+	var currentVMID *int
+	if workspace.AttachedVM != nil && *workspace.AttachedVM > 0 {
+		value := *workspace.AttachedVM
+		currentVMID = &value
+	}
+	now := api.now().UTC()
+	session := models.Session{
+		ID:          sessionID,
+		Name:        req.Name,
+		WorkspaceID: workspace.ID,
+		CurrentVMID: currentVMID,
+		Profile:     profile,
+		Branch:      branch,
+		CreatedAt:   now,
+		UpdatedAt:   now,
+	}
+	if err := api.store.CreateSession(ctx, session); err != nil {
+		if leaseOwner != "" && leaseNonce != "" {
+			_, _ = api.store.ReleaseWorkspaceLease(ctx, workspace.ID, leaseOwner, leaseNonce)
+			recordWorkspaceLeaseEvent(ctx, api.store, "workspace.lease.released", nil, nil, workspace.ID, leaseOwner, time.Time{})
+		}
+		if isUniqueConstraint(err) {
+			writeError(w, http.StatusConflict, "session already exists")
+			return
+		}
+		writeError(w, http.StatusInternalServerError, "failed to create session")
+		return
+	}
+	writeJSON(w, http.StatusCreated, api.sessionToV1(session))
+}
+
+func (api *ControlAPI) handleSessionDoctor(w http.ResponseWriter, r *http.Request, id string) {
+	writeError(w, http.StatusNotImplemented, "session doctor not implemented")
 }
 
 func (api *ControlAPI) handleExposureCreate(w http.ResponseWriter, r *http.Request) {
@@ -2031,6 +2610,24 @@ func jobToV1(job models.Job) V1JobResponse {
 	return resp
 }
 
+func (api *ControlAPI) sessionToV1(session models.Session) V1SessionResponse {
+	resp := V1SessionResponse{
+		ID:          session.ID,
+		Name:        session.Name,
+		WorkspaceID: session.WorkspaceID,
+		CurrentVMID: session.CurrentVMID,
+		Profile:     session.Profile,
+		Branch:      session.Branch,
+	}
+	if !session.CreatedAt.IsZero() {
+		resp.CreatedAt = session.CreatedAt.UTC().Format(time.RFC3339Nano)
+	}
+	if !session.UpdatedAt.IsZero() {
+		resp.UpdatedAt = session.UpdatedAt.UTC().Format(time.RFC3339Nano)
+	}
+	return resp
+}
+
 func workspaceConflictDetails(workspace models.Workspace, waitSeconds int) error {
 	attached := 0
 	if workspace.AttachedVM != nil {
@@ -2045,6 +2642,28 @@ func workspaceConflictDetails(workspace models.Workspace, waitSeconds int) error
 		return fmt.Errorf("workspace_id=%s workspace_name=%s attached_vmid=%d lease_owner=%s lease_expires_at=%s workspace_wait_seconds=%d", workspace.ID, workspace.Name, attached, leaseOwner, leaseExpires, waitSeconds)
 	}
 	return fmt.Errorf("workspace_id=%s workspace_name=%s attached_vmid=%d lease_owner=%s lease_expires_at=%s", workspace.ID, workspace.Name, attached, leaseOwner, leaseExpires)
+}
+
+func (api *ControlAPI) resolveSession(ctx context.Context, idOrName string) (models.Session, error) {
+	if api == nil || api.store == nil {
+		return models.Session{}, errors.New("session store unavailable")
+	}
+	idOrName = strings.TrimSpace(idOrName)
+	if idOrName == "" {
+		return models.Session{}, errors.New("session id is required")
+	}
+	session, err := api.store.GetSession(ctx, idOrName)
+	if err == nil {
+		return session, nil
+	}
+	if err != nil && !errors.Is(err, sql.ErrNoRows) {
+		return models.Session{}, err
+	}
+	session, err = api.store.GetSessionByName(ctx, idOrName)
+	if err != nil {
+		return models.Session{}, err
+	}
+	return session, nil
 }
 
 func (api *ControlAPI) acquireWorkspaceLease(ctx context.Context, workspace models.Workspace, owner string, ttl time.Duration, waitSeconds int) (string, time.Duration, error) {
@@ -2410,6 +3029,14 @@ func writeError(w http.ResponseWriter, status int, msg string, err ...error) {
 func writeMethodNotAllowed(w http.ResponseWriter, methods []string) {
 	w.Header().Set("Allow", strings.Join(methods, ", "))
 	writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+}
+
+func newSessionID() (string, error) {
+	buf := make([]byte, 8)
+	if _, err := rand.Read(buf); err != nil {
+		return "", err
+	}
+	return "session_" + hex.EncodeToString(buf), nil
 }
 
 func newJobID() (string, error) {

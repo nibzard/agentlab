@@ -75,6 +75,13 @@ Usage:
   agentlab [--endpoint URL] [--token TOKEN] [--socket PATH] [--json] [--timeout DURATION] workspace attach <workspace> <vmid>
   agentlab [--endpoint URL] [--token TOKEN] [--socket PATH] [--json] [--timeout DURATION] workspace detach <workspace>
   agentlab [--endpoint URL] [--token TOKEN] [--socket PATH] [--json] [--timeout DURATION] workspace rebind <workspace> --profile <profile> [--ttl <ttl>] [--keep-old]
+  agentlab [--endpoint URL] [--token TOKEN] [--socket PATH] [--json] [--timeout DURATION] session create --name <name> --profile <profile> (--workspace <id|name|new:name> | --workspace-create <name>) [--workspace-size <size>] [--workspace-storage <storage>] [--branch <branch>]
+  agentlab [--endpoint URL] [--token TOKEN] [--socket PATH] [--json] [--timeout DURATION] session list
+  agentlab [--endpoint URL] [--token TOKEN] [--socket PATH] [--json] [--timeout DURATION] session show <session>
+  agentlab [--endpoint URL] [--token TOKEN] [--socket PATH] [--json] [--timeout DURATION] session resume <session>
+  agentlab [--endpoint URL] [--token TOKEN] [--socket PATH] [--json] [--timeout DURATION] session stop <session>
+  agentlab [--endpoint URL] [--token TOKEN] [--socket PATH] [--json] [--timeout DURATION] session fork <session> --name <name> (--workspace <id|name|new:name> | --workspace-create <name>) [--workspace-size <size>] [--workspace-storage <storage>] [--profile <profile>] [--branch <branch>]
+  agentlab [--endpoint URL] [--token TOKEN] [--socket PATH] [--json] [--timeout DURATION] session branch <branch> --profile <profile> (--workspace <id|name|new:name> | --workspace-create <name>) [--workspace-size <size>] [--workspace-storage <storage>]
   agentlab [--endpoint URL] [--token TOKEN] [--socket PATH] [--json] [--timeout DURATION] profile list
   agentlab [--endpoint URL] [--token TOKEN] [--socket PATH] [--json] [--timeout DURATION] ssh <vmid> [--user <user>] [--port <port>] [--identity <path>] [--jump-host <host>] [--jump-user <user>] [--exec] [--no-start] [--wait] [-- <remote command>...]
   agentlab [--endpoint URL] [--token TOKEN] [--socket PATH] [--json] [--timeout DURATION] msg post (--job <id> | --workspace <id> | --session <id>) [--author <name>] [--kind <kind>] [--text <text>] [--payload <json>] [message...]
@@ -227,6 +234,8 @@ func dispatch(ctx context.Context, args []string, base commonFlags) error {
 		return withDefaultNext(runSandboxCommand(ctx, args[1:], base), "agentlab sandbox --help")
 	case "workspace":
 		return withDefaultNext(runWorkspaceCommand(ctx, args[1:], base), "agentlab workspace --help")
+	case "session":
+		return withDefaultNext(runSessionCommand(ctx, args[1:], base), "agentlab session --help")
 	case "profile":
 		return withDefaultNext(runProfileCommand(ctx, args[1:], base), "agentlab profile --help")
 	case "msg":
@@ -243,7 +252,7 @@ func dispatch(ctx context.Context, args []string, base commonFlags) error {
 		if !base.jsonOutput {
 			printUsage()
 		}
-		return unknownCommandError(args[0], []string{"status", "job", "sandbox", "workspace", "profile", "msg", "ssh", "logs", "connect", "disconnect"})
+		return unknownCommandError(args[0], []string{"status", "job", "sandbox", "workspace", "session", "profile", "msg", "ssh", "logs", "connect", "disconnect"})
 	}
 }
 
@@ -396,6 +405,38 @@ func printWorkspaceDetachUsage() {
 
 func printWorkspaceRebindUsage() {
 	fmt.Fprintln(os.Stdout, "Usage: agentlab workspace rebind <workspace> --profile <profile> [--ttl <ttl>] [--keep-old]")
+}
+
+func printSessionUsage() {
+	fmt.Fprintln(os.Stdout, "Usage: agentlab session <create|list|show|resume|stop|fork|branch>")
+}
+
+func printSessionCreateUsage() {
+	fmt.Fprintln(os.Stdout, "Usage: agentlab session create --name <name> --profile <profile> (--workspace <id|name|new:name> | --workspace-create <name>) [--workspace-size <size>] [--workspace-storage <storage>] [--branch <branch>]")
+}
+
+func printSessionListUsage() {
+	fmt.Fprintln(os.Stdout, "Usage: agentlab session list")
+}
+
+func printSessionShowUsage() {
+	fmt.Fprintln(os.Stdout, "Usage: agentlab session show <session>")
+}
+
+func printSessionResumeUsage() {
+	fmt.Fprintln(os.Stdout, "Usage: agentlab session resume <session>")
+}
+
+func printSessionStopUsage() {
+	fmt.Fprintln(os.Stdout, "Usage: agentlab session stop <session>")
+}
+
+func printSessionForkUsage() {
+	fmt.Fprintln(os.Stdout, "Usage: agentlab session fork <session> --name <name> (--workspace <id|name|new:name> | --workspace-create <name>) [--workspace-size <size>] [--workspace-storage <storage>] [--profile <profile>] [--branch <branch>]")
+}
+
+func printSessionBranchUsage() {
+	fmt.Fprintln(os.Stdout, "Usage: agentlab session branch <branch> --profile <profile> (--workspace <id|name|new:name> | --workspace-create <name>) [--workspace-size <size>] [--workspace-storage <storage>]")
 }
 
 func printProfileUsage() {

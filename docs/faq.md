@@ -117,6 +117,36 @@ agentlab sandbox list
 systemctl restart agentlabd
 ```
 
+### What is a session and how do I resume it?
+
+A **session** binds a persistent workspace to a current sandbox and a profile.
+When you resume, AgentLab provisions a fresh sandbox and rebinds the workspace.
+
+**Create a session:**
+```bash
+agentlab session create \
+  --name dev-session \
+  --profile yolo-workspace \
+  --workspace new:dev-workspace \
+  --workspace-size 80G
+```
+
+**Resume (new sandbox + rebind workspace):**
+```bash
+agentlab session resume dev-session
+```
+
+**Stop (destroy sandbox, keep workspace reserved):**
+```bash
+agentlab session stop dev-session
+```
+
+**List/show sessions:**
+```bash
+agentlab session list
+agentlab session show dev-session
+```
+
 ### Why did my sandbox stop while I was away?
 
 AgentLab includes an **idle auto-stop** policy for RUNNING sandboxes:
