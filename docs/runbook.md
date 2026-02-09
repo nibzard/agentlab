@@ -239,6 +239,35 @@ If tailnet access fails:
 - Verify nftables rules are active: `systemctl status agentlab-nftables.service`.
 - Re-run `scripts/net/apply.sh --apply` if rules were not installed.
 
+## Remote SSH (direct + ProxyJump fallback)
+
+`agentlab ssh` prefers a direct connection to the sandbox over the tailnet subnet
+route (`10.77.0.0/16`). It probes TCP/22; if reachable, it prints a direct SSH
+command. If not reachable, it can fall back to a jump host via SSH ProxyJump.
+
+Direct mode prerequisites:
+- The subnet route is approved in the Tailscale admin console.
+- The client device is accepting routes (for macOS, run `tailscale up --accept-routes`
+  or enable subnet routes in the Tailscale app).
+
+ProxyJump setup (recommended for remote clients that cannot accept routes):
+1) Save jump defaults when you connect:
+```bash
+agentlab connect --endpoint https://host.tailnet.ts.net:8845 --token <token> --jump-user <user>
+```
+2) SSH normally:
+```bash
+agentlab ssh <vmid>
+```
+
+Ad-hoc ProxyJump (no saved config):
+```bash
+agentlab ssh <vmid> --jump-host host.tailnet.ts.net --jump-user <user>
+```
+
+Non-interactive tips:
+- Use SSH keys (preferred) or enable Tailscale SSH for the jump host and sandbox.
+
 ## Remote control plane (tailnet-friendly)
 
 AgentLabd can expose the control API over TCP so you can run `agentlab` from

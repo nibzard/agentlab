@@ -2,11 +2,20 @@ package main
 
 import (
 	"context"
+	"errors"
+	"net"
 	"net/http"
 	"strings"
 	"testing"
 	"time"
 )
+
+func stubSSHDial(t *testing.T, fn func(ctx context.Context, network, address string) (net.Conn, error)) {
+	t.Helper()
+	orig := sshDialFn
+	sshDialFn = fn
+	t.Cleanup(func() { sshDialFn = orig })
+}
 
 func TestSSHStartsStoppedSandbox(t *testing.T) {
 	createdAt := "2026-02-08T12:00:00Z"
@@ -52,6 +61,12 @@ func TestSSHStartsStoppedSandbox(t *testing.T) {
 
 	socketPath := startUnixHTTPServer(t, mux)
 	base := commonFlags{socketPath: socketPath, jsonOutput: false, timeout: time.Second}
+
+	stubSSHDial(t, func(ctx context.Context, network, address string) (net.Conn, error) {
+		conn, peer := net.Pipe()
+		_ = peer.Close()
+		return conn, nil
+	})
 
 	out := captureStdout(t, func() {
 		err := runSSHCommand(context.Background(), []string{"9001"}, base)
@@ -108,5 +123,144 @@ func TestSSHNoStartStoppedSandbox(t *testing.T) {
 	}
 	if startCalled {
 		t.Fatalf("did not expect start endpoint to be called")
+	}
+}
+
+func TestSSHDirectPathPrefersDirect(t *testing.T) {
+	createdAt := "2026-02-08T12:00:00Z"
+	updatedAt := "2026-02-08T12:02:00Z"
+
+	mux := http.NewServeMux()
+	mux.HandleFunc("/v1/sandboxes/9101", func(w http.ResponseWriter, r *http.Request) {
+		resp := sandboxResponse{
+			VMID:          9101,
+			Name:          "sandbox-9101",
+			Profile:       "yolo",
+			State:         "RUNNING",
+			IP:            "203.0.113.10",
+			CreatedAt:     createdAt,
+			LastUpdatedAt: updatedAt,
+		}
+		writeJSON(t, w, http.StatusOK, resp)
+	})
+
+	socketPath := startUnixHTTPServer(t, mux)
+	base := commonFlags{socketPath: socketPath, jsonOutput: false, timeout: time.Second}
+
+	stubSSHDial(t, func(ctx context.Context, network, address string) (net.Conn, error) {
+		conn, peer := net.Pipe()
+		_ = peer.Close()
+		return conn, nil
+	})
+
+	out := captureStdout(t, func() {
+		err := runSSHCommand(context.Background(), []string{"--jump-host", "jump.example", "--jump-user", "jumpuser", "9101"}, base)
+		if err != nil {
+			t.Fatalf("runSSHCommand() error = %v", err)
+		}
+	})
+
+	if strings.Contains(out, "-J") {
+		t.Fatalf("expected direct ssh without -J, got %q", out)
+	}
+	if !strings.Contains(out, "203.0.113.10") {
+		t.Fatalf("expected sandbox IP in output, got %q", out)
+	}
+}
+
+func TestSSHJumpPathFormatting(t *testing.T) {
+	createdAt := "2026-02-08T12:00:00Z"
+	updatedAt := "2026-02-08T12:02:00Z"
+
+	mux := http.NewServeMux()
+	mux.HandleFunc("/v1/sandboxes/9102", func(w http.ResponseWriter, r *http.Request) {
+		resp := sandboxResponse{
+			VMID:          9102,
+			Name:          "sandbox-9102",
+			Profile:       "yolo",
+			State:         "RUNNING",
+			IP:            "203.0.113.11",
+			CreatedAt:     createdAt,
+			LastUpdatedAt: updatedAt,
+		}
+		writeJSON(t, w, http.StatusOK, resp)
+	})
+
+	socketPath := startUnixHTTPServer(t, mux)
+	base := commonFlags{socketPath: socketPath, jsonOutput: false, timeout: time.Second}
+
+	stubSSHDial(t, func(ctx context.Context, network, address string) (net.Conn, error) {
+		return nil, errors.New("dial failed")
+	})
+
+	out := captureStdout(t, func() {
+		err := runSSHCommand(context.Background(), []string{"--jump-host", "jump.example", "--jump-user", "jumpuser", "9102"}, base)
+		if err != nil {
+			t.Fatalf("runSSHCommand() error = %v", err)
+		}
+	})
+
+	if !strings.Contains(out, "-J jumpuser@jump.example") {
+		t.Fatalf("expected ProxyJump args, got %q", out)
+	}
+}
+
+func TestSSHJumpConfigPrecedence(t *testing.T) {
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	path, err := clientConfigPath()
+	if err != nil {
+		t.Fatalf("clientConfigPath() error = %v", err)
+	}
+	if err := writeClientConfig(path, clientConfig{JumpHost: "cfg.example", JumpUser: "cfguser"}); err != nil {
+		t.Fatalf("writeClientConfig() error = %v", err)
+	}
+
+	createdAt := "2026-02-08T12:00:00Z"
+	updatedAt := "2026-02-08T12:02:00Z"
+
+	mux := http.NewServeMux()
+	mux.HandleFunc("/v1/sandboxes/9103", func(w http.ResponseWriter, r *http.Request) {
+		resp := sandboxResponse{
+			VMID:          9103,
+			Name:          "sandbox-9103",
+			Profile:       "yolo",
+			State:         "RUNNING",
+			IP:            "203.0.113.12",
+			CreatedAt:     createdAt,
+			LastUpdatedAt: updatedAt,
+		}
+		writeJSON(t, w, http.StatusOK, resp)
+	})
+
+	socketPath := startUnixHTTPServer(t, mux)
+	base := commonFlags{socketPath: socketPath, jsonOutput: false, timeout: time.Second}
+
+	stubSSHDial(t, func(ctx context.Context, network, address string) (net.Conn, error) {
+		return nil, errors.New("dial failed")
+	})
+
+	out := captureStdout(t, func() {
+		err := runSSHCommand(context.Background(), []string{"--jump-host", "flag.example", "--jump-user", "flaguser", "9103"}, base)
+		if err != nil {
+			t.Fatalf("runSSHCommand() error = %v", err)
+		}
+	})
+
+	if !strings.Contains(out, "-J flaguser@flag.example") {
+		t.Fatalf("expected flag jump config to win, got %q", out)
+	}
+	if strings.Contains(out, "cfg.example") {
+		t.Fatalf("expected config jump host to be overridden, got %q", out)
+	}
+}
+
+func TestSSHExecJSONConflict(t *testing.T) {
+	base := commonFlags{socketPath: "/tmp/agentlab.sock", jsonOutput: false, timeout: time.Second}
+	err := runSSHCommand(context.Background(), []string{"--json", "--exec", "9104"}, base)
+	if err == nil {
+		t.Fatalf("expected error for --json with --exec")
+	}
+	if !strings.Contains(err.Error(), "--json") {
+		t.Fatalf("unexpected error message %q", err.Error())
 	}
 }

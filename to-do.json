@@ -2655,7 +2655,7 @@
       "id": "T108",
       "title": "agentlab ssh must work remotely: subnet-route UX + ProxyJump fallback",
       "priority": 1,
-      "status": "todo",
+      "status": "done",
       "details": "Guarantee `agentlab ssh <vmid>` works from a Mac/tailnet device. Primary path is direct SSH via tailnet subnet routing to 10.77.0.0/16. Fallback path is an automatic jump host (ProxyJump) through the Proxmox host when subnet routes are not accepted. This must be non-interactive friendly.",
       "steps": [
         "Connectivity probe: in cmd/agentlab/ssh.go, after resolving sandbox IP, attempt a fast TCP dial to ip:22. If reachable, output the normal direct ssh command.",
@@ -2673,16 +2673,19 @@
         "ux"
       ],
       "files": [
-        "cmd/agentlab/ssh.go",
-        "cmd/agentlab/main.go",
         "cmd/agentlab/*_test.go",
+        "cmd/agentlab/main.go",
+        "cmd/agentlab/main_test.go",
+        "cmd/agentlab/ssh.go",
+        "cmd/agentlab/ssh_test.go",
         "docs/runbook.md",
         "docs/troubleshooting.md"
       ],
       "depends_on": [
         "T106"
       ],
-      "created_at": "2026-02-09T12:17:58Z"
+      "created_at": "2026-02-09T12:17:58Z",
+      "updated_at": "2026-02-09T14:37:43Z"
     },
     {
       "id": "T109",
