@@ -36,8 +36,10 @@ import (
 	"fmt"
 	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"os/exec"
+	"os/user"
 	"runtime"
 	"strconv"
 	"strings"
@@ -70,6 +72,11 @@ type sshOutput struct {
 	Warning  string   `json:"warning,omitempty"`
 }
 
+type jumpConfig struct {
+	Host string
+	User string
+}
+
 // routeInfo contains information about the network route to an IP address.
 type routeInfo struct {
 	Device string
@@ -89,6 +96,8 @@ func runSSHCommand(ctx context.Context, args []string, base commonFlags) error {
 	execFlag := false
 	noStart := false
 	waitSSH := false
+	jumpHost := ""
+	jumpUser := ""
 	help := false
 	fs.StringVar(&user, "user", defaultSSHUser, "ssh username")
 	fs.StringVar(&user, "u", defaultSSHUser, "ssh username")
@@ -96,6 +105,8 @@ func runSSHCommand(ctx context.Context, args []string, base commonFlags) error {
 	fs.IntVar(&port, "p", defaultSSHPort, "ssh port")
 	fs.StringVar(&identity, "identity", "", "ssh identity file")
 	fs.StringVar(&identity, "i", "", "ssh identity file")
+	fs.StringVar(&jumpHost, "jump-host", "", "ssh jump host for ProxyJump fallback")
+	fs.StringVar(&jumpUser, "jump-user", "", "ssh jump username for ProxyJump fallback")
 	fs.BoolVar(&execFlag, "exec", false, "exec ssh instead of printing the command")
 	fs.BoolVar(&execFlag, "e", false, "exec ssh instead of printing the command")
 	fs.BoolVar(&noStart, "no-start", false, "do not auto-start stopped sandboxes")
@@ -136,7 +147,12 @@ func runSSHCommand(ctx context.Context, args []string, base commonFlags) error {
 	}
 	waitCtx, cancel := withWaitTimeout(ctx, opts.timeout)
 	defer cancel()
-	client, err := apiClientFromFlags(opts)
+	clientOpts, err := opts.clientOptions()
+	if err != nil {
+		return err
+	}
+	client := newAPIClient(clientOpts, opts.timeout)
+	jumpCfg, err := resolveJumpConfig(clientOpts.Endpoint, jumpHost, jumpUser)
 	if err != nil {
 		return err
 	}
@@ -165,17 +181,52 @@ func runSSHCommand(ctx context.Context, args []string, base commonFlags) error {
 	if parsedIP == nil {
 		return fmt.Errorf("sandbox %d returned invalid IP %q", vmid, ip)
 	}
-	if waitSSH {
-		if err := waitForSSH(waitCtx, ip, port); err != nil {
-			return err
-		}
-	}
 
 	identity = strings.TrimSpace(identity)
 	target := fmt.Sprintf("%s@%s", user, ip)
-	sshArgs := buildSSHArgs(target, port, identity)
+	address := net.JoinHostPort(ip, strconv.Itoa(port))
+	reachable, err := probeSSH(waitCtx, address)
+	if err != nil {
+		return err
+	}
+	useJump := !reachable
+	if useJump {
+		jumpCfg.Host = strings.TrimSpace(jumpCfg.Host)
+		jumpCfg.User = strings.TrimSpace(jumpCfg.User)
+		if jumpCfg.Host == "" {
+			return newCLIError(
+				fmt.Sprintf("cannot reach sandbox %d at %s", vmid, address),
+				"",
+				fmt.Sprintf("enable the Tailscale subnet route (accept-routes) for %s", defaultAgentSubnet),
+				"or configure a jump host: agentlab connect --jump-user <user> --jump-host <host>",
+			)
+		}
+		if jumpCfg.User == "" && !strings.Contains(jumpCfg.Host, "@") {
+			return newCLIError(
+				fmt.Sprintf("jump host %q requires a user", jumpCfg.Host),
+				"",
+				"set --jump-user or configure it via agentlab connect --jump-user <user>",
+			)
+		}
+	}
+	if waitSSH {
+		if useJump {
+			if err := waitForSSHViaJump(waitCtx, jumpCfg, target, port, identity); err != nil {
+				return err
+			}
+		} else {
+			if err := waitForSSH(waitCtx, ip, port); err != nil {
+				return err
+			}
+		}
+	}
+
+	sshArgs := buildSSHArgs(target, port, identity, jumpCfg, useJump)
 	fullArgs := append([]string{"ssh"}, sshArgs...)
-	warning := tailnetWarning(ctx, parsedIP)
+	warning := ""
+	if !useJump {
+		warning = tailnetWarning(ctx, parsedIP)
+	}
 	touchSandboxBestEffort(waitCtx, client, vmid)
 
 	if opts.jsonOutput {
@@ -267,15 +318,12 @@ func waitForSSH(ctx context.Context, ip string, port int) error {
 	ticker := time.NewTicker(sshProbeInterval)
 	defer ticker.Stop()
 	for {
-		var d net.Dialer
-		d.Timeout = sshProbeTimeout
-		conn, err := d.DialContext(ctx, "tcp", address)
-		if err == nil {
-			_ = conn.Close()
-			return nil
+		ok, err := probeSSH(ctx, address)
+		if err != nil {
+			return err
 		}
-		if err := ctx.Err(); err != nil {
-			return waitError(err, fmt.Sprintf("ssh on %s", address))
+		if ok {
+			return nil
 		}
 		select {
 		case <-ctx.Done():
@@ -304,9 +352,38 @@ func waitError(err error, desc string) error {
 	return err
 }
 
+func waitForSSHViaJump(ctx context.Context, jump jumpConfig, target string, port int, identity string) error {
+	jumpSpec := buildJumpSpec(jump)
+	if strings.TrimSpace(jumpSpec) == "" {
+		return fmt.Errorf("jump host is required for ProxyJump")
+	}
+	ticker := time.NewTicker(sshProbeInterval)
+	defer ticker.Stop()
+	for {
+		ok, err := probeSSHViaJump(ctx, jumpSpec, target, port, identity)
+		if err != nil {
+			return err
+		}
+		if ok {
+			return nil
+		}
+		select {
+		case <-ctx.Done():
+			return waitError(ctx.Err(), fmt.Sprintf("ssh via %s", jumpSpec))
+		case <-ticker.C:
+		}
+	}
+}
+
 // buildSSHArgs constructs the SSH argument list for connecting to a target.
-func buildSSHArgs(target string, port int, identity string) []string {
+func buildSSHArgs(target string, port int, identity string, jump jumpConfig, useJump bool) []string {
 	args := []string{}
+	if useJump {
+		jumpSpec := buildJumpSpec(jump)
+		if jumpSpec != "" {
+			args = append(args, "-J", jumpSpec)
+		}
+	}
 	if identity != "" {
 		args = append(args, "-i", identity)
 	}
@@ -326,6 +403,75 @@ func execSSH(args []string) error {
 	}
 	argv := append([]string{"ssh"}, args...)
 	return syscall.Exec(path, argv, os.Environ())
+}
+
+func resolveJumpConfig(endpoint string, flagHost string, flagUser string) (jumpConfig, error) {
+	cfg, ok, err := loadClientConfig()
+	if err != nil {
+		return jumpConfig{}, err
+	}
+	host := strings.TrimSpace(flagHost)
+	userValue := strings.TrimSpace(flagUser)
+	if host == "" && ok {
+		host = strings.TrimSpace(cfg.JumpHost)
+	}
+	if userValue == "" && ok {
+		userValue = strings.TrimSpace(cfg.JumpUser)
+	}
+	if host == "" {
+		host = strings.TrimSpace(defaultJumpHostFromEndpoint(endpoint))
+	}
+	if host != "" && userValue == "" {
+		userValue = defaultJumpUser()
+	}
+	return jumpConfig{Host: host, User: userValue}, nil
+}
+
+func defaultJumpHostFromEndpoint(endpoint string) string {
+	endpoint = strings.TrimSpace(endpoint)
+	if endpoint == "" {
+		return ""
+	}
+	parsed, err := url.Parse(endpoint)
+	if err != nil {
+		return ""
+	}
+	host := strings.TrimSpace(parsed.Hostname())
+	if host == "" {
+		return ""
+	}
+	if strings.Contains(host, ":") && !strings.HasPrefix(host, "[") {
+		host = "[" + host + "]"
+	}
+	return host
+}
+
+func defaultJumpUser() string {
+	if value := strings.TrimSpace(os.Getenv("USER")); value != "" {
+		return value
+	}
+	if value := strings.TrimSpace(os.Getenv("LOGNAME")); value != "" {
+		return value
+	}
+	if info, err := user.Current(); err == nil {
+		return strings.TrimSpace(info.Username)
+	}
+	return ""
+}
+
+func buildJumpSpec(jump jumpConfig) string {
+	host := strings.TrimSpace(jump.Host)
+	if host == "" {
+		return ""
+	}
+	if strings.Contains(host, "@") {
+		return host
+	}
+	userValue := strings.TrimSpace(jump.User)
+	if userValue == "" {
+		return host
+	}
+	return fmt.Sprintf("%s@%s", userValue, host)
 }
 
 // tailnetWarning checks if the route to the IP goes through Tailscale.
@@ -424,4 +570,103 @@ var isInteractiveFn = func() bool {
 
 func isInteractive() bool {
 	return isInteractiveFn()
+}
+
+var sshDialFn = func(ctx context.Context, network, address string) (net.Conn, error) {
+	var d net.Dialer
+	return d.DialContext(ctx, network, address)
+}
+
+var sshCommandFn = func(ctx context.Context, args []string) ([]byte, error) {
+	path, err := exec.LookPath("ssh")
+	if err != nil {
+		return nil, err
+	}
+	cmd := exec.CommandContext(ctx, path, args...)
+	return cmd.CombinedOutput()
+}
+
+func probeSSH(ctx context.Context, address string) (bool, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	probeCtx, cancel := context.WithTimeout(ctx, sshProbeTimeout)
+	defer cancel()
+	conn, err := sshDialFn(probeCtx, "tcp", address)
+	if err == nil {
+		_ = conn.Close()
+		return true, nil
+	}
+	if errors.Is(err, context.Canceled) && ctx.Err() != nil {
+		return false, waitError(ctx.Err(), fmt.Sprintf("ssh on %s", address))
+	}
+	if errors.Is(err, context.DeadlineExceeded) {
+		return false, nil
+	}
+	if err := ctx.Err(); err != nil {
+		return false, waitError(err, fmt.Sprintf("ssh on %s", address))
+	}
+	return false, nil
+}
+
+func probeSSHViaJump(ctx context.Context, jumpSpec string, target string, port int, identity string) (bool, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	probeCtx, cancel := context.WithTimeout(ctx, sshProbeTimeout+250*time.Millisecond)
+	defer cancel()
+	timeoutSeconds := int(sshProbeTimeout.Seconds())
+	if timeoutSeconds < 1 {
+		timeoutSeconds = 1
+	}
+	args := []string{
+		"-J", jumpSpec,
+		"-o", "BatchMode=yes",
+		"-o", fmt.Sprintf("ConnectTimeout=%d", timeoutSeconds),
+		"-o", "ConnectionAttempts=1",
+	}
+	if identity != "" {
+		args = append(args, "-i", identity)
+	}
+	if port != defaultSSHPort {
+		args = append(args, "-p", strconv.Itoa(port))
+	}
+	args = append(args, target)
+	out, err := sshCommandFn(probeCtx, args)
+	if err == nil {
+		return true, nil
+	}
+	if errors.Is(err, context.Canceled) && ctx.Err() != nil {
+		return false, waitError(ctx.Err(), fmt.Sprintf("ssh via %s", jumpSpec))
+	}
+	if errors.Is(err, context.DeadlineExceeded) {
+		return false, nil
+	}
+	if isSSHAuthFailure(string(out)) {
+		return true, nil
+	}
+	if err := ctx.Err(); err != nil {
+		return false, waitError(err, fmt.Sprintf("ssh via %s", jumpSpec))
+	}
+	return false, nil
+}
+
+func isSSHAuthFailure(output string) bool {
+	lower := strings.ToLower(output)
+	if strings.Contains(lower, "permission denied") {
+		return true
+	}
+	if strings.Contains(lower, "authentication failed") {
+		return true
+	}
+	if strings.Contains(lower, "no supported authentication methods available") {
+		return true
+	}
+	if strings.Contains(lower, "publickey") {
+		return true
+	}
+	if strings.Contains(lower, "host key verification failed") {
+		return true
+	}
+	return false
 }

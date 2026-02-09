@@ -226,6 +226,25 @@ ping <vm_ip>
 tailscale status
 ```
 
+### `agentlab ssh` cannot reach a sandbox from a remote device
+
+**Problem:** `agentlab ssh <vmid>` reports it cannot reach the sandbox IP.
+
+**Solutions:**
+
+1. Ensure the subnet route is approved in the Tailscale admin console.
+2. Ensure the client device is accepting routes (macOS: `tailscale up --accept-routes`
+   or enable subnet routes in the Tailscale app).
+3. If you cannot accept routes, configure a jump host:
+```bash
+agentlab connect --endpoint https://host.tailnet.ts.net:8845 --token <token> --jump-user <user>
+```
+4. Or use ad-hoc ProxyJump:
+```bash
+agentlab ssh <vmid> --jump-host host.tailnet.ts.net --jump-user <user>
+```
+5. Verify SSH auth works for the jump host (key or Tailscale SSH).
+
 ### VM cannot access internet
 
 **Problem:** Sandbox VM has no internet access (by design for some modes)
