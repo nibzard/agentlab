@@ -18,12 +18,8 @@ jobs:
         uses: actions/setup-go@v5
         with:
           go-version-file: go.mod
-      - name: Lint
-        run: make lint
-      - name: Test with Coverage
-        run: go test -coverprofile=coverage.out -covermode=atomic ./...
-      - name: Generate Coverage HTML
-        run: go tool cover -html=coverage.out -o coverage.html
+      - name: Test CI
+        run: make test-ci
       - name: Coverage Summary
         id: coverage
         run: |
@@ -50,15 +46,15 @@ jobs:
 
             **Total:** ${{ steps.coverage.outputs.total }}
       - name: Upload Coverage Artifacts
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: coverage-report
           path: |
             coverage.out
             coverage.html
+          if-no-files-found: warn
           retention-days: 30
-      - name: Test Race Detector
-        run: make test-race
       - name: Integration Tests
         run: go test -tags=integration -short ./tests/...
         continue-on-error: true

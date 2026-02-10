@@ -8,13 +8,14 @@ COVERAGE_DIR := $(DIST_DIR)/coverage
 VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
 COMMIT ?= $(shell git rev-parse --short HEAD 2>/dev/null || echo none)
 DATE ?= $(shell date -u +%Y-%m-%dT%H:%M:%SZ)
+TEST_CI_FLAGS ?= -count=1 -shuffle=on
 
 LDFLAGS := -s -w \
 	-X 'github.com/agentlab/agentlab/internal/buildinfo.Version=$(VERSION)' \
 	-X 'github.com/agentlab/agentlab/internal/buildinfo.Commit=$(COMMIT)' \
 	-X 'github.com/agentlab/agentlab/internal/buildinfo.Date=$(DATE)'
 
-.PHONY: all build build-ssh-gateway lint test test-coverage test-race test-integration test-all coverage-audit coverage-html clean
+.PHONY: all build build-ssh-gateway lint test test-ci test-coverage test-race test-integration test-all coverage-audit coverage-html clean
 
 # Note: This project requires Go 1.24.0 or higher. Running 'go version' will show the installed version.
 
@@ -59,6 +60,12 @@ lint:
 
 test:
 	$(GO) test ./...
+
+test-ci: lint
+	$(GO) test $(TEST_CI_FLAGS) ./...
+	$(GO) test $(TEST_CI_FLAGS) -coverprofile=coverage.out -covermode=atomic ./...
+	$(GO) tool cover -html=coverage.out -o coverage.html
+	$(GO) test -race ./...
 
 test-coverage:
 	$(GO) test -coverprofile=coverage.out -covermode=atomic ./...
