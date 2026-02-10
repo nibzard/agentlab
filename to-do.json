@@ -2293,7 +2293,7 @@
       "id": "T096",
       "title": "Workspaces: add fsck helper (read-only default; repair behind flag)",
       "priority": 4,
-      "status": "todo",
+      "status": "done",
       "details": "Provide recovery workflows when workspace filesystem becomes inconsistent. `agentlab workspace fsck` should be safe by default (read-only checks) and only repair with an explicit flag. If host-level fsck is storage/format dependent, provision a dedicated maintenance sandbox to run checks in a controlled environment.",
       "steps": [
         "Decide execution model per storage: host-level (preferred) vs maintenance sandbox (fallback).",
@@ -2309,14 +2309,20 @@
       ],
       "files": [
         "internal/daemon/workspace_manager.go",
+        "internal/daemon/workspace_fsck.go",
+        "internal/daemon/workspace_fsck_test.go",
         "internal/daemon/api.go",
+        "internal/daemon/api_types.go",
         "cmd/agentlab/commands.go",
+        "cmd/agentlab/api.go",
+        "cmd/agentlab/main.go",
         "docs/troubleshooting.md"
       ],
       "depends_on": [
         "T092"
       ],
-      "created_at": "2026-02-09T09:49:20Z"
+      "created_at": "2026-02-09T09:49:20Z",
+      "updated_at": "2026-02-10T05:19:48Z"
     },
     {
       "id": "T097",
@@ -3035,20 +3041,21 @@
         "security"
       ],
       "files": [
+        "docs/testing.md",
         "internal/config/config_test.go",
         "internal/daemon/api_errors_test.go",
+        "internal/daemon/api_host_test.go",
+        "internal/daemon/api_status_test.go",
         "internal/daemon/control_auth_test.go",
         "internal/daemon/job_orchestrator_test.go",
         "internal/daemon/workspace_lease_wait_test.go",
-        "internal/daemon/api_host_test.go",
-        "internal/daemon/api_status_test.go",
-        "docs/testing.md"
+        "to-do.json"
       ],
       "depends_on": [
         "T113"
       ],
       "created_at": "2026-02-10T01:59:57Z",
-      "updated_at": "2026-02-10T05:04:51Z"
+      "updated_at": "2026-02-10T05:06:30Z"
     },
     {
       "id": "T118",

@@ -33,15 +33,19 @@ var (
 	ErrWorkspaceSnapshotNotFound = errors.New("workspace snapshot not found")
 	ErrWorkspaceSnapshotAttached = errors.New("workspace must be detached for snapshot operations")
 	ErrWorkspaceForkAttached     = errors.New("workspace must be detached for fork operations")
+	ErrWorkspaceFSCKAttached     = errors.New("workspace must be detached for fsck")
+	ErrWorkspaceFSCKUnsupported  = errors.New("workspace fsck unsupported for volume path")
 )
 
 // WorkspaceManager handles persistent workspace volumes.
 type WorkspaceManager struct {
-	store   *db.Store
-	backend proxmox.Backend
-	logger  *log.Logger
-	now     func() time.Time
-	rand    io.Reader
+	store               *db.Store
+	backend             proxmox.Backend
+	logger              *log.Logger
+	now                 func() time.Time
+	rand                io.Reader
+	fsckRunner          workspaceFSCKRunner
+	fsckTargetValidator workspaceFSCKTargetValidator
 }
 
 func NewWorkspaceManager(store *db.Store, backend proxmox.Backend, logger *log.Logger) *WorkspaceManager {
@@ -49,11 +53,13 @@ func NewWorkspaceManager(store *db.Store, backend proxmox.Backend, logger *log.L
 		logger = log.Default()
 	}
 	return &WorkspaceManager{
-		store:   store,
-		backend: backend,
-		logger:  logger,
-		now:     time.Now,
-		rand:    rand.Reader,
+		store:               store,
+		backend:             backend,
+		logger:              logger,
+		now:                 time.Now,
+		rand:                rand.Reader,
+		fsckRunner:          defaultWorkspaceFSCKRunner,
+		fsckTargetValidator: defaultWorkspaceFSCKTargetValidator,
 	}
 }
 

@@ -5,6 +5,7 @@ This guide helps resolve common issues with AgentLab.
 ## Table of Contents
 
 - [Sandbox Operations](#sandbox-operations)
+- [Workspace Issues](#workspace-issues)
 - [Job Failures](#job-failures)
 - [Doctor Bundles](#doctor-bundles)
 - [Database Issues](#database-issues)
@@ -70,6 +71,38 @@ agentlab sandbox new --profile <profile> --ttl <ttl>
 # Remove all orphaned TIMEOUT sandboxes
 agentlab sandbox prune
 ```
+
+---
+
+## Workspace Issues
+
+### Workspace filesystem errors
+
+**Problem:** Workspace volume reports filesystem errors or refuses to mount in the guest.
+
+**Solutions:**
+
+1. Detach the workspace from any sandbox:
+```bash
+agentlab workspace detach <workspace>
+```
+2. Run a read-only filesystem check (safe default):
+```bash
+agentlab workspace fsck <workspace>
+```
+3. If the output reports `NEEDS REPAIR`, rerun with repairs enabled:
+```bash
+agentlab workspace fsck <workspace> --repair
+```
+4. Reattach to the sandbox when finished:
+```bash
+agentlab workspace attach <workspace> <vmid>
+```
+
+**Notes:**
+
+1. `workspace fsck` operates on the host against the workspace block device; it requires the workspace to be detached.
+2. If the daemon reports an unsupported volume path, use a maintenance sandbox or run `fsck` manually on the storage host.
 
 ---
 
@@ -456,4 +489,4 @@ find /backup/agentlab-*.db -mtime +7 -delete
 
 ---
 
-**Last updated:** 2026-01-31
+**Last updated:** 2026-02-10
