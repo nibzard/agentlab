@@ -4,10 +4,12 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"log"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -189,6 +191,109 @@ func TestSandboxRevertHandler(t *testing.T) {
 	}
 	if resp.Snapshot != cleanSnapshotName {
 		t.Fatalf("expected snapshot %s, got %s", cleanSnapshotName, resp.Snapshot)
+	}
+}
+
+func TestSandboxSnapshotCreateRequiresStopped(t *testing.T) {
+	store := newTestStore(t)
+	backend := &stubBackend{}
+	manager := NewSandboxManager(store, backend, log.New(io.Discard, "", 0))
+	api := NewControlAPI(store, map[string]models.Profile{}, manager, nil, nil, "", log.New(io.Discard, "", 0))
+
+	sandbox := models.Sandbox{
+		VMID:      120,
+		Name:      "snapshot-running",
+		Profile:   "default",
+		State:     models.SandboxRunning,
+		Keepalive: false,
+		CreatedAt: time.Now().UTC(),
+	}
+	if err := store.CreateSandbox(context.Background(), sandbox); err != nil {
+		t.Fatalf("create sandbox: %v", err)
+	}
+
+	body := bytes.NewBufferString(`{"name":"checkpoint-1"}`)
+	req := httptest.NewRequest(http.MethodPost, "/v1/sandboxes/120/snapshots", body)
+	rec := httptest.NewRecorder()
+	api.handleSandboxByID(rec, req)
+	if rec.Code != http.StatusConflict {
+		t.Fatalf("status = %d, want %d", rec.Code, http.StatusConflict)
+	}
+	var resp V1ErrorResponse
+	if err := json.NewDecoder(rec.Body).Decode(&resp); err != nil {
+		t.Fatalf("decode error response: %v", err)
+	}
+	if !strings.Contains(resp.Error, "stopped") {
+		t.Fatalf("expected stopped error, got %q", resp.Error)
+	}
+}
+
+func TestSandboxSnapshotCreateWorkspaceAttached(t *testing.T) {
+	store := newTestStore(t)
+	backend := &stubBackend{}
+	manager := NewSandboxManager(store, backend, log.New(io.Discard, "", 0))
+	api := NewControlAPI(store, map[string]models.Profile{}, manager, nil, nil, "", log.New(io.Discard, "", 0))
+
+	workspaceID := "ws-1"
+	sandbox := models.Sandbox{
+		VMID:        121,
+		Name:        "snapshot-workspace",
+		Profile:     "default",
+		State:       models.SandboxStopped,
+		Keepalive:   false,
+		WorkspaceID: &workspaceID,
+		CreatedAt:   time.Now().UTC(),
+	}
+	if err := store.CreateSandbox(context.Background(), sandbox); err != nil {
+		t.Fatalf("create sandbox: %v", err)
+	}
+
+	body := bytes.NewBufferString(`{"name":"checkpoint-1"}`)
+	req := httptest.NewRequest(http.MethodPost, "/v1/sandboxes/121/snapshots", body)
+	rec := httptest.NewRecorder()
+	api.handleSandboxByID(rec, req)
+	if rec.Code != http.StatusConflict {
+		t.Fatalf("status = %d, want %d", rec.Code, http.StatusConflict)
+	}
+	var resp V1ErrorResponse
+	if err := json.NewDecoder(rec.Body).Decode(&resp); err != nil {
+		t.Fatalf("decode error response: %v", err)
+	}
+	if !strings.Contains(resp.Error, "workspace") {
+		t.Fatalf("expected workspace error, got %q", resp.Error)
+	}
+}
+
+func TestSandboxSnapshotRestoreMissing(t *testing.T) {
+	store := newTestStore(t)
+	backend := &stubBackend{snapshotRollbackErr: errors.New("snapshot not found")}
+	manager := NewSandboxManager(store, backend, log.New(io.Discard, "", 0))
+	api := NewControlAPI(store, map[string]models.Profile{}, manager, nil, nil, "", log.New(io.Discard, "", 0))
+
+	sandbox := models.Sandbox{
+		VMID:      122,
+		Name:      "snapshot-missing",
+		Profile:   "default",
+		State:     models.SandboxStopped,
+		Keepalive: false,
+		CreatedAt: time.Now().UTC(),
+	}
+	if err := store.CreateSandbox(context.Background(), sandbox); err != nil {
+		t.Fatalf("create sandbox: %v", err)
+	}
+
+	req := httptest.NewRequest(http.MethodPost, "/v1/sandboxes/122/snapshots/checkpoint-1/restore", nil)
+	rec := httptest.NewRecorder()
+	api.handleSandboxByID(rec, req)
+	if rec.Code != http.StatusConflict {
+		t.Fatalf("status = %d, want %d", rec.Code, http.StatusConflict)
+	}
+	var resp V1ErrorResponse
+	if err := json.NewDecoder(rec.Body).Decode(&resp); err != nil {
+		t.Fatalf("decode error response: %v", err)
+	}
+	if !strings.Contains(resp.Error, "snapshot") {
+		t.Fatalf("expected snapshot error, got %q", resp.Error)
 	}
 }
 

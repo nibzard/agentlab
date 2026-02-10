@@ -89,6 +89,10 @@ func (b *orchestratorBackend) SnapshotDelete(context.Context, proxmox.VMID, stri
 	return nil
 }
 
+func (b *orchestratorBackend) SnapshotList(context.Context, proxmox.VMID) ([]proxmox.Snapshot, error) {
+	return nil, nil
+}
+
 func (b *orchestratorBackend) Status(context.Context, proxmox.VMID) (proxmox.Status, error) {
 	return proxmox.StatusRunning, nil
 }

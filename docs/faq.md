@@ -187,6 +187,30 @@ If you want a safe experiment, use a fork instead:
 agentlab workspace fork dev-workspace --name dev-workspace-exp --from-snapshot baseline
 ```
 
+### How do I snapshot a sandbox?
+
+Sandbox snapshots capture the **root disk only** (the workspace volume is not included).
+For safety, snapshots require the sandbox to be **stopped** and have **no workspace attached**
+unless you pass `--force`.
+
+**Save a snapshot:**
+```bash
+agentlab sandbox snapshot save 1020 checkpoint-1
+```
+
+**List snapshots:**
+```bash
+agentlab sandbox snapshot list 1020
+```
+
+**Restore a snapshot (destructive):**
+```bash
+agentlab sandbox snapshot restore 1020 checkpoint-1
+```
+
+If a workspace is attached and you still need a root snapshot, detach the workspace first
+or pass `--force` (the snapshot will not include `/work`).
+
 ### Why did my sandbox stop while I was away?
 
 AgentLab includes an **idle auto-stop** policy for RUNNING sandboxes:

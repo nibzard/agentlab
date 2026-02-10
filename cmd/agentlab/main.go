@@ -68,6 +68,9 @@ Usage:
   agentlab [--endpoint URL] [--token TOKEN] [--socket PATH] [--json] [--timeout DURATION] sandbox pause <vmid>
   agentlab [--endpoint URL] [--token TOKEN] [--socket PATH] [--json] [--timeout DURATION] sandbox resume <vmid>
   agentlab [--endpoint URL] [--token TOKEN] [--socket PATH] [--json] [--timeout DURATION] sandbox revert [--force] [--restart|--no-restart] <vmid>
+  agentlab [--endpoint URL] [--token TOKEN] [--socket PATH] [--json] [--timeout DURATION] sandbox snapshot save [--force] <vmid> <name>
+  agentlab [--endpoint URL] [--token TOKEN] [--socket PATH] [--json] [--timeout DURATION] sandbox snapshot list <vmid>
+  agentlab [--endpoint URL] [--token TOKEN] [--socket PATH] [--json] [--timeout DURATION] sandbox snapshot restore [--force] <vmid> <name>
   agentlab [--endpoint URL] [--token TOKEN] [--socket PATH] [--json] [--timeout DURATION] sandbox destroy [--force] <vmid>
   agentlab [--endpoint URL] [--token TOKEN] [--socket PATH] [--json] [--timeout DURATION] sandbox lease renew --ttl <ttl> <vmid>
   agentlab [--endpoint URL] [--token TOKEN] [--socket PATH] [--json] [--timeout DURATION] sandbox prune
@@ -344,7 +347,7 @@ func printJobDoctorUsage() {
 }
 
 func printSandboxUsage() {
-	fmt.Fprintln(os.Stdout, "Usage: agentlab sandbox <new|list|show|start|stop|pause|resume|revert|destroy|lease|prune|expose|exposed|unexpose|doctor>")
+	fmt.Fprintln(os.Stdout, "Usage: agentlab sandbox <new|list|show|start|stop|pause|resume|revert|snapshot|destroy|lease|prune|expose|exposed|unexpose|doctor>")
 }
 
 func printSandboxNewUsage() {
@@ -382,6 +385,24 @@ func printSandboxRevertUsage() {
 	fmt.Fprintln(os.Stdout, "Usage: agentlab sandbox revert [--force] [--restart|--no-restart] <vmid>")
 	fmt.Fprintln(os.Stdout, "Note: By default, restarts the sandbox only if it was running before the revert.")
 	fmt.Fprintln(os.Stdout, "Note: Reverting a running sandbox requires confirmation unless --force is set.")
+}
+
+func printSandboxSnapshotUsage() {
+	fmt.Fprintln(os.Stdout, "Usage: agentlab sandbox snapshot <save|list|restore>")
+}
+
+func printSandboxSnapshotSaveUsage() {
+	fmt.Fprintln(os.Stdout, "Usage: agentlab sandbox snapshot save [--force] <vmid> <name>")
+	fmt.Fprintln(os.Stdout, "Note: By default, snapshots require the sandbox to be stopped and workspace detached.")
+}
+
+func printSandboxSnapshotListUsage() {
+	fmt.Fprintln(os.Stdout, "Usage: agentlab sandbox snapshot list <vmid>")
+}
+
+func printSandboxSnapshotRestoreUsage() {
+	fmt.Fprintln(os.Stdout, "Usage: agentlab sandbox snapshot restore [--force] <vmid> <name>")
+	fmt.Fprintln(os.Stdout, "Note: By default, restores require the sandbox to be stopped and workspace detached.")
 }
 
 func printSandboxDestroyUsage() {

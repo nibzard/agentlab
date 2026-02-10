@@ -130,6 +130,15 @@ type V1SandboxRevertRequest struct {
 	Restart *bool `json:"restart,omitempty"`
 }
 
+type V1SandboxSnapshotCreateRequest struct {
+	Name  string `json:"name"`
+	Force bool   `json:"force,omitempty"`
+}
+
+type V1SandboxSnapshotRestoreRequest struct {
+	Force bool `json:"force,omitempty"`
+}
+
 type V1SandboxResponse struct {
 	VMID          int               `json:"vmid"`
 	Name          string            `json:"name"`
@@ -170,6 +179,16 @@ type V1SandboxRevertResponse struct {
 	Restarted  bool              `json:"restarted"`
 	WasRunning bool              `json:"was_running"`
 	Snapshot   string            `json:"snapshot"`
+}
+
+type V1SandboxSnapshotResponse struct {
+	VMID      int    `json:"vmid"`
+	Name      string `json:"name"`
+	CreatedAt string `json:"created_at,omitempty"`
+}
+
+type V1SandboxSnapshotsResponse struct {
+	Snapshots []V1SandboxSnapshotResponse `json:"snapshots"`
 }
 
 type V1SandboxStopAllResult struct {

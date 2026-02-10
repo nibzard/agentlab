@@ -11,7 +11,10 @@
 // The API backend is recommended for production due to better reliability and error handling.
 package proxmox
 
-import "context"
+import (
+	"context"
+	"time"
+)
 
 // VMID represents a Proxmox virtual machine identifier.
 type VMID int
@@ -31,6 +34,14 @@ const (
 // VMStats contains runtime statistics for a VM.
 type VMStats struct {
 	CPUUsage float64 // Fractional CPU usage from status/current (0.0-1.0+).
+}
+
+// Snapshot represents a VM snapshot returned by Proxmox.
+// ABOUTME: CreatedAt is zero when the backend cannot provide a timestamp.
+type Snapshot struct {
+	Name        string
+	Description string
+	CreatedAt   time.Time
 }
 
 // VolumeInfo contains metadata about a storage volume.
@@ -94,6 +105,10 @@ type Backend interface {
 
 	// SnapshotDelete removes the named snapshot from the VM.
 	SnapshotDelete(ctx context.Context, vmid VMID, name string) error
+
+	// SnapshotList lists snapshots for a VM.
+	// ABOUTME: The snapshot list may include backend-specific metadata like timestamps.
+	SnapshotList(ctx context.Context, vmid VMID) ([]Snapshot, error)
 
 	// Status retrieves the current runtime status of a VM.
 	// ABOUTME: Returns StatusRunning, StatusStopped, or StatusUnknown.

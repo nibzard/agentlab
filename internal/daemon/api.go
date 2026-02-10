@@ -96,6 +96,9 @@ var (
 //   - POST   /v1/sandboxes/stop_all         - Stop all running sandboxes
 //   - POST   /v1/sandboxes/{vmid}/touch     - Update sandbox last_used_at
 //   - POST   /v1/sandboxes/{vmid}/revert    - Revert a sandbox to snapshot "clean"
+//   - GET    /v1/sandboxes/{vmid}/snapshots - List sandbox snapshots
+//   - POST   /v1/sandboxes/{vmid}/snapshots - Create sandbox snapshot
+//   - POST   /v1/sandboxes/{vmid}/snapshots/{name}/restore - Restore sandbox snapshot
 //   - POST   /v1/sandboxes/{vmid}/destroy   - Destroy a sandbox
 //   - POST   /v1/sandboxes/{vmid}/lease/renew - Renew sandbox lease
 //   - GET    /v1/sandboxes/{vmid}/events - Get sandbox events
@@ -1029,6 +1032,19 @@ func (api *ControlAPI) handleSandboxByID(w http.ResponseWriter, r *http.Request)
 			api.handleSandboxRevert(w, r, vmid)
 			return
 		}
+		if parts[1] == "snapshots" {
+			switch r.Method {
+			case http.MethodGet:
+				api.handleSandboxSnapshotsList(w, r, vmid)
+				return
+			case http.MethodPost:
+				api.handleSandboxSnapshotCreate(w, r, vmid)
+				return
+			default:
+				writeMethodNotAllowed(w, []string{http.MethodGet, http.MethodPost})
+				return
+			}
+		}
 		if parts[1] == "destroy" {
 			if r.Method != http.MethodPost {
 				writeMethodNotAllowed(w, []string{http.MethodPost})
@@ -1060,6 +1076,15 @@ func (api *ControlAPI) handleSandboxByID(w http.ResponseWriter, r *http.Request)
 				return
 			}
 			api.handleSandboxLeaseRenew(w, r, vmid)
+			return
+		}
+	case 4:
+		if parts[1] == "snapshots" && parts[3] == "restore" {
+			if r.Method != http.MethodPost {
+				writeMethodNotAllowed(w, []string{http.MethodPost})
+				return
+			}
+			api.handleSandboxSnapshotRestore(w, r, vmid, parts[2])
 			return
 		}
 	}
@@ -2822,6 +2847,118 @@ func (api *ControlAPI) handleSandboxRevert(w http.ResponseWriter, r *http.Reques
 	writeJSON(w, http.StatusOK, resp)
 }
 
+func (api *ControlAPI) handleSandboxSnapshotsList(w http.ResponseWriter, r *http.Request, vmid int) {
+	if api.sandboxManager == nil {
+		writeError(w, http.StatusInternalServerError, "sandbox manager unavailable")
+		return
+	}
+	snapshots, err := api.sandboxManager.SnapshotList(r.Context(), vmid)
+	if err != nil {
+		if errors.Is(err, ErrSandboxNotFound) {
+			writeError(w, http.StatusNotFound, "sandbox not found")
+			return
+		}
+		writeError(w, http.StatusInternalServerError, "failed to list sandbox snapshots")
+		return
+	}
+	resp := V1SandboxSnapshotsResponse{Snapshots: make([]V1SandboxSnapshotResponse, 0, len(snapshots))}
+	for _, snapshot := range snapshots {
+		resp.Snapshots = append(resp.Snapshots, sandboxSnapshotToV1(vmid, snapshot))
+	}
+	writeJSON(w, http.StatusOK, resp)
+}
+
+func (api *ControlAPI) handleSandboxSnapshotCreate(w http.ResponseWriter, r *http.Request, vmid int) {
+	if api.sandboxManager == nil {
+		writeError(w, http.StatusInternalServerError, "sandbox manager unavailable")
+		return
+	}
+	var req V1SandboxSnapshotCreateRequest
+	if err := decodeJSON(w, r, &req); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	req.Name = strings.TrimSpace(req.Name)
+	if req.Name == "" {
+		writeError(w, http.StatusBadRequest, "name is required")
+		return
+	}
+	snapshot, err := api.sandboxManager.SnapshotCreate(r.Context(), vmid, req.Name, SandboxSnapshotOptions{Force: req.Force})
+	if err != nil {
+		switch {
+		case errors.Is(err, ErrSandboxNotFound):
+			writeError(w, http.StatusNotFound, "sandbox not found")
+		case errors.Is(err, ErrSandboxSnapshotActive):
+			writeError(w, http.StatusConflict, "sandbox must be stopped for snapshots")
+		case errors.Is(err, ErrSandboxSnapshotWorkspaceAttached):
+			writeError(w, http.StatusConflict, "sandbox has attached workspace; detach it or use --force")
+		case errors.Is(err, ErrInvalidTransition):
+			if api.store != nil {
+				if sb, getErr := api.store.GetSandbox(r.Context(), vmid); getErr == nil {
+					writeError(w, http.StatusConflict, fmt.Sprintf("cannot snapshot sandbox in %s state. Valid states: STOPPED", sb.State))
+				} else {
+					writeError(w, http.StatusConflict, "invalid sandbox state for snapshot operation")
+				}
+			} else {
+				writeError(w, http.StatusConflict, "invalid sandbox state for snapshot operation")
+			}
+		default:
+			writeError(w, http.StatusInternalServerError, "failed to create sandbox snapshot")
+		}
+		return
+	}
+	writeJSON(w, http.StatusCreated, sandboxSnapshotToV1(vmid, snapshot))
+}
+
+func (api *ControlAPI) handleSandboxSnapshotRestore(w http.ResponseWriter, r *http.Request, vmid int, name string) {
+	if api.sandboxManager == nil {
+		writeError(w, http.StatusInternalServerError, "sandbox manager unavailable")
+		return
+	}
+	name = strings.TrimSpace(name)
+	if name == "" {
+		writeError(w, http.StatusBadRequest, "snapshot name is required")
+		return
+	}
+	var req V1SandboxSnapshotRestoreRequest
+	if err := decodeOptionalJSON(w, r, &req); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	snapshot, err := api.sandboxManager.SnapshotRestore(r.Context(), vmid, name, SandboxSnapshotOptions{Force: req.Force})
+	if err != nil {
+		var missing SnapshotMissingError
+		switch {
+		case errors.Is(err, ErrSandboxNotFound):
+			writeError(w, http.StatusNotFound, "sandbox not found")
+		case errors.As(err, &missing), errors.Is(err, ErrSnapshotMissing):
+			missingName := name
+			if missing.Name != "" {
+				missingName = missing.Name
+			}
+			writeError(w, http.StatusConflict, fmt.Sprintf("snapshot %q not found", missingName))
+		case errors.Is(err, ErrSandboxSnapshotActive):
+			writeError(w, http.StatusConflict, "sandbox must be stopped for snapshots")
+		case errors.Is(err, ErrSandboxSnapshotWorkspaceAttached):
+			writeError(w, http.StatusConflict, "sandbox has attached workspace; detach it or use --force")
+		case errors.Is(err, ErrInvalidTransition):
+			if api.store != nil {
+				if sb, getErr := api.store.GetSandbox(r.Context(), vmid); getErr == nil {
+					writeError(w, http.StatusConflict, fmt.Sprintf("cannot restore snapshot in %s state. Valid states: STOPPED", sb.State))
+				} else {
+					writeError(w, http.StatusConflict, "invalid sandbox state for snapshot operation")
+				}
+			} else {
+				writeError(w, http.StatusConflict, "invalid sandbox state for snapshot operation")
+			}
+		default:
+			writeError(w, http.StatusInternalServerError, "failed to restore sandbox snapshot")
+		}
+		return
+	}
+	writeJSON(w, http.StatusOK, sandboxSnapshotToV1(vmid, snapshot))
+}
+
 func (api *ControlAPI) handleSandboxLeaseRenew(w http.ResponseWriter, r *http.Request, vmid int) {
 	if api.sandboxManager == nil {
 		writeError(w, http.StatusInternalServerError, "sandbox manager unavailable")
@@ -3188,6 +3325,17 @@ func workspaceSnapshotToV1(snapshot models.WorkspaceSnapshot) V1WorkspaceSnapsho
 		BackendRef:  snapshot.BackendRef,
 		CreatedAt:   snapshot.CreatedAt.UTC().Format(time.RFC3339Nano),
 	}
+}
+
+func sandboxSnapshotToV1(vmid int, snapshot proxmox.Snapshot) V1SandboxSnapshotResponse {
+	resp := V1SandboxSnapshotResponse{
+		VMID: vmid,
+		Name: snapshot.Name,
+	}
+	if !snapshot.CreatedAt.IsZero() {
+		resp.CreatedAt = snapshot.CreatedAt.UTC().Format(time.RFC3339Nano)
+	}
+	return resp
 }
 
 func workspaceCheckToV1(result WorkspaceCheckResult) V1WorkspaceCheckResponse {

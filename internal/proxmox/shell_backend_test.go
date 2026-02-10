@@ -477,8 +477,8 @@ func TestShellBackendVolumeCloneCrossStorage(t *testing.T) {
 }
 
 func TestShellBackendSnapshotOps(t *testing.T) {
-	runner := &fakeRunner{responses: []runnerResponse{{}, {}, {}}}
-	backend := &ShellBackend{Runner: runner}
+	runner := &fakeRunner{responses: []runnerResponse{{}, {}, {}, {stdout: `[{"name":"clean","snaptime":1730000000}]`}}}
+	backend := &ShellBackend{Runner: runner, Node: "pve"}
 
 	if err := backend.SnapshotCreate(context.Background(), 101, "clean"); err != nil {
 		t.Fatalf("SnapshotCreate() error = %v", err)
@@ -489,11 +489,19 @@ func TestShellBackendSnapshotOps(t *testing.T) {
 	if err := backend.SnapshotDelete(context.Background(), 101, "clean"); err != nil {
 		t.Fatalf("SnapshotDelete() error = %v", err)
 	}
+	snapshots, err := backend.SnapshotList(context.Background(), 101)
+	if err != nil {
+		t.Fatalf("SnapshotList() error = %v", err)
+	}
+	if len(snapshots) != 1 || snapshots[0].Name != "clean" {
+		t.Fatalf("SnapshotList() = %#v, want [clean]", snapshots)
+	}
 
 	want := []runnerCall{
 		{name: "qm", args: []string{"snapshot", "101", "clean"}},
 		{name: "qm", args: []string{"rollback", "101", "clean"}},
 		{name: "qm", args: []string{"delsnapshot", "101", "clean"}},
+		{name: "pvesh", args: []string{"get", "/nodes/pve/qemu/101/snapshot", "--output-format", "json"}},
 	}
 	if !reflect.DeepEqual(runner.calls, want) {
 		t.Fatalf("Snapshot calls = %#v, want %#v", runner.calls, want)

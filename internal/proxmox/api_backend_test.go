@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"strings"
 	"testing"
 )
 
@@ -90,6 +91,10 @@ func TestAPIBackendSnapshotEndpoints(t *testing.T) {
 			form:     form,
 		})
 		w.Header().Set("Content-Type", "application/json")
+		if r.Method == http.MethodGet && strings.Contains(r.URL.Path, "/snapshot") {
+			_, _ = w.Write([]byte(`{"data":[{"name":"clean","snaptime":1730000000,"description":"baseline"}]}`))
+			return
+		}
 		_, _ = w.Write([]byte(`{"data":{}}`))
 	}))
 	defer srv.Close()
@@ -110,9 +115,16 @@ func TestAPIBackendSnapshotEndpoints(t *testing.T) {
 	if err := backend.SnapshotDelete(ctx, 101, "clean"); err != nil {
 		t.Fatalf("SnapshotDelete() error = %v", err)
 	}
+	snapshots, err := backend.SnapshotList(ctx, 101)
+	if err != nil {
+		t.Fatalf("SnapshotList() error = %v", err)
+	}
+	if len(snapshots) != 1 || snapshots[0].Name != "clean" {
+		t.Fatalf("SnapshotList() = %#v, want [clean]", snapshots)
+	}
 
-	if len(calls) != 3 {
-		t.Fatalf("expected 3 API calls, got %d", len(calls))
+	if len(calls) != 4 {
+		t.Fatalf("expected 4 API calls, got %d", len(calls))
 	}
 
 	if calls[0].method != http.MethodPost || calls[0].path != "/api2/json/nodes/pve/qemu/101/snapshot" {
@@ -140,6 +152,10 @@ func TestAPIBackendSnapshotEndpoints(t *testing.T) {
 	}
 	if len(calls[2].form) != 0 {
 		t.Fatalf("SnapshotDelete form = %#v", calls[2].form)
+	}
+
+	if calls[3].method != http.MethodGet || calls[3].path != "/api2/json/nodes/pve/qemu/101/snapshot" {
+		t.Fatalf("SnapshotList call = %s %s", calls[3].method, calls[3].path)
 	}
 }
 
