@@ -64,6 +64,7 @@ var (
 		models.JobTimeout,
 	}
 	errWorkspaceWaitTimeout = errors.New("workspace wait timeout")
+	defaultErrorRedactor    = NewRedactor(nil)
 	messageScopeTypes       = map[string]struct{}{
 		"job":       {},
 		"workspace": {},
@@ -3335,14 +3336,15 @@ func writeJSON(w http.ResponseWriter, status int, payload any) {
 func writeError(w http.ResponseWriter, status int, msg string, err ...error) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
-	payload := map[string]string{"error": msg}
-	// Always include error details for better debugging
-	if len(err) > 0 {
+	resp := V1ErrorResponse{Error: msg}
+	if len(err) > 0 && status < http.StatusInternalServerError {
 		details := err[0].Error()
-		payload["details"] = details
+		if defaultErrorRedactor != nil {
+			details = defaultErrorRedactor.Redact(details)
+		}
+		resp.Details = details
 	}
-	data, _ := json.Marshal(payload)
-	w.Write(data)
+	_ = json.NewEncoder(w).Encode(resp)
 }
 
 func writeMethodNotAllowed(w http.ResponseWriter, methods []string) {

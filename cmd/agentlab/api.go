@@ -50,7 +50,8 @@ type apiClient struct {
 
 // apiError represents an error response from the agentlabd API.
 type apiError struct {
-	Error string `json:"error"`
+	Error   string `json:"error"`
+	Details string `json:"details,omitempty"`
 }
 
 // jobCreateRequest contains parameters for creating a new job.
