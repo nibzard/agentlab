@@ -56,6 +56,7 @@ Usage:
   agentlab [--endpoint URL] [--token TOKEN] [--socket PATH] [--json] [--timeout DURATION] job show <job_id> [--events-tail <n>]
   agentlab [--endpoint URL] [--token TOKEN] [--socket PATH] [--json] [--timeout DURATION] job artifacts <job_id>
   agentlab [--endpoint URL] [--token TOKEN] [--socket PATH] [--json] [--timeout DURATION] job artifacts download <job_id> [--out <path>] [--path <path>] [--name <name>] [--latest] [--bundle]
+  agentlab [--endpoint URL] [--token TOKEN] [--socket PATH] [--json] [--timeout DURATION] job doctor <job_id> [--out <path>]
   agentlab [--endpoint URL] [--token TOKEN] [--socket PATH] [--json] [--timeout DURATION] sandbox new [--name <name>] [--ttl <ttl>] [--keepalive] [--workspace <id>] [--vmid <vmid>] [--job <id>] [--and-ssh] (--profile <profile> | +mod [+mod...])
   agentlab [--endpoint URL] [--token TOKEN] [--socket PATH] [--json] [--timeout DURATION] sandbox list
   agentlab [--endpoint URL] [--token TOKEN] [--socket PATH] [--json] [--timeout DURATION] sandbox show <vmid>
@@ -69,6 +70,7 @@ Usage:
   agentlab [--endpoint URL] [--token TOKEN] [--socket PATH] [--json] [--timeout DURATION] sandbox expose [--force] <vmid> :<port>
   agentlab [--endpoint URL] [--token TOKEN] [--socket PATH] [--json] [--timeout DURATION] sandbox exposed
   agentlab [--endpoint URL] [--token TOKEN] [--socket PATH] [--json] [--timeout DURATION] sandbox unexpose <name>
+  agentlab [--endpoint URL] [--token TOKEN] [--socket PATH] [--json] [--timeout DURATION] sandbox doctor <vmid> [--out <path>]
   agentlab [--endpoint URL] [--token TOKEN] [--socket PATH] [--json] [--timeout DURATION] workspace create --name <name> --size <size> [--storage <storage>]
   agentlab [--endpoint URL] [--token TOKEN] [--socket PATH] [--json] [--timeout DURATION] workspace list
   agentlab [--endpoint URL] [--token TOKEN] [--socket PATH] [--json] [--timeout DURATION] workspace check <workspace>
@@ -82,6 +84,7 @@ Usage:
   agentlab [--endpoint URL] [--token TOKEN] [--socket PATH] [--json] [--timeout DURATION] session stop <session>
   agentlab [--endpoint URL] [--token TOKEN] [--socket PATH] [--json] [--timeout DURATION] session fork <session> --name <name> (--workspace <id|name|new:name> | --workspace-create <name>) [--workspace-size <size>] [--workspace-storage <storage>] [--profile <profile>] [--branch <branch>]
   agentlab [--endpoint URL] [--token TOKEN] [--socket PATH] [--json] [--timeout DURATION] session branch <branch> --profile <profile> [--workspace <id|name|new:name>] [--workspace-create <name>] [--workspace-size <size>] [--workspace-storage <storage>]
+  agentlab [--endpoint URL] [--token TOKEN] [--socket PATH] [--json] [--timeout DURATION] session doctor <session> [--out <path>]
   agentlab [--endpoint URL] [--token TOKEN] [--socket PATH] [--json] [--timeout DURATION] profile list
   agentlab [--endpoint URL] [--token TOKEN] [--socket PATH] [--json] [--timeout DURATION] msg post (--job <id> | --workspace <id> | --session <id>) [--author <name>] [--kind <kind>] [--text <text>] [--payload <json>] [message...]
   agentlab [--endpoint URL] [--token TOKEN] [--socket PATH] [--json] [--timeout DURATION] msg tail (--job <id> | --workspace <id> | --session <id>) [--follow] [--tail <n>]
@@ -289,7 +292,7 @@ func writeJSONError(w io.Writer, message string) {
 }
 
 func printJobUsage() {
-	fmt.Fprintln(os.Stdout, "Usage: agentlab job <run|show|artifacts> [flags]")
+	fmt.Fprintln(os.Stdout, "Usage: agentlab job <run|show|artifacts|doctor> [flags]")
 }
 
 func printStatusUsage() {
@@ -314,8 +317,13 @@ func printJobArtifactsDownloadUsage() {
 	fmt.Fprintln(os.Stdout, "Note: By default, downloads the latest bundle (agentlab-artifacts.tar.gz) when available.")
 }
 
+func printJobDoctorUsage() {
+	fmt.Fprintln(os.Stdout, "Usage: agentlab job doctor <job_id> [--out <path>]")
+	fmt.Fprintln(os.Stdout, "Note: --out may be a directory or file path.")
+}
+
 func printSandboxUsage() {
-	fmt.Fprintln(os.Stdout, "Usage: agentlab sandbox <new|list|show|start|stop|revert|destroy|lease|prune|expose|exposed|unexpose>")
+	fmt.Fprintln(os.Stdout, "Usage: agentlab sandbox <new|list|show|start|stop|revert|destroy|lease|prune|expose|exposed|unexpose|doctor>")
 }
 
 func printSandboxNewUsage() {
@@ -379,6 +387,11 @@ func printSandboxUnexposeUsage() {
 	fmt.Fprintln(os.Stdout, "Usage: agentlab sandbox unexpose <name>")
 }
 
+func printSandboxDoctorUsage() {
+	fmt.Fprintln(os.Stdout, "Usage: agentlab sandbox doctor <vmid> [--out <path>]")
+	fmt.Fprintln(os.Stdout, "Note: --out may be a directory or file path.")
+}
+
 func printWorkspaceUsage() {
 	fmt.Fprintln(os.Stdout, "Usage: agentlab workspace <create|list|check|attach|detach|rebind>")
 }
@@ -408,7 +421,7 @@ func printWorkspaceRebindUsage() {
 }
 
 func printSessionUsage() {
-	fmt.Fprintln(os.Stdout, "Usage: agentlab session <create|list|show|resume|stop|fork|branch>")
+	fmt.Fprintln(os.Stdout, "Usage: agentlab session <create|list|show|resume|stop|fork|branch|doctor>")
 }
 
 func printSessionCreateUsage() {
@@ -437,6 +450,11 @@ func printSessionForkUsage() {
 
 func printSessionBranchUsage() {
 	fmt.Fprintln(os.Stdout, "Usage: agentlab session branch <branch> --profile <profile> [--workspace <id|name|new:name>] [--workspace-create <name>] [--workspace-size <size>] [--workspace-storage <storage>]")
+}
+
+func printSessionDoctorUsage() {
+	fmt.Fprintln(os.Stdout, "Usage: agentlab session doctor <session> [--out <path>]")
+	fmt.Fprintln(os.Stdout, "Note: --out may be a directory or file path.")
 }
 
 func printProfileUsage() {

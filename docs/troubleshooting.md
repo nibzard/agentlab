@@ -6,6 +6,7 @@ This guide helps resolve common issues with AgentLab.
 
 - [Sandbox Operations](#sandbox-operations)
 - [Job Failures](#job-failures)
+- [Doctor Bundles](#doctor-bundles)
 - [Database Issues](#database-issues)
 - [Networking Issues](#networking-issues)
 - [Common Error Messages](#common-error-messages)
@@ -137,6 +138,20 @@ ip link show | grep vmbr
 ```bash
 journalctl -u agentlabd -n 100
 ```
+
+---
+
+## Doctor Bundles
+
+When you need a deterministic debug snapshot, generate a doctor bundle. Bundles include DB records, recent events, Proxmox status/config, and artifact inventory with secrets redacted.
+
+```bash
+agentlab sandbox doctor <vmid> --out <path>
+agentlab job doctor <job_id> --out <path>
+agentlab session doctor <session> --out <path>
+```
+
+If `--out` points to a directory (or ends with `/`), the bundle is written there using a default filename.
 
 ---
 

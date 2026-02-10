@@ -604,12 +604,12 @@ func TestUsagePrints(t *testing.T) {
 
 	t.Run("printJobUsage outputs job usage", func(t *testing.T) {
 		output := CaptureOutput(printJobUsage)
-		assert.Contains(t, output, "job <run|show|artifacts>")
+		assert.Contains(t, output, "job <run|show|artifacts|doctor>")
 	})
 
 	t.Run("printSandboxUsage outputs sandbox usage", func(t *testing.T) {
 		output := CaptureOutput(printSandboxUsage)
-		assert.Contains(t, output, "sandbox <new|list|show|start|stop|revert|destroy|lease|prune|expose|exposed|unexpose>")
+		assert.Contains(t, output, "sandbox <new|list|show|start|stop|revert|destroy|lease|prune|expose|exposed|unexpose|doctor>")
 	})
 
 	t.Run("printWorkspaceUsage outputs workspace usage", func(t *testing.T) {
@@ -675,13 +675,13 @@ func TestGoldenFileUsageOutput(t *testing.T) {
 func TestGoldenFileJobUsageOutput(t *testing.T) {
 	got := CaptureOutput(printJobUsage)
 
-	assert.Contains(t, got, "agentlab job <run|show|artifacts>")
+	assert.Contains(t, got, "agentlab job <run|show|artifacts|doctor>")
 }
 
 func TestGoldenFileSandboxUsageOutput(t *testing.T) {
 	got := CaptureOutput(printSandboxUsage)
 
-	assert.Contains(t, got, "agentlab sandbox <new|list|show|start|stop|revert|destroy|lease|prune|expose|exposed|unexpose>")
+	assert.Contains(t, got, "agentlab sandbox <new|list|show|start|stop|revert|destroy|lease|prune|expose|exposed|unexpose|doctor>")
 }
 
 func TestGoldenFileWorkspaceUsageOutput(t *testing.T) {

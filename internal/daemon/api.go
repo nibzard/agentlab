@@ -24,6 +24,7 @@ import (
 	"github.com/agentlab/agentlab/internal/buildinfo"
 	"github.com/agentlab/agentlab/internal/db"
 	"github.com/agentlab/agentlab/internal/models"
+	"github.com/agentlab/agentlab/internal/proxmox"
 )
 
 const (
@@ -80,6 +81,7 @@ var (
 //   - GET    /v1/jobs/{id}            - Get job details
 //   - GET    /v1/jobs/{id}/artifacts  - List job artifacts
 //   - GET    /v1/jobs/{id}/artifacts/download - Download job artifacts
+//   - POST   /v1/jobs/{id}/doctor     - Create job doctor bundle
 //   - GET    /v1/profiles             - List available profiles
 //   - GET    /v1/status               - Control plane status summary
 //   - POST   /v1/sandboxes            - Create a new sandbox
@@ -93,6 +95,7 @@ var (
 //   - POST   /v1/sandboxes/{vmid}/destroy   - Destroy a sandbox
 //   - POST   /v1/sandboxes/{vmid}/lease/renew - Renew sandbox lease
 //   - GET    /v1/sandboxes/{vmid}/events - Get sandbox events
+//   - POST   /v1/sandboxes/{vmid}/doctor - Create sandbox doctor bundle
 //   - POST   /v1/messages             - Post a message to the messagebox
 //   - GET    /v1/messages             - List messagebox entries by scope
 //   - POST   /v1/sandboxes/prune      - Prune orphaned sandboxes
@@ -109,13 +112,14 @@ var (
 //   - POST   /v1/sessions/{id}/resume - Resume a session (rebind workspace)
 //   - POST   /v1/sessions/{id}/stop   - Stop a session (destroy sandbox)
 //   - POST   /v1/sessions/{id}/fork   - Fork a session (new workspace required)
-//   - POST   /v1/sessions/{id}/doctor - Stub session doctor endpoint
+//   - POST   /v1/sessions/{id}/doctor - Create session doctor bundle
 //   - POST   /v1/exposures            - Create a new exposure
 //   - GET    /v1/exposures            - List exposures
 //   - DELETE /v1/exposures/{name}     - Delete exposure
 type ControlAPI struct {
 	store             *db.Store
 	profiles          map[string]models.Profile
+	backend           proxmox.Backend
 	sandboxManager    *SandboxManager
 	workspaceMgr      *WorkspaceManager
 	jobOrchestrator   *JobOrchestrator
@@ -126,6 +130,7 @@ type ControlAPI struct {
 	agentSubnet       string
 	tailscaleStatus   func(context.Context) (string, error)
 	logger            *log.Logger
+	redactor          *Redactor
 	now               func() time.Time
 }
 
@@ -166,6 +171,15 @@ func (api *ControlAPI) WithMetricsEnabled(enabled bool) *ControlAPI {
 	return api
 }
 
+// WithBackend sets the Proxmox backend used for doctor bundles.
+func (api *ControlAPI) WithBackend(backend proxmox.Backend) *ControlAPI {
+	if api == nil {
+		return api
+	}
+	api.backend = backend
+	return api
+}
+
 // WithMetrics registers the metrics collector for recording workspace lease stats.
 func (api *ControlAPI) WithMetrics(metrics *Metrics) *ControlAPI {
 	if api == nil {
@@ -190,6 +204,15 @@ func (api *ControlAPI) WithTailscaleStatus(fn func(context.Context) (string, err
 		return api
 	}
 	api.tailscaleStatus = fn
+	return api
+}
+
+// WithRedactor sets the redactor used for doctor bundles.
+func (api *ControlAPI) WithRedactor(redactor *Redactor) *ControlAPI {
+	if api == nil {
+		return api
+	}
+	api.redactor = redactor
 	return api
 }
 
@@ -265,6 +288,14 @@ func (api *ControlAPI) handleJobByID(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 			api.handleJobArtifactsList(w, r, jobID)
+			return
+		}
+		if parts[1] == "doctor" {
+			if r.Method != http.MethodPost {
+				writeMethodNotAllowed(w, []string{http.MethodPost})
+				return
+			}
+			api.handleJobDoctor(w, r, jobID)
 			return
 		}
 	case 3:
@@ -987,6 +1018,14 @@ func (api *ControlAPI) handleSandboxByID(w http.ResponseWriter, r *http.Request)
 				return
 			}
 			api.handleSandboxEvents(w, r, vmid)
+			return
+		}
+		if parts[1] == "doctor" {
+			if r.Method != http.MethodPost {
+				writeMethodNotAllowed(w, []string{http.MethodPost})
+				return
+			}
+			api.handleSandboxDoctor(w, r, vmid)
 			return
 		}
 	case 3:
@@ -2035,10 +2074,6 @@ func (api *ControlAPI) handleSessionFork(w http.ResponseWriter, r *http.Request,
 		return
 	}
 	writeJSON(w, http.StatusCreated, api.sessionToV1(session))
-}
-
-func (api *ControlAPI) handleSessionDoctor(w http.ResponseWriter, r *http.Request, id string) {
-	writeError(w, http.StatusNotImplemented, "session doctor not implemented")
 }
 
 func (api *ControlAPI) handleExposureCreate(w http.ResponseWriter, r *http.Request) {
