@@ -464,9 +464,7 @@ func (m *MockHTTPHandler) NewTestServer(t interface {
 	Cleanup(func())
 }) *httptest.Server {
 	srv := httptest.NewServer(m)
-	if t, ok := t.(interface{ Cleanup(func()) }); ok {
-		t.Cleanup(srv.Close)
-	}
+	t.Cleanup(srv.Close)
 	return srv
 }
 

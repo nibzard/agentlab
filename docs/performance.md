@@ -276,21 +276,21 @@ Expected throughput: 300+ jobs/hour per host
 
 **For scaling beyond single host:**
 
-**Option 1: Proxmox cluster**
+#### Option 1: Proxmox cluster
 ```bash
 # Set up Proxmox cluster with shared storage
 # Each node runs agentlabd
 # Use VM affinity rules to distribute load
 ```
 
-**Option 2: Separate agent hosts**
+#### Option 2: Separate agent hosts
 ```bash
 # Dedicated Proxmox host for AgentLab
 # Separate from production workloads
 # Easier isolation and resource management
 ```
 
-**Option 3: Job queue with multiple workers**
+#### Option 3: Job queue with multiple workers
 ```bash
 # External job scheduler (Redis, etc.)
 # Multiple agentlabd instances pulling jobs

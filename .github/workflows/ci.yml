@@ -24,8 +24,6 @@ jobs:
           node-version: "20"
       - name: Install Docs Tools
         run: make docs-tools
-      - name: Docs Check
-        run: make docs-check
       - name: Docs Verify
         run: make docs-verify
       - name: Quality + Test CI

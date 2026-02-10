@@ -220,10 +220,6 @@ func profileNameList(profiles []profileResponse) []string {
 	return names
 }
 
-func suggestProfileName(name string, candidates []string) string {
-	return bestSuggestion(name, candidates)
-}
-
 func levenshteinDistance(a, b string) int {
 	if a == b {
 		return 0

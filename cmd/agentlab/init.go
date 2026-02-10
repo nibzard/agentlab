@@ -1129,10 +1129,7 @@ func serveRulePresent(output string, host string, port int) bool {
 		return true
 	}
 	lower := strings.ToLower(output)
-	if strings.Contains(lower, fmt.Sprintf("tcp %d", port)) {
-		return true
-	}
-	return false
+	return strings.Contains(lower, fmt.Sprintf("tcp %d", port))
 }
 
 func serveMissingMessage(output string) bool {

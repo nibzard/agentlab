@@ -259,7 +259,7 @@ This section documents breaking changes by version.
 
 ### Version 2.0.0 (Future - Example)
 
-*Example of potential breaking changes in a future major version*
+#### Example of potential breaking changes in a future major version
 
 **Configuration Changes:**
 - `proxmox_backend` default changed from `shell` to `api`
@@ -355,7 +355,7 @@ Profile formats are generally backwards compatible:
 
 When profile fields change:
 
-**Example: Field Renaming**
+#### Example: Field Renaming
 
 ```yaml
 # Old (v1.0)
@@ -369,7 +369,7 @@ template_vmid: 9000  # renamed from template_vm
 cores: 4  # renamed from cpu
 ```
 
-**Migration:**
+#### Migration
 1. Update profile YAML files
 2. Reload profiles: `sudo systemctl reload agentlabd.service`
 3. Verify with `agentlab profile list`

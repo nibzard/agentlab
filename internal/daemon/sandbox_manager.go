@@ -1014,10 +1014,7 @@ func isSnapshotMissing(err error) bool {
 			break
 		}
 	}
-	if !foundPhrase {
-		return false
-	}
-	return true
+	return foundPhrase
 }
 
 // ReconcileState syncs sandbox states with actual VM states from Proxmox.
