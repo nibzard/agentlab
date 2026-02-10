@@ -1,5 +1,30 @@
 # Comprehensive Testing Report
 
+## 2026-02-10 Final Test Matrix (T127)
+
+**Test Date:** 2026-02-10  
+**Go Version:** go1.25.6 linux/amd64  
+**Environment:** local run (no Proxmox e2e credentials configured)
+
+### Results Summary
+
+| Target | Command | Result | Notes |
+| --- | --- | --- | --- |
+| Docs tools | `make docs-tools` | PASS | Installed `lychee` + `typos` to `bin/tools` |
+| Docs check | `make docs-check` | PASS | markdownlint, links, typos, snippets |
+| Docs verify | `make docs-verify` | PASS | `docs/cli.md` up to date |
+| CI test matrix | `make test-ci` | PASS | gofmt, vet, staticcheck, govulncheck, unit tests, coverage, race |
+| Coverage audit | `make coverage-audit` | PASS | Overall coverage 45.6% (`dist/coverage/coverage.out`) |
+| Integration tests | `make test-integration` | PASS | Fake backend integration tests |
+| Fuzz (short) | `make fuzz` | PASS | `go test` reported `[no tests to run]` |
+| E2E tests | `go test -tags=e2e -v ./tests/...` | SKIP | Requires `AGENTLAB_E2E=1` + real Proxmox environment |
+
+### Artifacts
+
+`coverage.out`, `coverage.html`, `dist/coverage/coverage.out`, `dist/coverage/coverage.func.txt`
+
+## 2026-01-31 Comprehensive Report (Historical)
+
 **Test Date:** 2026-01-31
 **AgentLab Version:** v0.1.2-1-g2be5b14-dirty
 **Go Version:** 1.24.12 (toolchain)

@@ -3329,19 +3329,20 @@
         "testing"
       ],
       "files": [
-        "cmd/agentlab/commands.go",
         "cmd/agentlab/api.go",
         "cmd/agentlab/api_test.go",
+        "cmd/agentlab/commands.go",
         "cmd/agentlab/commands_helpers_test.go",
         "cmd/agentlab/main_test.go",
         "internal/daemon/api.go",
-        "internal/daemon/api_helpers_test.go"
+        "internal/daemon/api_helpers_test.go",
+        "to-do.json"
       ],
       "depends_on": [
         "T124"
       ],
       "created_at": "2026-02-10T02:16:01Z",
-      "updated_at": "2026-02-10T06:49:18Z"
+      "updated_at": "2026-02-10T06:49:59Z"
     },
     {
       "id": "T126",
@@ -3362,23 +3363,24 @@
         "quality"
       ],
       "files": [
+        "cmd/agentlab/api.go",
         "internal/daemon/api.go",
-        "internal/daemon/api_types.go",
         "internal/daemon/api_errors_test.go",
-        "cmd/agentlab/api.go"
+        "internal/daemon/api_types.go",
+        "to-do.json"
       ],
       "depends_on": [
         "T125"
       ],
       "created_at": "2026-02-10T02:16:01Z",
-      "updated_at": "2026-02-10T06:53:35Z"
+      "updated_at": "2026-02-10T06:56:01Z"
     },
     {
       "id": "T127",
       "title": "Final test run: execute full test matrix (unit/race/coverage/docs) and record results",
       "priority": 4,
-      "status": "todo",
-      "details": "Run the complete local test matrix exactly as CI expects, including docs-as-code checks and any fuzz budget. Capture results and ensure there are no hidden failures before shipping.",
+      "status": "done",
+      "details": "Run full test matrix: make docs-tools, docs-check, docs-verify, test-ci, coverage-audit (overall 45.6%), test-integration, fuzz (go test reported [no tests to run]). E2E invoked with -tags=e2e; skipped because AGENTLAB_E2E not set and a real Proxmox environment is required. Results recorded in TESTING_REPORT.md.",
       "steps": [
         "Run `make test-ci` (T114) and ensure it matches CI (lint/quality, unit tests with coverage, race).",
         "Run `make docs-check` (T118) and `make docs-verify` (T120).",
@@ -3394,7 +3396,12 @@
       "files": [
         "Makefile",
         ".github/workflows/ci.yml",
-        "docs/testing.md"
+        "docs/testing.md",
+        "TESTING_REPORT.md",
+        "coverage.out",
+        "coverage.html",
+        "dist/coverage/coverage.out",
+        "dist/coverage/coverage.func.txt"
       ],
       "depends_on": [
         "T114",
@@ -3403,7 +3410,8 @@
         "T121",
         "T122"
       ],
-      "created_at": "2026-02-10T02:16:01Z"
+      "created_at": "2026-02-10T02:16:01Z",
+      "updated_at": "2026-02-10T07:03:55Z"
     },
     {
       "id": "T128",
