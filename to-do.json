@@ -2308,21 +2308,22 @@
         "recovery"
       ],
       "files": [
-        "internal/daemon/workspace_manager.go",
-        "internal/daemon/workspace_fsck.go",
-        "internal/daemon/workspace_fsck_test.go",
+        "cmd/agentlab/api.go",
+        "cmd/agentlab/commands.go",
+        "cmd/agentlab/main.go",
+        "docs/troubleshooting.md",
         "internal/daemon/api.go",
         "internal/daemon/api_types.go",
-        "cmd/agentlab/commands.go",
-        "cmd/agentlab/api.go",
-        "cmd/agentlab/main.go",
-        "docs/troubleshooting.md"
+        "internal/daemon/workspace_fsck.go",
+        "internal/daemon/workspace_fsck_test.go",
+        "internal/daemon/workspace_manager.go",
+        "to-do.json"
       ],
       "depends_on": [
         "T092"
       ],
       "created_at": "2026-02-09T09:49:20Z",
-      "updated_at": "2026-02-10T05:19:48Z"
+      "updated_at": "2026-02-10T05:20:41Z"
     },
     {
       "id": "T097",
@@ -2491,7 +2492,7 @@
       "id": "T101",
       "title": "One-command onboarding: implement agentlab init (checks + --apply + smoke-test)",
       "priority": 4,
-      "status": "todo",
+      "status": "done",
       "details": "Provide an appliance-like onboarding flow for new Proxmox hosts. `agentlab init` should run a read-only checklist, `agentlab init --apply` should execute safe/reversible steps, and `agentlab init --smoke-test` should validate end-to-end provisioning.",
       "steps": [
         "CLI: add init command group with read-only checks (bridges, nftables, snippet dir, template presence, profiles present).",
@@ -2506,12 +2507,10 @@
         "onboarding"
       ],
       "files": [
-        "cmd/agentlab/commands.go",
+        "cmd/agentlab/init.go",
         "cmd/agentlab/main.go",
-        "scripts/net/setup_vmbr1.sh",
-        "scripts/net/apply.sh",
-        "scripts/create_template.sh",
-        "docs/runbook.md"
+        "docs/runbook.md",
+        "docs/troubleshooting.md"
       ],
       "depends_on": [
         "T002",
@@ -2519,7 +2518,8 @@
         "T004",
         "T018"
       ],
-      "created_at": "2026-02-09T09:49:20Z"
+      "created_at": "2026-02-09T09:49:20Z",
+      "updated_at": "2026-02-10T05:34:08Z"
     },
     {
       "id": "T102",

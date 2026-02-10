@@ -313,6 +313,60 @@ iptables -L -n | grep EGRESS
 
 ---
 
+## Init checks and smoke test
+
+### `agentlab init` reports missing bridge or nftables
+
+**Problem:** `agentlab init` shows `bridge_vmbr1` or `nftables` as missing.
+
+**Solutions:**
+
+1. Apply the default host setup:
+```bash
+sudo agentlab init --apply
+```
+
+2. If you have custom network config, run the scripts directly:
+```bash
+sudo scripts/net/setup_vmbr1.sh --apply
+sudo scripts/net/apply.sh --apply
+```
+
+3. If managed files differ and you want to overwrite them:
+```bash
+sudo agentlab init --apply --force
+```
+
+### `agentlab init --smoke-test` fails
+
+**Problem:** The smoke test exits with an error or times out.
+
+**Solutions:**
+
+1. Confirm the daemon is running:
+```bash
+systemctl status agentlabd
+```
+
+2. Verify the template VM exists and has qemu-guest-agent enabled:
+```bash
+qm config <template_vmid>
+```
+
+3. Ensure the host can run a temporary repo server (needs `python3` or `git daemon`):
+```bash
+python3 --version
+git daemon --version
+```
+
+4. Re-run with a clean profile and watch logs:
+```bash
+agentlab init
+journalctl -u agentlabd -f
+```
+
+---
+
 ## Common Error Messages
 
 ### `failed to destroy sandbox`

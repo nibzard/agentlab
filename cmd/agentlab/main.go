@@ -52,7 +52,7 @@ const usageText = `agentlab is the CLI for agentlabd.
 Usage:
   agentlab --version
   agentlab [--endpoint URL] [--token TOKEN] [--socket PATH] [--json] [--timeout DURATION] status
-  agentlab [--endpoint URL] [--token TOKEN] [--socket PATH] [--json] [--timeout DURATION] init [--apply] [--control-port <port>] [--control-token <token>] [--rotate-control-token] [--tailscale-serve|--no-tailscale-serve]
+  agentlab [--endpoint URL] [--token TOKEN] [--socket PATH] [--json] [--timeout DURATION] init [--apply] [--smoke-test] [--assets <path>] [--force] [--control-port <port>] [--control-token <token>] [--rotate-control-token] [--tailscale-serve|--no-tailscale-serve]
   agentlab [--json] bootstrap --host <ssh_host> [--ssh-user <user>] [--ssh-port <port>] [--identity <path>] [--assets <path>] [--control-port <port>] [--control-token <token>] [--rotate-control-token] [--tailscale-serve|--no-tailscale-serve] [--tailscale-authkey <key>] [--tailscale-hostname <name>] [--release-url <url>] [--agentlab-bin <path>] [--agentlabd-bin <path>] [--agentlab-url <url>] [--agentlabd-url <url>] [--force] [--keep-temp] [--verbose]
   agentlab [--endpoint URL] [--token TOKEN] [--socket PATH] [--json] [--timeout DURATION] job run --repo <url> --task <task> --profile <profile> [--ref <ref>] [--branch <branch>] [--mode <mode>] [--ttl <ttl>] [--keepalive] [--workspace <id|name|new:name>] [--workspace-create <name>] [--workspace-size <size>] [--workspace-storage <storage>] [--workspace-wait <duration>] [--stateful]
   agentlab [--endpoint URL] [--token TOKEN] [--socket PATH] [--json] [--timeout DURATION] job show <job_id> [--events-tail <n>]
@@ -311,7 +311,7 @@ func printStatusUsage() {
 }
 
 func printInitUsage() {
-	fmt.Fprintln(os.Stdout, "Usage: agentlab init [--apply] [--control-port <port>] [--control-token <token>] [--rotate-control-token] [--tailscale-serve|--no-tailscale-serve]")
+	fmt.Fprintln(os.Stdout, "Usage: agentlab init [--apply] [--smoke-test] [--assets <path>] [--force] [--control-port <port>] [--control-token <token>] [--rotate-control-token] [--tailscale-serve|--no-tailscale-serve]")
 }
 
 func printBootstrapUsage() {
