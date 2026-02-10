@@ -1,0 +1,28 @@
+name: fuzz
+
+on:
+  schedule:
+    - cron: "0 4 * * *"
+  workflow_dispatch:
+
+jobs:
+  nightly-fuzz:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - name: Fuzz (nightly)
+        run: make fuzz FUZZ_TIME=2m
+      - name: Upload Fuzz Artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: fuzz-corpus
+          path: |
+            cmd/agentlab/testdata/fuzz
+          if-no-files-found: warn
+          retention-days: 14

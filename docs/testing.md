@@ -11,9 +11,10 @@ This guide covers everything you need to know about testing in AgentLab, includi
 5. [Using Test Utilities](#using-test-utilities)
 6. [Test Coverage](#test-coverage)
 7. [Race Detector](#race-detector)
-8. [CI/CD Pipeline](#cicd-pipeline)
-9. [Adding Tests for New Features](#adding-tests-for-new-features)
-10. [Best Practices](#best-practices)
+8. [Fuzzing](#fuzzing)
+9. [CI/CD Pipeline](#cicd-pipeline)
+10. [Adding Tests for New Features](#adding-tests-for-new-features)
+11. [Best Practices](#best-practices)
 
 ---
 
@@ -115,6 +116,37 @@ make test-race
 # Or directly:
 go test -race ./...
 ```
+
+### Fuzzing
+
+AgentLab uses Go's built-in fuzzing for parsers and normalizers in the CLI.
+
+Run the short fuzz budget locally (same as PR CI):
+
+```bash
+make fuzz
+```
+
+Customize the fuzz time per target (default is 10 seconds per fuzz test):
+
+```bash
+make fuzz FUZZ_TIME=30s
+```
+
+Nightly CI runs a longer fuzz budget via `.github/workflows/fuzz.yml`.
+
+#### Reproducing a Fuzzer Failure
+
+Go stores crashers in `cmd/agentlab/testdata/fuzz/<FuzzFunc>`.
+
+To replay corpus inputs (including any crashers):
+
+```bash
+go test ./cmd/agentlab -run=^$ -fuzz=FuzzNormalizeEndpoint -fuzztime=0
+```
+
+Once fixed, reduce the crasher to a unit test or add it as a seed in the fuzz test
+with `f.Add`.
 
 ### Static Analysis & Vulnerability Scanning
 
