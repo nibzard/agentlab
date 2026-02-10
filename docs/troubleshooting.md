@@ -62,6 +62,18 @@ agentlab sandbox destroy --force <vmid>
 agentlab sandbox new --profile <profile> --ttl <ttl>
 ```
 
+### Sandbox revert reset my root filesystem
+
+**Problem:** Files under `/` disappeared after `agentlab sandbox revert <vmid>`
+
+**Cause:** `sandbox revert` restores the root disk to the `clean` snapshot. It does not touch `/work`.
+
+**Solutions:**
+
+1. Keep durable data in `/work` (workspace volume) or artifacts.
+2. Use workspace snapshots or forks for longer-lived state.
+3. Use `--force` only when you are sure no job is running.
+
 ### Stale sandbox entries
 
 **Problem:** Old sandboxes appear in list but don't exist in Proxmox
@@ -103,6 +115,36 @@ agentlab workspace attach <workspace> <vmid>
 
 1. `workspace fsck` operates on the host against the workspace block device; it requires the workspace to be detached.
 2. If the daemon reports an unsupported volume path, use a maintenance sandbox or run `fsck` manually on the storage host.
+
+### Workspace snapshot restore fails
+
+**Problem:** `agentlab workspace snapshot restore <workspace> <name>` returns an error about the workspace being attached.
+
+**Cause:** Snapshots require the workspace to be detached from all sandboxes.
+
+**Solutions:**
+
+1. Stop or detach the workspace:
+```bash
+agentlab session stop <session>
+# or
+agentlab workspace detach <workspace>
+```
+2. Restore the snapshot:
+```bash
+agentlab workspace snapshot restore <workspace> <name>
+```
+3. Resume or reattach:
+```bash
+agentlab session resume <session>
+# or
+agentlab workspace attach <workspace> <vmid>
+```
+
+If you want a safe experiment without overwriting data, prefer a fork:
+```bash
+agentlab workspace fork <workspace> --name <new-workspace> --from-snapshot <name>
+```
 
 ---
 

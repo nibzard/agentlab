@@ -117,6 +117,16 @@ agentlab sandbox list
 systemctl restart agentlabd
 ```
 
+### What persists between sandboxes?
+
+**Short answer:** the workspace persists, the sandbox root does not.
+
+- **Sandbox root** is ephemeral. Destroying or reverting a sandbox resets the root filesystem.
+- **Workspace** is the durable `/work` volume. It survives sandbox destroy/restart and can be reattached.
+- **Session** records the workspace/profile and the current sandbox VMID; it survives sandbox replacement.
+
+See `docs/state-model.md` for diagrams and stateful workflows.
+
 ### What is a session and how do I resume it?
 
 A **session** binds a persistent workspace to a current sandbox and a profile.
@@ -147,6 +157,11 @@ agentlab session list
 agentlab session show dev-session
 ```
 
+**Fork a session (new workspace, same profile by default):**
+```bash
+agentlab session fork dev-session --name dev-session-exp --workspace new:dev-workspace-exp
+```
+
 ### How do I snapshot a workspace?
 
 Workspace snapshots capture the persistent `/work` volume state. For safety, snapshots
@@ -165,6 +180,11 @@ agentlab workspace snapshot list dev-workspace
 **Restore a snapshot (destructive):**
 ```bash
 agentlab workspace snapshot restore dev-workspace baseline
+```
+
+If you want a safe experiment, use a fork instead:
+```bash
+agentlab workspace fork dev-workspace --name dev-workspace-exp --from-snapshot baseline
 ```
 
 ### Why did my sandbox stop while I was away?

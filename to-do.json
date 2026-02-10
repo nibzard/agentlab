@@ -2510,7 +2510,8 @@
         "cmd/agentlab/init.go",
         "cmd/agentlab/main.go",
         "docs/runbook.md",
-        "docs/troubleshooting.md"
+        "docs/troubleshooting.md",
+        "to-do.json"
       ],
       "depends_on": [
         "T002",
@@ -2519,13 +2520,13 @@
         "T018"
       ],
       "created_at": "2026-02-09T09:49:20Z",
-      "updated_at": "2026-02-10T05:34:08Z"
+      "updated_at": "2026-02-10T05:35:56Z"
     },
     {
       "id": "T102",
       "title": "Docs: persistent state model and safety guides (workspaces vs sessions vs sandboxes)",
       "priority": 4,
-      "status": "todo",
+      "status": "done",
       "details": "Document the mental model and safety rails: what persists (workspace) vs what is ephemeral (sandbox root), how sessions relate, and how to safely use snapshots/forks/fsck/doctor/messagebox. This should become the default reference for users adopting stateful workflows.",
       "steps": [
         "Add docs page describing sandbox/workspace/session with diagrams and common workflows (stateful dev loop, resume, fork, recover).",
@@ -2540,12 +2541,14 @@
         "prd-safety"
       ],
       "files": [
+        "docs/state-model.md",
         "docs/architecture.md",
         "docs/faq.md",
         "docs/troubleshooting.md",
         "README.md"
       ],
-      "created_at": "2026-02-09T09:49:20Z"
+      "created_at": "2026-02-09T09:49:20Z",
+      "updated_at": "2026-02-10T05:41:34Z"
     },
     {
       "id": "T103",

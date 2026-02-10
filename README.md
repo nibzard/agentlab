@@ -100,6 +100,7 @@ For full operator setup, see the runbook below.
 ## Documentation
 
 - **Architecture Diagrams**: `docs/architecture.md` - Comprehensive system architecture, state machines, and data flow diagrams
+- **State Model & Safety Guide**: `docs/state-model.md` - Workspaces vs sessions vs sandboxes, persistence, and recovery workflows
 - Runbook: `docs/runbook.md`
 - Secrets bundles: `docs/secrets.md`
 - Local control API: `docs/api.md`
