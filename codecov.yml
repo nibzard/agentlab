@@ -1,0 +1,20 @@
+codecov:
+  require_ci_to_pass: true
+
+coverage:
+  precision: 2
+  round: down
+  range: "40...100"
+  status:
+    project:
+      default:
+        target: 0.45
+        threshold: 0.0
+        if_not_found: success
+        if_ci_failed: error
+    patch:
+      default:
+        target: 0.60
+        threshold: 0.0
+        if_not_found: success
+        if_ci_failed: error

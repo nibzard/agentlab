@@ -2904,19 +2904,20 @@
       "files": [
         "Makefile",
         "docs/testing.md",
-        "scripts/dev/coverage_audit.sh"
+        "scripts/dev/coverage_audit.sh",
+        "to-do.json"
       ],
       "depends_on": [
         "T112"
       ],
       "created_at": "2026-02-10T01:59:57Z",
-      "updated_at": "2026-02-10T04:22:03Z"
+      "updated_at": "2026-02-10T04:23:14Z"
     },
     {
       "id": "T114",
       "title": "CI testing loop: add `make test-ci` + coverage regression guardrails",
       "priority": 3,
-      "status": "todo",
+      "status": "done",
       "details": "Make tests and coverage easy to run locally exactly as CI runs them, and prevent regressions. CI already uploads coverage, but we need a deterministic, documented path (`make test-ci`) and explicit guardrails (thresholds and/or 'no decrease' checks) so quality doesn't erode.",
       "steps": [
         "Add `make test-ci` that mirrors CI (lint, unit tests with `-count=1 -shuffle=on`, race tests, coverage). Keep it fast enough for local use, and keep the existing `test-all` target intact.",
@@ -2939,7 +2940,8 @@
       "depends_on": [
         "T113"
       ],
-      "created_at": "2026-02-10T01:59:57Z"
+      "created_at": "2026-02-10T01:59:57Z",
+      "updated_at": "2026-02-10T04:29:46Z"
     },
     {
       "id": "T115",

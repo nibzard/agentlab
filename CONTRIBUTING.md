@@ -187,6 +187,24 @@ make test-all
 
 This runs unit tests, race detector tests, and generates coverage reports.
 
+### CI Parity (Recommended)
+
+Run the same checks as CI (lint, unit tests with `-count=1 -shuffle=on`, race, coverage):
+
+```bash
+make test-ci
+```
+
+This generates `coverage.out` and `coverage.html`.
+
+### Coverage Audit
+
+For a detailed coverage breakdown and lowest-coverage hotspots:
+
+```bash
+make coverage-audit
+```
+
 ### Run Specific Tests
 
 Run tests for a specific package:
