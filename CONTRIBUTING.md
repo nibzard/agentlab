@@ -219,6 +219,7 @@ This aggregates:
 - `make docs-lint` (markdownlint-cli2 via `npx`)
 - `make docs-links` (lychee)
 - `make docs-typos` (typos)
+- `make docs-snippets` (bash/yaml snippet syntax + `agentlab` command drift)
 
 Install the non-Node tools once:
 
@@ -227,6 +228,8 @@ make docs-tools
 ```
 
 This downloads `lychee` and `typos` into `bin/tools`. `docs-lint` requires Node.js for `npx`.
+If a snippet is intentionally non-executable, add `skip-snippet-check` to the fence
+info string (for example: `` ```bash skip-snippet-check ``) to bypass validation.
 
 ### Static Analysis & Vulnerability Scanning
 

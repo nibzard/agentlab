@@ -252,7 +252,7 @@ proxmox_backend: shell  # Use shell commands (qm, pvesh)
 
 ### Global Flags
 
-```bash
+```text
 agentlab [global flags] <command> [command flags]
 
 Global flags:
@@ -891,7 +891,7 @@ ls -la /run/agentlab/agentlabd.sock
 systemctl status agentlabd
 
 # Use correct socket path
-agentlab --socket /run/agentlab/agentlabd.sock <command>
+agentlab --socket /run/agentlab/agentlabd.sock status
 ```
 
 ## Development
