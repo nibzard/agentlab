@@ -116,6 +116,22 @@ func (b *orchestratorBackend) VolumeInfo(context.Context, string) (proxmox.Volum
 	return proxmox.VolumeInfo{}, nil
 }
 
+func (b *orchestratorBackend) VolumeSnapshotCreate(context.Context, string, string) error {
+	return nil
+}
+
+func (b *orchestratorBackend) VolumeSnapshotRestore(context.Context, string, string) error {
+	return nil
+}
+
+func (b *orchestratorBackend) VolumeSnapshotDelete(context.Context, string, string) error {
+	return nil
+}
+
+func (b *orchestratorBackend) VolumeClone(context.Context, string, string) error {
+	return nil
+}
+
 func (b *orchestratorBackend) ValidateTemplate(context.Context, proxmox.VMID) error {
 	return nil
 }

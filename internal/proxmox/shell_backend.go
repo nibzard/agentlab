@@ -472,6 +472,88 @@ func (b *ShellBackend) VolumeInfo(ctx context.Context, volumeID string) (VolumeI
 	return info, nil
 }
 
+// VolumeSnapshotCreate creates a snapshot for a workspace volume.
+// ABOUTME: Callers should detach the volume before snapshotting for consistency.
+func (b *ShellBackend) VolumeSnapshotCreate(ctx context.Context, volumeID, name string) error {
+	volumeID = strings.TrimSpace(volumeID)
+	if volumeID == "" {
+		return errors.New("volume id is required")
+	}
+	name = strings.TrimSpace(name)
+	if name == "" {
+		return errors.New("snapshot name is required")
+	}
+	if err := b.ensureZFSVolume(ctx, volumeID, "volume snapshot"); err != nil {
+		return err
+	}
+	_, err := b.run(ctx, b.pvesmPath(), "snapshot", volumeID, name)
+	return err
+}
+
+// VolumeSnapshotRestore restores a workspace volume to a snapshot.
+// ABOUTME: Callers should detach the volume before restoring for consistency.
+func (b *ShellBackend) VolumeSnapshotRestore(ctx context.Context, volumeID, name string) error {
+	volumeID = strings.TrimSpace(volumeID)
+	if volumeID == "" {
+		return errors.New("volume id is required")
+	}
+	name = strings.TrimSpace(name)
+	if name == "" {
+		return errors.New("snapshot name is required")
+	}
+	if err := b.ensureZFSVolume(ctx, volumeID, "volume restore"); err != nil {
+		return err
+	}
+	_, err := b.run(ctx, b.pvesmPath(), "rollback", volumeID, name)
+	return err
+}
+
+// VolumeSnapshotDelete removes a snapshot from a workspace volume.
+func (b *ShellBackend) VolumeSnapshotDelete(ctx context.Context, volumeID, name string) error {
+	volumeID = strings.TrimSpace(volumeID)
+	if volumeID == "" {
+		return errors.New("volume id is required")
+	}
+	name = strings.TrimSpace(name)
+	if name == "" {
+		return errors.New("snapshot name is required")
+	}
+	if err := b.ensureZFSVolume(ctx, volumeID, "volume snapshot delete"); err != nil {
+		return err
+	}
+	_, err := b.run(ctx, b.pvesmPath(), "delsnapshot", volumeID, name)
+	return err
+}
+
+// VolumeClone clones a workspace volume into a new volume ID.
+// ABOUTME: Callers should detach the source volume before cloning for consistency.
+func (b *ShellBackend) VolumeClone(ctx context.Context, sourceVolumeID, targetVolumeID string) error {
+	sourceVolumeID = strings.TrimSpace(sourceVolumeID)
+	if sourceVolumeID == "" {
+		return errors.New("source volume id is required")
+	}
+	targetVolumeID = strings.TrimSpace(targetVolumeID)
+	if targetVolumeID == "" {
+		return errors.New("target volume id is required")
+	}
+	sourceStorage := volumeStorage(sourceVolumeID)
+	if sourceStorage == "" {
+		return fmt.Errorf("invalid source volume id format: %s", sourceVolumeID)
+	}
+	targetStorage := volumeStorage(targetVolumeID)
+	if targetStorage == "" {
+		return fmt.Errorf("invalid target volume id format: %s", targetVolumeID)
+	}
+	if sourceStorage != targetStorage {
+		return fmt.Errorf("%w: volume clone requires same storage (source=%s target=%s)", ErrStorageUnsupported, sourceStorage, targetStorage)
+	}
+	if err := b.ensureZFSStorage(ctx, sourceStorage, "volume clone"); err != nil {
+		return err
+	}
+	_, err := b.run(ctx, b.pvesmPath(), "clone", sourceVolumeID, targetVolumeID)
+	return err
+}
+
 func (b *ShellBackend) ValidateTemplate(ctx context.Context, template VMID) error {
 	// Check if VM exists
 	out, err := b.run(ctx, b.qmPath(), "config", strconv.Itoa(int(template)))
@@ -600,6 +682,92 @@ func (b *ShellBackend) leasePaths() []string {
 
 func hasGlob(path string) bool {
 	return strings.ContainsAny(path, "*?[")
+}
+
+func (b *ShellBackend) ensureZFSVolume(ctx context.Context, volumeID, op string) error {
+	storage := volumeStorage(volumeID)
+	if storage == "" {
+		return fmt.Errorf("invalid volume id format: %s", volumeID)
+	}
+	return b.ensureZFSStorage(ctx, storage, op)
+}
+
+func (b *ShellBackend) ensureZFSStorage(ctx context.Context, storage, op string) error {
+	storageType, err := b.storageType(ctx, storage)
+	if err != nil {
+		return err
+	}
+	if !isZFSStorageType(storageType) {
+		return unsupportedStorageErr(op, storage, storageType)
+	}
+	return nil
+}
+
+func (b *ShellBackend) storageType(ctx context.Context, storage string) (string, error) {
+	storage = strings.TrimSpace(storage)
+	if storage == "" {
+		return "", errors.New("storage is required")
+	}
+	out, err := b.run(ctx, b.pvesmPath(), "status", "--storage", storage, "--output-format", "json")
+	if err != nil {
+		return "", err
+	}
+	if storageType := parsePvesmStatusJSON(out, storage); storageType != "" {
+		return storageType, nil
+	}
+	if storageType := parsePvesmStatusTable(out, storage); storageType != "" {
+		return storageType, nil
+	}
+	return "", fmt.Errorf("storage %s not found in pvesm status output", storage)
+}
+
+type pvesmStatusEntry struct {
+	Storage string `json:"storage"`
+	Type    string `json:"type"`
+}
+
+func parsePvesmStatusJSON(out string, storage string) string {
+	var entries []pvesmStatusEntry
+	if err := json.Unmarshal([]byte(out), &entries); err == nil {
+		for _, entry := range entries {
+			if entry.Storage == storage {
+				return entry.Type
+			}
+		}
+	}
+	var wrapper struct {
+		Data []pvesmStatusEntry `json:"data"`
+	}
+	if err := json.Unmarshal([]byte(out), &wrapper); err == nil {
+		for _, entry := range wrapper.Data {
+			if entry.Storage == storage {
+				return entry.Type
+			}
+		}
+	}
+	var single pvesmStatusEntry
+	if err := json.Unmarshal([]byte(out), &single); err == nil && single.Storage != "" {
+		if single.Storage == storage {
+			return single.Type
+		}
+	}
+	return ""
+}
+
+func parsePvesmStatusTable(out string, storage string) string {
+	for _, line := range strings.Split(out, "\n") {
+		fields := strings.Fields(line)
+		if len(fields) < 2 {
+			continue
+		}
+		if fields[0] == "Name" {
+			continue
+		}
+		if fields[0] == storage {
+			return fields[1]
+		}
+	}
+	return ""
 }
 
 func parseQMConfig(config string) map[string]string {

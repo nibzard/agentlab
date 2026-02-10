@@ -1,6 +1,9 @@
 package proxmox
 
-import "strings"
+import (
+	"fmt"
+	"strings"
+)
 
 func isMissingVolumeError(err error) bool {
 	if err == nil {
@@ -28,4 +31,22 @@ func volumeStorage(volumeID string) string {
 		return ""
 	}
 	return parts[0]
+}
+
+func isZFSStorageType(storageType string) bool {
+	switch strings.ToLower(strings.TrimSpace(storageType)) {
+	case "zfspool", "zfs":
+		return true
+	default:
+		return false
+	}
+}
+
+func unsupportedStorageErr(op, storage, storageType string) error {
+	storage = strings.TrimSpace(storage)
+	storageType = strings.TrimSpace(storageType)
+	if storageType == "" {
+		storageType = "unknown"
+	}
+	return fmt.Errorf("%w: %s requires zfs storage (storage=%s type=%s)", ErrStorageUnsupported, op, storage, storageType)
 }

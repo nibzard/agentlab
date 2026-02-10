@@ -132,6 +132,22 @@ func (s *stubBackend) VolumeInfo(_ context.Context, volumeID string) (proxmox.Vo
 	return proxmox.VolumeInfo{VolumeID: volumeID}, nil
 }
 
+func (s *stubBackend) VolumeSnapshotCreate(context.Context, string, string) error {
+	return nil
+}
+
+func (s *stubBackend) VolumeSnapshotRestore(context.Context, string, string) error {
+	return nil
+}
+
+func (s *stubBackend) VolumeSnapshotDelete(context.Context, string, string) error {
+	return nil
+}
+
+func (s *stubBackend) VolumeClone(context.Context, string, string) error {
+	return nil
+}
+
 func (s *stubBackend) ValidateTemplate(context.Context, proxmox.VMID) error {
 	return nil
 }
