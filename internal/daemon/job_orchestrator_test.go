@@ -216,6 +216,17 @@ func TestJobOrchestratorRunWithWorkspace(t *testing.T) {
 	if err != nil {
 		t.Fatalf("create workspace: %v", err)
 	}
+	session := models.Session{
+		ID:          "session-workspace",
+		Name:        "branch-main",
+		WorkspaceID: workspace.ID,
+		Profile:     "yolo",
+		CreatedAt:   now,
+		UpdatedAt:   now,
+	}
+	if err := store.CreateSession(ctx, session); err != nil {
+		t.Fatalf("create session: %v", err)
+	}
 
 	job := models.Job{
 		ID:          "job_workspace",
@@ -225,6 +236,7 @@ func TestJobOrchestratorRunWithWorkspace(t *testing.T) {
 		Task:        "run tests",
 		Status:      models.JobQueued,
 		WorkspaceID: &workspace.ID,
+		SessionID:   &session.ID,
 		CreatedAt:   now,
 		UpdatedAt:   now,
 	}
@@ -255,6 +267,13 @@ func TestJobOrchestratorRunWithWorkspace(t *testing.T) {
 	}
 	if updatedWorkspace.AttachedVM == nil || *updatedWorkspace.AttachedVM != sandbox.VMID {
 		t.Fatalf("expected workspace attached to vmid %d, got %v", sandbox.VMID, updatedWorkspace.AttachedVM)
+	}
+	updatedSession, err := store.GetSession(ctx, session.ID)
+	if err != nil {
+		t.Fatalf("get session: %v", err)
+	}
+	if updatedSession.CurrentVMID == nil || *updatedSession.CurrentVMID != sandbox.VMID {
+		t.Fatalf("expected session current_vmid %d, got %v", sandbox.VMID, updatedSession.CurrentVMID)
 	}
 }
 

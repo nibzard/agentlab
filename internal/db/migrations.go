@@ -211,6 +211,14 @@ var migrations = []migration{
 			`CREATE INDEX IF NOT EXISTS idx_sessions_branch ON sessions(branch)`,
 		},
 	},
+	{
+		version: 10,
+		name:    "add_jobs_session",
+		statements: []string{
+			`ALTER TABLE jobs ADD COLUMN session_id TEXT`,
+			`CREATE INDEX IF NOT EXISTS idx_jobs_session ON jobs(session_id)`,
+		},
+	},
 }
 
 // Migrate runs any pending migrations against the provided database.

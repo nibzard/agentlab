@@ -88,6 +88,7 @@ type V1JobCreateRequest struct {
 	WorkspaceID          *string                   `json:"workspace_id,omitempty"`
 	WorkspaceCreate      *V1WorkspaceCreateRequest `json:"workspace_create,omitempty"`
 	WorkspaceWaitSeconds *int                      `json:"workspace_wait_seconds,omitempty"`
+	SessionID            *string                   `json:"session_id,omitempty"`
 }
 
 type V1JobResponse struct {
@@ -100,6 +101,7 @@ type V1JobResponse struct {
 	TTLMinutes  *int            `json:"ttl_minutes,omitempty"`
 	Keepalive   bool            `json:"keepalive"`
 	WorkspaceID *string         `json:"workspace_id,omitempty"`
+	SessionID   *string         `json:"session_id,omitempty"`
 	Status      string          `json:"status"`
 	SandboxVMID *int            `json:"sandbox_vmid,omitempty"`
 	Result      json.RawMessage `json:"result,omitempty"`

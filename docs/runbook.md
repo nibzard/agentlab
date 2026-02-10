@@ -135,6 +135,38 @@ To remove the saved config:
 agentlab disconnect
 ```
 
+## Branch sessions
+
+Use branch sessions to tie a persistent workspace to a git branch name.
+The branch name is slugified (lowercase, non-alphanumerics become `-`) and
+prefixed with `branch-` to form the deterministic session name.
+
+Create or switch to a branch session:
+
+```bash
+agentlab session branch feature/login --profile yolo-workspace
+```
+
+If the session does not exist, AgentLab creates a workspace named
+`branch-<slug>` with the default size/storage (80GB on `local-zfs`). Override
+with `--workspace`, `--workspace-create`, `--workspace-size`, or
+`--workspace-storage`.
+
+Run a job against the branch session workspace:
+
+```bash
+agentlab job run \
+  --repo https://github.com/org/repo \
+  --task "run tests" \
+  --profile yolo-workspace \
+  --branch feature/login
+```
+
+When `--branch` is used, the job runs against the session workspace and
+updates the session `current_vmid` to the new sandbox. If two branch names
+slugify to the same session name, the command will error if the existing
+session is labeled with a different branch.
+
 ## Template build and updates
 
 Build the template with defaults:

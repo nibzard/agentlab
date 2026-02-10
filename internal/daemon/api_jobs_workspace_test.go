@@ -170,3 +170,65 @@ func TestJobCreateWorkspaceWait(t *testing.T) {
 		t.Fatalf("expected workspace_id %s, got %#v", workspace.ID, resp.WorkspaceID)
 	}
 }
+
+func TestJobCreateWithSessionWorkspace(t *testing.T) {
+	ctx := context.Background()
+	store := newTestStore(t)
+	backend := &orchestratorBackend{}
+	workspaceMgr := NewWorkspaceManager(store, backend, log.New(io.Discard, "", 0))
+	workspace, err := workspaceMgr.Create(ctx, "branch-main", "local-zfs", 10)
+	if err != nil {
+		t.Fatalf("create workspace: %v", err)
+	}
+	now := time.Now().UTC()
+	session := models.Session{
+		ID:          "session-1",
+		Name:        "branch-main",
+		WorkspaceID: workspace.ID,
+		Profile:     "default",
+		CreatedAt:   now,
+		UpdatedAt:   now,
+	}
+	if err := store.CreateSession(ctx, session); err != nil {
+		t.Fatalf("create session: %v", err)
+	}
+	profiles := map[string]models.Profile{
+		"default": {Name: "default", TemplateVM: 9000},
+	}
+	api := NewControlAPI(store, profiles, nil, workspaceMgr, &JobOrchestrator{}, "", nil)
+
+	sessionRef := session.ID
+	req := V1JobCreateRequest{
+		RepoURL:   "https://example.com/repo.git",
+		Profile:   "default",
+		Task:      "run tests",
+		SessionID: &sessionRef,
+	}
+	payload, err := json.Marshal(req)
+	if err != nil {
+		t.Fatalf("marshal request: %v", err)
+	}
+	rec := httptest.NewRecorder()
+	r := httptest.NewRequest(http.MethodPost, "/v1/jobs", bytes.NewReader(payload))
+	api.handleJobCreate(rec, r)
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("expected 201, got %d: %s", rec.Code, rec.Body.String())
+	}
+	var resp V1JobResponse
+	if err := json.NewDecoder(rec.Body).Decode(&resp); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if resp.WorkspaceID == nil || *resp.WorkspaceID != workspace.ID {
+		t.Fatalf("expected workspace_id %s, got %#v", workspace.ID, resp.WorkspaceID)
+	}
+	if resp.SessionID == nil || *resp.SessionID != session.ID {
+		t.Fatalf("expected session_id %s, got %#v", session.ID, resp.SessionID)
+	}
+	job, err := store.GetJob(ctx, resp.ID)
+	if err != nil {
+		t.Fatalf("get job: %v", err)
+	}
+	if job.SessionID == nil || *job.SessionID != session.ID {
+		t.Fatalf("expected job session_id %s, got %#v", session.ID, job.SessionID)
+	}
+}

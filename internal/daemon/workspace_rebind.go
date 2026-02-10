@@ -245,7 +245,7 @@ func (o *JobOrchestrator) RebindWorkspace(ctx context.Context, workspaceID, prof
 	}
 	o.createCleanSnapshot(ctx, created.VMID, nil)
 	releaseLease = false
-	o.startWorkspaceLeaseRenewal("", workspace.ID, leaseOwner, leaseTTL, keepalive, created.VMID)
+	o.startWorkspaceLeaseRenewal("", workspace.ID, leaseOwner, leaseTTL, keepalive, created.VMID, true)
 
 	if !keepOld && oldVMID != nil {
 		if destroyErr := o.sandboxManager.Destroy(ctx, *oldVMID); destroyErr != nil && !errors.Is(destroyErr, ErrSandboxNotFound) {
