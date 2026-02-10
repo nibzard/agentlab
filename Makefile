@@ -7,6 +7,10 @@ COVERAGE_DIR := $(DIST_DIR)/coverage
 TOOLS_DIR := $(BIN_DIR)/tools
 DOCS_TOOLS_SCRIPT := scripts/dev/install_docs_tools.sh
 DOCS_MD := $(shell find docs -type f -name '*.md' 2>/dev/null) README.md CONTRIBUTING.md AGENTLAB_DEV_SPECIFICATION.md PROXMOX_SPECS.md
+STATICCHECK_VERSION ?= v0.5.1
+GOVULNCHECK_VERSION ?= v1.1.2
+STATICCHECK_BIN := $(TOOLS_DIR)/staticcheck
+GOVULNCHECK_BIN := $(TOOLS_DIR)/govulncheck
 
 VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
 COMMIT ?= $(shell git rev-parse --short HEAD 2>/dev/null || echo none)
@@ -18,7 +22,7 @@ LDFLAGS := -s -w \
 	-X 'github.com/agentlab/agentlab/internal/buildinfo.Commit=$(COMMIT)' \
 	-X 'github.com/agentlab/agentlab/internal/buildinfo.Date=$(DATE)'
 
-.PHONY: all build build-ssh-gateway lint test test-ci test-coverage test-race test-integration test-all coverage-audit coverage-html docs-tools docs-lint docs-links docs-typos docs-check docs-gen docs-verify clean
+.PHONY: all build build-ssh-gateway lint quality staticcheck govulncheck test test-ci test-coverage test-race test-integration test-all coverage-audit coverage-html docs-tools docs-lint docs-links docs-typos docs-check docs-gen docs-verify clean
 
 # Note: This project requires Go 1.24.0 or higher. Running 'go version' will show the installed version.
 
@@ -34,6 +38,15 @@ $(DIST_DIR):
 
 $(COVERAGE_DIR):
 	mkdir -p $(COVERAGE_DIR)
+
+$(TOOLS_DIR):
+	mkdir -p $(TOOLS_DIR)
+
+$(STATICCHECK_BIN): | $(TOOLS_DIR)
+	GOBIN=$(abspath $(TOOLS_DIR)) $(GO) install honnef.co/go/tools/cmd/staticcheck@$(STATICCHECK_VERSION)
+
+$(GOVULNCHECK_BIN): | $(TOOLS_DIR)
+	GOBIN=$(abspath $(TOOLS_DIR)) $(GO) install golang.org/x/vuln/cmd/govulncheck@$(GOVULNCHECK_VERSION)
 
 $(BIN_DIR)/agentlab: | $(BIN_DIR)
 	$(GO) build -ldflags "$(LDFLAGS)" -o $@ ./cmd/agentlab
@@ -52,7 +65,9 @@ $(DIST_DIR)/agentlab_linux_amd64: | $(DIST_DIR)
 $(DIST_DIR)/agentlabd_linux_amd64: | $(DIST_DIR)
 	GOOS=linux GOARCH=amd64 $(GO) build -ldflags "$(LDFLAGS)" -o $@ ./cmd/agentlabd
 
-lint:
+lint: quality
+
+quality:
 	@fmt_out="$$(gofmt -l .)"; \
 	if [ -n "$$fmt_out" ]; then \
 		echo "gofmt needed:"; \
@@ -60,11 +75,19 @@ lint:
 		exit 1; \
 	fi
 	$(GO) vet ./...
+	$(MAKE) staticcheck
+	$(MAKE) govulncheck
+
+staticcheck: $(STATICCHECK_BIN)
+	$(STATICCHECK_BIN) ./...
+
+govulncheck: $(GOVULNCHECK_BIN)
+	$(GOVULNCHECK_BIN) ./...
 
 test:
 	$(GO) test ./...
 
-test-ci: lint
+test-ci: quality
 	$(GO) test $(TEST_CI_FLAGS) ./...
 	$(GO) test $(TEST_CI_FLAGS) -coverprofile=coverage.out -covermode=atomic ./...
 	$(GO) tool cover -html=coverage.out -o coverage.html

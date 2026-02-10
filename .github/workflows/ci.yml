@@ -28,7 +28,7 @@ jobs:
         run: make docs-check
       - name: Docs Verify
         run: make docs-verify
-      - name: Test CI
+      - name: Quality + Test CI
         run: make test-ci
       - name: Coverage Summary
         id: coverage
@@ -66,6 +66,6 @@ jobs:
           if-no-files-found: warn
           retention-days: 30
       - name: Integration Tests
-        run: go test -tags=integration ./tests/...
+        run: make test-integration
       - name: Build
         run: make build
