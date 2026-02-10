@@ -27,6 +27,23 @@ func workspaceLeaseOwnerForJob(jobID string) string {
 	return "job:" + jobID
 }
 
+func workspaceLeaseOwnerForJobOrSession(jobID string, sessionID *string) string {
+	if sessionID != nil {
+		value := strings.TrimSpace(*sessionID)
+		if value != "" {
+			return workspaceLeaseOwnerForSession(value)
+		}
+	}
+	return workspaceLeaseOwnerForJob(jobID)
+}
+
+func jobUsesSessionLease(sessionID *string) bool {
+	if sessionID == nil {
+		return false
+	}
+	return strings.TrimSpace(*sessionID) != ""
+}
+
 func workspaceLeaseOwnerForSession(sessionID string) string {
 	sessionID = strings.TrimSpace(sessionID)
 	if sessionID == "" {

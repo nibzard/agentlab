@@ -210,6 +210,11 @@ func (o *JobOrchestrator) Run(ctx context.Context, jobID string) error {
 			return o.failJob(job, sandbox.VMID, err)
 		}
 	}
+	if jobUsesSessionLease(job.SessionID) {
+		if err := o.store.UpdateSessionCurrentVMID(ctx, *job.SessionID, &sandbox.VMID); err != nil {
+			return o.failJob(job, sandbox.VMID, err)
+		}
+	}
 
 	if err := o.ensureWorkspaceAvailable(ctx, job, sandbox); err != nil {
 		return o.failJob(job, sandbox.VMID, err)
@@ -309,9 +314,10 @@ func (o *JobOrchestrator) Run(ctx context.Context, jobID string) error {
 	o.observeJobStart(ctx, job, sandbox.VMID)
 	_ = o.store.RecordEvent(ctx, "job.running", &sandbox.VMID, &job.ID, "sandbox running", "")
 	if job.WorkspaceID != nil && strings.TrimSpace(*job.WorkspaceID) != "" {
-		owner := workspaceLeaseOwnerForJob(job.ID)
+		owner := workspaceLeaseOwnerForJobOrSession(job.ID, job.SessionID)
 		ttl := workspaceLeaseDuration(job.TTLMinutes)
-		o.startWorkspaceLeaseRenewal(job.ID, *job.WorkspaceID, owner, ttl, job.Keepalive, sandbox.VMID)
+		releaseOnStop := !jobUsesSessionLease(job.SessionID)
+		o.startWorkspaceLeaseRenewal(job.ID, *job.WorkspaceID, owner, ttl, job.Keepalive, sandbox.VMID, releaseOnStop)
 	}
 	return nil
 }
@@ -561,8 +567,8 @@ func (o *JobOrchestrator) HandleReport(ctx context.Context, report JobReport) er
 				_ = o.sandboxManager.Transition(ctx, report.VMID, target)
 			}
 		}
-		if job.WorkspaceID != nil && strings.TrimSpace(*job.WorkspaceID) != "" && !job.Keepalive {
-			owner := workspaceLeaseOwnerForJob(job.ID)
+		if job.WorkspaceID != nil && strings.TrimSpace(*job.WorkspaceID) != "" && !job.Keepalive && !jobUsesSessionLease(job.SessionID) {
+			owner := workspaceLeaseOwnerForJobOrSession(job.ID, job.SessionID)
 			o.releaseWorkspaceLease(ctx, *job.WorkspaceID, owner, job.ID, report.VMID)
 		}
 		if !job.Keepalive && o.sandboxManager != nil {
@@ -663,7 +669,7 @@ func (o *JobOrchestrator) ensureWorkspaceAvailable(ctx context.Context, job mode
 	if err != nil {
 		return err
 	}
-	owner := workspaceLeaseOwnerForJob(job.ID)
+	owner := workspaceLeaseOwnerForJobOrSession(job.ID, job.SessionID)
 	if owner == "" {
 		return errors.New("workspace lease owner unavailable")
 	}
@@ -697,7 +703,7 @@ func (o *JobOrchestrator) ensureWorkspaceAvailable(ctx context.Context, job mode
 	return nil
 }
 
-func (o *JobOrchestrator) startWorkspaceLeaseRenewal(jobID, workspaceID, owner string, ttl time.Duration, keepalive bool, vmid int) {
+func (o *JobOrchestrator) startWorkspaceLeaseRenewal(jobID, workspaceID, owner string, ttl time.Duration, keepalive bool, vmid int, releaseOnStop bool) {
 	if o == nil || o.store == nil {
 		return
 	}
@@ -712,7 +718,9 @@ func (o *JobOrchestrator) startWorkspaceLeaseRenewal(jobID, workspaceID, owner s
 		defer ticker.Stop()
 		for {
 			if !o.shouldKeepWorkspaceLease(jobID, keepalive, vmid) {
-				o.releaseWorkspaceLease(context.Background(), workspaceID, owner, jobID, vmid)
+				if releaseOnStop {
+					o.releaseWorkspaceLease(context.Background(), workspaceID, owner, jobID, vmid)
+				}
 				return
 			}
 			o.renewWorkspaceLease(context.Background(), workspaceID, owner, ttl, jobID, vmid)
@@ -822,8 +830,8 @@ func (o *JobOrchestrator) failJob(job models.Job, vmid int, cause error) error {
 	defer cancel()
 	_ = o.store.UpdateJobResult(failureCtx, job.ID, models.JobFailed, resultJSON)
 	_ = o.store.RecordEvent(failureCtx, "job.failed", nullableVMID(vmid), &job.ID, message, "")
-	if job.WorkspaceID != nil && strings.TrimSpace(*job.WorkspaceID) != "" && !job.Keepalive {
-		owner := workspaceLeaseOwnerForJob(job.ID)
+	if job.WorkspaceID != nil && strings.TrimSpace(*job.WorkspaceID) != "" && !job.Keepalive && !jobUsesSessionLease(job.SessionID) {
+		owner := workspaceLeaseOwnerForJobOrSession(job.ID, job.SessionID)
 		o.releaseWorkspaceLease(failureCtx, *job.WorkspaceID, owner, job.ID, vmid)
 	}
 	if vmid > 0 && !job.Keepalive && o.sandboxManager != nil {

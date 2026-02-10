@@ -304,6 +304,14 @@ func (api *ControlAPI) handleJobCreate(w http.ResponseWriter, r *http.Request) {
 		req.WorkspaceCreate.Name = strings.TrimSpace(req.WorkspaceCreate.Name)
 		req.WorkspaceCreate.Storage = strings.TrimSpace(req.WorkspaceCreate.Storage)
 	}
+	if req.SessionID != nil {
+		value := strings.TrimSpace(*req.SessionID)
+		if value == "" {
+			req.SessionID = nil
+		} else {
+			req.SessionID = &value
+		}
+	}
 
 	if req.RepoURL == "" {
 		writeError(w, http.StatusBadRequest, "repo_url is required")
@@ -330,6 +338,37 @@ func (api *ControlAPI) handleJobCreate(w http.ResponseWriter, r *http.Request) {
 	if req.WorkspaceID != nil && req.WorkspaceCreate != nil {
 		writeError(w, http.StatusBadRequest, "workspace_id and workspace_create are mutually exclusive")
 		return
+	}
+	if req.SessionID != nil && req.WorkspaceCreate != nil {
+		writeError(w, http.StatusBadRequest, "session_id cannot be combined with workspace_create")
+		return
+	}
+	ctx := r.Context()
+	var resolvedSessionID *string
+	if req.SessionID != nil {
+		session, err := api.resolveSession(ctx, *req.SessionID)
+		if err != nil {
+			if errors.Is(err, sql.ErrNoRows) {
+				writeError(w, http.StatusNotFound, "session not found")
+				return
+			}
+			writeError(w, http.StatusInternalServerError, "failed to load session")
+			return
+		}
+		workspaceID := strings.TrimSpace(session.WorkspaceID)
+		if workspaceID == "" {
+			writeError(w, http.StatusBadRequest, "session workspace_id is required")
+			return
+		}
+		if req.WorkspaceID != nil && strings.TrimSpace(*req.WorkspaceID) != workspaceID {
+			writeError(w, http.StatusBadRequest, "session workspace_id mismatch")
+			return
+		}
+		if req.WorkspaceID == nil {
+			req.WorkspaceID = &workspaceID
+		}
+		value := session.ID
+		resolvedSessionID = &value
 	}
 	if req.WorkspaceWaitSeconds != nil && *req.WorkspaceWaitSeconds < 0 {
 		writeError(w, http.StatusBadRequest, "workspace_wait_seconds must be non-negative")
@@ -366,7 +405,6 @@ func (api *ControlAPI) handleJobCreate(w http.ResponseWriter, r *http.Request) {
 		ttlMinutes = derefInt(req.TTLMinutes)
 	}
 
-	ctx := r.Context()
 	var (
 		workspaceID       *string
 		workspace         models.Workspace
@@ -424,7 +462,7 @@ func (api *ControlAPI) handleJobCreate(w http.ResponseWriter, r *http.Request) {
 		var leaseOwner string
 		var leaseNonce string
 		if workspaceID != nil {
-			leaseOwner = workspaceLeaseOwnerForJob(jobID)
+			leaseOwner = workspaceLeaseOwnerForJobOrSession(jobID, resolvedSessionID)
 			nonce, _, err := api.acquireWorkspaceLease(ctx, workspace, leaseOwner, workspaceLeaseTTL, workspaceWaitSec)
 			if err != nil {
 				switch {
@@ -471,6 +509,7 @@ func (api *ControlAPI) handleJobCreate(w http.ResponseWriter, r *http.Request) {
 			TTLMinutes:  ttlMinutes,
 			Keepalive:   keepalive,
 			WorkspaceID: workspaceID,
+			SessionID:   resolvedSessionID,
 			Status:      models.JobQueued,
 			CreatedAt:   now,
 			UpdatedAt:   now,
@@ -2593,6 +2632,7 @@ func jobToV1(job models.Job) V1JobResponse {
 		Mode:        job.Mode,
 		Keepalive:   job.Keepalive,
 		WorkspaceID: job.WorkspaceID,
+		SessionID:   job.SessionID,
 		Status:      string(job.Status),
 		CreatedAt:   job.CreatedAt.UTC().Format(time.RFC3339Nano),
 		UpdatedAt:   job.UpdatedAt.UTC().Format(time.RFC3339Nano),

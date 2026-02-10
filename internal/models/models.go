@@ -114,6 +114,7 @@ const (
 //   - TTLMinutes: Time-to-live in minutes (0 for no expiry)
 //   - Keepalive: Whether to auto-renew the lease
 //   - WorkspaceID: ID of attached workspace volume (optional)
+//   - SessionID: Optional session identifier for session-backed runs
 //   - Status: Current job status
 //   - SandboxVMID: VM ID of the assigned sandbox (set when RUNNING)
 //   - CreatedAt: When the job was created
@@ -129,6 +130,7 @@ type Job struct {
 	TTLMinutes  int
 	Keepalive   bool
 	WorkspaceID *string
+	SessionID   *string
 	Status      JobStatus
 	SandboxVMID *int
 	CreatedAt   time.Time

@@ -411,6 +411,7 @@ func runJobRun(ctx context.Context, args []string, base commonFlags) error {
 	opts.bind(fs)
 	var repo string
 	var ref string
+	var branch string
 	var profile string
 	var task string
 	var mode string
@@ -425,6 +426,7 @@ func runJobRun(ctx context.Context, args []string, base commonFlags) error {
 	var help bool
 	fs.StringVar(&repo, "repo", "", "git repository url")
 	fs.StringVar(&ref, "ref", "", "git ref (default main)")
+	fs.StringVar(&branch, "branch", "", "branch name (session-backed)")
 	fs.StringVar(&profile, "profile", "", "profile name")
 	fs.StringVar(&task, "task", "", "task description")
 	fs.StringVar(&mode, "mode", "", "mode (default dangerous)")
@@ -451,81 +453,97 @@ func runJobRun(ctx context.Context, args []string, base commonFlags) error {
 	if err != nil {
 		return err
 	}
+	branch = strings.TrimSpace(branch)
 	workspace = strings.TrimSpace(workspace)
 	workspaceCreate = strings.TrimSpace(workspaceCreate)
 	workspaceSize = strings.TrimSpace(workspaceSize)
 	workspaceStorage = strings.TrimSpace(workspaceStorage)
 	workspaceWait = strings.TrimSpace(workspaceWait)
-	if workspace != "" && workspaceCreate != "" {
-		return fmt.Errorf("--workspace and --workspace-create are mutually exclusive")
-	}
-	if strings.HasPrefix(workspace, "new:") {
-		name := strings.TrimSpace(strings.TrimPrefix(workspace, "new:"))
-		if name == "" {
-			return fmt.Errorf("workspace name is required after new:")
-		}
-		if workspaceCreate != "" {
-			return fmt.Errorf("--workspace new:<name> cannot be combined with --workspace-create")
-		}
-		workspaceCreate = name
-		workspace = ""
-	}
-	if stateful && workspace == "" && workspaceCreate == "" {
-		defaultName, err := defaultStatefulWorkspaceName(repo)
-		if err != nil {
-			return err
-		}
-		workspaceCreate = defaultName
-	}
-
-	var workspaceID *string
-	if workspace != "" {
-		value := strings.TrimSpace(workspace)
-		if value != "" {
-			workspaceID = &value
-		}
-	}
-	var workspaceWaitSeconds *int
-	if workspaceWait != "" {
-		workspaceWaitSeconds, err = parseWorkspaceWaitSeconds(workspaceWait)
-		if err != nil {
-			return err
-		}
-		if workspaceID == nil && workspaceCreate == "" {
-			return fmt.Errorf("--workspace-wait requires --workspace or --workspace-create")
-		}
-	}
-	var workspaceCreateReq *workspaceCreateRequest
-	if workspaceCreate != "" {
-		sizeGB := 0
-		if workspaceSize == "" {
-			if stateful {
-				sizeGB = defaultStatefulWorkspaceSizeGB
-			} else {
-				return fmt.Errorf("--workspace-size is required when creating a workspace")
-			}
-		} else {
-			sizeGB, err = parseSizeGB(workspaceSize)
-			if err != nil {
-				return err
-			}
-		}
-		storage := workspaceStorage
-		if storage == "" && stateful {
-			storage = defaultStatefulWorkspaceStorage
-		}
-		workspaceCreateReq = &workspaceCreateRequest{
-			Name:    workspaceCreate,
-			SizeGB:  sizeGB,
-			Storage: storage,
-		}
-	} else if workspaceSize != "" || workspaceStorage != "" {
-		return fmt.Errorf("--workspace-size/--workspace-storage require workspace creation (use --workspace new:<name> or --workspace-create)")
-	}
-
 	client, err := apiClientFromFlags(opts)
 	if err != nil {
 		return err
+	}
+	var (
+		workspaceID        *string
+		workspaceCreateReq *workspaceCreateRequest
+		workspaceWaitSecs  *int
+		sessionID          *string
+	)
+	if branch != "" {
+		session, err := resolveBranchSession(ctx, client, branch, profile, workspace, workspaceCreate, workspaceSize, workspaceStorage)
+		if err != nil {
+			return wrapUnknownProfileError(ctx, client, profile, err)
+		}
+		if strings.TrimSpace(session.WorkspaceID) == "" {
+			return fmt.Errorf("session workspace_id is required")
+		}
+		ws := strings.TrimSpace(session.WorkspaceID)
+		workspaceID = &ws
+		sessionID = &session.ID
+	} else {
+		if workspace != "" && workspaceCreate != "" {
+			return fmt.Errorf("--workspace and --workspace-create are mutually exclusive")
+		}
+		if strings.HasPrefix(workspace, "new:") {
+			name := strings.TrimSpace(strings.TrimPrefix(workspace, "new:"))
+			if name == "" {
+				return fmt.Errorf("workspace name is required after new:")
+			}
+			if workspaceCreate != "" {
+				return fmt.Errorf("--workspace new:<name> cannot be combined with --workspace-create")
+			}
+			workspaceCreate = name
+			workspace = ""
+		}
+		if stateful && workspace == "" && workspaceCreate == "" {
+			defaultName, err := defaultStatefulWorkspaceName(repo)
+			if err != nil {
+				return err
+			}
+			workspaceCreate = defaultName
+		}
+
+		if workspace != "" {
+			value := strings.TrimSpace(workspace)
+			if value != "" {
+				workspaceID = &value
+			}
+		}
+		if workspaceCreate != "" {
+			sizeGB := 0
+			if workspaceSize == "" {
+				if stateful {
+					sizeGB = defaultStatefulWorkspaceSizeGB
+				} else {
+					return fmt.Errorf("--workspace-size is required when creating a workspace")
+				}
+			} else {
+				sizeGB, err = parseSizeGB(workspaceSize)
+				if err != nil {
+					return err
+				}
+			}
+			storage := workspaceStorage
+			if storage == "" && stateful {
+				storage = defaultStatefulWorkspaceStorage
+			}
+			workspaceCreateReq = &workspaceCreateRequest{
+				Name:    workspaceCreate,
+				SizeGB:  sizeGB,
+				Storage: storage,
+			}
+		} else if workspaceSize != "" || workspaceStorage != "" {
+			return fmt.Errorf("--workspace-size/--workspace-storage require workspace creation (use --workspace new:<name> or --workspace-create)")
+		}
+	}
+	if workspaceWait != "" {
+		workspaceWaitSecs, err = parseWorkspaceWaitSeconds(workspaceWait)
+		if err != nil {
+			return err
+		}
+		if workspaceID == nil && workspaceCreateReq == nil {
+			return fmt.Errorf("--workspace-wait requires --workspace or --workspace-create")
+		}
 	}
 	req := jobCreateRequest{
 		RepoURL:              repo,
@@ -537,12 +555,13 @@ func runJobRun(ctx context.Context, args []string, base commonFlags) error {
 		Keepalive:            keepalive.Ptr(),
 		WorkspaceID:          workspaceID,
 		WorkspaceCreate:      workspaceCreateReq,
-		WorkspaceWaitSeconds: workspaceWaitSeconds,
+		WorkspaceWaitSeconds: workspaceWaitSecs,
+		SessionID:            sessionID,
 	}
 	payload, err := client.doJSON(ctx, http.MethodPost, "/v1/jobs", req)
 	if err != nil {
 		err = wrapJobWorkspaceCompatibilityError(err)
-		err = wrapJobWorkspaceConflict(workspaceID, workspaceCreateReq, workspaceWaitSeconds, err)
+		err = wrapJobWorkspaceConflict(workspaceID, workspaceCreateReq, workspaceWaitSecs, err)
 		err = wrapWorkspaceNotFound(workspaceTargetName(workspaceID, workspaceCreateReq), err)
 		return wrapUnknownProfileError(ctx, client, profile, err)
 	}
@@ -2254,50 +2273,96 @@ func runSessionBranch(ctx context.Context, args []string, base commonFlags) erro
 	if branch == "" {
 		return fmt.Errorf("branch is required")
 	}
-	sessionName, err := sessionNameFromBranch(branch)
-	if err != nil {
-		return err
-	}
 
 	client, err := apiClientFromFlags(opts)
 	if err != nil {
 		return err
 	}
-	payload, err := client.doJSON(ctx, http.MethodGet, "/v1/sessions/"+url.PathEscape(sessionName), nil)
-	if err == nil {
-		if opts.jsonOutput {
-			return prettyPrintJSON(os.Stdout, payload)
-		}
-		var resp sessionResponse
-		if err := json.Unmarshal(payload, &resp); err != nil {
-			return err
-		}
-		printSession(resp)
-		return nil
-	}
-	if !isNotFoundError(err, "session") {
-		return err
-	}
-
-	profile = strings.TrimSpace(profile)
-	if profile == "" {
-		if !opts.jsonOutput {
-			printSessionBranchUsage()
-		}
-		return fmt.Errorf("profile is required when creating a session")
-	}
-	workspaceID, workspaceCreateReq, err := parseWorkspaceSelection(workspace, workspaceCreate, workspaceSize, workspaceStorage)
+	session, err := resolveBranchSession(ctx, client, branch, profile, workspace, workspaceCreate, workspaceSize, workspaceStorage)
 	if err != nil {
 		if !opts.jsonOutput {
 			printSessionBranchUsage()
 		}
-		return err
+		return wrapUnknownProfileError(ctx, client, profile, err)
+	}
+	if opts.jsonOutput {
+		payload, err := json.Marshal(session)
+		if err != nil {
+			return err
+		}
+		return prettyPrintJSON(os.Stdout, payload)
+	}
+	printSession(session)
+	return nil
+}
+
+func resolveBranchSession(ctx context.Context, client *apiClient, branch, profile, workspace, workspaceCreate, workspaceSize, workspaceStorage string) (sessionResponse, error) {
+	if client == nil {
+		return sessionResponse{}, fmt.Errorf("client is required")
+	}
+	branch = strings.TrimSpace(branch)
+	if branch == "" {
+		return sessionResponse{}, fmt.Errorf("branch is required")
+	}
+	sessionName, err := sessionNameFromBranch(branch)
+	if err != nil {
+		return sessionResponse{}, err
+	}
+	workspace = strings.TrimSpace(workspace)
+	workspaceCreate = strings.TrimSpace(workspaceCreate)
+	workspaceSize = strings.TrimSpace(workspaceSize)
+	workspaceStorage = strings.TrimSpace(workspaceStorage)
+	selectionProvided := workspace != "" || workspaceCreate != "" || workspaceSize != "" || workspaceStorage != ""
+
+	payload, err := client.doJSON(ctx, http.MethodGet, "/v1/sessions/"+url.PathEscape(sessionName), nil)
+	if err == nil {
+		var resp sessionResponse
+		if err := json.Unmarshal(payload, &resp); err != nil {
+			return sessionResponse{}, err
+		}
+		if resp.Branch != "" && resp.Branch != branch {
+			return sessionResponse{}, fmt.Errorf("branch %q maps to session %q labeled %q", branch, resp.Name, resp.Branch)
+		}
+		if selectionProvided {
+			return sessionResponse{}, fmt.Errorf("session %q already exists; omit workspace flags or use session fork", resp.Name)
+		}
+		return resp, nil
+	}
+	if !isNotFoundError(err, "session") {
+		return sessionResponse{}, err
+	}
+
+	profile = strings.TrimSpace(profile)
+	if profile == "" {
+		return sessionResponse{}, fmt.Errorf("profile is required when creating a session")
+	}
+	var workspaceID *string
+	var workspaceCreateReq *workspaceCreateRequest
+	if workspace != "" || workspaceCreate != "" {
+		workspaceID, workspaceCreateReq, err = parseWorkspaceSelection(workspace, workspaceCreate, workspaceSize, workspaceStorage)
+		if err != nil {
+			return sessionResponse{}, err
+		}
+	} else {
+		sizeGB := defaultStatefulWorkspaceSizeGB
+		if workspaceSize != "" {
+			sizeGB, err = parseSizeGB(workspaceSize)
+			if err != nil {
+				return sessionResponse{}, err
+			}
+		}
+		storage := workspaceStorage
+		if storage == "" {
+			storage = defaultStatefulWorkspaceStorage
+		}
+		workspaceCreateReq = &workspaceCreateRequest{
+			Name:    sessionName,
+			SizeGB:  sizeGB,
+			Storage: storage,
+		}
 	}
 	if workspaceID == nil && workspaceCreateReq == nil {
-		if !opts.jsonOutput {
-			printSessionBranchUsage()
-		}
-		return fmt.Errorf("workspace is required")
+		return sessionResponse{}, fmt.Errorf("workspace is required")
 	}
 	req := sessionCreateRequest{
 		Name:            sessionName,
@@ -2308,18 +2373,13 @@ func runSessionBranch(ctx context.Context, args []string, base commonFlags) erro
 	}
 	payload, err = client.doJSON(ctx, http.MethodPost, "/v1/sessions", req)
 	if err != nil {
-		err = wrapUnknownProfileError(ctx, client, profile, err)
-		return wrapWorkspaceNotFound(workspaceTargetName(workspaceID, workspaceCreateReq), err)
-	}
-	if opts.jsonOutput {
-		return prettyPrintJSON(os.Stdout, payload)
+		return sessionResponse{}, err
 	}
 	var resp sessionResponse
 	if err := json.Unmarshal(payload, &resp); err != nil {
-		return err
+		return sessionResponse{}, err
 	}
-	printSession(resp)
-	return nil
+	return resp, nil
 }
 
 func runMsgPost(ctx context.Context, args []string, base commonFlags) error {

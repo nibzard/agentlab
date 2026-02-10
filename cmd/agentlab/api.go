@@ -65,6 +65,7 @@ type jobCreateRequest struct {
 	WorkspaceID          *string                 `json:"workspace_id,omitempty"`
 	WorkspaceCreate      *workspaceCreateRequest `json:"workspace_create,omitempty"`
 	WorkspaceWaitSeconds *int                    `json:"workspace_wait_seconds,omitempty"`
+	SessionID            *string                 `json:"session_id,omitempty"`
 }
 
 // jobResponse represents a job returned from the API.
@@ -78,6 +79,7 @@ type jobResponse struct {
 	TTLMinutes  *int            `json:"ttl_minutes,omitempty"`
 	Keepalive   bool            `json:"keepalive"`
 	WorkspaceID *string         `json:"workspace_id,omitempty"`
+	SessionID   *string         `json:"session_id,omitempty"`
 	Status      string          `json:"status"`
 	SandboxVMID *int            `json:"sandbox_vmid,omitempty"`
 	Result      json.RawMessage `json:"result,omitempty"`

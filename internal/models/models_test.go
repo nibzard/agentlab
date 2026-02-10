@@ -118,6 +118,7 @@ func TestJobJSONSerialization(t *testing.T) {
 	now := time.Now().UTC()
 	sandboxVMID := 100
 	workspaceID := "workspace-123"
+	sessionID := "session-123"
 
 	j := Job{
 		ID:          "job-123",
@@ -129,6 +130,7 @@ func TestJobJSONSerialization(t *testing.T) {
 		TTLMinutes:  120,
 		Keepalive:   true,
 		WorkspaceID: &workspaceID,
+		SessionID:   &sessionID,
 		Status:      JobRunning,
 		SandboxVMID: &sandboxVMID,
 		CreatedAt:   now,
@@ -154,6 +156,7 @@ func TestJobJSONSerialization(t *testing.T) {
 	assert.Equal(t, j.TTLMinutes, unmarshaled.TTLMinutes)
 	assert.Equal(t, j.Keepalive, unmarshaled.Keepalive)
 	assert.Equal(t, j.WorkspaceID, unmarshaled.WorkspaceID)
+	assert.Equal(t, j.SessionID, unmarshaled.SessionID)
 	assert.Equal(t, j.Status, unmarshaled.Status)
 	assert.Equal(t, j.SandboxVMID, unmarshaled.SandboxVMID)
 	assert.Equal(t, j.ResultJSON, unmarshaled.ResultJSON)
@@ -172,6 +175,7 @@ func TestJobJSONWithNilSandboxVMID(t *testing.T) {
 		TTLMinutes:  0,
 		Keepalive:   false,
 		WorkspaceID: nil,
+		SessionID:   nil,
 		Status:      JobQueued,
 		SandboxVMID: nil,
 		CreatedAt:   time.Now(),
