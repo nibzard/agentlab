@@ -205,6 +205,27 @@ For a detailed coverage breakdown and lowest-coverage hotspots:
 make coverage-audit
 ```
 
+### Docs Checks
+
+Docs are validated in CI (lint, link check, typos). Run them locally with:
+
+```bash
+make docs-check
+```
+
+This aggregates:
+- `make docs-lint` (markdownlint-cli2 via `npx`)
+- `make docs-links` (lychee)
+- `make docs-typos` (typos)
+
+Install the non-Node tools once:
+
+```bash
+make docs-tools
+```
+
+This downloads `lychee` and `typos` into `bin/tools`. `docs-lint` requires Node.js for `npx`.
+
 ### Run Specific Tests
 
 Run tests for a specific package:
@@ -895,6 +916,7 @@ Before submitting a PR:
    - [ ] API documentation updated (if applicable)
    - [ ] User guide updated (if user-facing change)
    - [ ] Comments are clear and accurate
+   - [ ] Docs checks pass when docs are touched (`make docs-check`)
 
 4. **Commit History**
    - [ ] Commits are logically organized

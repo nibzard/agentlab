@@ -4,6 +4,9 @@ GO ?= go
 BIN_DIR := bin
 DIST_DIR := dist
 COVERAGE_DIR := $(DIST_DIR)/coverage
+TOOLS_DIR := $(BIN_DIR)/tools
+DOCS_TOOLS_SCRIPT := scripts/dev/install_docs_tools.sh
+DOCS_MD := $(shell find docs -type f -name '*.md' 2>/dev/null) README.md CONTRIBUTING.md AGENTLAB_DEV_SPECIFICATION.md PROXMOX_SPECS.md
 
 VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
 COMMIT ?= $(shell git rev-parse --short HEAD 2>/dev/null || echo none)
@@ -15,7 +18,7 @@ LDFLAGS := -s -w \
 	-X 'github.com/agentlab/agentlab/internal/buildinfo.Commit=$(COMMIT)' \
 	-X 'github.com/agentlab/agentlab/internal/buildinfo.Date=$(DATE)'
 
-.PHONY: all build build-ssh-gateway lint test test-ci test-coverage test-race test-integration test-all coverage-audit coverage-html clean
+.PHONY: all build build-ssh-gateway lint test test-ci test-coverage test-race test-integration test-all coverage-audit coverage-html docs-tools docs-lint docs-links docs-typos docs-check clean
 
 # Note: This project requires Go 1.24.0 or higher. Running 'go version' will show the installed version.
 
@@ -85,6 +88,23 @@ test-integration:
 	$(GO) test -tags=integration ./...
 
 test-all: test test-race test-coverage
+
+docs-tools:
+	$(DOCS_TOOLS_SCRIPT)
+
+docs-lint:
+	@command -v npx >/dev/null 2>&1 || { echo \"npx (Node.js) is required for markdownlint-cli2\"; exit 1; }
+	npx --yes markdownlint-cli2 -c .markdownlint-cli2.yaml
+
+docs-links:
+	@if [ ! -x \"$(TOOLS_DIR)/lychee\" ]; then echo \"lychee not found. Run 'make docs-tools' first.\"; exit 1; fi
+	\"$(TOOLS_DIR)/lychee\" --config .lychee.toml $(DOCS_MD)
+
+docs-typos:
+	@if [ ! -x \"$(TOOLS_DIR)/typos\" ]; then echo \"typos not found. Run 'make docs-tools' first.\"; exit 1; fi
+	\"$(TOOLS_DIR)/typos\" --config _typos.toml $(DOCS_MD)
+
+docs-check: docs-lint docs-links docs-typos
 
 clean:
 	rm -rf $(BIN_DIR) $(DIST_DIR)

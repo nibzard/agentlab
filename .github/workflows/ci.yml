@@ -18,6 +18,14 @@ jobs:
         uses: actions/setup-go@v5
         with:
           go-version-file: go.mod
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+      - name: Install Docs Tools
+        run: make docs-tools
+      - name: Docs Check
+        run: make docs-check
       - name: Test CI
         run: make test-ci
       - name: Coverage Summary

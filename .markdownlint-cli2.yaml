@@ -1,0 +1,12 @@
+config: .markdownlint.jsonc
+globs:
+  - "README.md"
+  - "CONTRIBUTING.md"
+  - "AGENTLAB_DEV_SPECIFICATION.md"
+  - "PROXMOX_SPECS.md"
+  - "docs/**/*.md"
+ignores:
+  - "bin/**"
+  - "dist/**"
+  - "coverage.html"
+  - "coverage.out"

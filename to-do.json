@@ -2850,10 +2850,11 @@
         "ssh"
       ],
       "files": [
+        "README.md",
         "docs/remote-cli.md",
         "docs/runbook.md",
         "docs/troubleshooting.md",
-        "README.md"
+        "to-do.json"
       ],
       "depends_on": [
         "T105",
@@ -2862,7 +2863,7 @@
         "T107"
       ],
       "created_at": "2026-02-09T12:17:58Z",
-      "updated_at": "2026-02-10T05:48:06Z"
+      "updated_at": "2026-02-10T05:48:44Z"
     },
     {
       "id": "T112",
@@ -3067,7 +3068,7 @@
       "id": "T118",
       "title": "Docs-as-code: add automated docs checks (lint + link check + typos) with Makefile parity",
       "priority": 4,
-      "status": "todo",
+      "status": "done",
       "details": "Adopt a docs-as-code workflow: docs changes must be linted and validated in CI, and the same checks must be runnable locally via Makefile targets. This prevents broken links, inconsistent style, and silent drift.",
       "steps": [
         "Pick tools with low friction for contributors: markdown lint (e.g. markdownlint-cli2 or a GitHub action), link checker (e.g. lychee), and typos/spell checker (e.g. typos).",
@@ -3085,12 +3086,14 @@
         "Makefile",
         ".github/workflows/ci.yml",
         "CONTRIBUTING.md",
-        "docs/*",
-        ".markdownlint*",
+        ".markdownlint-cli2.yaml",
+        ".markdownlint.jsonc",
         ".lychee.toml",
-        "_typos.toml"
+        "_typos.toml",
+        "scripts/dev/install_docs_tools.sh"
       ],
-      "created_at": "2026-02-10T01:59:57Z"
+      "created_at": "2026-02-10T01:59:57Z",
+      "updated_at": "2026-02-10T05:54:52Z"
     },
     {
       "id": "T119",
