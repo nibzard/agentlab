@@ -32,12 +32,12 @@ flowchart LR
 
 | Action | Sandbox root | Workspace `/work` | Session record | Notes |
 | --- | --- | --- | --- | --- |
-| `sandbox destroy` | deleted | unchanged | unchanged | workspace remains if attached elsewhere | 
-| `sandbox revert` | reset to `clean` snapshot | unchanged | unchanged | root reset only | 
-| `session stop` | deleted | unchanged | retained | session keeps workspace binding | 
-| `session resume` | new root | attached | updated | session points to new VMID | 
-| `workspace snapshot restore` | unchanged | reverted | unchanged | destructive to workspace data | 
-| `workspace fork` | unchanged | new copy | unchanged | safe fork for experiments | 
+| `sandbox destroy` | deleted | unchanged | unchanged | workspace remains if attached elsewhere |
+| `sandbox revert` | reset to `clean` snapshot | unchanged | unchanged | root reset only |
+| `session stop` | deleted | unchanged | retained | session keeps workspace binding |
+| `session resume` | new root | attached | updated | session points to new VMID |
+| `workspace snapshot restore` | unchanged | reverted | unchanged | destructive to workspace data |
+| `workspace fork` | unchanged | new copy | unchanged | safe fork for experiments |
 
 ## Common Workflows
 

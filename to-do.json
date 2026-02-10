@@ -3243,26 +3243,27 @@
         "tooling"
       ],
       "files": [
-        "scripts/dev/docs_snippets_check.sh",
-        "Makefile",
         "CONTRIBUTING.md",
+        "Makefile",
+        "README.md",
         "docs/testing.md",
         "docs/troubleshooting.md",
         "docs/upgrading.md",
-        "README.md"
+        "scripts/dev/docs_snippets_check.sh",
+        "to-do.json"
       ],
       "depends_on": [
         "T118",
         "T120"
       ],
       "created_at": "2026-02-10T02:11:55Z",
-      "updated_at": "2026-02-10T06:20:23Z"
+      "updated_at": "2026-02-10T06:20:52Z"
     },
     {
       "id": "T124",
       "title": "Code quality: finalize linting suite (Go + docs) and enforce clean runs",
       "priority": 4,
-      "status": "todo",
+      "status": "done",
       "details": "Ensure there is a single, reliable lint/quality entry point that runs locally and in CI, and that the repo is clean under it. This should cover Go formatting/vet/static analysis/vuln scan plus docs-as-code checks, with clear remediation guidance.",
       "steps": [
         "Define (or extend) a single Makefile target (e.g. `make quality` or `make lint-all`) that runs: gofmt check, go vet, staticcheck, govulncheck (T121), and `make docs-check` (T118).",
@@ -3279,16 +3280,35 @@
         "docs"
       ],
       "files": [
-        "Makefile",
         ".github/workflows/ci.yml",
+        ".lychee.toml",
+        ".markdownlint-cli2.yaml",
+        ".markdownlint.jsonc",
         "CONTRIBUTING.md",
-        "docs/*"
+        "Makefile",
+        "cmd/agentlab/commands.go",
+        "cmd/agentlab/init.go",
+        "cmd/agentlab/modifiers.go",
+        "docs/faq.md",
+        "docs/performance.md",
+        "docs/state-model.md",
+        "docs/templates/adr.md",
+        "docs/templates/feature.md",
+        "docs/templates/troubleshooting.md",
+        "docs/testing.md",
+        "docs/upgrading.md",
+        "internal/daemon/api.go",
+        "internal/daemon/sandbox_manager.go",
+        "internal/proxmox/api_backend.go",
+        "internal/testing/mocks.go",
+        "to-do.json"
       ],
       "depends_on": [
         "T118",
         "T121"
       ],
-      "created_at": "2026-02-10T02:16:01Z"
+      "created_at": "2026-02-10T02:16:01Z",
+      "updated_at": "2026-02-10T06:41:23Z"
     },
     {
       "id": "T125",

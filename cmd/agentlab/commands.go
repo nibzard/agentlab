@@ -490,7 +490,7 @@ func runJobRun(ctx context.Context, args []string, base commonFlags) error {
 		if strings.HasPrefix(workspace, "new:") {
 			name := strings.TrimSpace(strings.TrimPrefix(workspace, "new:"))
 			if name == "" {
-				return fmt.Errorf("workspace name is required after new:")
+				return fmt.Errorf("workspace name is required after new")
 			}
 			if workspaceCreate != "" {
 				return fmt.Errorf("--workspace new:<name> cannot be combined with --workspace-create")
@@ -3578,9 +3578,7 @@ func parseExposePort(value string) (int, error) {
 	if raw == "" {
 		return 0, fmt.Errorf("port is required")
 	}
-	if strings.HasPrefix(raw, ":") {
-		raw = strings.TrimPrefix(raw, ":")
-	}
+	raw = strings.TrimPrefix(raw, ":")
 	raw = strings.TrimSpace(raw)
 	if raw == "" {
 		return 0, fmt.Errorf("port is required")
@@ -3694,7 +3692,7 @@ func parseWorkspaceSelection(workspace, workspaceCreate, workspaceSize, workspac
 	if strings.HasPrefix(workspace, "new:") {
 		name := strings.TrimSpace(strings.TrimPrefix(workspace, "new:"))
 		if name == "" {
-			return nil, nil, fmt.Errorf("workspace name is required after new:")
+			return nil, nil, fmt.Errorf("workspace name is required after new")
 		}
 		if workspaceCreate != "" {
 			return nil, nil, fmt.Errorf("--workspace new:<name> cannot be combined with --workspace-create")

@@ -280,7 +280,7 @@ systemctl start agentlabd
 
 Stuck provisioning usually indicates one of these issues:
 
-**1. Template VM missing or invalid**
+#### 1. Template VM missing or invalid
 ```bash
 # Check if template exists
 qm list | grep 9000
@@ -289,7 +289,7 @@ qm list | grep 9000
 qm status 9000
 ```
 
-**2. Storage pool issues**
+#### 2. Storage pool issues
 ```bash
 # Check storage availability
 pvesm status
@@ -298,7 +298,7 @@ pvesm status
 df -h /var/lib/vz
 ```
 
-**3. Network bridge missing**
+#### 3. Network bridge missing
 ```bash
 # Verify vmbr1 exists
 ip addr show vmbr1
@@ -307,7 +307,7 @@ ip addr show vmbr1
 brctl show vmbr1
 ```
 
-**4. Timeout too short for environment**
+#### 4. Timeout too short for environment
 ```bash
 # Check current timeout
 grep provision /etc/agentlab/config.yaml
@@ -316,7 +316,7 @@ grep provision /etc/agentlab/config.yaml
 # provisioning_timeout: 15m  # default is 10m
 ```
 
-**5. Proxmox API issues (if using API backend)**
+#### 5. Proxmox API issues (if using API backend)
 ```bash
 # Verify API token works
 pveum user token list
@@ -609,6 +609,7 @@ provisioning_timeout: 10m      # Sandbox creation timeout
 ```
 
 **Default limits:**
+
 | Resource | Default | Can be changed |
 |----------|---------|----------------|
 | Sandbox CPU cores | Per profile | Yes (profile) |

@@ -10,11 +10,11 @@ Who should read this doc (operators, contributors, users, or maintainers).
 
 ## Goals
 
-- 
+- <goal>
 
 ## Non-goals
 
-- 
+- <non-goal>
 
 ## Prerequisites
 
@@ -60,4 +60,4 @@ Link to `troubleshooting.md` entries or add a short checklist.
 
 ## Related docs
 
-- 
+- <related doc>

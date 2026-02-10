@@ -8,6 +8,7 @@ Thank you for your interest in contributing to AgentLab! This document provides 
 - [Development Environment Setup](#development-environment-setup)
 - [Building the Project](#building-the-project)
 - [Running Tests](#running-tests)
+- [Quality Checks](#quality-checks)
 - [Writing Tests](#writing-tests)
 - [Code Style Guidelines](#code-style-guidelines)
 - [Development Without Proxmox](#development-without-proxmox)
@@ -39,6 +40,8 @@ Before you begin, ensure you have the following installed:
 - **go vet**: Comes with Go, used for static analysis
 - **staticcheck**: Installed via `make staticcheck` (pinned version, stored in `bin/tools`)
 - **govulncheck**: Installed via `make govulncheck` (pinned version, stored in `bin/tools`)
+- **Node.js 20+**: Required for docs linting via `npx` (markdownlint-cli2)
+- **Docs tools**: Install with `make docs-tools` (lychee + typos)
 
 ## Development Environment Setup
 
@@ -71,12 +74,15 @@ go mod verify
 # Build the project to ensure everything works
 make build
 
-# Run quality checks (gofmt, vet, staticcheck, govulncheck)
+# Run quality checks (Go + docs)
 make quality
 
 # Run tests
 make test
 ```
+
+If `make quality` reports missing docs tooling, run `make docs-tools` and ensure
+Node.js is installed for `npx` (markdownlint).
 
 ## Building the Project
 
@@ -248,7 +254,26 @@ make quality
 ```
 
 `make quality` installs pinned versions of the tools into `bin/tools` (if missing) and runs:
-`gofmt` check, `go vet`, `staticcheck`, and `govulncheck`.
+`gofmt` check, `go vet`, `staticcheck`, `govulncheck`, and the docs-as-code suite (`make docs-check`).
+
+## Quality Checks
+
+Run the canonical lint/quality command before opening a PR:
+
+```bash
+make quality
+```
+
+This target runs Go formatting/vet/static analysis/vulnerability checks and the full
+docs-as-code suite (`make docs-check`).
+
+Common fixes when `make quality` fails:
+- `gofmt` errors: run `gofmt -w .` (or `go fmt ./...`) and re-run `make quality`.
+- `govulncheck` stdlib findings: upgrade to the latest Go patch release or override
+  `GOVULNCHECK_GOTOOLCHAIN` (default is `go1.25.7`) to a patched toolchain.
+- Docs tool missing: run `make docs-tools` and ensure Node.js is installed for `npx`.
+- Link/typo/snippet failures: fix the docs, add a justified exception to `.lychee.toml` or `_typos.toml`,
+  or mark a fenced block with `skip-snippet-check` when it is intentionally non-executable.
 
 ### Run Specific Tests
 
@@ -431,7 +456,8 @@ make lint
 
 This will:
 - Check that all code is properly formatted
-- Run `go vet ./...` for static analysis
+- Run `go vet`, `staticcheck`, and `govulncheck`
+- Run docs-as-code checks (`make docs-check`)
 
 ### Naming Conventions
 

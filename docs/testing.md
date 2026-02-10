@@ -154,7 +154,7 @@ AgentLab runs higher-signal static analysis and Go vulnerability scanning. Use t
 targets CI uses:
 
 ```bash
-# Run everything in order (gofmt, go vet, staticcheck, govulncheck)
+# Run everything in order (gofmt, go vet, staticcheck, govulncheck, docs-check)
 make quality
 
 # Run individually
@@ -163,7 +163,7 @@ make govulncheck
 ```
 
 `make quality` installs pinned versions of `staticcheck` and `govulncheck` into
-`bin/tools` if they are missing.
+`bin/tools` if they are missing, then runs the docs-as-code suite (`make docs-check`).
 
 ### Docs-as-Code Checks
 

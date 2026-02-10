@@ -1,7 +1,7 @@
 cache = true
 max_cache_age = "1d"
-timeout = "20s"
-retry_wait_time = "2s"
+timeout = 20
+retry_wait_time = 2
 max_retries = 2
 accept = ["200", "204", "206", "301", "302", "303", "307", "308"]
 exclude_loopback = true

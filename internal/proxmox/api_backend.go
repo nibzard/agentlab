@@ -1000,7 +1000,7 @@ func (b *APIBackend) doPut(ctx context.Context, endpoint string, params url.Valu
 }
 
 func (b *APIBackend) doDelete(ctx context.Context, endpoint string, params url.Values) ([]byte, error) {
-	if params != nil && len(params) > 0 {
+	if len(params) > 0 {
 		endpoint += "?" + params.Encode()
 	}
 	return b.doRequest(ctx, http.MethodDelete, endpoint, nil)

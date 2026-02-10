@@ -2690,10 +2690,7 @@ func (api *ControlAPI) handleSandboxRevert(w http.ResponseWriter, r *http.Reques
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	result, err := api.sandboxManager.Revert(r.Context(), vmid, RevertOptions{
-		Force:   req.Force,
-		Restart: req.Restart,
-	})
+	result, err := api.sandboxManager.Revert(r.Context(), vmid, RevertOptions(req))
 	if err != nil {
 		var inUse SandboxInUseError
 		var missing SnapshotMissingError
@@ -3161,11 +3158,7 @@ func workspaceRemediationToV1(remediation []WorkspaceCheckRemediation) []V1Works
 	}
 	out := make([]V1WorkspaceCheckRemediation, 0, len(remediation))
 	for _, item := range remediation {
-		out = append(out, V1WorkspaceCheckRemediation{
-			Action:  item.Action,
-			Command: item.Command,
-			Note:    item.Note,
-		})
+		out = append(out, V1WorkspaceCheckRemediation(item))
 	}
 	return out
 }

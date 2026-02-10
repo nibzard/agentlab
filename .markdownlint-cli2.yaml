@@ -6,6 +6,7 @@ globs:
   - "PROXMOX_SPECS.md"
   - "docs/**/*.md"
 ignores:
+  - ".markdownlint-cli2.yaml"
   - "bin/**"
   - "dist/**"
   - "coverage.html"
