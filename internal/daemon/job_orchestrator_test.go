@@ -12,6 +12,7 @@ import (
 
 	"github.com/agentlab/agentlab/internal/models"
 	"github.com/agentlab/agentlab/internal/proxmox"
+	"github.com/stretchr/testify/require"
 )
 
 type orchestratorBackend struct {
@@ -607,6 +608,94 @@ func TestJobOrchestratorHandleReportKeepalivePreservesLease(t *testing.T) {
 	}
 	if updatedWorkspace.LeaseOwner != leaseOwner {
 		t.Fatalf("expected lease owner preserved, got %s", updatedWorkspace.LeaseOwner)
+	}
+}
+
+func TestJobOrchestratorWorkspaceLeaseRenewal(t *testing.T) {
+	ctx := context.Background()
+	store := newTestStore(t)
+	backend := &orchestratorBackend{}
+	manager := NewSandboxManager(store, backend, log.New(io.Discard, "", 0))
+	profiles := map[string]models.Profile{
+		"yolo": {Name: "yolo", TemplateVM: 9000},
+	}
+	orchestrator := NewJobOrchestrator(store, profiles, backend, manager, nil, proxmox.SnippetStore{}, "", "http://10.77.0.1:8844", log.New(io.Discard, "", 0), nil, nil)
+
+	base := time.Date(2026, 2, 10, 10, 0, 0, 0, time.UTC)
+	orchestrator.now = func() time.Time { return base }
+
+	sandbox := models.Sandbox{
+		VMID:          1201,
+		Name:          "sandbox-1201",
+		Profile:       "yolo",
+		State:         models.SandboxRunning,
+		Keepalive:     true,
+		CreatedAt:     base,
+		LastUpdatedAt: base,
+	}
+	if err := store.CreateSandbox(ctx, sandbox); err != nil {
+		t.Fatalf("create sandbox: %v", err)
+	}
+
+	leaseOwner := workspaceLeaseOwnerForSandbox(sandbox.VMID)
+	workspace := models.Workspace{
+		ID:           "ws-renew",
+		Name:         "ws-renew",
+		Storage:      "local-zfs",
+		VolumeID:     "local-zfs:vm-401-disk-1",
+		SizeGB:       20,
+		LeaseOwner:   leaseOwner,
+		LeaseNonce:   "nonce-renew",
+		LeaseExpires: base.Add(-5 * time.Minute),
+		CreatedAt:    base,
+		LastUpdated:  base,
+	}
+	if err := store.CreateWorkspace(ctx, workspace); err != nil {
+		t.Fatalf("create workspace: %v", err)
+	}
+
+	ttl := time.Hour
+	orchestrator.startWorkspaceLeaseRenewal("", workspace.ID, leaseOwner, ttl, true, sandbox.VMID, false)
+
+	require.Eventually(t, func() bool {
+		updated, err := store.GetWorkspace(ctx, workspace.ID)
+		if err != nil {
+			return false
+		}
+		return updated.LeaseExpires.Equal(base.Add(ttl))
+	}, time.Second, 10*time.Millisecond)
+}
+
+func TestJobOrchestratorReleaseWorkspaceLeaseWrongOwner(t *testing.T) {
+	ctx := context.Background()
+	store := newTestStore(t)
+	orchestrator := NewJobOrchestrator(store, map[string]models.Profile{}, nil, nil, nil, proxmox.SnippetStore{}, "", "", log.New(io.Discard, "", 0), nil, nil)
+
+	base := time.Date(2026, 2, 10, 11, 0, 0, 0, time.UTC)
+	workspace := models.Workspace{
+		ID:           "ws-owner",
+		Name:         "ws-owner",
+		Storage:      "local-zfs",
+		VolumeID:     "local-zfs:vm-402-disk-1",
+		SizeGB:       10,
+		LeaseOwner:   "job:one",
+		LeaseNonce:   "nonce-owner",
+		LeaseExpires: base.Add(time.Hour),
+		CreatedAt:    base,
+		LastUpdated:  base,
+	}
+	if err := store.CreateWorkspace(ctx, workspace); err != nil {
+		t.Fatalf("create workspace: %v", err)
+	}
+
+	orchestrator.releaseWorkspaceLease(ctx, workspace.ID, "job:two", "", 0)
+
+	updated, err := store.GetWorkspace(ctx, workspace.ID)
+	if err != nil {
+		t.Fatalf("get workspace: %v", err)
+	}
+	if updated.LeaseOwner != "job:one" || updated.LeaseNonce != "nonce-owner" {
+		t.Fatalf("expected lease unchanged for wrong owner")
 	}
 }
 

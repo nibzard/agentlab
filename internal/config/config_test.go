@@ -1,6 +1,9 @@
 package config
 
 import (
+	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -896,4 +899,55 @@ func TestIsWildcardHost(t *testing.T) {
 			assert.Equal(t, tt.want, got)
 		})
 	}
+}
+
+func TestValidateCIDRListTrimsAndSkipsEmpty(t *testing.T) {
+	values := []string{" 100.64.0.0/10 ", "", "   ", "192.168.0.0/16"}
+	cleaned, err := validateCIDRList(values, "control_allow_cidrs")
+	require.NoError(t, err)
+	assert.Equal(t, []string{"100.64.0.0/10", "192.168.0.0/16"}, cleaned)
+}
+
+func TestLoadConfigMergePrecedence(t *testing.T) {
+	t.Run("derive paths from data_dir and run_dir", func(t *testing.T) {
+		root := t.TempDir()
+		dataDir := filepath.Join(root, "data")
+		runDir := filepath.Join(root, "run")
+		configPath := filepath.Join(root, "config.yaml")
+		payload := fmt.Sprintf("data_dir: %q\nrun_dir: %q\n", dataDir, runDir)
+		require.NoError(t, os.WriteFile(configPath, []byte(payload), 0o600))
+
+		cfg, err := Load(configPath)
+		require.NoError(t, err)
+		assert.Equal(t, dataDir, cfg.DataDir)
+		assert.Equal(t, filepath.Join(dataDir, "agentlab.db"), cfg.DBPath)
+		assert.Equal(t, filepath.Join(dataDir, "artifacts"), cfg.ArtifactDir)
+		assert.Equal(t, runDir, cfg.RunDir)
+		assert.Equal(t, filepath.Join(runDir, "agentlabd.sock"), cfg.SocketPath)
+	})
+
+	t.Run("explicit paths override derived", func(t *testing.T) {
+		root := t.TempDir()
+		dataDir := filepath.Join(root, "data")
+		runDir := filepath.Join(root, "run")
+		dbPath := filepath.Join(root, "db.sqlite")
+		socketPath := filepath.Join(root, "agentlab.sock")
+		artifactDir := filepath.Join(root, "artifacts")
+		configPath := filepath.Join(root, "config.yaml")
+		payload := fmt.Sprintf(`data_dir: %q
+run_dir: %q
+db_path: %q
+socket_path: %q
+artifact_dir: %q
+`, dataDir, runDir, dbPath, socketPath, artifactDir)
+		require.NoError(t, os.WriteFile(configPath, []byte(payload), 0o600))
+
+		cfg, err := Load(configPath)
+		require.NoError(t, err)
+		assert.Equal(t, dataDir, cfg.DataDir)
+		assert.Equal(t, runDir, cfg.RunDir)
+		assert.Equal(t, dbPath, cfg.DBPath)
+		assert.Equal(t, socketPath, cfg.SocketPath)
+		assert.Equal(t, artifactDir, cfg.ArtifactDir)
+	})
 }

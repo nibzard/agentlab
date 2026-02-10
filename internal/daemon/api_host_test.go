@@ -28,9 +28,22 @@ func TestHostHandler(t *testing.T) {
 	api.handleHost(rec, req)
 
 	require.Equal(t, http.StatusOK, rec.Code)
+	body := rec.Body.Bytes()
 	var resp V1HostResponse
-	require.NoError(t, json.NewDecoder(rec.Body).Decode(&resp))
+	require.NoError(t, json.Unmarshal(body, &resp))
 	assert.Equal(t, buildinfo.Version, resp.Version)
 	assert.Equal(t, "10.77.0.0/16", resp.AgentSubnet)
 	assert.Equal(t, "host.tailnet.ts.net", resp.TailscaleDNS)
+
+	var raw map[string]any
+	require.NoError(t, json.Unmarshal(body, &raw))
+	if _, ok := raw["version"].(string); !ok {
+		t.Fatalf("expected version string in payload")
+	}
+	if _, ok := raw["agent_subnet"].(string); !ok {
+		t.Fatalf("expected agent_subnet string in payload")
+	}
+	if _, ok := raw["tailscale_dns"].(string); !ok {
+		t.Fatalf("expected tailscale_dns string in payload")
+	}
 }
