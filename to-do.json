@@ -3347,7 +3347,7 @@
       "id": "T126",
       "title": "Final best-practices review: refactor for consistency, security, and maintainability",
       "priority": 4,
-      "status": "todo",
+      "status": "done",
       "details": "Perform a final best-practices review across daemon+CLI: consistent error handling, context/timeouts, log redaction, API conventions, and test structure. Make improvements where the ROI is clear and add guardrails to prevent regressions.",
       "steps": [
         "Review API surfaces for consistency: status codes, error payloads, naming, pagination/tail semantics, and versioning expectations.",
@@ -3362,15 +3362,16 @@
         "quality"
       ],
       "files": [
-        "internal/daemon/*",
-        "cmd/agentlab/*",
-        "internal/config/*",
-        "docs/*"
+        "internal/daemon/api.go",
+        "internal/daemon/api_types.go",
+        "internal/daemon/api_errors_test.go",
+        "cmd/agentlab/api.go"
       ],
       "depends_on": [
         "T125"
       ],
-      "created_at": "2026-02-10T02:16:01Z"
+      "created_at": "2026-02-10T02:16:01Z",
+      "updated_at": "2026-02-10T06:53:35Z"
     },
     {
       "id": "T127",

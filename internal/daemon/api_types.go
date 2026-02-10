@@ -3,7 +3,8 @@ package daemon
 import "encoding/json"
 
 type V1ErrorResponse struct {
-	Error string `json:"error"`
+	Error   string `json:"error"`
+	Details string `json:"details,omitempty"`
 }
 
 type V1StatusArtifacts struct {
