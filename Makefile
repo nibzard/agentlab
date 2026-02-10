@@ -13,7 +13,7 @@ LDFLAGS := -s -w \
 	-X 'github.com/agentlab/agentlab/internal/buildinfo.Commit=$(COMMIT)' \
 	-X 'github.com/agentlab/agentlab/internal/buildinfo.Date=$(DATE)'
 
-.PHONY: all build lint test test-coverage test-race test-integration test-all clean
+.PHONY: all build build-ssh-gateway lint test test-coverage test-race test-integration test-all clean
 
 # Note: This project requires Go 1.24.0 or higher. Running 'go version' will show the installed version.
 
@@ -32,6 +32,11 @@ $(BIN_DIR)/agentlab: | $(BIN_DIR)
 
 $(BIN_DIR)/agentlabd: | $(BIN_DIR)
 	$(GO) build -ldflags "$(LDFLAGS)" -o $@ ./cmd/agentlabd
+
+build-ssh-gateway: $(BIN_DIR)/agentlab-ssh-gateway
+
+$(BIN_DIR)/agentlab-ssh-gateway: | $(BIN_DIR)
+	$(GO) build -tags sshgateway -ldflags "$(LDFLAGS)" -o $@ ./cmd/agentlab-ssh-gateway
 
 $(DIST_DIR)/agentlab_linux_amd64: | $(DIST_DIR)
 	GOOS=linux GOARCH=amd64 $(GO) build -ldflags "$(LDFLAGS)" -o $@ ./cmd/agentlab

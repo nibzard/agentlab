@@ -74,6 +74,9 @@ Behavior:
 
 Run example:
 ```
+make build-ssh-gateway
+# or: go build -tags sshgateway -o bin/agentlab-ssh-gateway ./cmd/agentlab-ssh-gateway
+
 agentlab-ssh-gateway \
   --listen 0.0.0.0:2222 \
   --authorized-keys /etc/agentlab/keys/ssh_gateway_authorized_keys \

@@ -2832,7 +2832,7 @@
       "id": "T112",
       "title": "Unblock test suite: ensure `go test ./...` is green (gate/remove ssh gateway spike)",
       "priority": 2,
-      "status": "todo",
+      "status": "done",
       "details": "Today `go test ./...` fails because the `cmd/agentlab-ssh-gateway` spike does not compile against current `golang.org/x/crypto/ssh` APIs. This blocks coverage work and makes CI/PR validation unreliable. Either remove the spike binary from the main build graph or gate it behind an explicit build tag so the core repo is always testable.",
       "steps": [
         "Decide the desired outcome for the spike: (A) delete cmd/agentlab-ssh-gateway entirely (preferred if not shipping), or (B) keep it but add a build tag so it is excluded from default builds/tests.",
@@ -2852,9 +2852,11 @@
         "cmd/agentlab-ssh-gateway/README.md",
         "Makefile",
         ".github/workflows/ci.yml",
-        "docs/ssh_gateway_spike.md"
+        "docs/ssh_gateway_spike.md",
+        "cmd/agentlab-ssh-gateway/stub.go"
       ],
-      "created_at": "2026-02-10T01:59:57Z"
+      "created_at": "2026-02-10T01:59:57Z",
+      "updated_at": "2026-02-10T03:13:35Z"
     },
     {
       "id": "T113",
