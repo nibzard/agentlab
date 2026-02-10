@@ -36,6 +36,19 @@ func TestNewAPIClientDefaults(t *testing.T) {
 	}
 }
 
+func TestNewAPIClientRemoteBaseURL(t *testing.T) {
+	client := newAPIClient(clientOptions{Endpoint: "https://example.com/", Token: "token"}, time.Second)
+	if client.endpoint != "https://example.com" {
+		t.Fatalf("endpoint = %q, want %q", client.endpoint, "https://example.com")
+	}
+	if client.baseURL != "https://example.com" {
+		t.Fatalf("baseURL = %q, want %q", client.baseURL, "https://example.com")
+	}
+	if client.token != "token" {
+		t.Fatalf("token = %q, want %q", client.token, "token")
+	}
+}
+
 func TestAPIClientWithTimeout(t *testing.T) {
 	ctx := context.Background()
 	var nilClient *apiClient
@@ -206,6 +219,47 @@ func TestAPIClientAuthHeaderRemote(t *testing.T) {
 	}
 	if gotAuth != "Bearer secret-token" {
 		t.Fatalf("Authorization header = %q, want %q", gotAuth, "Bearer secret-token")
+	}
+}
+
+func TestAPIClientAuthErrors(t *testing.T) {
+	tests := []struct {
+		name         string
+		status       int
+		body         string
+		wantContains string
+	}{
+		{"unauthorized json", http.StatusUnauthorized, `{"error":"unauthorized"}`, "unauthorized"},
+		{"forbidden fallback", http.StatusForbidden, "", "status 403"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var gotAuth string
+			client := &apiClient{
+				endpoint: "https://example.com",
+				baseURL:  "https://example.com",
+				token:    "super-secret",
+				httpClient: &http.Client{Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
+					gotAuth = req.Header.Get("Authorization")
+					return newTestResponse(tt.status, tt.body), nil
+				})},
+			}
+
+			_, err := client.doJSON(context.Background(), http.MethodGet, "/v1/status", nil)
+			if err == nil {
+				t.Fatalf("expected error for status %d", tt.status)
+			}
+			if gotAuth != "Bearer super-secret" {
+				t.Fatalf("Authorization header = %q, want %q", gotAuth, "Bearer super-secret")
+			}
+			if strings.Contains(err.Error(), "super-secret") {
+				t.Fatalf("token leaked in error: %v", err)
+			}
+			if tt.wantContains != "" && !strings.Contains(err.Error(), tt.wantContains) {
+				t.Fatalf("error = %q, want to contain %q", err.Error(), tt.wantContains)
+			}
+		})
 	}
 }
 

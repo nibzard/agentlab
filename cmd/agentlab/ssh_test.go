@@ -17,6 +17,27 @@ func stubSSHDial(t *testing.T, fn func(ctx context.Context, network, address str
 	t.Cleanup(func() { sshDialFn = orig })
 }
 
+func stubSSHCommand(t *testing.T, fn func(ctx context.Context, args []string) ([]byte, error)) {
+	t.Helper()
+	orig := sshCommandFn
+	sshCommandFn = fn
+	t.Cleanup(func() { sshCommandFn = orig })
+}
+
+func stubExecSSH(t *testing.T, fn func(args []string) error) {
+	t.Helper()
+	orig := execSSHFn
+	execSSHFn = fn
+	t.Cleanup(func() { execSSHFn = orig })
+}
+
+func stubInteractive(t *testing.T, value bool) {
+	t.Helper()
+	orig := isInteractiveFn
+	isInteractiveFn = func() bool { return value }
+	t.Cleanup(func() { isInteractiveFn = orig })
+}
+
 func TestSSHStartsStoppedSandbox(t *testing.T) {
 	createdAt := "2026-02-08T12:00:00Z"
 	updatedAt := "2026-02-08T12:02:00Z"
@@ -262,5 +283,138 @@ func TestSSHExecJSONConflict(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "--json") {
 		t.Fatalf("unexpected error message %q", err.Error())
+	}
+}
+
+func TestSSHWaitProbesDirect(t *testing.T) {
+	createdAt := "2026-02-08T12:00:00Z"
+	updatedAt := "2026-02-08T12:02:00Z"
+
+	mux := http.NewServeMux()
+	mux.HandleFunc("/v1/sandboxes/9201", func(w http.ResponseWriter, r *http.Request) {
+		resp := sandboxResponse{
+			VMID:          9201,
+			Name:          "sandbox-9201",
+			Profile:       "yolo",
+			State:         "RUNNING",
+			IP:            "203.0.113.20",
+			CreatedAt:     createdAt,
+			LastUpdatedAt: updatedAt,
+		}
+		writeJSON(t, w, http.StatusOK, resp)
+	})
+
+	socketPath := startUnixHTTPServer(t, mux)
+	base := commonFlags{socketPath: socketPath, jsonOutput: false, timeout: time.Second}
+
+	dialCalls := 0
+	stubSSHDial(t, func(ctx context.Context, network, address string) (net.Conn, error) {
+		dialCalls++
+		conn, peer := net.Pipe()
+		_ = peer.Close()
+		return conn, nil
+	})
+
+	_ = captureStdout(t, func() {
+		err := runSSHCommand(context.Background(), []string{"--wait", "9201"}, base)
+		if err != nil {
+			t.Fatalf("runSSHCommand() error = %v", err)
+		}
+	})
+
+	if dialCalls < 2 {
+		t.Fatalf("expected wait probe to dial at least twice, got %d", dialCalls)
+	}
+}
+
+func TestSSHWaitProbesJump(t *testing.T) {
+	createdAt := "2026-02-08T12:00:00Z"
+	updatedAt := "2026-02-08T12:02:00Z"
+
+	mux := http.NewServeMux()
+	mux.HandleFunc("/v1/sandboxes/9202", func(w http.ResponseWriter, r *http.Request) {
+		resp := sandboxResponse{
+			VMID:          9202,
+			Name:          "sandbox-9202",
+			Profile:       "yolo",
+			State:         "RUNNING",
+			IP:            "203.0.113.21",
+			CreatedAt:     createdAt,
+			LastUpdatedAt: updatedAt,
+		}
+		writeJSON(t, w, http.StatusOK, resp)
+	})
+
+	socketPath := startUnixHTTPServer(t, mux)
+	base := commonFlags{socketPath: socketPath, jsonOutput: false, timeout: time.Second}
+
+	stubSSHDial(t, func(ctx context.Context, network, address string) (net.Conn, error) {
+		return nil, errors.New("dial failed")
+	})
+
+	commandCalls := 0
+	stubSSHCommand(t, func(ctx context.Context, args []string) ([]byte, error) {
+		commandCalls++
+		return []byte("Permission denied"), errors.New("exit status 255")
+	})
+
+	out := captureStdout(t, func() {
+		err := runSSHCommand(context.Background(), []string{"--wait", "--jump-host", "jump.example", "--jump-user", "jumpuser", "9202"}, base)
+		if err != nil {
+			t.Fatalf("runSSHCommand() error = %v", err)
+		}
+	})
+
+	if commandCalls == 0 {
+		t.Fatalf("expected ssh probe via jump to be executed")
+	}
+	if !strings.Contains(out, "-J jumpuser@jump.example") {
+		t.Fatalf("expected ProxyJump args, got %q", out)
+	}
+}
+
+func TestSSHExecPassesThroughArgs(t *testing.T) {
+	createdAt := "2026-02-08T12:00:00Z"
+	updatedAt := "2026-02-08T12:02:00Z"
+
+	mux := http.NewServeMux()
+	mux.HandleFunc("/v1/sandboxes/9301", func(w http.ResponseWriter, r *http.Request) {
+		resp := sandboxResponse{
+			VMID:          9301,
+			Name:          "sandbox-9301",
+			Profile:       "yolo",
+			State:         "RUNNING",
+			IP:            "203.0.113.30",
+			CreatedAt:     createdAt,
+			LastUpdatedAt: updatedAt,
+		}
+		writeJSON(t, w, http.StatusOK, resp)
+	})
+
+	socketPath := startUnixHTTPServer(t, mux)
+	base := commonFlags{socketPath: socketPath, jsonOutput: false, timeout: time.Second}
+
+	stubInteractive(t, true)
+	stubSSHDial(t, func(ctx context.Context, network, address string) (net.Conn, error) {
+		conn, peer := net.Pipe()
+		_ = peer.Close()
+		return conn, nil
+	})
+
+	var gotArgs []string
+	stubExecSSH(t, func(args []string) error {
+		gotArgs = append([]string{}, args...)
+		return nil
+	})
+
+	err := runSSHCommand(context.Background(), []string{"--exec", "9301", "uname", "-a"}, base)
+	if err != nil {
+		t.Fatalf("runSSHCommand() error = %v", err)
+	}
+	if len(gotArgs) < 2 {
+		t.Fatalf("expected exec args, got %v", gotArgs)
+	}
+	if gotArgs[len(gotArgs)-2] != "uname" || gotArgs[len(gotArgs)-1] != "-a" {
+		t.Fatalf("expected remote args to be passed through, got %v", gotArgs)
 	}
 }

@@ -122,13 +122,9 @@ func runSSHCommand(ctx context.Context, args []string, base commonFlags) error {
 		}
 		return fmt.Errorf("vmid is required")
 	}
-	if fs.NArg() > 1 {
-		if !opts.jsonOutput {
-			printSSHUsage()
-		}
-		return fmt.Errorf("unexpected extra arguments")
-	}
-	vmid, err := parseVMID(fs.Arg(0))
+	vmidArg := fs.Arg(0)
+	extraArgs := fs.Args()[1:]
+	vmid, err := parseVMID(vmidArg)
 	if err != nil {
 		return err
 	}
@@ -222,6 +218,9 @@ func runSSHCommand(ctx context.Context, args []string, base commonFlags) error {
 	}
 
 	sshArgs := buildSSHArgs(target, port, identity, jumpCfg, useJump)
+	if len(extraArgs) > 0 {
+		sshArgs = append(sshArgs, extraArgs...)
+	}
 	fullArgs := append([]string{"ssh"}, sshArgs...)
 	warning := ""
 	if !useJump {
@@ -250,7 +249,7 @@ func runSSHCommand(ctx context.Context, args []string, base commonFlags) error {
 	}
 
 	if execFlag {
-		return execSSH(sshArgs)
+		return execSSHFn(sshArgs)
 	}
 
 	fmt.Fprintln(os.Stdout, formatShellCommand(fullArgs))
@@ -585,6 +584,8 @@ var sshCommandFn = func(ctx context.Context, args []string) ([]byte, error) {
 	cmd := exec.CommandContext(ctx, path, args...)
 	return cmd.CombinedOutput()
 }
+
+var execSSHFn = execSSH
 
 func probeSSH(ctx context.Context, address string) (bool, error) {
 	if ctx == nil {

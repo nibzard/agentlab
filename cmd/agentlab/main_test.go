@@ -123,6 +123,66 @@ func TestParseGlobal(t *testing.T) {
 	}
 }
 
+func TestGlobalOptionPrecedence(t *testing.T) {
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	path, err := clientConfigPath()
+	require.NoError(t, err)
+	require.NoError(t, writeClientConfig(path, clientConfig{Endpoint: "https://cfg", Token: "cfg-token"}))
+
+	tests := []struct {
+		name         string
+		envEndpoint  string
+		envToken     string
+		args         []string
+		wantEndpoint string
+		wantToken    string
+	}{
+		{
+			name:         "config only",
+			envEndpoint:  "",
+			envToken:     "",
+			args:         []string{},
+			wantEndpoint: "https://cfg",
+			wantToken:    "cfg-token",
+		},
+		{
+			name:         "env overrides config",
+			envEndpoint:  "https://env",
+			envToken:     "env-token",
+			args:         []string{},
+			wantEndpoint: "https://env",
+			wantToken:    "env-token",
+		},
+		{
+			name:         "flags override env",
+			envEndpoint:  "https://env",
+			envToken:     "env-token",
+			args:         []string{"--endpoint", "https://cli", "--token", "cli-token"},
+			wantEndpoint: "https://cli",
+			wantToken:    "cli-token",
+		},
+		{
+			name:         "partial flags keep env token",
+			envEndpoint:  "https://env",
+			envToken:     "env-token",
+			args:         []string{"--endpoint", "https://cli"},
+			wantEndpoint: "https://cli",
+			wantToken:    "env-token",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Setenv(envEndpoint, tt.envEndpoint)
+			t.Setenv(envToken, tt.envToken)
+			opts, _, err := parseGlobal(tt.args)
+			require.NoError(t, err)
+			assert.Equal(t, tt.wantEndpoint, opts.endpoint)
+			assert.Equal(t, tt.wantToken, opts.token)
+		})
+	}
+}
+
 func TestParseGlobalHelp(t *testing.T) {
 	useTempClientConfig(t)
 	t.Run("long help flag", func(t *testing.T) {
