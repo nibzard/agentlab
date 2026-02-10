@@ -103,6 +103,7 @@ var (
 //   - GET    /v1/workspaces           - List workspaces
 //   - GET    /v1/workspaces/{id}      - Get workspace details
 //   - GET    /v1/workspaces/{id}/check  - Check workspace consistency
+//   - POST   /v1/workspaces/{id}/fsck   - Run filesystem check on workspace volume
 //   - POST   /v1/workspaces/{id}/attach  - Attach workspace to VM
 //   - POST   /v1/workspaces/{id}/detach  - Detach workspace from VM
 //   - POST   /v1/workspaces/{id}/rebind   - Rebind workspace to new VM
@@ -1082,6 +1083,13 @@ func (api *ControlAPI) handleWorkspaceByID(w http.ResponseWriter, r *http.Reques
 			}
 			api.handleWorkspaceCheck(w, r, id)
 			return
+		case "fsck":
+			if r.Method != http.MethodPost {
+				writeMethodNotAllowed(w, []string{http.MethodPost})
+				return
+			}
+			api.handleWorkspaceFSCK(w, r, id)
+			return
 		case "snapshots":
 			switch r.Method {
 			case http.MethodGet:
@@ -1500,6 +1508,37 @@ func (api *ControlAPI) handleWorkspaceCheck(w http.ResponseWriter, r *http.Reque
 		return
 	}
 	writeJSON(w, http.StatusOK, workspaceCheckToV1(result))
+}
+
+func (api *ControlAPI) handleWorkspaceFSCK(w http.ResponseWriter, r *http.Request, id string) {
+	if api.workspaceMgr == nil {
+		writeError(w, http.StatusInternalServerError, "workspace manager unavailable")
+		return
+	}
+	var req V1WorkspaceFSCKRequest
+	if err := decodeOptionalJSON(w, r, &req); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	result, err := api.workspaceMgr.FSCK(r.Context(), id, req.Repair)
+	if err != nil {
+		switch {
+		case errors.Is(err, ErrWorkspaceNotFound):
+			writeError(w, http.StatusNotFound, "workspace not found")
+		case errors.Is(err, ErrWorkspaceFSCKAttached):
+			writeError(w, http.StatusConflict, "workspace must be detached for fsck")
+		case errors.Is(err, ErrWorkspaceLeaseHeld):
+			writeError(w, http.StatusConflict, "workspace lease held")
+		case errors.Is(err, ErrWorkspaceFSCKUnsupported):
+			writeError(w, http.StatusBadRequest, "workspace fsck unsupported for volume path")
+		case errors.Is(err, proxmox.ErrVolumeNotFound):
+			writeError(w, http.StatusConflict, "workspace volume not found")
+		default:
+			writeError(w, http.StatusInternalServerError, "failed to run workspace fsck")
+		}
+		return
+	}
+	writeJSON(w, http.StatusOK, workspaceFSCKToV1(result))
 }
 
 func (api *ControlAPI) handleWorkspaceAttach(w http.ResponseWriter, r *http.Request, id string) {
@@ -3085,6 +3124,33 @@ func workspaceCheckToV1(result WorkspaceCheckResult) V1WorkspaceCheckResponse {
 			Details:     finding.Details,
 			Remediation: workspaceRemediationToV1(finding.Remediation),
 		})
+	}
+	return resp
+}
+
+func workspaceFSCKToV1(result WorkspaceFSCKResult) V1WorkspaceFSCKResponse {
+	resp := V1WorkspaceFSCKResponse{
+		Workspace: workspaceToV1(result.Workspace),
+		Volume: V1WorkspaceFSCKVolume{
+			VolumeID: result.Volume.VolumeID,
+			Storage:  result.Volume.Storage,
+			Path:     result.Volume.Path,
+		},
+		Method:         result.Method,
+		Mode:           result.Mode,
+		Status:         result.Status,
+		ExitCode:       result.ExitCode,
+		ExitSummary:    result.ExitSummary,
+		NeedsRepair:    result.NeedsRepair,
+		RebootRequired: result.RebootRequired,
+		Command:        result.Command,
+		Output:         result.Output,
+	}
+	if !result.StartedAt.IsZero() {
+		resp.StartedAt = result.StartedAt.UTC().Format(time.RFC3339Nano)
+	}
+	if !result.CompletedAt.IsZero() {
+		resp.CompletedAt = result.CompletedAt.UTC().Format(time.RFC3339Nano)
 	}
 	return resp
 }

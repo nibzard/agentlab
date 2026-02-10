@@ -9,7 +9,7 @@
 //
 //	job:       Manage jobs (run, show, artifacts)
 //	sandbox:   Manage sandboxes (new, list, show, start, stop, revert, destroy, lease, prune, expose, exposed, unexpose)
-//	workspace: Manage workspaces (create, list, check, attach, detach, rebind, fork, snapshot)
+//	workspace: Manage workspaces (create, list, check, fsck, attach, detach, rebind, fork, snapshot)
 //	profile:   Manage profiles (list)
 //	msg:       Manage messagebox (post, tail)
 //	ssh:       Generate SSH connection parameters
@@ -893,6 +893,8 @@ func runWorkspaceCommand(ctx context.Context, args []string, base commonFlags) e
 		return runWorkspaceList(ctx, args[1:], base)
 	case "check":
 		return runWorkspaceCheck(ctx, args[1:], base)
+	case "fsck":
+		return runWorkspaceFsck(ctx, args[1:], base)
 	case "attach":
 		return runWorkspaceAttach(ctx, args[1:], base)
 	case "detach":
@@ -907,7 +909,7 @@ func runWorkspaceCommand(ctx context.Context, args []string, base commonFlags) e
 		if !base.jsonOutput {
 			printWorkspaceUsage()
 		}
-		return unknownSubcommandError("workspace", args[0], []string{"create", "list", "check", "attach", "detach", "rebind", "fork", "snapshot"})
+		return unknownSubcommandError("workspace", args[0], []string{"create", "list", "check", "fsck", "attach", "detach", "rebind", "fork", "snapshot"})
 	}
 }
 
@@ -1848,6 +1850,49 @@ func runWorkspaceCheck(ctx context.Context, args []string, base commonFlags) err
 		return err
 	}
 	printWorkspaceCheck(resp)
+	return nil
+}
+
+func runWorkspaceFsck(ctx context.Context, args []string, base commonFlags) error {
+	fs := newFlagSet("workspace fsck")
+	opts := base
+	opts.bind(fs)
+	var repair bool
+	var help bool
+	fs.BoolVar(&repair, "repair", false, "repair filesystem (requires detached workspace)")
+	fs.BoolVar(&help, "help", false, "show help")
+	fs.BoolVar(&help, "h", false, "show help")
+	if err := parseFlags(fs, args, printWorkspaceFsckUsage, &help, opts.jsonOutput); err != nil {
+		return err
+	}
+	if fs.NArg() < 1 {
+		if !opts.jsonOutput {
+			printWorkspaceFsckUsage()
+		}
+		return fmt.Errorf("workspace is required")
+	}
+	workspace := strings.TrimSpace(fs.Arg(0))
+	if workspace == "" {
+		return fmt.Errorf("workspace is required")
+	}
+
+	client, err := apiClientFromFlags(opts)
+	if err != nil {
+		return err
+	}
+	req := workspaceFsckRequest{Repair: repair}
+	payload, err := client.doJSON(ctx, http.MethodPost, fmt.Sprintf("/v1/workspaces/%s/fsck", workspace), req)
+	if err != nil {
+		return wrapWorkspaceNotFound(workspace, err)
+	}
+	if opts.jsonOutput {
+		return prettyPrintJSON(os.Stdout, payload)
+	}
+	var resp workspaceFsckResponse
+	if err := json.Unmarshal(payload, &resp); err != nil {
+		return err
+	}
+	printWorkspaceFsck(resp)
 	return nil
 }
 
@@ -3181,6 +3226,37 @@ func printWorkspaceCheck(resp workspaceCheckResponse) {
 	}
 }
 
+func printWorkspaceFsck(resp workspaceFsckResponse) {
+	ws := resp.Workspace
+	fmt.Printf("Workspace: %s\n", ws.Name)
+	fmt.Printf("ID: %s\n", ws.ID)
+	fmt.Printf("Method: %s\n", orDash(resp.Method))
+	fmt.Printf("Mode: %s\n", strings.ToUpper(resp.Mode))
+	fmt.Printf("Status: %s\n", strings.ToUpper(resp.Status))
+	fmt.Printf("Exit Code: %d\n", resp.ExitCode)
+	if strings.TrimSpace(resp.ExitSummary) != "" {
+		fmt.Printf("Exit Summary: %s\n", resp.ExitSummary)
+	}
+	fmt.Printf("Volume Path: %s\n", orDash(resp.Volume.Path))
+	fmt.Printf("Attached VMID: %s\n", vmidString(ws.AttachedVMID))
+	if strings.TrimSpace(resp.StartedAt) != "" {
+		fmt.Printf("Started At: %s\n", resp.StartedAt)
+	}
+	if strings.TrimSpace(resp.CompletedAt) != "" {
+		fmt.Printf("Completed At: %s\n", resp.CompletedAt)
+	}
+	if resp.RebootRequired {
+		fmt.Println("Note: Filesystem recommends a reboot.")
+	}
+	if resp.NeedsRepair && strings.EqualFold(resp.Mode, "read-only") {
+		fmt.Printf("Remediation: agentlab workspace fsck %s --repair\n", workspaceReferenceForCLI(resp.Workspace))
+	}
+	if strings.TrimSpace(resp.Output) != "" {
+		fmt.Println("Output:")
+		fmt.Println(resp.Output)
+	}
+}
+
 func printProfileList(profiles []profileResponse) {
 	w := tabwriter.NewWriter(os.Stdout, 2, 8, 2, ' ', 0)
 	fmt.Fprintln(w, "NAME\tTEMPLATE\tUPDATED")
@@ -3717,6 +3793,13 @@ func workspaceTargetName(workspaceID *string, create *workspaceCreateRequest) st
 		return *workspaceID
 	}
 	return ""
+}
+
+func workspaceReferenceForCLI(ws workspaceResponse) string {
+	if strings.TrimSpace(ws.Name) != "" {
+		return ws.Name
+	}
+	return ws.ID
 }
 
 func formatWorkspaceCheckDetails(details map[string]string) string {

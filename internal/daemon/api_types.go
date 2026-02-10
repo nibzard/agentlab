@@ -280,6 +280,32 @@ type V1WorkspaceCheckResponse struct {
 	CheckedAt string                    `json:"checked_at"`
 }
 
+type V1WorkspaceFSCKRequest struct {
+	Repair bool `json:"repair,omitempty"`
+}
+
+type V1WorkspaceFSCKVolume struct {
+	VolumeID string `json:"volid"`
+	Storage  string `json:"storage,omitempty"`
+	Path     string `json:"path,omitempty"`
+}
+
+type V1WorkspaceFSCKResponse struct {
+	Workspace      V1WorkspaceResponse   `json:"workspace"`
+	Volume         V1WorkspaceFSCKVolume `json:"volume"`
+	Method         string                `json:"method"`
+	Mode           string                `json:"mode"`
+	Status         string                `json:"status"`
+	ExitCode       int                   `json:"exit_code"`
+	ExitSummary    string                `json:"exit_summary,omitempty"`
+	NeedsRepair    bool                  `json:"needs_repair,omitempty"`
+	RebootRequired bool                  `json:"reboot_required,omitempty"`
+	Command        string                `json:"command,omitempty"`
+	Output         string                `json:"output,omitempty"`
+	StartedAt      string                `json:"started_at"`
+	CompletedAt    string                `json:"completed_at"`
+}
+
 type V1WorkspaceRebindResponse struct {
 	Workspace V1WorkspaceResponse `json:"workspace"`
 	Sandbox   V1SandboxResponse   `json:"sandbox"`
