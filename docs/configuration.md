@@ -85,6 +85,11 @@ The `metrics_listen` endpoint exposes Prometheus metrics and **must** be localho
 To enable remote control (tailnet-friendly), set `control_listen` and a bearer token.
 The listener is disabled by default and should be bound to loopback or a Tailscale IP.
 
+Quick setup: `scripts/install_host.sh --enable-remote-control` (or `agentlab init --apply`) will
+populate `control_listen` and `control_auth_token` in `/etc/agentlab/config.yaml` and set the
+file permissions to `0600`. Re-running the installer reuses the existing token unless you
+explicitly rotate or override it.
+
 Example (loopback + Tailscale Serve proxy):
 ```yaml
 control_listen: "127.0.0.1:8845"

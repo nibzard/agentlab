@@ -13,6 +13,9 @@ die() {
 usage() {
   cat <<'USAGE'
 Usage: scripts/install_host.sh [--prefix /usr/local] [--skip-socket-check]
+                              [--enable-remote-control] [--control-port 8845]
+                              [--control-token <token>] [--rotate-control-token]
+                              [--tailscale-serve|--no-tailscale-serve]
 
 Environment overrides:
   AGENTLABD_SRC       Path to agentlabd binary
@@ -24,6 +27,11 @@ Environment overrides:
   SKIP_SOCKET_CHECK   Set to 1 to skip socket permission verification
   INSTALL_SKILLS      Set to 0 to skip Claude Code skill installation
   CLAUDE_SKILLS_DIR   Override Claude Code skills directory
+  ENABLE_REMOTE_CONTROL  Set to 1 to enable remote control config
+  CONTROL_PORT           Control plane port (default 8845)
+  CONTROL_TOKEN          Control plane bearer token (optional)
+  ROTATE_CONTROL_TOKEN   Set to 1 to rotate control token
+  TAILSCALE_SERVE        auto|on|off (default auto)
 USAGE
 }
 
@@ -36,6 +44,12 @@ PREFIX="${PREFIX:-/usr/local}"
 SKIP_SOCKET_CHECK="${SKIP_SOCKET_CHECK:-0}"
 INSTALL_SKILLS="${INSTALL_SKILLS:-1}"
 CLAUDE_SKILLS_DIR="${CLAUDE_SKILLS_DIR:-}"
+ENABLE_REMOTE_CONTROL="${ENABLE_REMOTE_CONTROL:-0}"
+CONTROL_PORT="${CONTROL_PORT:-8845}"
+CONTROL_TOKEN="${CONTROL_TOKEN:-}"
+ROTATE_CONTROL_TOKEN="${ROTATE_CONTROL_TOKEN:-0}"
+TAILSCALE_SERVE="${TAILSCALE_SERVE:-auto}"
+REMOTE_CONTROL_REQUESTED=0
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -48,6 +62,37 @@ while [[ $# -gt 0 ]]; do
       SKIP_SOCKET_CHECK=1
       shift
       ;;
+    --enable-remote-control)
+      ENABLE_REMOTE_CONTROL=1
+      shift
+      ;;
+    --control-port)
+      [[ $# -lt 2 ]] && die "--control-port requires a value"
+      CONTROL_PORT="$2"
+      REMOTE_CONTROL_REQUESTED=1
+      shift 2
+      ;;
+    --control-token)
+      [[ $# -lt 2 ]] && die "--control-token requires a value"
+      CONTROL_TOKEN="$2"
+      REMOTE_CONTROL_REQUESTED=1
+      shift 2
+      ;;
+    --rotate-control-token)
+      ROTATE_CONTROL_TOKEN=1
+      REMOTE_CONTROL_REQUESTED=1
+      shift
+      ;;
+    --tailscale-serve)
+      TAILSCALE_SERVE="on"
+      REMOTE_CONTROL_REQUESTED=1
+      shift
+      ;;
+    --no-tailscale-serve)
+      TAILSCALE_SERVE="off"
+      REMOTE_CONTROL_REQUESTED=1
+      shift
+      ;;
     -h|--help)
       usage
       exit 0
@@ -57,6 +102,10 @@ while [[ $# -gt 0 ]]; do
       ;;
   esac
 done
+
+if [[ "$REMOTE_CONTROL_REQUESTED" == "1" ]]; then
+  ENABLE_REMOTE_CONTROL=1
+fi
 
 if [[ $EUID -ne 0 ]]; then
   die "This script must be run as root"
@@ -140,6 +189,177 @@ install_claude_skill() {
   fi
 }
 
+CONFIG_PATH="/etc/agentlab/config.yaml"
+CONFIG_UPDATED=0
+REMOTE_CONTROL_LISTEN=""
+REMOTE_CONTROL_TOKEN=""
+REMOTE_CONTROL_DNS=""
+
+normalize_tailscale_serve() {
+  case "${TAILSCALE_SERVE}" in
+    auto|on|off)
+      return
+      ;;
+    1|true|yes)
+      TAILSCALE_SERVE="on"
+      ;;
+    0|false|no)
+      TAILSCALE_SERVE="off"
+      ;;
+    *)
+      die "TAILSCALE_SERVE must be auto, on, or off (got: ${TAILSCALE_SERVE})"
+      ;;
+  esac
+}
+
+validate_control_port() {
+  if ! [[ "${CONTROL_PORT}" =~ ^[0-9]+$ ]]; then
+    die "control port must be numeric (got: ${CONTROL_PORT})"
+  fi
+  if (( CONTROL_PORT < 1 || CONTROL_PORT > 65535 )); then
+    die "control port must be between 1 and 65535 (got: ${CONTROL_PORT})"
+  fi
+}
+
+generate_control_token() {
+  if command -v openssl >/dev/null 2>&1; then
+    openssl rand -hex 32
+    return
+  fi
+  if command -v od >/dev/null 2>&1; then
+    head -c 32 /dev/urandom | od -An -tx1 | tr -d ' \n'
+    return
+  fi
+  head -c 32 /dev/urandom | base64 | tr -d '\n'
+}
+
+yaml_quote() {
+  local value="$1"
+  value="${value//\\/\\\\}"
+  value="${value//\"/\\\"}"
+  printf '"%s"' "$value"
+}
+
+config_get() {
+  local key="$1"
+  [[ -f "$CONFIG_PATH" ]] || return 0
+  awk -v key="$key" '
+    $0 ~ "^[[:space:]]*" key ":" {
+      sub("^[[:space:]]*" key ":[[:space:]]*", "", $0)
+      sub(/[[:space:]]+#.*/, "", $0)
+      gsub(/^[\"\047]/, "", $0)
+      gsub(/[\"\047]$/, "", $0)
+      print $0
+      exit
+    }' "$CONFIG_PATH"
+}
+
+config_upsert() {
+  local key="$1"
+  local value="$2"
+  local line="${key}: $(yaml_quote "$value")"
+  local tmp
+  tmp="$(mktemp)"
+  if [[ -f "$CONFIG_PATH" ]]; then
+    awk -v key="$key" -v line="$line" '
+      BEGIN {done=0}
+      {
+        if ($0 ~ "^[[:space:]]*" key ":") {
+          print line
+          done=1
+          next
+        }
+        print
+      }
+      END {
+        if (!done) print line
+      }' "$CONFIG_PATH" > "$tmp"
+  else
+    printf "%s\n" "$line" > "$tmp"
+  fi
+  if [[ ! -f "$CONFIG_PATH" ]] || ! cmp -s "$tmp" "$CONFIG_PATH"; then
+    mv "$tmp" "$CONFIG_PATH"
+    CONFIG_UPDATED=1
+  else
+    rm -f "$tmp"
+  fi
+  chmod 0600 "$CONFIG_PATH"
+  chown root:root "$CONFIG_PATH"
+}
+
+tailscale_running() {
+  command -v tailscale >/dev/null 2>&1 || return 1
+  tailscale status >/dev/null 2>&1
+}
+
+tailscale_dns_name() {
+  local json dns host suffix
+  json="$(tailscale status --json 2>/dev/null | tr -d '\n')"
+  dns="$(printf '%s' "$json" | sed -n 's/.*"DNSName":"\\([^"]*\\)".*/\\1/p')"
+  dns="${dns%.}"
+  if [[ -z "$dns" ]]; then
+    host="$(printf '%s' "$json" | sed -n 's/.*"HostName":"\\([^"]*\\)".*/\\1/p')"
+    suffix="$(printf '%s' "$json" | sed -n 's/.*"MagicDNSSuffix":"\\([^"]*\\)".*/\\1/p')"
+    suffix="${suffix%.}"
+    if [[ -n "$host" && -n "$suffix" ]]; then
+      dns="${host}.${suffix}"
+    fi
+  fi
+  if [[ -n "$dns" ]]; then
+    printf "%s" "$dns"
+    return 0
+  fi
+  return 1
+}
+
+configure_remote_control() {
+  if [[ "$ENABLE_REMOTE_CONTROL" != "1" ]]; then
+    return
+  fi
+
+  normalize_tailscale_serve
+  validate_control_port
+
+  local listen_host="127.0.0.1"
+  local listen="${listen_host}:${CONTROL_PORT}"
+  local existing_token
+  existing_token="$(config_get "control_auth_token" || true)"
+  local token=""
+
+  if [[ -n "$CONTROL_TOKEN" ]]; then
+    token="$CONTROL_TOKEN"
+  elif [[ "$ROTATE_CONTROL_TOKEN" == "1" ]]; then
+    token="$(generate_control_token)"
+  elif [[ -n "$existing_token" ]]; then
+    token="$existing_token"
+  else
+    token="$(generate_control_token)"
+  fi
+
+  config_upsert "control_listen" "$listen"
+  config_upsert "control_auth_token" "$token"
+
+  REMOTE_CONTROL_LISTEN="$listen"
+  REMOTE_CONTROL_TOKEN="$token"
+
+  if [[ "$TAILSCALE_SERVE" == "off" ]]; then
+    return
+  fi
+
+  if tailscale_running; then
+    log "Publishing control plane via tailscale serve (tcp ${CONTROL_PORT})"
+    tailscale serve --tcp="${CONTROL_PORT}" "tcp://${listen_host}:${CONTROL_PORT}"
+    if REMOTE_CONTROL_DNS="$(tailscale_dns_name)"; then
+      log "Tailscale DNS: ${REMOTE_CONTROL_DNS}"
+    fi
+  else
+    if [[ "$TAILSCALE_SERVE" == "on" ]]; then
+      die "tailscale serve requested but tailscale is not running"
+    fi
+    log "Tailscale not running; skipping tailscale serve"
+  fi
+}
+
 if ! getent group agentlab >/dev/null 2>&1; then
   log "Creating system group agentlab"
   groupadd --system agentlab
@@ -155,6 +375,8 @@ install -d -o root -g agentlab -m 0750 \
 install -d -o root -g root -m 0700 \
   /etc/agentlab/secrets \
   /etc/agentlab/keys
+
+configure_remote_control
 
 log "Installing binaries to $BIN_DIR"
 install -d -m 0755 "$BIN_DIR"
@@ -177,6 +399,11 @@ fi
 log "Reloading systemd and enabling agentlabd"
 systemctl daemon-reload
 systemctl enable --now agentlabd.service
+
+if [[ "$CONFIG_UPDATED" == "1" ]]; then
+  log "Restarting agentlabd to apply config changes"
+  systemctl restart agentlabd.service
+fi
 
 if ! systemctl is-active --quiet agentlabd.service; then
   systemctl --no-pager --full status agentlabd.service || true
@@ -205,6 +432,15 @@ if [[ "$SKIP_SOCKET_CHECK" != "1" ]]; then
   log "Socket permissions OK (owner=$socket_owner group=$socket_group mode=$socket_mode)"
 else
   log "Skipping socket permission check"
+fi
+
+if [[ "$ENABLE_REMOTE_CONTROL" == "1" && -n "$REMOTE_CONTROL_TOKEN" ]]; then
+  local_endpoint="http://${REMOTE_CONTROL_LISTEN}"
+  if [[ -n "$REMOTE_CONTROL_DNS" ]]; then
+    local_endpoint="http://${REMOTE_CONTROL_DNS}:${CONTROL_PORT}"
+  fi
+  log "Remote control endpoint: ${local_endpoint}"
+  log "Connect with: agentlab connect --endpoint ${local_endpoint} --token ${REMOTE_CONTROL_TOKEN}"
 fi
 
 log "Install complete"

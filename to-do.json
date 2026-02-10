@@ -2443,17 +2443,18 @@
         "cli"
       ],
       "files": [
-        "internal/daemon/doctor.go",
-        "internal/daemon/api.go",
-        "internal/daemon/daemon.go",
-        "internal/daemon/doctor_test.go",
         "cmd/agentlab/commands.go",
         "cmd/agentlab/main.go",
         "cmd/agentlab/main_test.go",
-        "docs/troubleshooting.md"
+        "docs/troubleshooting.md",
+        "internal/daemon/api.go",
+        "internal/daemon/daemon.go",
+        "internal/daemon/doctor.go",
+        "internal/daemon/doctor_test.go",
+        "to-do.json"
       ],
       "created_at": "2026-02-09T09:49:20Z",
-      "updated_at": "2026-02-10T02:55:12Z"
+      "updated_at": "2026-02-10T02:55:52Z"
     },
     {
       "id": "T101",
@@ -2661,7 +2662,7 @@
       "id": "T107",
       "title": "Host setup: enable remote control + tailscale serve publishing in install/init",
       "priority": 2,
-      "status": "todo",
+      "status": "done",
       "details": "Make the proxmox-side setup one-and-done: install agentlabd, enable a local-only TCP control port, generate a control token, and (if tailscale is available) publish that control port to the tailnet via `tailscale serve`. The script should print a copy-pastable `agentlab connect ...` command.",
       "steps": [
         "scripts/install_host.sh: add optional flags like --enable-remote-control, --control-port 8845, --control-token (optional, else generate), and --tailscale-serve (auto if tailscale is running).",
@@ -2679,17 +2680,18 @@
       ],
       "files": [
         "scripts/install_host.sh",
-        "internal/config/config.go",
+        "cmd/agentlab/init.go",
+        "cmd/agentlab/main.go",
         "docs/runbook.md",
-        "docs/configuration.md",
-        "scripts/net/setup_tailscale_router.sh"
+        "docs/configuration.md"
       ],
       "depends_on": [
         "T002",
         "T105",
         "T101"
       ],
-      "created_at": "2026-02-09T12:17:58Z"
+      "created_at": "2026-02-09T12:17:58Z",
+      "updated_at": "2026-02-10T03:09:43Z"
     },
     {
       "id": "T108",

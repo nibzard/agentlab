@@ -119,10 +119,23 @@ sudo systemctl restart agentlabd.service
 
 ## Remote CLI (tailnet)
 
-If you enabled the TCP control plane, you can connect from another machine (Mac, CI runner, etc.):
+Enable the TCP control plane on the host, then connect from another machine (Mac, CI runner, etc.).
+
+Quick enable (host):
 
 ```bash
-agentlab connect --endpoint https://host.tailnet.ts.net:8845 --token <token>
+sudo scripts/install_host.sh --enable-remote-control
+# or:
+sudo agentlab init --apply
+```
+
+This configures `control_listen` on `127.0.0.1:8845`, generates a token if missing, and publishes the port
+with `tailscale serve` when Tailscale is running. The script prints a copy-pastable `agentlab connect` command.
+
+Connect from another machine:
+
+```bash
+agentlab connect --endpoint http://host.tailnet.ts.net:8845 --token <token>
 ```
 
 This writes a local client config file at `$XDG_CONFIG_HOME/agentlab/client.json` (or `~/.config/agentlab/client.json`) with permissions set to `0600`. Commands will use the saved endpoint and token automatically.
@@ -285,7 +298,7 @@ Direct mode prerequisites:
 ProxyJump setup (recommended for remote clients that cannot accept routes):
 1) Save jump defaults when you connect:
 ```bash
-agentlab connect --endpoint https://host.tailnet.ts.net:8845 --token <token> --jump-user <user>
+agentlab connect --endpoint http://host.tailnet.ts.net:8845 --token <token> --jump-user <user>
 ```
 2) SSH normally:
 ```bash
@@ -305,6 +318,18 @@ Non-interactive tips:
 AgentLabd can expose the control API over TCP so you can run `agentlab` from
 another tailnet device. This listener is optional and must be protected with a
 Bearer token.
+
+Quick enable (host):
+
+```bash
+sudo scripts/install_host.sh --enable-remote-control
+# or:
+sudo agentlab init --apply
+```
+
+The installer writes `control_listen`/`control_auth_token` to `/etc/agentlab/config.yaml`
+(permissions set to `0600`). Re-running the installer reuses the existing token unless you
+pass `--rotate-control-token` or `--control-token`.
 
 Recommended pattern A: bind to loopback and publish with Tailscale Serve:
 

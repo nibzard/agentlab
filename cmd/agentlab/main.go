@@ -52,6 +52,7 @@ const usageText = `agentlab is the CLI for agentlabd.
 Usage:
   agentlab --version
   agentlab [--endpoint URL] [--token TOKEN] [--socket PATH] [--json] [--timeout DURATION] status
+  agentlab [--endpoint URL] [--token TOKEN] [--socket PATH] [--json] [--timeout DURATION] init [--apply] [--control-port <port>] [--control-token <token>] [--rotate-control-token] [--tailscale-serve|--no-tailscale-serve]
   agentlab [--endpoint URL] [--token TOKEN] [--socket PATH] [--json] [--timeout DURATION] job run --repo <url> --task <task> --profile <profile> [--ref <ref>] [--branch <branch>] [--mode <mode>] [--ttl <ttl>] [--keepalive] [--workspace <id|name|new:name>] [--workspace-create <name>] [--workspace-size <size>] [--workspace-storage <storage>] [--workspace-wait <duration>] [--stateful]
   agentlab [--endpoint URL] [--token TOKEN] [--socket PATH] [--json] [--timeout DURATION] job show <job_id> [--events-tail <n>]
   agentlab [--endpoint URL] [--token TOKEN] [--socket PATH] [--json] [--timeout DURATION] job artifacts <job_id>
@@ -231,6 +232,8 @@ func dispatch(ctx context.Context, args []string, base commonFlags) error {
 	switch args[0] {
 	case "status":
 		return withDefaultNext(runStatusCommand(ctx, args[1:], base), "agentlab status --help")
+	case "init":
+		return withDefaultNext(runInitCommand(ctx, args[1:], base), "agentlab init --help")
 	case "job":
 		return withDefaultNext(runJobCommand(ctx, args[1:], base), "agentlab job --help")
 	case "sandbox":
@@ -255,7 +258,7 @@ func dispatch(ctx context.Context, args []string, base commonFlags) error {
 		if !base.jsonOutput {
 			printUsage()
 		}
-		return unknownCommandError(args[0], []string{"status", "job", "sandbox", "workspace", "session", "profile", "msg", "ssh", "logs", "connect", "disconnect"})
+		return unknownCommandError(args[0], []string{"status", "init", "job", "sandbox", "workspace", "session", "profile", "msg", "ssh", "logs", "connect", "disconnect"})
 	}
 }
 
@@ -297,6 +300,10 @@ func printJobUsage() {
 
 func printStatusUsage() {
 	fmt.Fprintln(os.Stdout, "Usage: agentlab status")
+}
+
+func printInitUsage() {
+	fmt.Fprintln(os.Stdout, "Usage: agentlab init [--apply] [--control-port <port>] [--control-token <token>] [--rotate-control-token] [--tailscale-serve|--no-tailscale-serve]")
 }
 
 func printJobRunUsage() {
