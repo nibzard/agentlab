@@ -80,6 +80,29 @@ This generates:
 - `coverage.out` - Machine-readable coverage data
 - `coverage.html` - Interactive HTML coverage report
 
+### Run Coverage Audit (recommended)
+
+```bash
+make coverage-audit
+```
+
+This runs unit tests with coverage and prints:
+- Overall coverage
+- Per-package coverage (ascending)
+- Lowest coverage files/functions
+
+It writes artifacts to `dist/coverage/` by default. Override with:
+- `COVERAGE_DIR=/tmp/coverage`
+- `TOP_N=25` (change the number of low-coverage items shown)
+
+### Generate Coverage HTML Report (dist/)
+
+```bash
+make coverage-html
+```
+
+This writes `dist/coverage/coverage.html`.
+
 ### Run Race Detector
 
 The race detector helps find concurrent data access bugs:
@@ -487,35 +510,78 @@ func openTestStore(t *testing.T) *Store {
 ### Generating Coverage Reports
 
 ```bash
-make test-coverage
+make coverage-html
 ```
 
-Or manually:
+`make test-coverage` still writes `coverage.out` and `coverage.html` to the repo root for quick local use.
+
+### Coverage Audit Workflow
 
 ```bash
-go test -coverprofile=coverage.out -covermode=atomic ./...
-go tool cover -html=coverage.out -o coverage.html
+make coverage-audit
 ```
+
+This emits:
+- Overall coverage
+- Per-package coverage (ascending)
+- Lowest coverage files/functions
+
+It also writes:
+- `dist/coverage/coverage.out`
+- `dist/coverage/coverage.func.txt`
 
 ### Reading Coverage Reports
 
-Open `coverage.html` in a browser:
+Open `dist/coverage/coverage.html` (or `coverage.html` if you used `make test-coverage`) in a browser:
 - Green lines: Covered by tests
 - Red lines: Not covered
 - Yellow: Partially covered (e.g., some branches not tested)
 
-### Coverage Goals
+### Baseline Snapshot (2026-02-10)
 
-While there's no strict minimum, aim for:
-- **Core logic**: 80%+ coverage (db, daemon, models)
-- **Configuration**: 90%+ coverage (many edge cases)
-- **CLI commands**: 70%+ coverage
+Overall coverage: **46.3%**
+
+Per-package baseline (coverage-audit, sorted ascending):
+
+| Package | Coverage |
+| --- | --- |
+| `cmd/agentlab` | 37.3% |
+| `internal/config` | 45.1% |
+| `internal/proxmox` | 45.2% |
+| `internal/daemon` | 49.0% |
+| `cmd/agentlabd` | 50.0% |
+| `internal/secrets` | 58.9% |
+| `internal/db` | 68.7% |
+| `internal/buildinfo` | 100.0% |
+
+Note: `internal/testing` currently reports 0.0% (helper-only package) and is excluded from targets.
+
+### Coverage Targets (initial)
+
+Targets are conservative and are expected to ratchet up each coverage sprint.
+
+| Package | Baseline | Target | Rationale |
+| --- | --- | --- | --- |
+| `cmd/agentlab` | 37.3% | 50% | CLI request building + remote auth edge cases |
+| `internal/config` | 45.1% | 60% | Validation and merge precedence |
+| `internal/daemon` | 49.0% | 60% | Handler wiring + auth middleware |
+| `internal/proxmox` | 45.2% | 55% | API backend error paths |
+| `cmd/agentlabd` | 50.0% | 60% | Daemon startup/config wiring |
+| `internal/secrets` | 58.9% | 70% | Bundle parsing + redaction safety |
+| `internal/db` | 68.7% | 75% | Core data invariants |
 
 Focus coverage on:
 - Complex business logic
 - Error handling paths
 - State transitions
 - Validation code
+
+### Next Coverage Slices (prioritized)
+
+1. `cmd/agentlab`: CLI request building, remote auth errors, config precedence.
+2. `internal/config`: validation rules and merge precedence.
+3. `internal/daemon`: auth middleware, handler edge cases, wiring.
+4. `internal/proxmox`: API backend error handling.
 
 ### View Package Coverage
 
@@ -527,9 +593,9 @@ go test -cover ./...
 
 Output:
 ```
-ok      github.com/agentlab/agentlab/internal/config    90.5%   coverage
-ok      github.com/agentlab/agentlab/internal/db        85.2%   coverage
-ok      github.com/agentlab/agentlab/internal/daemon    78.1%   coverage
+ok      github.com/agentlab/agentlab/cmd/agentlab         coverage: 37.3% of statements
+ok      github.com/agentlab/agentlab/internal/config      coverage: 45.1% of statements
+ok      github.com/agentlab/agentlab/internal/daemon      coverage: 49.0% of statements
 ```
 
 ---
@@ -847,6 +913,12 @@ make test
 # Run with coverage
 make test-coverage
 
+# Run coverage audit
+make coverage-audit
+
+# Generate coverage HTML (dist/)
+make coverage-html
+
 # Run race detector
 make test-race
 
@@ -869,5 +941,5 @@ go test -parallel 4 ./...
 go test -short ./...
 
 # View coverage
-open coverage.html
+open dist/coverage/coverage.html
 ```

@@ -2781,14 +2781,15 @@
         "cmd/agentlab/bootstrap_test.go",
         "cmd/agentlab/main.go",
         "cmd/agentlab/main_test.go",
-        "docs/runbook.md"
+        "docs/runbook.md",
+        "to-do.json"
       ],
       "depends_on": [
         "T107",
         "T106"
       ],
       "created_at": "2026-02-09T12:17:58Z",
-      "updated_at": "2026-02-10T04:13:48Z"
+      "updated_at": "2026-02-10T04:15:37Z"
     },
     {
       "id": "T110",
@@ -2886,7 +2887,7 @@
       "id": "T113",
       "title": "Coverage program: add coverage audit tooling + baselines + targets",
       "priority": 3,
-      "status": "todo",
+      "status": "done",
       "details": "Set up an iterative, high-signal coverage program: (1) generate repeatable per-package and per-file coverage reports, (2) define target thresholds for critical packages, and (3) make it easy to pick the next coverage improvement slice. This turns 'increase coverage' into a concrete workflow.",
       "steps": [
         "Add a local coverage audit tool (script or small Go program) that runs unit tests with coverage and produces: (a) overall coverage, (b) per-package coverage sorted ascending, and (c) top uncovered functions/files. (Example: `go tool cover -func` + sorting).",
@@ -2903,13 +2904,13 @@
       "files": [
         "Makefile",
         "docs/testing.md",
-        ".github/workflows/ci.yml",
         "scripts/dev/coverage_audit.sh"
       ],
       "depends_on": [
         "T112"
       ],
-      "created_at": "2026-02-10T01:59:57Z"
+      "created_at": "2026-02-10T01:59:57Z",
+      "updated_at": "2026-02-10T04:22:03Z"
     },
     {
       "id": "T114",
