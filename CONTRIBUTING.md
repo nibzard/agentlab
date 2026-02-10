@@ -37,6 +37,8 @@ Before you begin, ensure you have the following installed:
 - **Proxmox VE**: For integration testing (see [Development Without Proxmox](#development-without-proxmox) for alternatives)
 - **gofmt**: Comes with Go, used for code formatting
 - **go vet**: Comes with Go, used for static analysis
+- **staticcheck**: Installed via `make staticcheck` (pinned version, stored in `bin/tools`)
+- **govulncheck**: Installed via `make govulncheck` (pinned version, stored in `bin/tools`)
 
 ## Development Environment Setup
 
@@ -69,8 +71,8 @@ go mod verify
 # Build the project to ensure everything works
 make build
 
-# Run the linter
-make lint
+# Run quality checks (gofmt, vet, staticcheck, govulncheck)
+make quality
 
 # Run tests
 make test
@@ -189,7 +191,7 @@ This runs unit tests, race detector tests, and generates coverage reports.
 
 ### CI Parity (Recommended)
 
-Run the same checks as CI (lint, unit tests with `-count=1 -shuffle=on`, race, coverage):
+Run the same checks as CI (quality, unit tests with `-count=1 -shuffle=on`, race, coverage):
 
 ```bash
 make test-ci
@@ -225,6 +227,25 @@ make docs-tools
 ```
 
 This downloads `lychee` and `typos` into `bin/tools`. `docs-lint` requires Node.js for `npx`.
+
+### Static Analysis & Vulnerability Scanning
+
+AgentLab runs higher-signal static analysis and Go vulnerability scanning in CI.
+You can run them locally with:
+
+```bash
+# Static analysis (Staticcheck)
+make staticcheck
+
+# Vulnerability scanning (govulncheck)
+make govulncheck
+
+# Or run everything in order:
+make quality
+```
+
+`make quality` installs pinned versions of the tools into `bin/tools` (if missing) and runs:
+`gofmt` check, `go vet`, `staticcheck`, and `govulncheck`.
 
 ### Run Specific Tests
 

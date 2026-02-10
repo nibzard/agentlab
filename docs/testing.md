@@ -116,6 +116,23 @@ make test-race
 go test -race ./...
 ```
 
+### Static Analysis & Vulnerability Scanning
+
+AgentLab runs higher-signal static analysis and Go vulnerability scanning. Use the same
+targets CI uses:
+
+```bash
+# Run everything in order (gofmt, go vet, staticcheck, govulncheck)
+make quality
+
+# Run individually
+make staticcheck
+make govulncheck
+```
+
+`make quality` installs pinned versions of `staticcheck` and `govulncheck` into
+`bin/tools` if they are missing.
+
 ### Run Integration Tests (Fake Backend)
 
 Integration tests require the `integration` build tag:
@@ -657,7 +674,7 @@ jobs:
     steps:
       - Checkout
       - Set up Go
-      - Lint (make lint)
+      - Quality (make quality)
       - Test with Coverage
       - Upload Coverage to Codecov
       - Comment Coverage on PR
@@ -668,7 +685,7 @@ jobs:
 
 ### What Runs in CI
 
-1. **Lint**: `make lint` - Code formatting and vet
+1. **Quality**: `make quality` - gofmt check, go vet, staticcheck, govulncheck
 2. **Test**: Unit tests with coverage
 3. **Coverage**: Uploads to Codecov, comments on PR
 4. **Race Detector**: `make test-race`

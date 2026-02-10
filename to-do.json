@@ -3147,25 +3147,25 @@
         "ci"
       ],
       "files": [
-        "docs/cli.md",
-        "scripts/dev/gen_cli_docs.sh",
-        "Makefile",
         ".github/workflows/ci.yml",
+        "Makefile",
+        "docs/cli.md",
         "docs/runbook.md",
         "docs/troubleshooting.md",
+        "scripts/dev/gen_cli_docs.sh",
         "to-do.json"
       ],
       "depends_on": [
         "T118"
       ],
       "created_at": "2026-02-10T01:59:57Z",
-      "updated_at": "2026-02-10T06:00:14Z"
+      "updated_at": "2026-02-10T06:01:05Z"
     },
     {
       "id": "T121",
       "title": "Quality gates: add static analysis + vuln scanning (staticcheck, govulncheck) with Makefile+CI parity",
       "priority": 4,
-      "status": "todo",
+      "status": "done",
       "details": "Augment the current linting (gofmt + go vet) with higher-signal static analysis and vulnerability scanning. This catches correctness issues earlier and strengthens the docs-as-code + coverage work by ensuring changes are not only tested but also statically sane.",
       "steps": [
         "Add Makefile targets: `make staticcheck` and `make govulncheck` (pin tool versions via `go install ...@<ver>`).",
@@ -3186,7 +3186,8 @@
         "CONTRIBUTING.md",
         "docs/testing.md"
       ],
-      "created_at": "2026-02-10T02:11:55Z"
+      "created_at": "2026-02-10T02:11:55Z",
+      "updated_at": "2026-02-10T06:03:58Z"
     },
     {
       "id": "T122",
