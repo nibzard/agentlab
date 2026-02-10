@@ -117,7 +117,21 @@ func Run(ctx context.Context, cfg config.Config) error {
 //
 // Returns an error if any listener fails to bind or if required directories
 // cannot be created.
+// NewService constructs a service with backend selection based on config.
 func NewService(cfg config.Config, profiles map[string]models.Profile, store *db.Store) (*Service, error) {
+	return newService(cfg, profiles, store, nil)
+}
+
+// NewServiceWithBackend constructs a service using the provided backend.
+// This is primarily intended for tests that want deterministic backends.
+func NewServiceWithBackend(cfg config.Config, profiles map[string]models.Profile, store *db.Store, backend proxmox.Backend) (*Service, error) {
+	if backend == nil {
+		return nil, errors.New("backend is required")
+	}
+	return newService(cfg, profiles, store, backend)
+}
+
+func newService(cfg config.Config, profiles map[string]models.Profile, store *db.Store, backendOverride proxmox.Backend) (*Service, error) {
 	if err := ensureDir(cfg.RunDir, runDirPerms); err != nil {
 		return nil, err
 	}
@@ -179,52 +193,57 @@ func NewService(cfg config.Config, profiles map[string]models.Profile, store *db
 		}
 	}
 
-	// Create Proxmox backend based on configuration
+	// Create Proxmox backend based on configuration (unless overridden)
 	var backend proxmox.Backend
-	switch strings.ToLower(strings.TrimSpace(cfg.ProxmoxBackend)) {
-	case "api":
-		// Use API backend
-		apiBackend, err := proxmox.NewAPIBackend(
-			cfg.ProxmoxAPIURL,
-			cfg.ProxmoxAPIToken,
-			cfg.ProxmoxNode,
-			agentCIDR,
-			cfg.ProxmoxCommandTimeout,
-			cfg.ProxmoxTLSInsecure,
-			cfg.ProxmoxTLSCAPath,
-		)
-		if err != nil {
+	if backendOverride != nil {
+		backend = backendOverride
+		log.Printf("using provided Proxmox backend override")
+	} else {
+		switch strings.ToLower(strings.TrimSpace(cfg.ProxmoxBackend)) {
+		case "api":
+			// Use API backend
+			apiBackend, err := proxmox.NewAPIBackend(
+				cfg.ProxmoxAPIURL,
+				cfg.ProxmoxAPIToken,
+				cfg.ProxmoxNode,
+				agentCIDR,
+				cfg.ProxmoxCommandTimeout,
+				cfg.ProxmoxTLSInsecure,
+				cfg.ProxmoxTLSCAPath,
+			)
+			if err != nil {
+				_ = metricsListener.Close()
+				_ = artifactListener.Close()
+				_ = bootstrapListener.Close()
+				_ = unixListener.Close()
+				return nil, fmt.Errorf("create Proxmox API backend: %w", err)
+			}
+			apiBackend.CloneMode = cloneMode
+			apiBackend.AllowShellFallback = cfg.ProxmoxAPIShellFallback
+			if cfg.ProxmoxAPIShellFallback {
+				apiBackend.ShellFallback = &proxmox.ShellBackend{
+					CommandTimeout: cfg.ProxmoxCommandTimeout,
+					Runner:         &proxmox.BashRunner{},
+				}
+			}
+			backend = apiBackend
+			log.Printf("using Proxmox API backend (url=%s)", cfg.ProxmoxAPIURL)
+		case "shell", "", "default":
+			// Use shell backend (backward compatible)
+			backend = &proxmox.ShellBackend{
+				CommandTimeout: cfg.ProxmoxCommandTimeout,
+				AgentCIDR:      agentCIDR,
+				Runner:         &proxmox.BashRunner{},
+				CloneMode:      cloneMode,
+			}
+			log.Printf("using Proxmox shell backend")
+		default:
 			_ = metricsListener.Close()
 			_ = artifactListener.Close()
 			_ = bootstrapListener.Close()
 			_ = unixListener.Close()
-			return nil, fmt.Errorf("create Proxmox API backend: %w", err)
+			return nil, fmt.Errorf("unknown proxmox_backend: %s (must be 'api' or 'shell')", cfg.ProxmoxBackend)
 		}
-		apiBackend.CloneMode = cloneMode
-		apiBackend.AllowShellFallback = cfg.ProxmoxAPIShellFallback
-		if cfg.ProxmoxAPIShellFallback {
-			apiBackend.ShellFallback = &proxmox.ShellBackend{
-				CommandTimeout: cfg.ProxmoxCommandTimeout,
-				Runner:         &proxmox.BashRunner{},
-			}
-		}
-		backend = apiBackend
-		log.Printf("using Proxmox API backend (url=%s)", cfg.ProxmoxAPIURL)
-	case "shell", "", "default":
-		// Use shell backend (backward compatible)
-		backend = &proxmox.ShellBackend{
-			CommandTimeout: cfg.ProxmoxCommandTimeout,
-			AgentCIDR:      agentCIDR,
-			Runner:         &proxmox.BashRunner{},
-			CloneMode:      cloneMode,
-		}
-		log.Printf("using Proxmox shell backend")
-	default:
-		_ = metricsListener.Close()
-		_ = artifactListener.Close()
-		_ = bootstrapListener.Close()
-		_ = unixListener.Close()
-		return nil, fmt.Errorf("unknown proxmox_backend: %s (must be 'api' or 'shell')", cfg.ProxmoxBackend)
 	}
 	workspaceManager := NewWorkspaceManager(store, backend, log.Default())
 	sandboxManager := NewSandboxManager(store, backend, log.Default()).WithWorkspaceManager(workspaceManager).WithMetrics(metrics)
@@ -422,6 +441,15 @@ func (s *Service) Serve(ctx context.Context) error {
 
 	_ = os.Remove(s.cfg.SocketPath)
 	return serveErr
+}
+
+// ControlAddr returns the bound control listener address (host:port).
+// Returns empty string if the control listener is not enabled.
+func (s *Service) ControlAddr() string {
+	if s == nil || s.controlListener == nil {
+		return ""
+	}
+	return s.controlListener.Addr().String()
 }
 
 func (s *Service) shutdown() {

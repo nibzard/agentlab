@@ -56,7 +56,6 @@ jobs:
           if-no-files-found: warn
           retention-days: 30
       - name: Integration Tests
-        run: go test -tags=integration -short ./tests/...
-        continue-on-error: true
+        run: go test -tags=integration ./tests/...
       - name: Build
         run: make build

@@ -19,7 +19,7 @@ This guide covers everything you need to know about testing in AgentLab, includi
 
 ## Test Organization
 
-AgentLab uses a two-tier testing approach:
+AgentLab uses a three-tier testing approach:
 
 ### Unit Tests (`*_test.go`)
 
@@ -44,15 +44,18 @@ Integration tests live in the `tests/` directory and test the full system:
 
 ```
 tests/
-└── integration_test.go      # End-to-end integration tests
+├── integration_test.go      # In-process daemon tests (fake Proxmox backend)
+└── e2e_proxmox_test.go       # Real Proxmox end-to-end tests (build tag: e2e)
 ```
 
 Integration tests are build-tagged with `//go:build integration` and are not run by default.
+Real Proxmox tests use the `e2e` build tag and are opt-in.
 
 ### Why Separate Them?
 
 - **Unit tests** run fast and test individual components in isolation
-- **Integration tests** are slower but verify components work together correctly
+- **Integration tests** are slower but verify components work together correctly (fake backend)
+- **E2E tests** run against a real Proxmox host and validate the full stack
 - This separation allows developers to run quick unit tests during development
 - Integration tests can be run separately before committing or in CI
 
@@ -113,20 +116,22 @@ make test-race
 go test -race ./...
 ```
 
-### Run Integration Tests
+### Run Integration Tests (Fake Backend)
 
 Integration tests require the `integration` build tag:
 
 ```bash
 make test-integration
 # Or directly:
-go test -tags=integration ./...
+go test -tags=integration ./tests/...
 ```
 
-Skip integration tests in short mode:
+### Run End-to-End Tests (Real Proxmox)
+
+E2E tests require the `e2e` build tag and a configured Proxmox environment:
 
 ```bash
-go test -tags=integration -short ./tests/...
+go test -tags=e2e ./tests/...
 ```
 
 ### Run All Tests
@@ -284,7 +289,7 @@ func TestSomething(t *testing.T) {
 
 ### Build Tags
 
-Integration tests use the `integration` build tag:
+Integration tests use the `integration` build tag (fake backend):
 
 ```go
 //go:build integration
@@ -299,78 +304,41 @@ import (
 ```
 
 This keeps them from running by default. Add `-tags=integration` to run them.
+Real Proxmox tests live under the `e2e` build tag.
 
 ### Test Structure
 
-Integration tests typically follow a lifecycle pattern:
+Integration tests typically follow a lifecycle pattern and exercise real HTTP endpoints:
 
 ```go
-func TestCompleteJobLifecycle(t *testing.T) {
-    if testing.Short() {
-        t.Skip("skipping integration test in short mode")
-    }
+func TestControlPlaneStatus(t *testing.T) {
+    h := newIntegrationHarness(t)
 
-    ctx := context.Background()
-    store := openTestDB(t)
+    code, _, body := apiRequest(t, h.remoteClient, h.controlURL, http.MethodGet, "/v1/status", h.token, nil)
+    require.Equal(t, http.StatusOK, code)
 
-    // Step 1: Create a job
-    job := models.Job{
-        ID:        "integration-test-job-1",
-        RepoURL:   "https://github.com/example/repo",
-        Status:    models.JobQueued,
-        CreatedAt: time.Now().UTC(),
-    }
-    err := store.CreateJob(ctx, job)
-    require.NoError(t, err)
-
-    // Step 2: Transition through states
-    err = store.UpdateJobStatus(ctx, job.ID, models.JobRunning)
-    require.NoError(t, err)
-
-    // Step 3: Create and attach sandbox
-    // ...
-
-    // Step 4: Complete job
-    err = store.UpdateJobResult(ctx, job.ID, models.JobCompleted, resultJSON)
-    require.NoError(t, err)
+    var resp daemon.V1StatusResponse
+    require.NoError(t, json.Unmarshal(body, &resp))
 }
 ```
 
 ### Test Environment Setup
 
-Integration tests use environment variables for configuration:
-
-```go
-func integrationConfig(t *testing.T) config.Config {
-    t.Helper()
-
-    profilesDir := os.Getenv("AGENTLAB_PROFILES_DIR")
-    if profilesDir == "" {
-        profilesDir = "/etc/agentlab/profiles"
-    }
-
-    dataDir := os.Getenv("AGENTLAB_DATA_DIR")
-    if dataDir == "" {
-        dataDir = t.TempDir()
-    }
-
-    return config.Config{
-        ProfilesDir: profilesDir,
-        DataDir:     dataDir,
-        // ...
-    }
-}
-```
+Fake-backend integration tests use temporary directories and do not require external
+environment variables. E2E tests should read Proxmox credentials and host settings
+from environment variables or a secure local config file.
 
 ### Requirements
 
-Integration tests may require:
-- A running Proxmox instance (or mock)
-- Valid Proxmox credentials
-- Network access
-- Specific profile configurations
+Integration tests (fake backend) require:
+- No external services
+- Temporary dirs for state/artifacts
+- A deterministic fake Proxmox backend
 
-Always check for `testing.Short()` to allow skipping in quick test runs.
+E2E tests require:
+- A running Proxmox instance
+- Valid Proxmox credentials
+- Network access and a prebuilt template
 
 ---
 
@@ -683,7 +651,7 @@ jobs:
       - Upload Coverage to Codecov
       - Comment Coverage on PR
       - Test Race Detector
-      - Integration Tests (continue-on-error: true)
+      - Integration Tests (fake backend)
       - Build
 ```
 
@@ -693,7 +661,7 @@ jobs:
 2. **Test**: Unit tests with coverage
 3. **Coverage**: Uploads to Codecov, comments on PR
 4. **Race Detector**: `make test-race`
-5. **Integration Tests**: With `-tags=integration -short`
+5. **Integration Tests**: With `-tags=integration` (fake backend, required)
 6. **Build**: Verifies code compiles
 
 ### Coverage Comments
@@ -705,10 +673,8 @@ Coverage is automatically commented on PRs:
 
 ### Integration Tests in CI
 
-Integration tests run with `continue-on-error: true` because they may require:
-- Specific Proxmox setup
-- Network access
-- Credentials not available in CI
+Integration tests run in CI against the fake backend and are expected to pass.
+Real Proxmox E2E tests use the `e2e` tag and are not run in CI.
 
 ---
 
@@ -817,7 +783,7 @@ t.Run("database error", func(t *testing.T) {
 - **Clean up resources** with `t.Cleanup()` or `t.TempDir()`
 - **Use descriptive test names** that explain what is being tested
 - **Test error paths** as thoroughly as happy paths
-- **Use `testing.Short()`** for slow integration tests
+- **Use `testing.Short()`** for slow or real-Proxmox E2E tests
 - **Add `t.Helper()`** to test helper functions
 
 ```go
@@ -924,6 +890,9 @@ make test-race
 
 # Run integration tests
 make test-integration
+
+# Run e2e tests (real Proxmox)
+go test -tags=e2e ./tests/...
 
 # Run all tests
 make test-all
