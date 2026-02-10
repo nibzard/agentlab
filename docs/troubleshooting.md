@@ -322,18 +322,27 @@ tailscale status
 
 **Solutions:**
 
-1. Ensure the subnet route is approved in the Tailscale admin console.
-2. Ensure the client device is accepting routes (macOS: `tailscale up --accept-routes`
+1. Ensure the subnet route is approved in the Tailscale admin console (look for `10.77.0.0/16`).
+2. If you see `no route to 10.77.0.0/16`, verify the host is advertising routes and the client has a route entry:
+```bash
+tailscale status
+```
+3. Ensure the client device is accepting routes (macOS: `sudo tailscale up --accept-routes`
    or enable subnet routes in the Tailscale app).
-3. If you cannot accept routes, configure a jump host:
+4. If you cannot accept routes, configure a jump host:
 ```bash
 agentlab connect --endpoint https://host.tailnet.ts.net:8845 --token <token> --jump-user <user>
 ```
-4. Or use ad-hoc ProxyJump:
+5. Or use ad-hoc ProxyJump:
 ```bash
 agentlab ssh <vmid> --jump-host host.tailnet.ts.net --jump-user <user>
 ```
-5. Verify SSH auth works for the jump host (key or Tailscale SSH).
+6. If ProxyJump auth fails, verify SSH works to the jump host directly and specify a key if needed:
+```bash
+ssh <user>@host.tailnet.ts.net
+agentlab ssh <vmid> --jump-host host.tailnet.ts.net --jump-user <user> --identity ~/.ssh/agentlab_id_ed25519
+```
+7. If you use Tailscale SSH, confirm it is enabled for the jump host and your user.
 
 ### VM cannot access internet
 

@@ -2541,14 +2541,15 @@
         "prd-safety"
       ],
       "files": [
-        "docs/state-model.md",
+        "README.md",
         "docs/architecture.md",
         "docs/faq.md",
+        "docs/state-model.md",
         "docs/troubleshooting.md",
-        "README.md"
+        "to-do.json"
       ],
       "created_at": "2026-02-09T09:49:20Z",
-      "updated_at": "2026-02-10T05:41:34Z"
+      "updated_at": "2026-02-10T05:42:19Z"
     },
     {
       "id": "T103",
@@ -2833,7 +2834,7 @@
       "id": "T111",
       "title": "Docs: remote CLI quickstart (connect/bootstrap) + non-interactive SSH guidance",
       "priority": 4,
-      "status": "todo",
+      "status": "done",
       "details": "Write a single page that a user (or coding agent) can follow to get from zero to fully-remote control: install on proxmox, enable tailnet access, connect from Mac, and ensure `agentlab ssh` works (direct or jump). Include copy/paste commands and troubleshooting.",
       "steps": [
         "Document the two recommended control-plane topologies: (A) 127.0.0.1:8845 + tailscale serve, (B) bind to tailscale IP.",
@@ -2849,6 +2850,7 @@
         "ssh"
       ],
       "files": [
+        "docs/remote-cli.md",
         "docs/runbook.md",
         "docs/troubleshooting.md",
         "README.md"
@@ -2859,7 +2861,8 @@
         "T108",
         "T107"
       ],
-      "created_at": "2026-02-09T12:17:58Z"
+      "created_at": "2026-02-09T12:17:58Z",
+      "updated_at": "2026-02-10T05:48:06Z"
     },
     {
       "id": "T112",
