@@ -232,6 +232,21 @@ type V1WorkspacesResponse struct {
 	Workspaces []V1WorkspaceResponse `json:"workspaces"`
 }
 
+type V1WorkspaceSnapshotCreateRequest struct {
+	Name string `json:"name"`
+}
+
+type V1WorkspaceSnapshotResponse struct {
+	WorkspaceID string `json:"workspace_id"`
+	Name        string `json:"name"`
+	BackendRef  string `json:"backend_ref"`
+	CreatedAt   string `json:"created_at"`
+}
+
+type V1WorkspaceSnapshotsResponse struct {
+	Snapshots []V1WorkspaceSnapshotResponse `json:"snapshots"`
+}
+
 type V1WorkspaceCheckVolume struct {
 	VolumeID string `json:"volid"`
 	Storage  string `json:"storage,omitempty"`

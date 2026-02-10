@@ -219,6 +219,23 @@ var migrations = []migration{
 			`CREATE INDEX IF NOT EXISTS idx_jobs_session ON jobs(session_id)`,
 		},
 	},
+	{
+		version: 11,
+		name:    "add_workspace_snapshots",
+		statements: []string{
+			`CREATE TABLE IF NOT EXISTS workspace_snapshots (
+				workspace_id TEXT NOT NULL,
+				name TEXT NOT NULL,
+				backend_ref TEXT NOT NULL,
+				created_at TEXT NOT NULL,
+				meta_json TEXT,
+				PRIMARY KEY (workspace_id, name),
+				FOREIGN KEY(workspace_id) REFERENCES workspaces(id) ON DELETE CASCADE
+			)`,
+			`CREATE INDEX IF NOT EXISTS idx_workspace_snapshots_workspace ON workspace_snapshots(workspace_id)`,
+			`CREATE INDEX IF NOT EXISTS idx_workspace_snapshots_created ON workspace_snapshots(created_at)`,
+		},
+	},
 }
 
 // Migrate runs any pending migrations against the provided database.

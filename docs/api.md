@@ -425,3 +425,26 @@ Response:
   "old_vmid": 1000
 }
 ```
+
+### GET /v1/workspaces/{id}/snapshots
+List workspace snapshots.
+
+### POST /v1/workspaces/{id}/snapshots
+Create a snapshot for a workspace volume.
+
+Body:
+
+```json
+{ "name": "baseline" }
+```
+
+Notes:
+- Workspaces must be detached before snapshotting.
+- Snapshot creation acquires a short-lived workspace lease to enforce single-writer safety.
+
+### POST /v1/workspaces/{id}/snapshots/{name}/restore
+Restore a workspace volume to a named snapshot.
+
+Notes:
+- Workspaces must be detached before restore.
+- Restores are destructive and replace the current volume contents.

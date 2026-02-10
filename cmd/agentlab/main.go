@@ -78,6 +78,9 @@ Usage:
   agentlab [--endpoint URL] [--token TOKEN] [--socket PATH] [--json] [--timeout DURATION] workspace attach <workspace> <vmid>
   agentlab [--endpoint URL] [--token TOKEN] [--socket PATH] [--json] [--timeout DURATION] workspace detach <workspace>
   agentlab [--endpoint URL] [--token TOKEN] [--socket PATH] [--json] [--timeout DURATION] workspace rebind <workspace> --profile <profile> [--ttl <ttl>] [--keep-old]
+  agentlab [--endpoint URL] [--token TOKEN] [--socket PATH] [--json] [--timeout DURATION] workspace snapshot create <workspace> <name>
+  agentlab [--endpoint URL] [--token TOKEN] [--socket PATH] [--json] [--timeout DURATION] workspace snapshot list <workspace>
+  agentlab [--endpoint URL] [--token TOKEN] [--socket PATH] [--json] [--timeout DURATION] workspace snapshot restore <workspace> <name>
   agentlab [--endpoint URL] [--token TOKEN] [--socket PATH] [--json] [--timeout DURATION] session create --name <name> --profile <profile> (--workspace <id|name|new:name> | --workspace-create <name>) [--workspace-size <size>] [--workspace-storage <storage>] [--branch <branch>]
   agentlab [--endpoint URL] [--token TOKEN] [--socket PATH] [--json] [--timeout DURATION] session list
   agentlab [--endpoint URL] [--token TOKEN] [--socket PATH] [--json] [--timeout DURATION] session show <session>
@@ -400,7 +403,7 @@ func printSandboxDoctorUsage() {
 }
 
 func printWorkspaceUsage() {
-	fmt.Fprintln(os.Stdout, "Usage: agentlab workspace <create|list|check|attach|detach|rebind>")
+	fmt.Fprintln(os.Stdout, "Usage: agentlab workspace <create|list|check|attach|detach|rebind|snapshot>")
 }
 
 func printWorkspaceCreateUsage() {
@@ -425,6 +428,22 @@ func printWorkspaceDetachUsage() {
 
 func printWorkspaceRebindUsage() {
 	fmt.Fprintln(os.Stdout, "Usage: agentlab workspace rebind <workspace> --profile <profile> [--ttl <ttl>] [--keep-old]")
+}
+
+func printWorkspaceSnapshotUsage() {
+	fmt.Fprintln(os.Stdout, "Usage: agentlab workspace snapshot <create|list|restore>")
+}
+
+func printWorkspaceSnapshotCreateUsage() {
+	fmt.Fprintln(os.Stdout, "Usage: agentlab workspace snapshot create <workspace> <name>")
+}
+
+func printWorkspaceSnapshotListUsage() {
+	fmt.Fprintln(os.Stdout, "Usage: agentlab workspace snapshot list <workspace>")
+}
+
+func printWorkspaceSnapshotRestoreUsage() {
+	fmt.Fprintln(os.Stdout, "Usage: agentlab workspace snapshot restore <workspace> <name>")
 }
 
 func printSessionUsage() {

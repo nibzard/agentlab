@@ -190,6 +190,25 @@ type Workspace struct {
 	LastUpdated  time.Time
 }
 
+// WorkspaceSnapshot represents a point-in-time snapshot of a workspace volume.
+//
+// Snapshots are recorded in SQLite for auditability and are backed by the
+// Proxmox volume snapshot primitives (ZFS-backed storages).
+//
+// Fields:
+//   - WorkspaceID: ID of the workspace that owns the snapshot
+//   - Name: Snapshot name (unique per workspace)
+//   - BackendRef: Backend-specific snapshot reference (often matches Name)
+//   - CreatedAt: Timestamp when the snapshot was created
+//   - MetaJSON: Optional JSON metadata (opaque to the core system)
+type WorkspaceSnapshot struct {
+	WorkspaceID string
+	Name        string
+	BackendRef  string
+	CreatedAt   time.Time
+	MetaJSON    string
+}
+
 // Session represents a persisted workspace-backed session.
 //
 // Sessions bind a workspace to a current sandbox and profile defaults, allowing

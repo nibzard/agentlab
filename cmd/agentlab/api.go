@@ -276,6 +276,21 @@ type workspacesResponse struct {
 	Workspaces []workspaceResponse `json:"workspaces"`
 }
 
+type workspaceSnapshotCreateRequest struct {
+	Name string `json:"name"`
+}
+
+type workspaceSnapshotResponse struct {
+	WorkspaceID string `json:"workspace_id"`
+	Name        string `json:"name"`
+	BackendRef  string `json:"backend_ref"`
+	CreatedAt   string `json:"created_at"`
+}
+
+type workspaceSnapshotsResponse struct {
+	Snapshots []workspaceSnapshotResponse `json:"snapshots"`
+}
+
 // workspaceRebindResponse contains the result of a workspace rebind operation.
 type workspaceRebindResponse struct {
 	Workspace workspaceResponse `json:"workspace"`
