@@ -30,6 +30,8 @@ jobs:
         run: make docs-verify
       - name: Quality + Test CI
         run: make test-ci
+      - name: Fuzz (short)
+        run: make fuzz
       - name: Coverage Summary
         id: coverage
         run: |

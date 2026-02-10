@@ -3193,7 +3193,7 @@
       "id": "T122",
       "title": "Fuzzing: add Go fuzz tests for parsers/normalizers and run short fuzz in CI (long fuzz nightly)",
       "priority": 4,
-      "status": "todo",
+      "status": "done",
       "details": "Add fuzz tests to harden the code paths most exposed to untrusted input or subtle edge cases (endpoint normalization, branch/workspace slugging, JSON/YAML parsing boundaries). Run a short fuzz budget in PR CI and a longer fuzz budget on a scheduled workflow.",
       "steps": [
         "Add fuzz tests (Go 1.24+ built-in fuzzing) for: `normalizeEndpoint`, `slugifyWorkspaceName`/`sessionNameFromBranch`, and any request decoding helpers with tricky input handling.",
@@ -3209,18 +3209,18 @@
         "robustness"
       ],
       "files": [
-        "cmd/agentlab/client_config.go",
-        "cmd/agentlab/commands.go",
-        "cmd/agentlab/*_test.go",
+        "cmd/agentlab/fuzz_test.go",
         "Makefile",
         ".github/workflows/ci.yml",
         ".github/workflows/fuzz.yml",
-        "docs/testing.md"
+        "docs/testing.md",
+        "to-do.json"
       ],
       "depends_on": [
         "T112"
       ],
-      "created_at": "2026-02-10T02:11:55Z"
+      "created_at": "2026-02-10T02:11:55Z",
+      "updated_at": "2026-02-10T06:07:40Z"
     },
     {
       "id": "T123",

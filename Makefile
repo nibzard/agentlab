@@ -9,6 +9,7 @@ DOCS_TOOLS_SCRIPT := scripts/dev/install_docs_tools.sh
 DOCS_MD := $(shell find docs -type f -name '*.md' 2>/dev/null) README.md CONTRIBUTING.md AGENTLAB_DEV_SPECIFICATION.md PROXMOX_SPECS.md
 STATICCHECK_VERSION ?= v0.5.1
 GOVULNCHECK_VERSION ?= v1.1.2
+FUZZ_TIME ?= 10s
 STATICCHECK_BIN := $(TOOLS_DIR)/staticcheck
 GOVULNCHECK_BIN := $(TOOLS_DIR)/govulncheck
 
@@ -22,7 +23,7 @@ LDFLAGS := -s -w \
 	-X 'github.com/agentlab/agentlab/internal/buildinfo.Commit=$(COMMIT)' \
 	-X 'github.com/agentlab/agentlab/internal/buildinfo.Date=$(DATE)'
 
-.PHONY: all build build-ssh-gateway lint quality staticcheck govulncheck test test-ci test-coverage test-race test-integration test-all coverage-audit coverage-html docs-tools docs-lint docs-links docs-typos docs-check docs-gen docs-verify clean
+.PHONY: all build build-ssh-gateway lint quality staticcheck govulncheck test test-ci test-coverage test-race test-integration test-all fuzz coverage-audit coverage-html docs-tools docs-lint docs-links docs-typos docs-check docs-gen docs-verify clean
 
 # Note: This project requires Go 1.24.0 or higher. Running 'go version' will show the installed version.
 
@@ -111,6 +112,9 @@ test-integration:
 	$(GO) test -tags=integration ./...
 
 test-all: test test-race test-coverage
+
+fuzz:
+	$(GO) test ./cmd/agentlab -run=^$ -fuzz=Fuzz -fuzztime=$(FUZZ_TIME)
 
 docs-tools:
 	$(DOCS_TOOLS_SCRIPT)
