@@ -40,7 +40,6 @@ import (
 	"os"
 	"os/exec"
 	"os/user"
-	"runtime"
 	"strconv"
 	"strings"
 	"syscall"
@@ -242,7 +241,7 @@ func runSSHCommand(ctx context.Context, args []string, base commonFlags) error {
 	fullArgs := append([]string{"ssh"}, sshArgs...)
 	warning := ""
 	if !useJump {
-		warning = tailnetWarning(ctx, parsedIP)
+		warning = tailnetWarning(ctx, parsedIP, defaultAgentSubnet)
 	}
 	touchSandboxBestEffort(waitCtx, client, vmid)
 
@@ -544,38 +543,21 @@ func buildJumpSpec(jump jumpConfig) string {
 
 // tailnetWarning checks if the route to the IP goes through Tailscale.
 // Returns a warning message if the route is not via Tailscale.
-func tailnetWarning(ctx context.Context, ip net.IP) string {
-	if ip == nil || !ip.IsPrivate() {
+func tailnetWarning(ctx context.Context, ip net.IP, subnet string) string {
+	check := checkTailnetRouteToIP(ctx, ip, subnet)
+	if check.Status == "ok" {
 		return ""
 	}
-	if runtime.GOOS != "linux" {
-		return fmt.Sprintf("Note: unable to verify tailnet route on %s; ensure the agent subnet route (%s by default) is enabled.", runtime.GOOS, defaultAgentSubnet)
+	detail := strings.TrimSpace(check.Detail)
+	if detail == "" {
+		detail = fmt.Sprintf("ensure the agent subnet route (%s) is enabled", check.Subnet)
 	}
-	path, err := exec.LookPath("ip")
-	if err != nil {
-		return fmt.Sprintf("Note: unable to verify tailnet route (missing ip command); ensure the agent subnet route (%s by default) is enabled.", defaultAgentSubnet)
+	switch check.Status {
+	case "warn":
+		return "Warning: " + detail
+	default:
+		return "Note: " + detail
 	}
-	args := []string{"-4", "route", "get", ip.String()}
-	if ip.To4() == nil {
-		args[0] = "-6"
-	}
-	ctx, cancel := context.WithTimeout(ctx, routeCheckTimeout)
-	defer cancel()
-	out, err := exec.CommandContext(ctx, path, args...).Output()
-	if err != nil {
-		return fmt.Sprintf("Warning: no route to %s detected. If you're on a tailnet device, enable the agent subnet route (%s by default) in Tailscale.", ip.String(), defaultAgentSubnet)
-	}
-	info := parseIPRouteGet(string(out))
-	if info.Device == "" {
-		return fmt.Sprintf("Note: unable to determine route to %s; ensure the agent subnet route (%s by default) is enabled.", ip.String(), defaultAgentSubnet)
-	}
-	if strings.HasPrefix(info.Device, tailscaleInterfaceID) {
-		return ""
-	}
-	if info.Via != "" {
-		return fmt.Sprintf("Warning: route to %s goes via %s on %s, not Tailscale. If you're on a tailnet device, enable the agent subnet route (%s by default).", ip.String(), info.Via, info.Device, defaultAgentSubnet)
-	}
-	return ""
 }
 
 // parseIPRouteGet parses the output of 'ip route get' to extract route information.

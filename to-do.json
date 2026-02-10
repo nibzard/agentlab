@@ -2608,29 +2608,30 @@
         "api"
       ],
       "files": [
-        "internal/daemon/sandbox_snapshots.go",
-        "internal/daemon/api.go",
-        "internal/daemon/api_types.go",
-        "internal/daemon/api_sandbox_test.go",
-        "internal/daemon/sandbox_manager_test.go",
-        "internal/daemon/job_orchestrator_test.go",
-        "internal/proxmox/proxmox.go",
-        "internal/proxmox/api_backend.go",
-        "internal/proxmox/shell_backend.go",
-        "internal/proxmox/fake_backend.go",
-        "internal/proxmox/api_backend_test.go",
-        "internal/proxmox/shell_backend_test.go",
+        "cmd/agentlab/api.go",
         "cmd/agentlab/commands.go",
         "cmd/agentlab/main.go",
-        "cmd/agentlab/api.go",
         "cmd/agentlab/main_test.go",
-        "docs/faq.md"
+        "docs/faq.md",
+        "internal/daemon/api.go",
+        "internal/daemon/api_sandbox_test.go",
+        "internal/daemon/api_types.go",
+        "internal/daemon/job_orchestrator_test.go",
+        "internal/daemon/sandbox_manager_test.go",
+        "internal/daemon/sandbox_snapshots.go",
+        "internal/proxmox/api_backend.go",
+        "internal/proxmox/api_backend_test.go",
+        "internal/proxmox/fake_backend.go",
+        "internal/proxmox/proxmox.go",
+        "internal/proxmox/shell_backend.go",
+        "internal/proxmox/shell_backend_test.go",
+        "to-do.json"
       ],
       "depends_on": [
         "T065"
       ],
       "created_at": "2026-02-09T09:49:20Z",
-      "updated_at": "2026-02-10T19:40:54Z"
+      "updated_at": "2026-02-10T19:41:51Z"
     },
     {
       "id": "T105",
@@ -2826,7 +2827,7 @@
       "id": "T110",
       "title": "Optional: Tailscale Admin API integration to auto-approve routes and validate client accept-routes",
       "priority": 5,
-      "status": "todo",
+      "status": "done",
       "details": "Make the subnet-route path truly zero-touch by optionally integrating with the Tailscale Admin API to approve advertised routes and verify the client device is accepting them. This is strictly opt-in due to the sensitivity of tailnet admin credentials.",
       "steps": [
         "Design: define an opt-in config section for tailscale admin API (tailnet name, api key or oauth client) and a clear threat model. Never store admin credentials in world-readable files.",
@@ -2842,14 +2843,29 @@
         "optional"
       ],
       "files": [
-        "cmd/agentlab/*",
+        "README.md",
+        "cmd/agentlab/bootstrap.go",
+        "cmd/agentlab/bootstrap_tailscale_admin.go",
+        "cmd/agentlab/client_config.go",
+        "cmd/agentlab/commands.go",
+        "cmd/agentlab/host_info.go",
+        "cmd/agentlab/main.go",
+        "cmd/agentlab/ssh.go",
+        "cmd/agentlab/tailnet_route_check.go",
+        "cmd/agentlab/tailscale_admin.go",
+        "cmd/agentlab/tailscale_admin_config.go",
+        "cmd/agentlab/tailscale_admin_config_test.go",
+        "docs/README.md",
+        "docs/cli.md",
         "docs/runbook.md",
-        "docs/security.md"
+        "docs/security.md",
+        "to-do.json"
       ],
       "depends_on": [
         "T109"
       ],
-      "created_at": "2026-02-09T12:17:58Z"
+      "created_at": "2026-02-09T12:17:58Z",
+      "updated_at": "2026-02-10T20:14:50Z"
     },
     {
       "id": "T111",

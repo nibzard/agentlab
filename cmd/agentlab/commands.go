@@ -126,11 +126,12 @@ func usageErrorMessage(err error) (string, bool, bool) {
 
 // commonFlags contains flags shared by all commands.
 type commonFlags struct {
-	socketPath string
-	endpoint   string
-	token      string
-	jsonOutput bool
-	timeout    time.Duration
+	socketPath     string
+	endpoint       string
+	token          string
+	jsonOutput     bool
+	timeout        time.Duration
+	tailscaleAdmin *tailscaleAdminConfig
 }
 
 func (c *commonFlags) bind(fs *flag.FlagSet) {
@@ -237,12 +238,13 @@ func runStatusCommand(ctx context.Context, args []string, base commonFlags) erro
 }
 
 type connectOutput struct {
-	Endpoint   string        `json:"endpoint"`
-	JumpHost   string        `json:"jump_host,omitempty"`
-	JumpUser   string        `json:"jump_user,omitempty"`
-	ConfigPath string        `json:"config_path"`
-	TokenSet   bool          `json:"token_set"`
-	Host       *hostResponse `json:"host,omitempty"`
+	Endpoint     string             `json:"endpoint"`
+	JumpHost     string             `json:"jump_host,omitempty"`
+	JumpUser     string             `json:"jump_user,omitempty"`
+	ConfigPath   string             `json:"config_path"`
+	TokenSet     bool               `json:"token_set"`
+	Host         *hostResponse      `json:"host,omitempty"`
+	TailnetRoute *tailnetRouteCheck `json:"tailnet_route,omitempty"`
 }
 
 func runConnectCommand(ctx context.Context, args []string, base commonFlags) error {
@@ -316,14 +318,16 @@ func runConnectCommand(ctx context.Context, args []string, base commonFlags) err
 		return err
 	}
 
+	routeCheck := checkTailnetRoute(ctx, agentSubnetFromHost(hostInfo))
 	if opts.jsonOutput {
 		out := connectOutput{
-			Endpoint:   endpoint,
-			JumpHost:   jumpHost,
-			JumpUser:   jumpUser,
-			ConfigPath: path,
-			TokenSet:   token != "",
-			Host:       hostInfo,
+			Endpoint:     endpoint,
+			JumpHost:     jumpHost,
+			JumpUser:     jumpUser,
+			ConfigPath:   path,
+			TokenSet:     token != "",
+			Host:         hostInfo,
+			TailnetRoute: &routeCheck,
 		}
 		enc := json.NewEncoder(os.Stdout)
 		enc.SetEscapeHTML(false)
@@ -335,6 +339,7 @@ func runConnectCommand(ctx context.Context, args []string, base commonFlags) err
 	if hostInfo != nil && strings.TrimSpace(hostInfo.TailscaleDNS) != "" {
 		fmt.Fprintf(os.Stdout, "Tailscale DNS: %s\n", strings.TrimSpace(hostInfo.TailscaleDNS))
 	}
+	fmt.Fprintf(os.Stdout, "Tailnet route: %s\n", formatTailnetRouteCheck(routeCheck))
 	return nil
 }
 

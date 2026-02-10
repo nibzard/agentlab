@@ -13,6 +13,7 @@ making changes to the repo.
 - Configuration reference: `configuration.md`
 - Local control API reference: `api.md`
 - Secrets handling: `secrets.md`
+- Security notes: `security.md`
 - Upgrades and migrations: `upgrading.md`
 - Testing guidance: `testing.md`
 - Performance notes: `performance.md`
@@ -27,7 +28,7 @@ making changes to the repo.
 - State transitions or lifecycle behavior: `state-model.md`
 - Configuration options and defaults: `configuration.md`
 - Upgrade notes and breaking changes: `upgrading.md`
-- Security, credentials, and secrets workflows: `secrets.md`
+- Security, credentials, and secrets workflows: `security.md`, `secrets.md`
 - API request/response references: `api.md`
 - Performance tuning and benchmarking: `performance.md`
 - Proxmox-specific constraints or guides: `proxmox.md`
