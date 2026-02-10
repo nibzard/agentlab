@@ -18,6 +18,8 @@ import (
 type stubBackend struct {
 	startErr              error
 	stopErr               error
+	suspendErr            error
+	resumeErr             error
 	destroyErr            error
 	detachErr             error
 	snapshotRollbackErr   error
@@ -35,6 +37,8 @@ type stubBackend struct {
 	volumeCloneSnapCalls  []volumeCloneSnapshotCall
 	startCalls            int
 	stopCalls             int
+	suspendCalls          int
+	resumeCalls           int
 	detachCalls           int
 	snapshotRollbackCalls int
 }
@@ -66,6 +70,16 @@ func (s *stubBackend) Start(context.Context, proxmox.VMID) error {
 func (s *stubBackend) Stop(context.Context, proxmox.VMID) error {
 	s.stopCalls++
 	return s.stopErr
+}
+
+func (s *stubBackend) Suspend(context.Context, proxmox.VMID) error {
+	s.suspendCalls++
+	return s.suspendErr
+}
+
+func (s *stubBackend) Resume(context.Context, proxmox.VMID) error {
+	s.resumeCalls++
+	return s.resumeErr
 }
 
 func (s *stubBackend) Destroy(context.Context, proxmox.VMID) error {
@@ -337,6 +351,180 @@ func TestSandboxStartStopInvalidState(t *testing.T) {
 	}
 	if err := mgr.Stop(ctx, sandbox.VMID); !errors.Is(err, ErrInvalidTransition) {
 		t.Fatalf("expected invalid transition for stop, got %v", err)
+	}
+}
+
+func TestSandboxPauseResumeReady(t *testing.T) {
+	ctx := context.Background()
+	store := newTestStore(t)
+	backend := &stubBackend{}
+	mgr := NewSandboxManager(store, backend, log.New(io.Discard, "", 0))
+
+	sandbox := models.Sandbox{
+		VMID:      120,
+		Name:      "pause-ready",
+		Profile:   "default",
+		State:     models.SandboxReady,
+		Keepalive: false,
+		CreatedAt: time.Now().UTC(),
+	}
+	if err := store.CreateSandbox(ctx, sandbox); err != nil {
+		t.Fatalf("create sandbox: %v", err)
+	}
+
+	if err := mgr.Pause(ctx, sandbox.VMID); err != nil {
+		t.Fatalf("pause sandbox: %v", err)
+	}
+	if backend.suspendCalls != 1 {
+		t.Fatalf("expected suspend called once, got %d", backend.suspendCalls)
+	}
+	updated, err := store.GetSandbox(ctx, sandbox.VMID)
+	if err != nil {
+		t.Fatalf("get sandbox: %v", err)
+	}
+	if updated.State != models.SandboxSuspended {
+		t.Fatalf("expected suspended, got %s", updated.State)
+	}
+
+	if err := mgr.Resume(ctx, sandbox.VMID); err != nil {
+		t.Fatalf("resume sandbox: %v", err)
+	}
+	if backend.resumeCalls != 1 {
+		t.Fatalf("expected resume called once, got %d", backend.resumeCalls)
+	}
+	updated, err = store.GetSandbox(ctx, sandbox.VMID)
+	if err != nil {
+		t.Fatalf("get sandbox: %v", err)
+	}
+	if updated.State != models.SandboxReady {
+		t.Fatalf("expected ready, got %s", updated.State)
+	}
+}
+
+func TestSandboxPauseResumeRunningJob(t *testing.T) {
+	ctx := context.Background()
+	store := newTestStore(t)
+	backend := &stubBackend{}
+	mgr := NewSandboxManager(store, backend, log.New(io.Discard, "", 0))
+
+	sandbox := models.Sandbox{
+		VMID:      121,
+		Name:      "pause-running",
+		Profile:   "default",
+		State:     models.SandboxRunning,
+		Keepalive: false,
+		CreatedAt: time.Now().UTC(),
+	}
+	if err := store.CreateSandbox(ctx, sandbox); err != nil {
+		t.Fatalf("create sandbox: %v", err)
+	}
+	vmid := sandbox.VMID
+	job := models.Job{
+		ID:          "job-running",
+		RepoURL:     "https://example.com/repo.git",
+		Ref:         "main",
+		Profile:     "default",
+		Status:      models.JobRunning,
+		SandboxVMID: &vmid,
+		CreatedAt:   time.Now().UTC(),
+	}
+	if err := store.CreateJob(ctx, job); err != nil {
+		t.Fatalf("create job: %v", err)
+	}
+
+	if err := mgr.Pause(ctx, sandbox.VMID); err != nil {
+		t.Fatalf("pause sandbox: %v", err)
+	}
+	if backend.suspendCalls != 1 {
+		t.Fatalf("expected suspend called once, got %d", backend.suspendCalls)
+	}
+	updated, err := store.GetSandbox(ctx, sandbox.VMID)
+	if err != nil {
+		t.Fatalf("get sandbox: %v", err)
+	}
+	if updated.State != models.SandboxSuspended {
+		t.Fatalf("expected suspended, got %s", updated.State)
+	}
+
+	if err := mgr.Resume(ctx, sandbox.VMID); err != nil {
+		t.Fatalf("resume sandbox: %v", err)
+	}
+	if backend.resumeCalls != 1 {
+		t.Fatalf("expected resume called once, got %d", backend.resumeCalls)
+	}
+	updated, err = store.GetSandbox(ctx, sandbox.VMID)
+	if err != nil {
+		t.Fatalf("get sandbox: %v", err)
+	}
+	if updated.State != models.SandboxRunning {
+		t.Fatalf("expected running, got %s", updated.State)
+	}
+}
+
+func TestSandboxPauseWorkspaceRunningJobBlocked(t *testing.T) {
+	ctx := context.Background()
+	store := newTestStore(t)
+	backend := &stubBackend{}
+	mgr := NewSandboxManager(store, backend, log.New(io.Discard, "", 0))
+
+	workspaceID := "workspace-1"
+	sandbox := models.Sandbox{
+		VMID:        122,
+		Name:        "pause-workspace",
+		Profile:     "default",
+		State:       models.SandboxRunning,
+		Keepalive:   false,
+		WorkspaceID: &workspaceID,
+		CreatedAt:   time.Now().UTC(),
+	}
+	if err := store.CreateSandbox(ctx, sandbox); err != nil {
+		t.Fatalf("create sandbox: %v", err)
+	}
+	vmid := sandbox.VMID
+	job := models.Job{
+		ID:          "job-workspace",
+		RepoURL:     "https://example.com/repo.git",
+		Ref:         "main",
+		Profile:     "default",
+		Status:      models.JobRunning,
+		SandboxVMID: &vmid,
+		CreatedAt:   time.Now().UTC(),
+	}
+	if err := store.CreateJob(ctx, job); err != nil {
+		t.Fatalf("create job: %v", err)
+	}
+
+	if err := mgr.Pause(ctx, sandbox.VMID); !errors.Is(err, ErrSandboxInUse) {
+		t.Fatalf("expected sandbox in use error, got %v", err)
+	}
+	if backend.suspendCalls != 0 {
+		t.Fatalf("expected suspend not called, got %d", backend.suspendCalls)
+	}
+}
+
+func TestSandboxPauseResumeInvalidState(t *testing.T) {
+	ctx := context.Background()
+	store := newTestStore(t)
+	backend := &stubBackend{}
+	mgr := NewSandboxManager(store, backend, log.New(io.Discard, "", 0))
+
+	sandbox := models.Sandbox{
+		VMID:      123,
+		Name:      "pause-invalid",
+		Profile:   "default",
+		State:     models.SandboxProvisioning,
+		Keepalive: false,
+		CreatedAt: time.Now().UTC(),
+	}
+	if err := store.CreateSandbox(ctx, sandbox); err != nil {
+		t.Fatalf("create sandbox: %v", err)
+	}
+
+	if err := mgr.Pause(ctx, sandbox.VMID); !errors.Is(err, ErrInvalidTransition) {
+		t.Fatalf("expected invalid transition for pause, got %v", err)
+	}
+	if err := mgr.Resume(ctx, sandbox.VMID); !errors.Is(err, ErrInvalidTransition) {
+		t.Fatalf("expected invalid transition for resume, got %v", err)
 	}
 }
 

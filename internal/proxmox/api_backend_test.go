@@ -143,6 +143,57 @@ func TestAPIBackendSnapshotEndpoints(t *testing.T) {
 	}
 }
 
+func TestAPIBackendSuspendResumeEndpoints(t *testing.T) {
+	var calls []apiRequest
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, _ := io.ReadAll(r.Body)
+		_ = r.Body.Close()
+		form, _ := url.ParseQuery(string(body))
+		calls = append(calls, apiRequest{
+			method:   r.Method,
+			path:     r.URL.Path,
+			rawQuery: r.URL.RawQuery,
+			form:     form,
+		})
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"data":{}}`))
+	}))
+	defer srv.Close()
+
+	backend := &APIBackend{
+		BaseURL:    srv.URL + "/api2/json",
+		Node:       "pve",
+		HTTPClient: srv.Client(),
+	}
+
+	ctx := context.Background()
+	if err := backend.Suspend(ctx, 101); err != nil {
+		t.Fatalf("Suspend() error = %v", err)
+	}
+	if err := backend.Resume(ctx, 101); err != nil {
+		t.Fatalf("Resume() error = %v", err)
+	}
+
+	if len(calls) != 2 {
+		t.Fatalf("expected 2 API calls, got %d", len(calls))
+	}
+
+	if calls[0].method != http.MethodPost || calls[0].path != "/api2/json/nodes/pve/qemu/101/status/suspend" {
+		t.Fatalf("Suspend call = %s %s", calls[0].method, calls[0].path)
+	}
+	if got := calls[0].form.Get("todisk"); got != "0" {
+		t.Fatalf("Suspend todisk = %q", got)
+	}
+
+	if calls[1].method != http.MethodPost || calls[1].path != "/api2/json/nodes/pve/qemu/101/status/resume" {
+		t.Fatalf("Resume call = %s %s", calls[1].method, calls[1].path)
+	}
+	if len(calls[1].form) != 0 {
+		t.Fatalf("Resume form = %#v", calls[1].form)
+	}
+}
+
 func TestAPIBackendConfigure(t *testing.T) {
 	var calls []apiRequest
 

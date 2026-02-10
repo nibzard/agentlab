@@ -65,6 +65,8 @@ Usage:
   agentlab [--endpoint URL] [--token TOKEN] [--socket PATH] [--json] [--timeout DURATION] sandbox start <vmid>
   agentlab [--endpoint URL] [--token TOKEN] [--socket PATH] [--json] [--timeout DURATION] sandbox stop <vmid>
   agentlab [--endpoint URL] [--token TOKEN] [--socket PATH] [--json] [--timeout DURATION] sandbox stop --all [--force]
+  agentlab [--endpoint URL] [--token TOKEN] [--socket PATH] [--json] [--timeout DURATION] sandbox pause <vmid>
+  agentlab [--endpoint URL] [--token TOKEN] [--socket PATH] [--json] [--timeout DURATION] sandbox resume <vmid>
   agentlab [--endpoint URL] [--token TOKEN] [--socket PATH] [--json] [--timeout DURATION] sandbox revert [--force] [--restart|--no-restart] <vmid>
   agentlab [--endpoint URL] [--token TOKEN] [--socket PATH] [--json] [--timeout DURATION] sandbox destroy [--force] <vmid>
   agentlab [--endpoint URL] [--token TOKEN] [--socket PATH] [--json] [--timeout DURATION] sandbox lease renew --ttl <ttl> <vmid>
@@ -342,7 +344,7 @@ func printJobDoctorUsage() {
 }
 
 func printSandboxUsage() {
-	fmt.Fprintln(os.Stdout, "Usage: agentlab sandbox <new|list|show|start|stop|revert|destroy|lease|prune|expose|exposed|unexpose|doctor>")
+	fmt.Fprintln(os.Stdout, "Usage: agentlab sandbox <new|list|show|start|stop|pause|resume|revert|destroy|lease|prune|expose|exposed|unexpose|doctor>")
 }
 
 func printSandboxNewUsage() {
@@ -366,6 +368,14 @@ func printSandboxStopUsage() {
 	fmt.Fprintln(os.Stdout, "Usage: agentlab sandbox stop <vmid>")
 	fmt.Fprintln(os.Stdout, "       agentlab sandbox stop --all [--force]")
 	fmt.Fprintln(os.Stdout, "Note: --force skips the confirmation prompt for stop --all.")
+}
+
+func printSandboxPauseUsage() {
+	fmt.Fprintln(os.Stdout, "Usage: agentlab sandbox pause <vmid>")
+}
+
+func printSandboxResumeUsage() {
+	fmt.Fprintln(os.Stdout, "Usage: agentlab sandbox resume <vmid>")
 }
 
 func printSandboxRevertUsage() {

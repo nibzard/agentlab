@@ -150,6 +150,47 @@ func (b *APIBackend) Stop(ctx context.Context, vmid VMID) error {
 	return nil
 }
 
+// Suspend pauses a VM.
+// ABOUTME: Sends a suspend command to the Proxmox API for the specified VM.
+func (b *APIBackend) Suspend(ctx context.Context, vmid VMID) error {
+	node, err := b.ensureNode(ctx)
+	if err != nil {
+		return err
+	}
+
+	params := url.Values{}
+	params.Set("todisk", "0")
+
+	endpoint := fmt.Sprintf("/nodes/%s/qemu/%d/status/suspend", node, vmid)
+	_, err = b.doPost(ctx, endpoint, params)
+	if err != nil {
+		if isAPIVMNotFound(err) {
+			return fmt.Errorf("%w: %v", ErrVMNotFound, err)
+		}
+		return err
+	}
+	return nil
+}
+
+// Resume resumes a suspended VM.
+// ABOUTME: Sends a resume command to the Proxmox API for the specified VM.
+func (b *APIBackend) Resume(ctx context.Context, vmid VMID) error {
+	node, err := b.ensureNode(ctx)
+	if err != nil {
+		return err
+	}
+
+	endpoint := fmt.Sprintf("/nodes/%s/qemu/%d/status/resume", node, vmid)
+	_, err = b.doPost(ctx, endpoint, nil)
+	if err != nil {
+		if isAPIVMNotFound(err) {
+			return fmt.Errorf("%w: %v", ErrVMNotFound, err)
+		}
+		return err
+	}
+	return nil
+}
+
 // Destroy deletes a VM.
 // ABOUTME: Permanently deletes the VM and purges associated disks. Returns ErrVMNotFound if the VM doesn't exist.
 func (b *APIBackend) Destroy(ctx context.Context, vmid VMID) error {

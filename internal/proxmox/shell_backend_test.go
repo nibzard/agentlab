@@ -123,6 +123,26 @@ func TestShellBackendStatus(t *testing.T) {
 	}
 }
 
+func TestShellBackendSuspendResume(t *testing.T) {
+	runner := &fakeRunner{responses: []runnerResponse{{}, {}}}
+	backend := &ShellBackend{Runner: runner}
+
+	if err := backend.Suspend(context.Background(), 101); err != nil {
+		t.Fatalf("Suspend() error = %v", err)
+	}
+	if err := backend.Resume(context.Background(), 101); err != nil {
+		t.Fatalf("Resume() error = %v", err)
+	}
+
+	want := []runnerCall{
+		{name: "qm", args: []string{"suspend", "101", "--todisk", "0"}},
+		{name: "qm", args: []string{"resume", "101"}},
+	}
+	if !reflect.DeepEqual(runner.calls, want) {
+		t.Fatalf("Suspend/Resume calls = %#v, want %#v", runner.calls, want)
+	}
+}
+
 func TestShellBackendCurrentStats(t *testing.T) {
 	runner := &fakeRunner{responses: []runnerResponse{{stdout: `{"cpu":0.07}`}}}
 	backend := &ShellBackend{Runner: runner, Node: "pve"}

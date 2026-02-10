@@ -142,6 +142,28 @@ func (b *ShellBackend) Stop(ctx context.Context, vmid VMID) error {
 	return nil
 }
 
+func (b *ShellBackend) Suspend(ctx context.Context, vmid VMID) error {
+	_, err := b.run(ctx, b.qmPath(), "suspend", strconv.Itoa(int(vmid)), "--todisk", "0")
+	if err != nil {
+		if isMissingVMError(err) {
+			return fmt.Errorf("%w: %v", ErrVMNotFound, err)
+		}
+		return err
+	}
+	return nil
+}
+
+func (b *ShellBackend) Resume(ctx context.Context, vmid VMID) error {
+	_, err := b.run(ctx, b.qmPath(), "resume", strconv.Itoa(int(vmid)))
+	if err != nil {
+		if isMissingVMError(err) {
+			return fmt.Errorf("%w: %v", ErrVMNotFound, err)
+		}
+		return err
+	}
+	return nil
+}
+
 func (b *ShellBackend) Destroy(ctx context.Context, vmid VMID) error {
 	_, err := b.run(ctx, b.qmPath(), "destroy", strconv.Itoa(int(vmid)), "--purge", "1")
 	if err != nil {
