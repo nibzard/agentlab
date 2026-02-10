@@ -53,7 +53,7 @@ Usage:
   agentlab --version
   agentlab [--endpoint URL] [--token TOKEN] [--socket PATH] [--json] [--timeout DURATION] status
   agentlab [--endpoint URL] [--token TOKEN] [--socket PATH] [--json] [--timeout DURATION] init [--apply] [--smoke-test] [--assets <path>] [--force] [--control-port <port>] [--control-token <token>] [--rotate-control-token] [--tailscale-serve|--no-tailscale-serve]
-  agentlab [--json] bootstrap --host <ssh_host> [--ssh-user <user>] [--ssh-port <port>] [--identity <path>] [--assets <path>] [--control-port <port>] [--control-token <token>] [--rotate-control-token] [--tailscale-serve|--no-tailscale-serve] [--tailscale-authkey <key>] [--tailscale-hostname <name>] [--release-url <url>] [--agentlab-bin <path>] [--agentlabd-bin <path>] [--agentlab-url <url>] [--agentlabd-url <url>] [--force] [--keep-temp] [--verbose]
+  agentlab [--json] bootstrap --host <ssh_host> [--ssh-user <user>] [--ssh-port <port>] [--identity <path>] [--assets <path>] [--control-port <port>] [--control-token <token>] [--rotate-control-token] [--tailscale-serve|--no-tailscale-serve] [--tailscale-authkey <key>] [--tailscale-hostname <name>] [--tailscale-tailnet <name>] [--tailscale-api-key <key>] [--tailscale-oauth-client-id <id>] [--tailscale-oauth-client-secret <secret>] [--tailscale-oauth-scopes <scopes>] [--release-url <url>] [--agentlab-bin <path>] [--agentlabd-bin <path>] [--agentlab-url <url>] [--agentlabd-url <url>] [--force] [--keep-temp] [--verbose]
   agentlab [--endpoint URL] [--token TOKEN] [--socket PATH] [--json] [--timeout DURATION] job run --repo <url> --task <task> --profile <profile> [--ref <ref>] [--branch <branch>] [--mode <mode>] [--ttl <ttl>] [--keepalive] [--workspace <id|name|new:name>] [--workspace-create <name>] [--workspace-size <size>] [--workspace-storage <storage>] [--workspace-wait <duration>] [--stateful]
   agentlab [--endpoint URL] [--token TOKEN] [--socket PATH] [--json] [--timeout DURATION] job show <job_id> [--events-tail <n>]
   agentlab [--endpoint URL] [--token TOKEN] [--socket PATH] [--json] [--timeout DURATION] job artifacts <job_id>
@@ -122,12 +122,13 @@ Exit codes:
 `
 
 type globalOptions struct {
-	socketPath  string
-	endpoint    string
-	token       string
-	jsonOutput  bool
-	showVersion bool
-	timeout     time.Duration
+	socketPath     string
+	endpoint       string
+	token          string
+	jsonOutput     bool
+	showVersion    bool
+	timeout        time.Duration
+	tailscaleAdmin *tailscaleAdminConfig
 }
 
 func main() {
@@ -170,11 +171,12 @@ func main() {
 	defer stop()
 
 	base := commonFlags{
-		socketPath: opts.socketPath,
-		endpoint:   opts.endpoint,
-		token:      opts.token,
-		jsonOutput: opts.jsonOutput,
-		timeout:    opts.timeout,
+		socketPath:     opts.socketPath,
+		endpoint:       opts.endpoint,
+		token:          opts.token,
+		jsonOutput:     opts.jsonOutput,
+		timeout:        opts.timeout,
+		tailscaleAdmin: opts.tailscaleAdmin,
 	}
 	if err := dispatch(ctx, args, base); err != nil {
 		if errors.Is(err, errHelp) {
@@ -195,6 +197,7 @@ func main() {
 
 func parseGlobal(args []string) (globalOptions, []string, error) {
 	opts := globalOptions{socketPath: defaultSocketPath, timeout: defaultRequestTimeout}
+	var tailscaleCfg *tailscaleAdminConfig
 	if cfg, ok, err := loadClientConfig(); err != nil {
 		return opts, nil, err
 	} else if ok {
@@ -204,6 +207,7 @@ func parseGlobal(args []string) (globalOptions, []string, error) {
 		if token := strings.TrimSpace(cfg.Token); token != "" {
 			opts.token = token
 		}
+		tailscaleCfg = cfg.TailscaleAdmin
 	}
 	envCfg := readEnvClientConfig()
 	if envCfg.Endpoint != "" {
@@ -212,6 +216,8 @@ func parseGlobal(args []string) (globalOptions, []string, error) {
 	if envCfg.Token != "" {
 		opts.token = envCfg.Token
 	}
+	tailscaleCfg = mergeTailscaleAdminConfig(tailscaleCfg, envCfg.TailscaleAdmin)
+	opts.tailscaleAdmin = tailscaleCfg
 
 	fs := flag.NewFlagSet("agentlab", flag.ContinueOnError)
 	fs.SetOutput(io.Discard)
@@ -320,7 +326,7 @@ func printInitUsage() {
 }
 
 func printBootstrapUsage() {
-	fmt.Fprintln(os.Stdout, "Usage: agentlab bootstrap --host <ssh_host> [--ssh-user <user>] [--ssh-port <port>] [--identity <path>] [--assets <path>] [--control-port <port>] [--control-token <token>] [--rotate-control-token] [--tailscale-serve|--no-tailscale-serve] [--tailscale-authkey <key>] [--tailscale-hostname <name>] [--release-url <url>] [--agentlab-bin <path>] [--agentlabd-bin <path>] [--agentlab-url <url>] [--agentlabd-url <url>] [--force] [--keep-temp] [--verbose]")
+	fmt.Fprintln(os.Stdout, "Usage: agentlab bootstrap --host <ssh_host> [--ssh-user <user>] [--ssh-port <port>] [--identity <path>] [--assets <path>] [--control-port <port>] [--control-token <token>] [--rotate-control-token] [--tailscale-serve|--no-tailscale-serve] [--tailscale-authkey <key>] [--tailscale-hostname <name>] [--tailscale-tailnet <name>] [--tailscale-api-key <key>] [--tailscale-oauth-client-id <id>] [--tailscale-oauth-client-secret <secret>] [--tailscale-oauth-scopes <scopes>] [--release-url <url>] [--agentlab-bin <path>] [--agentlabd-bin <path>] [--agentlab-url <url>] [--agentlabd-url <url>] [--force] [--keep-temp] [--verbose]")
 }
 
 func printJobRunUsage() {

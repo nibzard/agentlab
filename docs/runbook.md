@@ -346,6 +346,14 @@ Verify:
 - From a tailnet device, `ssh agent@10.77.x.y` should work once the route is
   accepted and the sandbox is running.
 
+Optional: auto-approve the subnet route via the Tailscale Admin API:
+- This is client-side only and opt-in because the credentials are sensitive.
+- Provide one of the following before running `agentlab bootstrap`:
+- `AGENTLAB_TAILSCALE_API_KEY` and `AGENTLAB_TAILSCALE_TAILNET` (or `-` for the default tailnet).
+- `AGENTLAB_TAILSCALE_OAUTH_CLIENT_ID`, `AGENTLAB_TAILSCALE_OAUTH_CLIENT_SECRET`, and optional `AGENTLAB_TAILSCALE_OAUTH_SCOPES`.
+- Or store the same values under `tailscale_admin` in `~/.config/agentlab/client.json` (file is forced to `0600`).
+- `agentlab bootstrap` will attempt to approve the `agent_subnet` route and report the result.
+
 If tailnet access fails:
 - Confirm `tailscale0` exists and has an IP.
 - Verify nftables rules are active: `systemctl status agentlab-nftables.service`.

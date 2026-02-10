@@ -41,6 +41,7 @@ type bootstrapOptions struct {
 	noTailscaleServe  bool
 	tailscaleAuthKey  string
 	tailscaleHostname string
+	tailscaleAdmin    *tailscaleAdminConfig
 	force             bool
 	keepTemp          bool
 	verbose           bool
@@ -64,14 +65,15 @@ type bootstrapStep struct {
 }
 
 type bootstrapOutput struct {
-	Host       string          `json:"host"`
-	Endpoint   string          `json:"endpoint"`
-	ConfigPath string          `json:"config_path"`
-	BackupPath string          `json:"backup_path,omitempty"`
-	Steps      []bootstrapStep `json:"steps"`
-	Warnings   []string        `json:"warnings,omitempty"`
-	AssetsDir  string          `json:"assets_dir"`
-	RemoteDir  string          `json:"remote_dir"`
+	Host         string             `json:"host"`
+	Endpoint     string             `json:"endpoint"`
+	ConfigPath   string             `json:"config_path"`
+	BackupPath   string             `json:"backup_path,omitempty"`
+	Steps        []bootstrapStep    `json:"steps"`
+	Warnings     []string           `json:"warnings,omitempty"`
+	AssetsDir    string             `json:"assets_dir"`
+	RemoteDir    string             `json:"remote_dir"`
+	TailnetRoute *tailnetRouteCheck `json:"tailnet_route,omitempty"`
 }
 
 func runBootstrapCommand(ctx context.Context, args []string, base commonFlags) error {
@@ -85,7 +87,13 @@ func runBootstrapCommand(ctx context.Context, args []string, base commonFlags) e
 		acceptNewHostKey: true,
 		requestTimeout:   opts.timeout,
 		jsonOutput:       opts.jsonOutput,
+		tailscaleAdmin:   opts.tailscaleAdmin,
 	}
+	var tailscaleTailnet string
+	var tailscaleAPIKey string
+	var tailscaleOAuthClientID string
+	var tailscaleOAuthClientSecret string
+	var tailscaleOAuthScopes string
 	var help bool
 	fs.StringVar(&bootstrap.host, "host", "", "SSH host (required)")
 	fs.StringVar(&bootstrap.sshUser, "ssh-user", bootstrap.sshUser, "SSH username")
@@ -104,6 +112,11 @@ func runBootstrapCommand(ctx context.Context, args []string, base commonFlags) e
 	fs.BoolVar(&bootstrap.noTailscaleServe, "no-tailscale-serve", false, "disable tailscale serve publishing")
 	fs.StringVar(&bootstrap.tailscaleAuthKey, "tailscale-authkey", "", "tailscale auth key for unattended tailscale up")
 	fs.StringVar(&bootstrap.tailscaleHostname, "tailscale-hostname", "", "tailscale hostname (when using authkey)")
+	fs.StringVar(&tailscaleTailnet, "tailscale-tailnet", "", "tailscale tailnet name for admin API (optional)")
+	fs.StringVar(&tailscaleAPIKey, "tailscale-api-key", "", "tailscale admin API key (optional)")
+	fs.StringVar(&tailscaleOAuthClientID, "tailscale-oauth-client-id", "", "tailscale oauth client id (optional)")
+	fs.StringVar(&tailscaleOAuthClientSecret, "tailscale-oauth-client-secret", "", "tailscale oauth client secret (optional)")
+	fs.StringVar(&tailscaleOAuthScopes, "tailscale-oauth-scopes", "", "tailscale oauth scopes (comma/space separated)")
 	fs.BoolVar(&bootstrap.force, "force", false, "force overwrite of managed network files")
 	fs.BoolVar(&bootstrap.keepTemp, "keep-temp", false, "keep remote bootstrap bundle directory")
 	fs.BoolVar(&bootstrap.verbose, "verbose", false, "show remote command output")
@@ -127,6 +140,12 @@ func runBootstrapCommand(ctx context.Context, args []string, base commonFlags) e
 	}
 	if bootstrap.controlPort <= 0 || bootstrap.controlPort > 65535 {
 		return fmt.Errorf("control-port must be between 1 and 65535")
+	}
+	if cfg, ok := tailscaleAdminConfigFromFlags(tailscaleTailnet, tailscaleAPIKey, tailscaleOAuthClientID, tailscaleOAuthClientSecret, tailscaleOAuthScopes); ok {
+		bootstrap.tailscaleAdmin = mergeTailscaleAdminConfig(bootstrap.tailscaleAdmin, cfg)
+	}
+	if err := validateTailscaleAdminConfig(bootstrap.tailscaleAdmin); err != nil {
+		return err
 	}
 
 	assetsRoot, err := resolveBootstrapAssets(bootstrap.assetsDir)
@@ -158,6 +177,7 @@ func runBootstrapCommand(ctx context.Context, args []string, base commonFlags) e
 	remoteRoot := filepath.Join(remoteBase, "agentlab-bootstrap")
 	steps := []bootstrapStep{}
 	warnings := []string{}
+	var routeCheck *tailnetRouteCheck
 	backupPath := ""
 
 	if _, err := sshClient.run(ctx, shellJoin([]string{"mkdir", "-p", remoteBase}), nil); err != nil {
@@ -249,6 +269,22 @@ func runBootstrapCommand(ctx context.Context, args []string, base commonFlags) e
 	}
 	steps = append(steps, bootstrapStep{Name: "write_client_config", Status: "ok", Detail: configPath})
 
+	client := newAPIClient(clientOptions{Endpoint: endpoint, Token: token}, bootstrap.requestTimeout)
+	hostInfo, err := fetchHostInfo(ctx, client)
+	if err != nil {
+		warnings = append(warnings, fmt.Sprintf("host info unavailable: %v", err))
+	}
+	agentSubnet := agentSubnetFromHost(hostInfo)
+	approvalStep, approvalWarning := maybeApproveTailscaleRoutes(ctx, bootstrap, hostInfo, agentSubnet)
+	if approvalStep.Name != "" {
+		steps = append(steps, approvalStep)
+	}
+	if approvalWarning != "" {
+		warnings = append(warnings, approvalWarning)
+	}
+	check := checkTailnetRoute(ctx, agentSubnet)
+	routeCheck = &check
+
 	if err := verifyEndpoint(ctx, endpoint, token, bootstrap.requestTimeout); err != nil {
 		warnings = append(warnings, fmt.Sprintf("control plane not reachable yet: %v", err))
 		steps = append(steps, bootstrapStep{Name: "verify_control_plane", Status: "warn"})
@@ -266,21 +302,22 @@ func runBootstrapCommand(ctx context.Context, args []string, base commonFlags) e
 
 	if opts.jsonOutput {
 		out := bootstrapOutput{
-			Host:       bootstrap.host,
-			Endpoint:   endpoint,
-			ConfigPath: configPath,
-			BackupPath: backupPath,
-			Steps:      steps,
-			Warnings:   warnings,
-			AssetsDir:  assetsRoot,
-			RemoteDir:  remoteBase,
+			Host:         bootstrap.host,
+			Endpoint:     endpoint,
+			ConfigPath:   configPath,
+			BackupPath:   backupPath,
+			Steps:        steps,
+			Warnings:     warnings,
+			AssetsDir:    assetsRoot,
+			RemoteDir:    remoteBase,
+			TailnetRoute: routeCheck,
 		}
 		enc := json.NewEncoder(os.Stdout)
 		enc.SetEscapeHTML(false)
 		return enc.Encode(out)
 	}
 
-	printBootstrapSummary(endpoint, configPath, backupPath, warnings)
+	printBootstrapSummary(endpoint, configPath, backupPath, warnings, routeCheck)
 	return nil
 }
 
@@ -295,6 +332,9 @@ func buildBootstrapPlan(opts bootstrapOptions, binaries bootstrapBinaries) []str
 	if opts.tailscaleAuthKey != "" {
 		plan = append(plan, "Configure tailscale subnet routing")
 	}
+	if opts.tailscaleAdmin != nil && opts.tailscaleAdmin.hasCredentials() {
+		plan = append(plan, "Approve tailscale subnet route via admin API")
+	}
 	plan = append(plan, "Backup /etc/agentlab/config.yaml if present")
 	plan = append(plan, "Install agentlabd + agentlab, enable remote control")
 	plan = append(plan, "Fetch control endpoint and write local client config")
@@ -308,7 +348,7 @@ func printBootstrapPlan(plan []string) {
 	}
 }
 
-func printBootstrapSummary(endpoint, configPath, backupPath string, warnings []string) {
+func printBootstrapSummary(endpoint, configPath, backupPath string, warnings []string, routeCheck *tailnetRouteCheck) {
 	fmt.Fprintln(os.Stdout, "Bootstrap complete")
 	fmt.Fprintf(os.Stdout, "Endpoint: %s\n", endpoint)
 	fmt.Fprintf(os.Stdout, "Client config: %s\n", configPath)
@@ -317,6 +357,9 @@ func printBootstrapSummary(endpoint, configPath, backupPath string, warnings []s
 	}
 	for _, warning := range warnings {
 		fmt.Fprintf(os.Stdout, "Warning: %s\n", warning)
+	}
+	if routeCheck != nil {
+		fmt.Fprintf(os.Stdout, "Tailnet route: %s\n", formatTailnetRouteCheck(*routeCheck))
 	}
 }
 

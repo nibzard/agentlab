@@ -35,6 +35,7 @@ Ensure the firewall groups exist in Proxmox before using non-default modes.
 - `vmbr0` for LAN/WAN and ability to create `vmbr1` for agent subnet (defaults to `10.77.0.0/16`)
 - Go 1.24.0 or higher to build binaries (Go toolchain will auto-download if needed)
 - Tailscale on the host for remote SSH access (recommended)
+- Optional: Tailscale Admin API credentials if you want `agentlab bootstrap` to auto-approve subnet routes
 - Template VM with qemu-guest-agent enabled
 
 ## Quickstart (host setup)
