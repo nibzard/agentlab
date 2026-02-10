@@ -2932,22 +2932,23 @@
         "ci"
       ],
       "files": [
-        "Makefile",
         ".github/workflows/ci.yml",
         "CONTRIBUTING.md",
-        "codecov.yml"
+        "Makefile",
+        "codecov.yml",
+        "to-do.json"
       ],
       "depends_on": [
         "T113"
       ],
       "created_at": "2026-02-10T01:59:57Z",
-      "updated_at": "2026-02-10T04:29:46Z"
+      "updated_at": "2026-02-10T04:30:42Z"
     },
     {
       "id": "T115",
       "title": "Integration coverage: in-process daemon integration tests with fake Proxmox backend",
       "priority": 3,
-      "status": "todo",
+      "status": "done",
       "details": "Add an integration-style test suite that boots an `agentlabd` Service with temp dirs and a fake Proxmox backend, then exercises real HTTP endpoints (unix socket + remote control listener auth). This increases coverage of wiring, auth, request/response contracts, and job/workspace/session flows without requiring a real Proxmox host.",
       "steps": [
         "Introduce a `proxmox.FakeBackend` (or internal test backend) implementing the Backend interface with deterministic behavior (clone/start/stop/destroy, guest IP, volume attach/detach).",
@@ -2963,16 +2964,18 @@
         "proxmox"
       ],
       "files": [
+        "internal/proxmox/fake_backend.go",
+        "internal/daemon/daemon.go",
         "tests/integration_test.go",
-        "internal/proxmox/*",
-        "internal/daemon/*",
+        "tests/e2e_proxmox_test.go",
         "docs/testing.md",
         ".github/workflows/ci.yml"
       ],
       "depends_on": [
         "T112"
       ],
-      "created_at": "2026-02-10T01:59:57Z"
+      "created_at": "2026-02-10T01:59:57Z",
+      "updated_at": "2026-02-10T04:45:41Z"
     },
     {
       "id": "T116",
