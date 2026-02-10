@@ -2268,26 +2268,26 @@
         "api"
       ],
       "files": [
-        "internal/daemon/workspace_manager.go",
-        "internal/daemon/workspace_fork.go",
-        "internal/daemon/api.go",
-        "internal/daemon/api_types.go",
+        "cmd/agentlab/api.go",
         "cmd/agentlab/commands.go",
         "cmd/agentlab/main.go",
-        "cmd/agentlab/api.go",
-        "internal/proxmox/proxmox.go",
-        "internal/proxmox/api_backend.go",
-        "internal/proxmox/shell_backend.go",
-        "internal/daemon/workspace_fork_test.go",
+        "internal/daemon/api.go",
+        "internal/daemon/api_types.go",
+        "internal/daemon/job_orchestrator_test.go",
         "internal/daemon/sandbox_manager_test.go",
-        "internal/daemon/job_orchestrator_test.go"
+        "internal/daemon/workspace_fork.go",
+        "internal/daemon/workspace_fork_test.go",
+        "internal/daemon/workspace_manager.go",
+        "internal/proxmox/api_backend.go",
+        "internal/proxmox/proxmox.go",
+        "internal/proxmox/shell_backend.go"
       ],
       "depends_on": [
         "T093",
         "T094"
       ],
       "created_at": "2026-02-09T09:49:20Z",
-      "updated_at": "2026-02-10T03:57:24Z"
+      "updated_at": "2026-02-10T03:58:16Z"
     },
     {
       "id": "T096",
@@ -2759,7 +2759,7 @@
       "id": "T109",
       "title": "Magical bootstrap: run `agentlab bootstrap` from Mac to provision Proxmox host",
       "priority": 3,
-      "status": "todo",
+      "status": "done",
       "details": "Provide a single command run on the user's laptop that provisions the Proxmox host end-to-end (install agentlabd, configure networking, optional tailscale subnet routing, and remote control plane), then writes local client config so subsequent `agentlab ...` commands work with no flags. This is an orchestrator over SSH, not an extra daemon backdoor.",
       "steps": [
         "CLI command: implement `agentlab bootstrap --host <ssh_host> [--ssh-user ...] [--ssh-port ...] [--identity ...]` that executes host-side steps over SSH (non-interactive; require key or Tailscale SSH).",
@@ -2769,9 +2769,7 @@
         "Safety: bootstrap must be idempotent and reversible where possible; print a plan and what it changed; never overwrite existing /etc/agentlab config without backup unless forced.",
         "Tests: unit-test SSH command construction and config writing; integration testing can be manual-runbook initially."
       ],
-      "blockers": [
-        "Requires a defined distribution story for linux binaries (download URL or upload path)."
-      ],
+      "blockers": [],
       "tags": [
         "remote-cli",
         "bootstrap",
@@ -2779,18 +2777,18 @@
         "ssh"
       ],
       "files": [
+        "cmd/agentlab/bootstrap.go",
+        "cmd/agentlab/bootstrap_test.go",
         "cmd/agentlab/main.go",
-        "cmd/agentlab/commands.go",
-        "cmd/agentlab/api.go",
-        "scripts/install_host.sh",
-        "scripts/net/*",
+        "cmd/agentlab/main_test.go",
         "docs/runbook.md"
       ],
       "depends_on": [
         "T107",
         "T106"
       ],
-      "created_at": "2026-02-09T12:17:58Z"
+      "created_at": "2026-02-09T12:17:58Z",
+      "updated_at": "2026-02-10T04:13:48Z"
     },
     {
       "id": "T110",

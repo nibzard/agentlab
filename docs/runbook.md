@@ -148,6 +148,35 @@ To remove the saved config:
 agentlab disconnect
 ```
 
+## Bootstrap from a laptop (Mac/Linux)
+
+`agentlab bootstrap` provisions a Proxmox host end-to-end over SSH. It uploads the host scripts, configures `vmbr1` and nftables, optionally enables Tailscale subnet routing, installs `agentlabd`, enables the remote control plane, and writes your local client config so future `agentlab ...` commands work without flags.
+
+Requirements:
+- SSH access to the Proxmox host (key-based or Tailscale SSH).
+- Passwordless sudo if you are not connecting as `root`.
+- Linux binaries available via `dist/agentlab_linux_amd64` + `dist/agentlabd_linux_amd64`, or a release URL for the bootstrap to download.
+
+Run from the repo root (or pass `--assets` to point at the repo):
+
+```bash
+agentlab bootstrap --host root@proxmox.example \
+  --release-url https://example.com/agentlab/releases/v0.1.0
+```
+
+Optional flags:
+- `--ssh-user`, `--ssh-port`, `--identity` to control SSH connection settings.
+- `--control-token` or `--rotate-control-token` to manage the control auth token.
+- `--tailscale-authkey` (and optional `--tailscale-hostname`) to bring up Tailscale and advertise the agent subnet automatically.
+- `--tailscale-serve` or `--no-tailscale-serve` to force serve publishing.
+- `--force` to overwrite managed network files (`vmbr1` or nftables) when they already exist.
+
+After a successful bootstrap, your client config is written to `~/.config/agentlab/client.json`, and you can run:
+
+```bash
+agentlab status
+```
+
 ## Branch sessions
 
 Use branch sessions to tie a persistent workspace to a git branch name.
