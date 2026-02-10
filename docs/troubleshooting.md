@@ -476,7 +476,7 @@ systemctl restart agentlabd
 
 3. Increase timeout:
 ```bash
-agentlab --timeout 5m <command>
+agentlab --timeout 5m status
 ```
 
 ### `database locked`

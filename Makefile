@@ -23,7 +23,7 @@ LDFLAGS := -s -w \
 	-X 'github.com/agentlab/agentlab/internal/buildinfo.Commit=$(COMMIT)' \
 	-X 'github.com/agentlab/agentlab/internal/buildinfo.Date=$(DATE)'
 
-.PHONY: all build build-ssh-gateway lint quality staticcheck govulncheck test test-ci test-coverage test-race test-integration test-all fuzz coverage-audit coverage-html docs-tools docs-lint docs-links docs-typos docs-check docs-gen docs-verify clean
+.PHONY: all build build-ssh-gateway lint quality staticcheck govulncheck test test-ci test-coverage test-race test-integration test-all fuzz coverage-audit coverage-html docs-tools docs-lint docs-links docs-typos docs-snippets docs-check docs-gen docs-verify clean
 
 # Note: This project requires Go 1.24.0 or higher. Running 'go version' will show the installed version.
 
@@ -131,7 +131,10 @@ docs-typos:
 	@if [ ! -x \"$(TOOLS_DIR)/typos\" ]; then echo \"typos not found. Run 'make docs-tools' first.\"; exit 1; fi
 	\"$(TOOLS_DIR)/typos\" --config _typos.toml $(DOCS_MD)
 
-docs-check: docs-lint docs-links docs-typos
+docs-snippets:
+	./scripts/dev/docs_snippets_check.sh $(DOCS_MD)
+
+docs-check: docs-lint docs-links docs-typos docs-snippets
 
 docs-gen:
 	./scripts/dev/gen_cli_docs.sh

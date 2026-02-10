@@ -46,7 +46,7 @@ version=dev commit=abc1234 date=2025-01-15T10:30:00Z
 ### Using the CLI
 
 ```bash
-agentlab version
+agentlab --version
 ```
 
 Output:
@@ -118,7 +118,7 @@ sudo cp agentlab /usr/local/bin/
 sudo systemctl start agentlabd.service
 
 # 6. Verify the upgrade
-agentlab version
+agentlab --version
 agentlab status
 ```
 
@@ -400,7 +400,7 @@ sudo cp /usr/local/bin/agentlab.backup /usr/local/bin/agentlab
 sudo systemctl start agentlabd.service
 
 # 4. Verify
-agentlab version
+agentlab --version
 ```
 
 ### Full Rollback (Binary + Database)
@@ -425,7 +425,7 @@ sudo cp -r /etc/agentlab.backup.YYYYMMDD/* /etc/agentlab/
 sudo systemctl start agentlabd.service
 
 # 6. Verify
-agentlab version
+agentlab --version
 agentlab status
 ```
 
@@ -504,7 +504,7 @@ agentlab sandbox list
 agentlab profile list
 
 # 4. Create test sandbox
-agentlab sandbox create --name test-upgrade --profile yolo-ephemeral
+agentlab sandbox new --name test-upgrade --profile yolo-ephemeral
 
 # 5. Check sandbox state
 agentlab sandbox show test-upgrade
@@ -561,7 +561,7 @@ NEW_VERSION=$2
 ./install.sh $OLD_VERSION
 
 # Create test data
-agentlab sandbox create --name test1 --profile yolo-ephemeral
+agentlab sandbox new --name test1 --profile yolo-ephemeral
 agentlab job run --repo https://github.com/example/repo --task "test" --profile yolo-ephemeral
 
 # Export state
@@ -589,7 +589,7 @@ agentlab sandbox list --output json > after.json
 diff <(jq '.[] | {name, profile}' before.json) <(jq '.[] | {name, profile}' after.json)
 
 # Run smoke tests
-agentlab sandbox create --name test2 --profile yolo-ephemeral
+agentlab sandbox new --name test2 --profile yolo-ephemeral
 agentlab sandbox destroy test2
 
 echo "Upgrade test passed!"

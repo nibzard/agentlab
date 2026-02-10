@@ -3181,13 +3181,14 @@
         "tooling"
       ],
       "files": [
-        "Makefile",
         ".github/workflows/ci.yml",
         "CONTRIBUTING.md",
-        "docs/testing.md"
+        "Makefile",
+        "docs/testing.md",
+        "to-do.json"
       ],
       "created_at": "2026-02-10T02:11:55Z",
-      "updated_at": "2026-02-10T06:03:58Z"
+      "updated_at": "2026-02-10T06:04:22Z"
     },
     {
       "id": "T122",
@@ -3209,10 +3210,10 @@
         "robustness"
       ],
       "files": [
-        "cmd/agentlab/fuzz_test.go",
-        "Makefile",
         ".github/workflows/ci.yml",
         ".github/workflows/fuzz.yml",
+        "Makefile",
+        "cmd/agentlab/fuzz_test.go",
         "docs/testing.md",
         "to-do.json"
       ],
@@ -3220,13 +3221,13 @@
         "T112"
       ],
       "created_at": "2026-02-10T02:11:55Z",
-      "updated_at": "2026-02-10T06:07:40Z"
+      "updated_at": "2026-02-10T06:10:11Z"
     },
     {
       "id": "T123",
       "title": "Docs-as-code: add docs snippet verification (syntax + drift) and run it in CI",
       "priority": 4,
-      "status": "todo",
+      "status": "done",
       "details": "Prevent docs drift beyond links/style: validate that shell/config snippets are syntactically valid and that CLI invocations match actual commands. This reduces 'copy/paste broken' issues and makes docs changes safer to review.",
       "steps": [
         "Add a small script (e.g. scripts/dev/docs_snippets_check.sh) that scans docs/*.md for fenced code blocks marked `bash`, `sh`, or `yaml`.",
@@ -3243,17 +3244,19 @@
       ],
       "files": [
         "scripts/dev/docs_snippets_check.sh",
-        "docs/*",
         "Makefile",
-        ".github/workflows/ci.yml",
+        "CONTRIBUTING.md",
         "docs/testing.md",
-        "CONTRIBUTING.md"
+        "docs/troubleshooting.md",
+        "docs/upgrading.md",
+        "README.md"
       ],
       "depends_on": [
         "T118",
         "T120"
       ],
-      "created_at": "2026-02-10T02:11:55Z"
+      "created_at": "2026-02-10T02:11:55Z",
+      "updated_at": "2026-02-10T06:20:23Z"
     },
     {
       "id": "T124",

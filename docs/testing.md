@@ -165,6 +165,19 @@ make govulncheck
 `make quality` installs pinned versions of `staticcheck` and `govulncheck` into
 `bin/tools` if they are missing.
 
+### Docs-as-Code Checks
+
+Docs snippets are validated for bash/sh syntax, basic YAML sanity, and `agentlab`
+command drift. Run locally with:
+
+```bash
+make docs-snippets
+make docs-check
+```
+
+If a snippet is intentionally non-executable, add `skip-snippet-check` to the fence
+info string (for example: `` ```bash skip-snippet-check ``) to bypass validation.
+
 ### Run Integration Tests (Fake Backend)
 
 Integration tests require the `integration` build tag:
@@ -956,6 +969,12 @@ go test -tags=e2e ./tests/...
 
 # Run all tests
 make test-all
+
+# Run docs checks (lint, links, typos, snippets)
+make docs-check
+
+# Run docs snippet validation only
+make docs-snippets
 
 # Run specific test
 go test -run TestName ./path/to/package
