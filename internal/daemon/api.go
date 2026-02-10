@@ -3287,25 +3287,19 @@ func statFSBytes(path string) (uint64, uint64, error) {
 }
 
 func decodeJSON(w http.ResponseWriter, r *http.Request, dest any) error {
-	if r.Body == nil {
-		return errors.New("request body is required")
-	}
-	defer r.Body.Close()
-	r.Body = http.MaxBytesReader(w, r.Body, maxJSONBytes)
-	dec := json.NewDecoder(r.Body)
-	dec.DisallowUnknownFields()
-	if err := dec.Decode(dest); err != nil {
-		return err
-	}
-	if err := dec.Decode(&struct{}{}); err != io.EOF {
-		return errors.New("unexpected trailing data")
-	}
-	return nil
+	return decodeJSONBody(w, r, dest, false)
 }
 
 func decodeOptionalJSON(w http.ResponseWriter, r *http.Request, dest any) error {
-	if r.Body == nil || r.Body == http.NoBody {
-		return nil
+	return decodeJSONBody(w, r, dest, true)
+}
+
+func decodeJSONBody(w http.ResponseWriter, r *http.Request, dest any, allowEmpty bool) error {
+	if r.Body == nil {
+		if allowEmpty {
+			return nil
+		}
+		return errors.New("request body is required")
 	}
 	defer r.Body.Close()
 	r.Body = http.MaxBytesReader(w, r.Body, maxJSONBytes)
@@ -3314,8 +3308,15 @@ func decodeOptionalJSON(w http.ResponseWriter, r *http.Request, dest any) error 
 		return err
 	}
 	if len(bytes.TrimSpace(data)) == 0 {
-		return nil
+		if allowEmpty {
+			return nil
+		}
+		return io.EOF
 	}
+	return decodeJSONPayload(data, dest)
+}
+
+func decodeJSONPayload(data []byte, dest any) error {
 	dec := json.NewDecoder(bytes.NewReader(data))
 	dec.DisallowUnknownFields()
 	if err := dec.Decode(dest); err != nil {

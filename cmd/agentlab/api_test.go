@@ -162,6 +162,27 @@ func TestAPIClientDoJSONSuccess(t *testing.T) {
 	}
 }
 
+func TestAPIClientDoJSONAuthHeader(t *testing.T) {
+	var gotAuth string
+	client := &apiClient{
+		endpoint: "https://example.com",
+		token:    "secret",
+		baseURL:  "https://example.com",
+		httpClient: &http.Client{Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
+			gotAuth = req.Header.Get("Authorization")
+			return newTestResponse(http.StatusOK, `{}`), nil
+		})},
+	}
+
+	_, err := client.doJSON(context.Background(), http.MethodGet, "/v1/test", nil)
+	if err != nil {
+		t.Fatalf("doJSON() error = %v", err)
+	}
+	if gotAuth != "Bearer secret" {
+		t.Fatalf("Authorization = %q, want %q", gotAuth, "Bearer secret")
+	}
+}
+
 func TestAPIClientDoJSONEncodeError(t *testing.T) {
 	called := false
 	client := &apiClient{
@@ -196,6 +217,28 @@ func TestAPIClientDoJSONErrorResponse(t *testing.T) {
 	}
 	if err.Error() != "bad request" {
 		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestAPIClientDoRequestAuthHeader(t *testing.T) {
+	var gotAuth string
+	client := &apiClient{
+		endpoint: "https://example.com",
+		token:    "secret",
+		baseURL:  "https://example.com",
+		httpClient: &http.Client{Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
+			gotAuth = req.Header.Get("Authorization")
+			return newTestResponse(http.StatusOK, "ok"), nil
+		})},
+	}
+
+	resp, err := client.doRequest(context.Background(), http.MethodGet, "/v1/test", nil, nil)
+	if err != nil {
+		t.Fatalf("doRequest() error = %v", err)
+	}
+	_ = resp.Body.Close()
+	if gotAuth != "Bearer secret" {
+		t.Fatalf("Authorization = %q, want %q", gotAuth, "Bearer secret")
 	}
 }
 

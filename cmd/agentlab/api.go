@@ -500,6 +500,17 @@ func newAPIClient(opts clientOptions, timeout time.Duration) *apiClient {
 	}
 }
 
+func (c *apiClient) newRequest(ctx context.Context, method, path string, body io.Reader) (*http.Request, error) {
+	req, err := http.NewRequestWithContext(ctx, method, c.baseURL+path, body)
+	if err != nil {
+		return nil, err
+	}
+	if c.endpoint != "" && c.token != "" {
+		req.Header.Set("Authorization", "Bearer "+c.token)
+	}
+	return req, nil
+}
+
 // doJSON sends an HTTP request with a JSON payload and returns the JSON response.
 // It handles timeout, request serialization, and error parsing.
 func (c *apiClient) doJSON(ctx context.Context, method, path string, payload any) ([]byte, error) {
@@ -514,16 +525,13 @@ func (c *apiClient) doJSON(ctx context.Context, method, path string, payload any
 		}
 		body = buf
 	}
-	req, err := http.NewRequestWithContext(ctx, method, c.baseURL+path, body)
+	req, err := c.newRequest(ctx, method, path, body)
 	if err != nil {
 		return nil, err
 	}
 	req.Header.Set("Accept", "application/json")
 	if payload != nil {
 		req.Header.Set("Content-Type", "application/json")
-	}
-	if c.endpoint != "" && c.token != "" {
-		req.Header.Set("Authorization", "Bearer "+c.token)
 	}
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
@@ -545,7 +553,7 @@ func (c *apiClient) doJSON(ctx context.Context, method, path string, payload any
 func (c *apiClient) doRequest(ctx context.Context, method, path string, body io.Reader, headers map[string]string) (*http.Response, error) {
 	ctx, cancel := c.withTimeout(ctx)
 	defer cancel()
-	req, err := http.NewRequestWithContext(ctx, method, c.baseURL+path, body)
+	req, err := c.newRequest(ctx, method, path, body)
 	if err != nil {
 		return nil, err
 	}
@@ -554,9 +562,6 @@ func (c *apiClient) doRequest(ctx context.Context, method, path string, body io.
 			continue
 		}
 		req.Header.Set(key, value)
-	}
-	if c.endpoint != "" && c.token != "" {
-		req.Header.Set("Authorization", "Bearer "+c.token)
 	}
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
