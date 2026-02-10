@@ -117,6 +117,40 @@ sudo scripts/create_template.sh
 sudo systemctl restart agentlabd.service
 ```
 
+## One-command onboarding (`agentlab init`)
+
+`agentlab init` runs a read-only checklist for the most common host prerequisites:
+`vmbr1` bridge, IP forwarding, nftables rules, snippets directory, profiles, templates,
+and the optional remote control plane.
+
+```bash
+agentlab init
+```
+
+To apply the recommended host setup steps (bridge + nftables + template creation +
+remote control config), run:
+
+```bash
+sudo agentlab init --apply
+```
+
+Notes:
+- `agentlab init --apply` reuses `scripts/net/setup_vmbr1.sh`,
+  `scripts/net/apply.sh`, and `scripts/create_template.sh`. Run it from the repo
+  root, or pass `--assets /path/to/agentlab` if the scripts are elsewhere.
+- Use `--force` to overwrite managed network config files if you previously edited them.
+- The default template VMID is taken from your profiles (or 9000 if none are found).
+
+To validate end-to-end provisioning (bootstrap + artifacts), run the smoke test:
+
+```bash
+agentlab init --smoke-test
+```
+
+The smoke test uses `scripts/tests/golden_path.sh`, which starts a temporary
+local git repo server and runs a job that uploads a golden artifact.
+It requires `python3` (or `git daemon`) on the host.
+
 ## Remote CLI (tailnet)
 
 Enable the TCP control plane on the host, then connect from another machine (Mac, CI runner, etc.).
