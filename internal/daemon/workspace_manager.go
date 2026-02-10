@@ -29,6 +29,9 @@ var (
 	ErrWorkspaceNotAttached = errors.New("workspace not attached")
 	ErrWorkspaceVMInUse     = errors.New("vmid already has workspace attached")
 	ErrWorkspaceLeaseHeld   = errors.New("workspace lease already held")
+	ErrWorkspaceSnapshotExists   = errors.New("workspace snapshot already exists")
+	ErrWorkspaceSnapshotNotFound = errors.New("workspace snapshot not found")
+	ErrWorkspaceSnapshotAttached = errors.New("workspace must be detached for snapshot operations")
 )
 
 // WorkspaceManager handles persistent workspace volumes.

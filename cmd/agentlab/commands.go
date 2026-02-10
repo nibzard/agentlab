@@ -899,11 +899,13 @@ func runWorkspaceCommand(ctx context.Context, args []string, base commonFlags) e
 		return runWorkspaceDetach(ctx, args[1:], base)
 	case "rebind":
 		return runWorkspaceRebind(ctx, args[1:], base)
+	case "snapshot":
+		return runWorkspaceSnapshotCommand(ctx, args[1:], base)
 	default:
 		if !base.jsonOutput {
 			printWorkspaceUsage()
 		}
-		return unknownSubcommandError("workspace", args[0], []string{"create", "list", "check", "attach", "detach", "rebind"})
+		return unknownSubcommandError("workspace", args[0], []string{"create", "list", "check", "attach", "detach", "rebind", "snapshot"})
 	}
 }
 
@@ -1994,6 +1996,154 @@ func runWorkspaceRebind(ctx context.Context, args []string, base commonFlags) er
 	return nil
 }
 
+// runWorkspaceSnapshotCommand dispatches workspace snapshot subcommands.
+func runWorkspaceSnapshotCommand(ctx context.Context, args []string, base commonFlags) error {
+	if len(args) == 0 {
+		if !base.jsonOutput {
+			printWorkspaceSnapshotUsage()
+			return nil
+		}
+		return newUsageError(fmt.Errorf("workspace snapshot command is required"), false)
+	}
+	if isHelpToken(args[0]) {
+		printWorkspaceSnapshotUsage()
+		return errHelp
+	}
+	switch args[0] {
+	case "create":
+		return runWorkspaceSnapshotCreate(ctx, args[1:], base)
+	case "list":
+		return runWorkspaceSnapshotList(ctx, args[1:], base)
+	case "restore":
+		return runWorkspaceSnapshotRestore(ctx, args[1:], base)
+	default:
+		if !base.jsonOutput {
+			printWorkspaceSnapshotUsage()
+		}
+		return unknownSubcommandError("workspace snapshot", args[0], []string{"create", "list", "restore"})
+	}
+}
+
+func runWorkspaceSnapshotCreate(ctx context.Context, args []string, base commonFlags) error {
+	fs := newFlagSet("workspace snapshot create")
+	opts := base
+	opts.bind(fs)
+	var help bool
+	fs.BoolVar(&help, "help", false, "show help")
+	fs.BoolVar(&help, "h", false, "show help")
+	if err := parseFlags(fs, args, printWorkspaceSnapshotCreateUsage, &help, opts.jsonOutput); err != nil {
+		return err
+	}
+	if fs.NArg() < 2 {
+		if !opts.jsonOutput {
+			printWorkspaceSnapshotCreateUsage()
+		}
+		return fmt.Errorf("workspace and snapshot name are required")
+	}
+	workspace := strings.TrimSpace(fs.Arg(0))
+	name := strings.TrimSpace(fs.Arg(1))
+	if workspace == "" || name == "" {
+		return fmt.Errorf("workspace and snapshot name are required")
+	}
+	client, err := apiClientFromFlags(opts)
+	if err != nil {
+		return err
+	}
+	req := workspaceSnapshotCreateRequest{Name: name}
+	payload, err := client.doJSON(ctx, http.MethodPost, fmt.Sprintf("/v1/workspaces/%s/snapshots", workspace), req)
+	if err != nil {
+		return wrapWorkspaceNotFound(workspace, err)
+	}
+	if opts.jsonOutput {
+		return prettyPrintJSON(os.Stdout, payload)
+	}
+	var resp workspaceSnapshotResponse
+	if err := json.Unmarshal(payload, &resp); err != nil {
+		return err
+	}
+	printWorkspaceSnapshot(resp)
+	return nil
+}
+
+func runWorkspaceSnapshotList(ctx context.Context, args []string, base commonFlags) error {
+	fs := newFlagSet("workspace snapshot list")
+	opts := base
+	opts.bind(fs)
+	var help bool
+	fs.BoolVar(&help, "help", false, "show help")
+	fs.BoolVar(&help, "h", false, "show help")
+	if err := parseFlags(fs, args, printWorkspaceSnapshotListUsage, &help, opts.jsonOutput); err != nil {
+		return err
+	}
+	if fs.NArg() < 1 {
+		if !opts.jsonOutput {
+			printWorkspaceSnapshotListUsage()
+		}
+		return fmt.Errorf("workspace is required")
+	}
+	workspace := strings.TrimSpace(fs.Arg(0))
+	if workspace == "" {
+		return fmt.Errorf("workspace is required")
+	}
+	client, err := apiClientFromFlags(opts)
+	if err != nil {
+		return err
+	}
+	payload, err := client.doJSON(ctx, http.MethodGet, fmt.Sprintf("/v1/workspaces/%s/snapshots", workspace), nil)
+	if err != nil {
+		return wrapWorkspaceNotFound(workspace, err)
+	}
+	if opts.jsonOutput {
+		return prettyPrintJSON(os.Stdout, payload)
+	}
+	var resp workspaceSnapshotsResponse
+	if err := json.Unmarshal(payload, &resp); err != nil {
+		return err
+	}
+	printWorkspaceSnapshotList(resp.Snapshots)
+	return nil
+}
+
+func runWorkspaceSnapshotRestore(ctx context.Context, args []string, base commonFlags) error {
+	fs := newFlagSet("workspace snapshot restore")
+	opts := base
+	opts.bind(fs)
+	var help bool
+	fs.BoolVar(&help, "help", false, "show help")
+	fs.BoolVar(&help, "h", false, "show help")
+	if err := parseFlags(fs, args, printWorkspaceSnapshotRestoreUsage, &help, opts.jsonOutput); err != nil {
+		return err
+	}
+	if fs.NArg() < 2 {
+		if !opts.jsonOutput {
+			printWorkspaceSnapshotRestoreUsage()
+		}
+		return fmt.Errorf("workspace and snapshot name are required")
+	}
+	workspace := strings.TrimSpace(fs.Arg(0))
+	name := strings.TrimSpace(fs.Arg(1))
+	if workspace == "" || name == "" {
+		return fmt.Errorf("workspace and snapshot name are required")
+	}
+	client, err := apiClientFromFlags(opts)
+	if err != nil {
+		return err
+	}
+	payload, err := client.doJSON(ctx, http.MethodPost, fmt.Sprintf("/v1/workspaces/%s/snapshots/%s/restore", workspace, name), nil)
+	if err != nil {
+		return wrapWorkspaceNotFound(workspace, err)
+	}
+	if opts.jsonOutput {
+		return prettyPrintJSON(os.Stdout, payload)
+	}
+	var resp workspaceSnapshotResponse
+	if err := json.Unmarshal(payload, &resp); err != nil {
+		return err
+	}
+	printWorkspaceSnapshot(resp)
+	return nil
+}
+
 func runSessionCreate(ctx context.Context, args []string, base commonFlags) error {
 	fs := newFlagSet("session create")
 	opts := base
@@ -2878,6 +3028,22 @@ func printWorkspaceList(workspaces []workspaceResponse) {
 	fmt.Fprintln(w, "ID\tNAME\tSIZE(GB)\tSTORAGE\tATTACHED")
 	for _, ws := range workspaces {
 		fmt.Fprintf(w, "%s\t%s\t%d\t%s\t%s\n", ws.ID, ws.Name, ws.SizeGB, ws.Storage, vmidString(ws.AttachedVMID))
+	}
+	_ = w.Flush()
+}
+
+func printWorkspaceSnapshot(snapshot workspaceSnapshotResponse) {
+	fmt.Printf("Workspace: %s\n", snapshot.WorkspaceID)
+	fmt.Printf("Snapshot: %s\n", snapshot.Name)
+	fmt.Printf("Backend Ref: %s\n", snapshot.BackendRef)
+	fmt.Printf("Created At: %s\n", snapshot.CreatedAt)
+}
+
+func printWorkspaceSnapshotList(snapshots []workspaceSnapshotResponse) {
+	w := tabwriter.NewWriter(os.Stdout, 2, 8, 2, ' ', 0)
+	fmt.Fprintln(w, "NAME\tCREATED\tBACKEND_REF")
+	for _, snapshot := range snapshots {
+		fmt.Fprintf(w, "%s\t%s\t%s\n", snapshot.Name, snapshot.CreatedAt, snapshot.BackendRef)
 	}
 	_ = w.Flush()
 }

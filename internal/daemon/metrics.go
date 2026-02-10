@@ -2,6 +2,7 @@ package daemon
 
 import (
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/agentlab/agentlab/internal/models"
@@ -27,6 +28,8 @@ type Metrics struct {
 	jobTimeToStartSeconds         prometheus.Histogram
 	workspaceLeaseContentionTotal prometheus.Counter
 	workspaceLeaseWaitSeconds     prometheus.Histogram
+	workspaceSnapshotTotal        *prometheus.CounterVec
+	workspaceSnapshotSeconds      *prometheus.HistogramVec
 }
 
 // NewMetrics constructs a metrics registry and registers all collectors.
@@ -174,6 +177,25 @@ func NewMetrics() *Metrics {
 			Buckets:   []float64{0.05, 0.1, 0.25, 0.5, 1, 2, 5, 10, 30, 60},
 		},
 	)
+	workspaceSnapshotTotal := prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Namespace: "agentlab",
+			Subsystem: "workspace",
+			Name:      "snapshot_total",
+			Help:      "Total number of workspace snapshot operations.",
+		},
+		[]string{"operation", "result"},
+	)
+	workspaceSnapshotSeconds := prometheus.NewHistogramVec(
+		prometheus.HistogramOpts{
+			Namespace: "agentlab",
+			Subsystem: "workspace",
+			Name:      "snapshot_duration_seconds",
+			Help:      "Time spent creating or restoring workspace snapshots.",
+			Buckets:   operationBuckets,
+		},
+		[]string{"operation", "result"},
+	)
 
 	registry.MustRegister(
 		sandboxTransitionsTotal,
@@ -191,6 +213,8 @@ func NewMetrics() *Metrics {
 		jobTimeToStartSeconds,
 		workspaceLeaseContentionTotal,
 		workspaceLeaseWaitSeconds,
+		workspaceSnapshotTotal,
+		workspaceSnapshotSeconds,
 	)
 
 	return &Metrics{
@@ -210,6 +234,8 @@ func NewMetrics() *Metrics {
 		jobTimeToStartSeconds:         jobTimeToStartSeconds,
 		workspaceLeaseContentionTotal: workspaceLeaseContentionTotal,
 		workspaceLeaseWaitSeconds:     workspaceLeaseWaitSeconds,
+		workspaceSnapshotTotal:        workspaceSnapshotTotal,
+		workspaceSnapshotSeconds:      workspaceSnapshotSeconds,
 	}
 }
 
@@ -382,4 +408,34 @@ func (m *Metrics) ObserveWorkspaceLeaseWait(duration time.Duration) {
 		return
 	}
 	m.workspaceLeaseWaitSeconds.Observe(seconds)
+}
+
+func (m *Metrics) IncWorkspaceSnapshot(operation, result string) {
+	if m == nil {
+		return
+	}
+	if strings.TrimSpace(operation) == "" {
+		operation = "unknown"
+	}
+	if strings.TrimSpace(result) == "" {
+		result = "unknown"
+	}
+	m.workspaceSnapshotTotal.WithLabelValues(operation, result).Inc()
+}
+
+func (m *Metrics) ObserveWorkspaceSnapshotDuration(operation, result string, duration time.Duration) {
+	if m == nil {
+		return
+	}
+	seconds := duration.Seconds()
+	if seconds < 0 {
+		return
+	}
+	if strings.TrimSpace(operation) == "" {
+		operation = "unknown"
+	}
+	if strings.TrimSpace(result) == "" {
+		result = "unknown"
+	}
+	m.workspaceSnapshotSeconds.WithLabelValues(operation, result).Observe(seconds)
 }

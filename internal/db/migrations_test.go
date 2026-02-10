@@ -22,7 +22,7 @@ func TestMigrate(t *testing.T) {
 		var count int
 		err = conn.QueryRow("SELECT COUNT(*) FROM schema_migrations").Scan(&count)
 		require.NoError(t, err)
-		assert.Equal(t, 10, count) // We have 10 migrations
+		assert.Equal(t, 11, count) // We have 11 migrations
 
 		// Verify version numbers
 		rows, err := conn.Query("SELECT version FROM schema_migrations ORDER BY version")
@@ -36,7 +36,7 @@ func TestMigrate(t *testing.T) {
 			require.NoError(t, err)
 			versions = append(versions, v)
 		}
-		assert.Equal(t, []int{1, 2, 3, 4, 5, 6, 7, 8, 9, 10}, versions)
+		assert.Equal(t, []int{1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11}, versions)
 	})
 
 	t.Run("idempotent - re-running is safe", func(t *testing.T) {
@@ -53,11 +53,11 @@ func TestMigrate(t *testing.T) {
 		err = Migrate(conn)
 		require.NoError(t, err)
 
-		// Verify only 10 migrations recorded
+		// Verify only 11 migrations recorded
 		var count int
 		err = conn.QueryRow("SELECT COUNT(*) FROM schema_migrations").Scan(&count)
 		require.NoError(t, err)
-		assert.Equal(t, 10, count)
+		assert.Equal(t, 11, count)
 	})
 
 	t.Run("creates all core tables", func(t *testing.T) {
@@ -72,7 +72,7 @@ func TestMigrate(t *testing.T) {
 		// Check expected tables exist
 		tables := []string{
 			"sandboxes", "jobs", "profiles", "workspaces",
-			"bootstrap_tokens", "events", "artifact_tokens", "artifacts", "exposures", "messages", "sessions",
+			"bootstrap_tokens", "events", "artifact_tokens", "artifacts", "exposures", "messages", "sessions", "workspace_snapshots",
 		}
 
 		for _, table := range tables {
@@ -97,6 +97,7 @@ func TestMigrate(t *testing.T) {
 			"idx_sandboxes_state", "idx_jobs_status", "idx_jobs_workspace", "idx_jobs_session",
 			"idx_workspaces_attached", "idx_artifacts_job", "idx_exposures_vmid", "idx_messages_scope", "idx_messages_ts",
 			"idx_sessions_name", "idx_sessions_workspace", "idx_sessions_current_vmid", "idx_sessions_branch",
+			"idx_workspace_snapshots_workspace", "idx_workspace_snapshots_created",
 		}
 
 		for _, index := range indexes {
@@ -287,6 +288,44 @@ func TestMigrationVersion8(t *testing.T) {
 	})
 }
 
+func TestMigrationVersion11(t *testing.T) {
+	t.Run("adds workspace_snapshots table", func(t *testing.T) {
+		path := t.TempDir() + "/test.db"
+		conn, err := sql.Open("sqlite", path)
+		require.NoError(t, err)
+		defer conn.Close()
+
+		err = Migrate(conn)
+		require.NoError(t, err)
+
+		columns := []string{"workspace_id", "name", "backend_ref", "created_at", "meta_json"}
+		for _, col := range columns {
+			var count int
+			err = conn.QueryRow("SELECT COUNT(*) FROM pragma_table_info('workspace_snapshots') WHERE name=?", col).Scan(&count)
+			require.NoError(t, err)
+			assert.Equal(t, 1, count, "workspace_snapshots.%s column should exist", col)
+		}
+	})
+
+	t.Run("creates workspace snapshot indexes", func(t *testing.T) {
+		path := t.TempDir() + "/test.db"
+		conn, err := sql.Open("sqlite", path)
+		require.NoError(t, err)
+		defer conn.Close()
+
+		err = Migrate(conn)
+		require.NoError(t, err)
+
+		indexes := []string{"idx_workspace_snapshots_workspace", "idx_workspace_snapshots_created"}
+		for _, index := range indexes {
+			var count int
+			err = conn.QueryRow("SELECT COUNT(*) FROM sqlite_master WHERE type='index' AND name=?", index).Scan(&count)
+			require.NoError(t, err)
+			assert.Equal(t, 1, count, "index %s should exist", index)
+		}
+	})
+}
+
 func TestMigrationVersion3(t *testing.T) {
 	t.Run("adds artifacts tables", func(t *testing.T) {
 		path := t.TempDir() + "/test.db"
@@ -468,15 +507,15 @@ func TestPartialMigration(t *testing.T) {
 			}
 		}
 
-		// Run migrations - should apply 2, 3, 4, 5, 6, 7, 8, 9, and 10
+		// Run migrations - should apply 2, 3, 4, 5, 6, 7, 8, 9, 10, and 11
 		err = Migrate(conn)
 		require.NoError(t, err)
 
-		// Verify all 10 migrations applied
+		// Verify all 11 migrations applied
 		var count int
 		err = conn.QueryRow("SELECT COUNT(*) FROM schema_migrations").Scan(&count)
 		require.NoError(t, err)
-		assert.Equal(t, 10, count)
+		assert.Equal(t, 11, count)
 
 		// Verify tables from migration 2 and 3 exist
 		var tables int

@@ -106,6 +106,9 @@ var (
 //   - POST   /v1/workspaces/{id}/attach  - Attach workspace to VM
 //   - POST   /v1/workspaces/{id}/detach  - Detach workspace from VM
 //   - POST   /v1/workspaces/{id}/rebind   - Rebind workspace to new VM
+//   - GET    /v1/workspaces/{id}/snapshots - List workspace snapshots
+//   - POST   /v1/workspaces/{id}/snapshots - Create workspace snapshot
+//   - POST   /v1/workspaces/{id}/snapshots/{name}/restore - Restore workspace snapshot
 //   - POST   /v1/sessions             - Create a session
 //   - GET    /v1/sessions             - List sessions
 //   - GET    /v1/sessions/{id}        - Get session details
@@ -1078,6 +1081,18 @@ func (api *ControlAPI) handleWorkspaceByID(w http.ResponseWriter, r *http.Reques
 			}
 			api.handleWorkspaceCheck(w, r, id)
 			return
+		case "snapshots":
+			switch r.Method {
+			case http.MethodGet:
+				api.handleWorkspaceSnapshotsList(w, r, id)
+				return
+			case http.MethodPost:
+				api.handleWorkspaceSnapshotCreate(w, r, id)
+				return
+			default:
+				writeMethodNotAllowed(w, []string{http.MethodGet, http.MethodPost})
+				return
+			}
 		case "attach":
 			if r.Method != http.MethodPost {
 				writeMethodNotAllowed(w, []string{http.MethodPost})
@@ -1098,6 +1113,15 @@ func (api *ControlAPI) handleWorkspaceByID(w http.ResponseWriter, r *http.Reques
 				return
 			}
 			api.handleWorkspaceRebind(w, r, id)
+			return
+		}
+	case 4:
+		if parts[1] == "snapshots" && parts[3] == "restore" {
+			if r.Method != http.MethodPost {
+				writeMethodNotAllowed(w, []string{http.MethodPost})
+				return
+			}
+			api.handleWorkspaceSnapshotRestore(w, r, id, parts[2])
 			return
 		}
 	}
@@ -1570,6 +1594,112 @@ func (api *ControlAPI) handleWorkspaceRebind(w http.ResponseWriter, r *http.Requ
 		OldVMID:   result.OldVMID,
 	}
 	writeJSON(w, http.StatusOK, resp)
+}
+
+func (api *ControlAPI) handleWorkspaceSnapshotsList(w http.ResponseWriter, r *http.Request, id string) {
+	if api.workspaceMgr == nil {
+		writeError(w, http.StatusInternalServerError, "workspace manager unavailable")
+		return
+	}
+	snapshots, err := api.workspaceMgr.SnapshotList(r.Context(), id)
+	if err != nil {
+		if errors.Is(err, ErrWorkspaceNotFound) {
+			writeError(w, http.StatusNotFound, "workspace not found")
+			return
+		}
+		writeError(w, http.StatusInternalServerError, "failed to list workspace snapshots")
+		return
+	}
+	resp := V1WorkspaceSnapshotsResponse{Snapshots: make([]V1WorkspaceSnapshotResponse, 0, len(snapshots))}
+	for _, snapshot := range snapshots {
+		resp.Snapshots = append(resp.Snapshots, workspaceSnapshotToV1(snapshot))
+	}
+	writeJSON(w, http.StatusOK, resp)
+}
+
+func (api *ControlAPI) handleWorkspaceSnapshotCreate(w http.ResponseWriter, r *http.Request, id string) {
+	if api.workspaceMgr == nil {
+		writeError(w, http.StatusInternalServerError, "workspace manager unavailable")
+		return
+	}
+	var req V1WorkspaceSnapshotCreateRequest
+	if err := decodeJSON(w, r, &req); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	req.Name = strings.TrimSpace(req.Name)
+	if req.Name == "" {
+		writeError(w, http.StatusBadRequest, "name is required")
+		return
+	}
+	start := api.now().UTC()
+	snapshot, err := api.workspaceMgr.SnapshotCreate(r.Context(), id, req.Name)
+	result := "success"
+	if err != nil {
+		result = "error"
+	}
+	if api.metrics != nil {
+		api.metrics.IncWorkspaceSnapshot("create", result)
+		api.metrics.ObserveWorkspaceSnapshotDuration("create", result, api.now().UTC().Sub(start))
+	}
+	if err != nil {
+		switch {
+		case errors.Is(err, ErrWorkspaceNotFound):
+			writeError(w, http.StatusNotFound, "workspace not found")
+		case errors.Is(err, ErrWorkspaceSnapshotExists):
+			writeError(w, http.StatusConflict, "workspace snapshot already exists")
+		case errors.Is(err, ErrWorkspaceSnapshotAttached):
+			writeError(w, http.StatusConflict, "workspace must be detached for snapshots")
+		case errors.Is(err, ErrWorkspaceLeaseHeld):
+			writeError(w, http.StatusConflict, "workspace lease held")
+		case errors.Is(err, proxmox.ErrStorageUnsupported):
+			writeError(w, http.StatusBadRequest, "workspace storage does not support snapshots")
+		default:
+			writeError(w, http.StatusInternalServerError, "failed to create workspace snapshot")
+		}
+		return
+	}
+	writeJSON(w, http.StatusCreated, workspaceSnapshotToV1(snapshot))
+}
+
+func (api *ControlAPI) handleWorkspaceSnapshotRestore(w http.ResponseWriter, r *http.Request, id, name string) {
+	if api.workspaceMgr == nil {
+		writeError(w, http.StatusInternalServerError, "workspace manager unavailable")
+		return
+	}
+	name = strings.TrimSpace(name)
+	if name == "" {
+		writeError(w, http.StatusBadRequest, "snapshot name is required")
+		return
+	}
+	start := api.now().UTC()
+	snapshot, err := api.workspaceMgr.SnapshotRestore(r.Context(), id, name)
+	result := "success"
+	if err != nil {
+		result = "error"
+	}
+	if api.metrics != nil {
+		api.metrics.IncWorkspaceSnapshot("restore", result)
+		api.metrics.ObserveWorkspaceSnapshotDuration("restore", result, api.now().UTC().Sub(start))
+	}
+	if err != nil {
+		switch {
+		case errors.Is(err, ErrWorkspaceNotFound):
+			writeError(w, http.StatusNotFound, "workspace not found")
+		case errors.Is(err, ErrWorkspaceSnapshotNotFound):
+			writeError(w, http.StatusNotFound, "workspace snapshot not found")
+		case errors.Is(err, ErrWorkspaceSnapshotAttached):
+			writeError(w, http.StatusConflict, "workspace must be detached for snapshots")
+		case errors.Is(err, ErrWorkspaceLeaseHeld):
+			writeError(w, http.StatusConflict, "workspace lease held")
+		case errors.Is(err, proxmox.ErrStorageUnsupported):
+			writeError(w, http.StatusBadRequest, "workspace storage does not support snapshots")
+		default:
+			writeError(w, http.StatusInternalServerError, "failed to restore workspace snapshot")
+		}
+		return
+	}
+	writeJSON(w, http.StatusOK, workspaceSnapshotToV1(snapshot))
 }
 
 func (api *ControlAPI) handleSessionCreate(w http.ResponseWriter, r *http.Request) {
@@ -2875,6 +3005,15 @@ func workspaceToV1(ws models.Workspace) V1WorkspaceResponse {
 		resp.AttachedVMID = &value
 	}
 	return resp
+}
+
+func workspaceSnapshotToV1(snapshot models.WorkspaceSnapshot) V1WorkspaceSnapshotResponse {
+	return V1WorkspaceSnapshotResponse{
+		WorkspaceID: snapshot.WorkspaceID,
+		Name:        snapshot.Name,
+		BackendRef:  snapshot.BackendRef,
+		CreatedAt:   snapshot.CreatedAt.UTC().Format(time.RFC3339Nano),
+	}
 }
 
 func workspaceCheckToV1(result WorkspaceCheckResult) V1WorkspaceCheckResponse {

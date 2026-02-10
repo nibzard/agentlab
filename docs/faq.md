@@ -147,6 +147,26 @@ agentlab session list
 agentlab session show dev-session
 ```
 
+### How do I snapshot a workspace?
+
+Workspace snapshots capture the persistent `/work` volume state. For safety, snapshots
+require the workspace to be detached (no active sandbox attached).
+
+**Create a snapshot:**
+```bash
+agentlab workspace snapshot create dev-workspace baseline
+```
+
+**List snapshots:**
+```bash
+agentlab workspace snapshot list dev-workspace
+```
+
+**Restore a snapshot (destructive):**
+```bash
+agentlab workspace snapshot restore dev-workspace baseline
+```
+
 ### Why did my sandbox stop while I was away?
 
 AgentLab includes an **idle auto-stop** policy for RUNNING sandboxes:
