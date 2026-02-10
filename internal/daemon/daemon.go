@@ -241,9 +241,11 @@ func NewService(cfg config.Config, profiles map[string]models.Profile, store *db
 	localMux := http.NewServeMux()
 	localMux.HandleFunc("/healthz", healthHandler)
 	controlAPI := NewControlAPI(store, profiles, sandboxManager, workspaceManager, jobOrchestrator, cfg.ArtifactDir, log.Default()).
+		WithBackend(backend).
 		WithMetrics(metrics).
 		WithMetricsEnabled(metrics != nil).
 		WithExposurePublisher(exposurePublisher).
+		WithRedactor(redactor).
 		WithAgentSubnet(agentCIDR).
 		WithTailscaleStatus(defaultTailscaleDNSName)
 	controlAPI.Register(localMux)

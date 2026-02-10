@@ -57,6 +57,7 @@ const (
 	ttlFlagDescription              = "lease ttl in minutes or duration (e.g. 120 or 2h)"
 	jsonFlagDescription             = "output json"
 	defaultArtifactBundleName       = "agentlab-artifacts.tar.gz"
+	defaultDoctorBundlePrefix       = "agentlab-doctor"
 	defaultStatefulWorkspaceSizeGB  = 80
 	defaultStatefulWorkspaceStorage = "local-zfs"
 )
@@ -396,11 +397,13 @@ func runJobCommand(ctx context.Context, args []string, base commonFlags) error {
 		return runJobShow(ctx, args[1:], base)
 	case "artifacts":
 		return runJobArtifacts(ctx, args[1:], base)
+	case "doctor":
+		return runJobDoctor(ctx, args[1:], base)
 	default:
 		if !base.jsonOutput {
 			printJobUsage()
 		}
-		return unknownSubcommandError("job", args[0], []string{"run", "show", "artifacts"})
+		return unknownSubcommandError("job", args[0], []string{"run", "show", "artifacts", "doctor"})
 	}
 }
 
@@ -795,6 +798,33 @@ func runJobArtifactsDownload(ctx context.Context, args []string, base commonFlag
 	return nil
 }
 
+func runJobDoctor(ctx context.Context, args []string, base commonFlags) error {
+	fs := newFlagSet("job doctor")
+	opts := base
+	opts.bind(fs)
+	var out string
+	var help bool
+	fs.StringVar(&out, "out", "", "output file path or directory")
+	fs.BoolVar(&help, "help", false, "show help")
+	fs.BoolVar(&help, "h", false, "show help")
+	if err := parseFlags(fs, args, printJobDoctorUsage, &help, opts.jsonOutput); err != nil {
+		return err
+	}
+	if fs.NArg() < 1 {
+		if !opts.jsonOutput {
+			printJobDoctorUsage()
+		}
+		return fmt.Errorf("job_id is required")
+	}
+	jobID := strings.TrimSpace(fs.Arg(0))
+	if jobID == "" {
+		return fmt.Errorf("job_id is required")
+	}
+	bundleName := defaultDoctorBundleName("job", jobID)
+	path := fmt.Sprintf("/v1/jobs/%s/doctor", jobID)
+	return downloadDoctorBundle(ctx, opts, path, out, bundleName, "job", jobID)
+}
+
 // runSandboxCommand dispatches sandbox subcommands.
 func runSandboxCommand(ctx context.Context, args []string, base commonFlags) error {
 	if len(args) == 0 {
@@ -833,11 +863,13 @@ func runSandboxCommand(ctx context.Context, args []string, base commonFlags) err
 		return runSandboxExposed(ctx, args[1:], base)
 	case "unexpose":
 		return runSandboxUnexpose(ctx, args[1:], base)
+	case "doctor":
+		return runSandboxDoctor(ctx, args[1:], base)
 	default:
 		if !base.jsonOutput {
 			printSandboxUsage()
 		}
-		return unknownSubcommandError("sandbox", args[0], []string{"new", "list", "show", "start", "stop", "revert", "destroy", "lease", "prune", "expose", "exposed", "unexpose"})
+		return unknownSubcommandError("sandbox", args[0], []string{"new", "list", "show", "start", "stop", "revert", "destroy", "lease", "prune", "expose", "exposed", "unexpose", "doctor"})
 	}
 }
 
@@ -903,11 +935,13 @@ func runSessionCommand(ctx context.Context, args []string, base commonFlags) err
 		return runSessionFork(ctx, args[1:], base)
 	case "branch":
 		return runSessionBranch(ctx, args[1:], base)
+	case "doctor":
+		return runSessionDoctor(ctx, args[1:], base)
 	default:
 		if !base.jsonOutput {
 			printSessionUsage()
 		}
-		return unknownSubcommandError("session", args[0], []string{"create", "list", "show", "resume", "stop", "fork", "branch"})
+		return unknownSubcommandError("session", args[0], []string{"create", "list", "show", "resume", "stop", "fork", "branch", "doctor"})
 	}
 }
 
@@ -1664,6 +1698,33 @@ func runSandboxUnexpose(ctx context.Context, args []string, base commonFlags) er
 	return nil
 }
 
+func runSandboxDoctor(ctx context.Context, args []string, base commonFlags) error {
+	fs := newFlagSet("sandbox doctor")
+	opts := base
+	opts.bind(fs)
+	var out string
+	var help bool
+	fs.StringVar(&out, "out", "", "output file path or directory")
+	fs.BoolVar(&help, "help", false, "show help")
+	fs.BoolVar(&help, "h", false, "show help")
+	if err := parseFlags(fs, args, printSandboxDoctorUsage, &help, opts.jsonOutput); err != nil {
+		return err
+	}
+	if fs.NArg() < 1 {
+		if !opts.jsonOutput {
+			printSandboxDoctorUsage()
+		}
+		return fmt.Errorf("vmid is required")
+	}
+	vmid, err := parseVMID(fs.Arg(0))
+	if err != nil {
+		return err
+	}
+	bundleName := defaultDoctorBundleName("sandbox", strconv.Itoa(vmid))
+	path := fmt.Sprintf("/v1/sandboxes/%d/doctor", vmid)
+	return downloadDoctorBundle(ctx, opts, path, out, bundleName, "sandbox", strconv.Itoa(vmid))
+}
+
 func runWorkspaceCreate(ctx context.Context, args []string, base commonFlags) error {
 	fs := newFlagSet("workspace create")
 	opts := base
@@ -2294,6 +2355,33 @@ func runSessionBranch(ctx context.Context, args []string, base commonFlags) erro
 	}
 	printSession(session)
 	return nil
+}
+
+func runSessionDoctor(ctx context.Context, args []string, base commonFlags) error {
+	fs := newFlagSet("session doctor")
+	opts := base
+	opts.bind(fs)
+	var out string
+	var help bool
+	fs.StringVar(&out, "out", "", "output file path or directory")
+	fs.BoolVar(&help, "help", false, "show help")
+	fs.BoolVar(&help, "h", false, "show help")
+	if err := parseFlags(fs, args, printSessionDoctorUsage, &help, opts.jsonOutput); err != nil {
+		return err
+	}
+	if fs.NArg() < 1 {
+		if !opts.jsonOutput {
+			printSessionDoctorUsage()
+		}
+		return fmt.Errorf("session id or name is required")
+	}
+	sessionID := strings.TrimSpace(fs.Arg(0))
+	if sessionID == "" {
+		return fmt.Errorf("session id or name is required")
+	}
+	bundleName := defaultDoctorBundleName("session", sessionID)
+	path := fmt.Sprintf("/v1/sessions/%s/doctor", url.PathEscape(sessionID))
+	return downloadDoctorBundle(ctx, opts, path, out, bundleName, "session", sessionID)
 }
 
 func resolveBranchSession(ctx context.Context, client *apiClient, branch, profile, workspace, workspaceCreate, workspaceSize, workspaceStorage string) (sessionResponse, error) {
@@ -3117,6 +3205,63 @@ func resolveArtifactOutPath(out, name string) (string, error) {
 		}
 	}
 	return out, nil
+}
+
+func defaultDoctorBundleName(kind, id string) string {
+	kind = strings.TrimSpace(kind)
+	safeID := slugifyWorkspaceName(id)
+	if safeID == "" {
+		safeID = "bundle"
+	}
+	if kind == "" {
+		return fmt.Sprintf("%s-%s.tar.gz", defaultDoctorBundlePrefix, safeID)
+	}
+	return fmt.Sprintf("%s-%s-%s.tar.gz", defaultDoctorBundlePrefix, kind, safeID)
+}
+
+func downloadDoctorBundle(ctx context.Context, opts commonFlags, path, out, bundleName, kind, id string) error {
+	client, err := apiClientFromFlags(opts)
+	if err != nil {
+		return err
+	}
+	targetPath, err := resolveArtifactOutPath(out, bundleName)
+	if err != nil {
+		return err
+	}
+	respBody, err := client.doRequest(ctx, http.MethodPost, path, nil, nil)
+	if err != nil {
+		return err
+	}
+	defer respBody.Body.Close()
+
+	outFile, err := os.OpenFile(targetPath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o644)
+	if err != nil {
+		return err
+	}
+	defer outFile.Close()
+
+	if _, err := io.Copy(outFile, respBody.Body); err != nil {
+		return err
+	}
+	if err := outFile.Sync(); err != nil {
+		return err
+	}
+
+	if opts.jsonOutput {
+		result := map[string]any{
+			"kind": kind,
+			"id":   id,
+			"out":  targetPath,
+		}
+		data, err := json.Marshal(result)
+		if err != nil {
+			return err
+		}
+		_, _ = os.Stdout.Write(append(data, '\n'))
+		return nil
+	}
+	fmt.Printf("doctor bundle saved to %s\n", targetPath)
+	return nil
 }
 
 // parseVMID parses and validates a VM ID from a string.

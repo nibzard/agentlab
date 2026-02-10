@@ -2395,36 +2395,37 @@
       "files": [
         "cmd/agentlab/api.go",
         "cmd/agentlab/commands.go",
-        "cmd/agentlab/main.go",
         "cmd/agentlab/commands_job_run_branch_test.go",
+        "cmd/agentlab/main.go",
+        "docs/runbook.md",
         "internal/daemon/api.go",
+        "internal/daemon/api_jobs_workspace_test.go",
         "internal/daemon/api_types.go",
         "internal/daemon/job_orchestrator.go",
         "internal/daemon/job_orchestrator_test.go",
-        "internal/daemon/api_jobs_workspace_test.go",
         "internal/daemon/workspace_lease.go",
         "internal/daemon/workspace_rebind.go",
-        "internal/db/migrations.go",
-        "internal/db/migrations_test.go",
         "internal/db/jobs.go",
         "internal/db/jobs_test.go",
+        "internal/db/migrations.go",
+        "internal/db/migrations_test.go",
         "internal/models/models.go",
         "internal/models/models_test.go",
         "internal/testing/testutil.go",
-        "docs/runbook.md"
+        "to-do.json"
       ],
       "depends_on": [
         "T089",
         "T098"
       ],
       "created_at": "2026-02-09T09:49:20Z",
-      "updated_at": "2026-02-10T02:38:11Z"
+      "updated_at": "2026-02-10T02:39:12Z"
     },
     {
       "id": "T100",
       "title": "Doctor bundles: sandbox/job/session doctor to produce a deterministic debug bundle",
       "priority": 2,
-      "status": "todo",
+      "status": "done",
       "details": "Add a doctor workflow that bundles DB records, recent events, Proxmox status/config, and artifact inventory into a single deterministic file for debugging. Doctor output must redact secrets.",
       "steps": [
         "Implement daemon endpoints for doctor bundle creation (sandbox/job/session) writing a tar.gz/zip to a safe location or streaming to client.",
@@ -2442,13 +2443,17 @@
         "cli"
       ],
       "files": [
+        "internal/daemon/doctor.go",
         "internal/daemon/api.go",
-        "internal/daemon/redactor.go",
-        "internal/db/events.go",
+        "internal/daemon/daemon.go",
+        "internal/daemon/doctor_test.go",
         "cmd/agentlab/commands.go",
+        "cmd/agentlab/main.go",
+        "cmd/agentlab/main_test.go",
         "docs/troubleshooting.md"
       ],
-      "created_at": "2026-02-09T09:49:20Z"
+      "created_at": "2026-02-09T09:49:20Z",
+      "updated_at": "2026-02-10T02:55:12Z"
     },
     {
       "id": "T101",
