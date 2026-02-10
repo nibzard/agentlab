@@ -138,6 +138,21 @@ type Backend interface {
 	// ABOUTME: Returns ErrVolumeNotFound if the volume does not exist.
 	VolumeInfo(ctx context.Context, volumeID string) (VolumeInfo, error)
 
+	// VolumeSnapshotCreate creates a snapshot for a workspace volume.
+	// ABOUTME: Callers should ensure the volume is detached before snapshotting for consistency.
+	VolumeSnapshotCreate(ctx context.Context, volumeID, name string) error
+
+	// VolumeSnapshotRestore restores a workspace volume to the named snapshot.
+	// ABOUTME: This is destructive and should only be used when the volume is detached.
+	VolumeSnapshotRestore(ctx context.Context, volumeID, name string) error
+
+	// VolumeSnapshotDelete removes a snapshot from a workspace volume.
+	VolumeSnapshotDelete(ctx context.Context, volumeID, name string) error
+
+	// VolumeClone creates a new volume by cloning an existing workspace volume.
+	// ABOUTME: Callers should ensure the source volume is detached before cloning for consistency.
+	VolumeClone(ctx context.Context, sourceVolumeID, targetVolumeID string) error
+
 	// ValidateTemplate checks if a template VM is suitable for provisioning.
 	// ABOUTME: Returns nil if the template exists and has qemu-guest-agent enabled.
 	// Returns an error if the template is missing or misconfigured.

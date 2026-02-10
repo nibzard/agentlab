@@ -53,6 +53,7 @@ The main configuration file is located at `/etc/agentlab/config.yaml` by default
 | `proxmox_node` | string | `""` (auto) | Proxmox node name (auto-detected if empty) |
 | `proxmox_tls_insecure` | bool | `true` | Skip TLS certificate verification for Proxmox API |
 | `proxmox_tls_ca_path` | string | `""` | Optional CA bundle path for Proxmox API verification |
+| `proxmox_api_shell_fallback` | bool | `false` | Allow API backend to fall back to shell for volume snapshot/clone |
 
 ### Network Configuration
 
@@ -130,6 +131,7 @@ proxmox_api_url: https://localhost:8006
 proxmox_api_token: root@pam!token=uuid
 proxmox_node: pve1  # optional, auto-detected if empty
 proxmox_tls_insecure: true  # default; skip TLS verification for self-signed certs
+proxmox_api_shell_fallback: false  # set true to allow shell fallback for volume ops
 ```
 
 To enforce TLS verification, disable insecure mode and optionally provide a CA bundle:
@@ -326,6 +328,7 @@ Configuration can be overridden via environment variables. Environment variables
 | `AGENTLAB_PROXMOX_NODE` | `proxmox_node` | `pve1` |
 | `AGENTLAB_PROXMOX_TLS_INSECURE` | `proxmox_tls_insecure` | `true` |
 | `AGENTLAB_PROXMOX_TLS_CA_PATH` | `proxmox_tls_ca_path` | `/etc/agentlab/certs/proxmox-ca.pem` |
+| `AGENTLAB_PROXMOX_API_SHELL_FALLBACK` | `proxmox_api_shell_fallback` | `true` |
 
 ## Validation Rules
 

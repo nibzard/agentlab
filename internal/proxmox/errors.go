@@ -21,6 +21,10 @@ var (
 	// ABOUTME: This occurs when both guest agent queries and DHCP lease lookups fail
 	// to find an IP address for the VM.
 	ErrGuestIPNotFound = errors.New("guest IP not found")
+
+	// ErrStorageUnsupported is returned when a storage backend does not support a requested feature.
+	// ABOUTME: This is used for workspace volume snapshot/clone operations on unsupported storages.
+	ErrStorageUnsupported = errors.New("storage type unsupported")
 )
 
 // CommandRunner defines the interface for executing shell commands.

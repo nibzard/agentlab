@@ -464,6 +464,97 @@ func TestShellBackendDeleteVolume(t *testing.T) {
 	}
 }
 
+func TestShellBackendVolumeSnapshotCommands(t *testing.T) {
+	statusJSON := `[{"storage":"local-zfs","type":"zfspool"}]`
+	tests := []struct {
+		name     string
+		call     func(ctx context.Context, backend *ShellBackend) error
+		wantArgs []string
+	}{
+		{
+			name: "create",
+			call: func(ctx context.Context, backend *ShellBackend) error {
+				return backend.VolumeSnapshotCreate(ctx, "local-zfs:vm-0-disk-1", "snap1")
+			},
+			wantArgs: []string{"snapshot", "local-zfs:vm-0-disk-1", "snap1"},
+		},
+		{
+			name: "restore",
+			call: func(ctx context.Context, backend *ShellBackend) error {
+				return backend.VolumeSnapshotRestore(ctx, "local-zfs:vm-0-disk-1", "snap1")
+			},
+			wantArgs: []string{"rollback", "local-zfs:vm-0-disk-1", "snap1"},
+		},
+		{
+			name: "delete",
+			call: func(ctx context.Context, backend *ShellBackend) error {
+				return backend.VolumeSnapshotDelete(ctx, "local-zfs:vm-0-disk-1", "snap1")
+			},
+			wantArgs: []string{"delsnapshot", "local-zfs:vm-0-disk-1", "snap1"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			runner := &fakeRunner{responses: []runnerResponse{{stdout: statusJSON}, {}}}
+			backend := &ShellBackend{Runner: runner}
+			if err := tt.call(context.Background(), backend); err != nil {
+				t.Fatalf("Volume snapshot %s error = %v", tt.name, err)
+			}
+			want := []runnerCall{
+				{name: "pvesm", args: []string{"status", "--storage", "local-zfs", "--output-format", "json"}},
+				{name: "pvesm", args: tt.wantArgs},
+			}
+			if !reflect.DeepEqual(runner.calls, want) {
+				t.Fatalf("Volume snapshot %s calls = %#v, want %#v", tt.name, runner.calls, want)
+			}
+		})
+	}
+}
+
+func TestShellBackendVolumeClone(t *testing.T) {
+	runner := &fakeRunner{responses: []runnerResponse{{stdout: `[{"storage":"local-zfs","type":"zfspool"}]`}, {}}}
+	backend := &ShellBackend{Runner: runner}
+
+	if err := backend.VolumeClone(context.Background(), "local-zfs:vm-0-disk-1", "local-zfs:vm-0-disk-2"); err != nil {
+		t.Fatalf("VolumeClone() error = %v", err)
+	}
+	want := []runnerCall{
+		{name: "pvesm", args: []string{"status", "--storage", "local-zfs", "--output-format", "json"}},
+		{name: "pvesm", args: []string{"clone", "local-zfs:vm-0-disk-1", "local-zfs:vm-0-disk-2"}},
+	}
+	if !reflect.DeepEqual(runner.calls, want) {
+		t.Fatalf("VolumeClone() calls = %#v, want %#v", runner.calls, want)
+	}
+}
+
+func TestShellBackendVolumeSnapshotUnsupportedStorage(t *testing.T) {
+	runner := &fakeRunner{responses: []runnerResponse{{stdout: `[{"storage":"local-lvm","type":"lvm"}]`}}}
+	backend := &ShellBackend{Runner: runner}
+
+	err := backend.VolumeSnapshotCreate(context.Background(), "local-lvm:vm-0-disk-1", "snap1")
+	if err == nil {
+		t.Fatalf("expected error, got nil")
+	}
+	if !errors.Is(err, ErrStorageUnsupported) {
+		t.Fatalf("expected ErrStorageUnsupported, got %v", err)
+	}
+	if len(runner.calls) != 1 {
+		t.Fatalf("expected 1 call, got %d", len(runner.calls))
+	}
+}
+
+func TestShellBackendVolumeCloneCrossStorage(t *testing.T) {
+	backend := &ShellBackend{Runner: &fakeRunner{}}
+	err := backend.VolumeClone(context.Background(), "local-zfs:vm-0-disk-1", "local-lvm:vm-0-disk-2")
+	if err == nil {
+		t.Fatalf("expected error, got nil")
+	}
+	if !errors.Is(err, ErrStorageUnsupported) {
+		t.Fatalf("expected ErrStorageUnsupported, got %v", err)
+	}
+}
+
 func TestShellBackendSnapshotOps(t *testing.T) {
 	runner := &fakeRunner{responses: []runnerResponse{{}, {}, {}}}
 	backend := &ShellBackend{Runner: runner}

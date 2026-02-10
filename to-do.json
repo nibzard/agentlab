@@ -2164,7 +2164,7 @@
       "id": "T093",
       "title": "Backend: add workspace volume snapshot/restore/clone primitives (local-zfs first)",
       "priority": 3,
-      "status": "todo",
+      "status": "done",
       "details": "Enable workspace snapshots and forks by extending proxmox.Backend with volume snapshot/rollback/clone operations. Implement ZFS-backed storages first (local-zfs) using Proxmox tooling (prefer pvesm) and return a clear unsupported error for other storages.",
       "steps": [
         "Extend internal/proxmox/proxmox.go Backend with volume snapshot ops (e.g., VolumeSnapshotCreate/Restore/Delete and VolumeClone).",
@@ -2184,14 +2184,23 @@
         "internal/proxmox/proxmox.go",
         "internal/proxmox/shell_backend.go",
         "internal/proxmox/api_backend.go",
+        "internal/proxmox/volume_helpers.go",
+        "internal/proxmox/errors.go",
         "internal/proxmox/shell_backend_test.go",
         "internal/proxmox/api_backend_test.go",
-        "docs/proxmox.md"
+        "internal/config/config.go",
+        "internal/daemon/daemon.go",
+        "internal/daemon/job_orchestrator_test.go",
+        "internal/daemon/sandbox_manager_test.go",
+        "docs/proxmox.md",
+        "docs/configuration.md",
+        "to-do.json"
       ],
       "depends_on": [
         "T024"
       ],
-      "created_at": "2026-02-09T09:49:20Z"
+      "created_at": "2026-02-09T09:49:20Z",
+      "updated_at": "2026-02-10T03:27:57Z"
     },
     {
       "id": "T094",
@@ -2848,15 +2857,16 @@
         "ssh"
       ],
       "files": [
-        "cmd/agentlab-ssh-gateway/main.go",
-        "cmd/agentlab-ssh-gateway/README.md",
-        "Makefile",
         ".github/workflows/ci.yml",
+        "Makefile",
+        "cmd/agentlab-ssh-gateway/README.md",
+        "cmd/agentlab-ssh-gateway/main.go",
+        "cmd/agentlab-ssh-gateway/stub.go",
         "docs/ssh_gateway_spike.md",
-        "cmd/agentlab-ssh-gateway/stub.go"
+        "to-do.json"
       ],
       "created_at": "2026-02-10T01:59:57Z",
-      "updated_at": "2026-02-10T03:13:35Z"
+      "updated_at": "2026-02-10T03:14:56Z"
     },
     {
       "id": "T113",

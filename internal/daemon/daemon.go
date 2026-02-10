@@ -201,6 +201,13 @@ func NewService(cfg config.Config, profiles map[string]models.Profile, store *db
 			return nil, fmt.Errorf("create Proxmox API backend: %w", err)
 		}
 		apiBackend.CloneMode = cloneMode
+		apiBackend.AllowShellFallback = cfg.ProxmoxAPIShellFallback
+		if cfg.ProxmoxAPIShellFallback {
+			apiBackend.ShellFallback = &proxmox.ShellBackend{
+				CommandTimeout: cfg.ProxmoxCommandTimeout,
+				Runner:         &proxmox.BashRunner{},
+			}
+		}
 		backend = apiBackend
 		log.Printf("using Proxmox API backend (url=%s)", cfg.ProxmoxAPIURL)
 	case "shell", "", "default":

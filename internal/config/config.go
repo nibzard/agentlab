@@ -69,13 +69,14 @@ type Config struct {
 	IdleStopMinutesDefault  int
 	IdleStopCPUThreshold    float64
 	// Proxmox backend configuration
-	ProxmoxBackend     string // "shell" or "api"
-	ProxmoxCloneMode   string // "linked" or "full"
-	ProxmoxAPIURL      string // e.g., "https://localhost:8006/api2/json"
-	ProxmoxAPIToken    string // e.g., "root@pam!token=uuid"
-	ProxmoxNode        string // Proxmox node name (optional, auto-detected if empty)
-	ProxmoxTLSInsecure bool   // Skip TLS verification for Proxmox API
-	ProxmoxTLSCAPath   string // Optional CA bundle path for Proxmox API TLS verification
+	ProxmoxBackend          string // "shell" or "api"
+	ProxmoxCloneMode        string // "linked" or "full"
+	ProxmoxAPIURL           string // e.g., "https://localhost:8006/api2/json"
+	ProxmoxAPIToken         string // e.g., "root@pam!token=uuid"
+	ProxmoxNode             string // Proxmox node name (optional, auto-detected if empty)
+	ProxmoxTLSInsecure      bool   // Skip TLS verification for Proxmox API
+	ProxmoxTLSCAPath        string // Optional CA bundle path for Proxmox API TLS verification
+	ProxmoxAPIShellFallback bool   // Allow shell fallback for API backend volume ops
 }
 
 // FileConfig represents supported YAML config overrides.
@@ -127,6 +128,7 @@ type FileConfig struct {
 	ProxmoxNode             string   `yaml:"proxmox_node"`
 	ProxmoxTLSInsecure      *bool    `yaml:"proxmox_tls_insecure"`
 	ProxmoxTLSCAPath        string   `yaml:"proxmox_tls_ca_path"`
+	ProxmoxAPIShellFallback *bool    `yaml:"proxmox_api_shell_fallback"`
 }
 
 // DefaultConfig returns a Config struct with all default values set.
@@ -149,6 +151,7 @@ type FileConfig struct {
 //   - ProxmoxCommandTimeout: 2 minutes
 //   - ProvisioningTimeout: 10 minutes
 //   - ProxmoxTLSInsecure: true
+//   - ProxmoxAPIShellFallback: false
 //   - IdleStopEnabled: true
 //   - IdleStopInterval: 1 minute
 //   - IdleStopMinutesDefault: 30 minutes
@@ -195,6 +198,7 @@ func DefaultConfig() Config {
 		ProxmoxNode:             "", // Auto-detected if empty
 		ProxmoxTLSInsecure:      true,
 		ProxmoxTLSCAPath:        "",
+		ProxmoxAPIShellFallback: false,
 	}
 }
 
@@ -384,6 +388,9 @@ func applyFileConfig(cfg *Config, fileCfg FileConfig) error {
 	}
 	if fileCfg.ProxmoxTLSCAPath != "" {
 		cfg.ProxmoxTLSCAPath = fileCfg.ProxmoxTLSCAPath
+	}
+	if fileCfg.ProxmoxAPIShellFallback != nil {
+		cfg.ProxmoxAPIShellFallback = *fileCfg.ProxmoxAPIShellFallback
 	}
 	return nil
 }
