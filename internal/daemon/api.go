@@ -50,6 +50,7 @@ var (
 		models.SandboxBooting,
 		models.SandboxReady,
 		models.SandboxRunning,
+		models.SandboxSuspended,
 		models.SandboxCompleted,
 		models.SandboxFailed,
 		models.SandboxTimeout,
@@ -90,6 +91,8 @@ var (
 //   - GET    /v1/sandboxes/{vmid}     - Get sandbox details
 //   - POST   /v1/sandboxes/{vmid}/start     - Start a stopped sandbox
 //   - POST   /v1/sandboxes/{vmid}/stop      - Stop a running sandbox
+//   - POST   /v1/sandboxes/{vmid}/pause     - Pause a running sandbox
+//   - POST   /v1/sandboxes/{vmid}/resume    - Resume a paused sandbox
 //   - POST   /v1/sandboxes/stop_all         - Stop all running sandboxes
 //   - POST   /v1/sandboxes/{vmid}/touch     - Update sandbox last_used_at
 //   - POST   /v1/sandboxes/{vmid}/revert    - Revert a sandbox to snapshot "clean"
@@ -992,6 +995,22 @@ func (api *ControlAPI) handleSandboxByID(w http.ResponseWriter, r *http.Request)
 				return
 			}
 			api.handleSandboxStop(w, r, vmid)
+			return
+		}
+		if parts[1] == "pause" {
+			if r.Method != http.MethodPost {
+				writeMethodNotAllowed(w, []string{http.MethodPost})
+				return
+			}
+			api.handleSandboxPause(w, r, vmid)
+			return
+		}
+		if parts[1] == "resume" {
+			if r.Method != http.MethodPost {
+				writeMethodNotAllowed(w, []string{http.MethodPost})
+				return
+			}
+			api.handleSandboxResume(w, r, vmid)
 			return
 		}
 		if parts[1] == "touch" {
@@ -2549,7 +2568,7 @@ func (api *ControlAPI) handleSandboxStop(w http.ResponseWriter, r *http.Request,
 		case errors.Is(err, ErrInvalidTransition):
 			if api.store != nil {
 				if sb, getErr := api.store.GetSandbox(r.Context(), vmid); getErr == nil {
-					writeError(w, http.StatusConflict, fmt.Sprintf("cannot stop sandbox in %s state. Valid states: READY, RUNNING", sb.State))
+					writeError(w, http.StatusConflict, fmt.Sprintf("cannot stop sandbox in %s state. Valid states: READY, RUNNING, SUSPENDED", sb.State))
 				} else {
 					writeError(w, http.StatusConflict, "invalid sandbox state for stop operation")
 				}
@@ -2558,6 +2577,77 @@ func (api *ControlAPI) handleSandboxStop(w http.ResponseWriter, r *http.Request,
 			}
 		default:
 			writeError(w, http.StatusInternalServerError, fmt.Sprintf("failed to stop sandbox: %v", err))
+		}
+		return
+	}
+	sandbox, err := api.store.GetSandbox(r.Context(), vmid)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to load sandbox")
+		return
+	}
+	writeJSON(w, http.StatusOK, api.sandboxToV1(sandbox))
+}
+
+func (api *ControlAPI) handleSandboxPause(w http.ResponseWriter, r *http.Request, vmid int) {
+	if api.sandboxManager == nil {
+		writeError(w, http.StatusInternalServerError, "sandbox manager unavailable")
+		return
+	}
+	if err := api.sandboxManager.Pause(r.Context(), vmid); err != nil {
+		var inUse SandboxInUseError
+		switch {
+		case errors.Is(err, ErrSandboxNotFound):
+			writeError(w, http.StatusNotFound, "sandbox not found")
+		case errors.As(err, &inUse):
+			msg := "sandbox has a running job; stop it before pausing"
+			if inUse.JobID != "" {
+				msg = fmt.Sprintf("sandbox has running job %s; stop it before pausing", inUse.JobID)
+			}
+			writeError(w, http.StatusConflict, msg)
+		case errors.Is(err, ErrInvalidTransition):
+			if api.store != nil {
+				if sb, getErr := api.store.GetSandbox(r.Context(), vmid); getErr == nil {
+					writeError(w, http.StatusConflict, fmt.Sprintf("cannot pause sandbox in %s state. Valid states: READY, RUNNING", sb.State))
+				} else {
+					writeError(w, http.StatusConflict, "invalid sandbox state for pause operation")
+				}
+			} else {
+				writeError(w, http.StatusConflict, "invalid sandbox state for pause operation")
+			}
+		default:
+			writeError(w, http.StatusInternalServerError, fmt.Sprintf("failed to pause sandbox: %v", err))
+		}
+		return
+	}
+	sandbox, err := api.store.GetSandbox(r.Context(), vmid)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to load sandbox")
+		return
+	}
+	writeJSON(w, http.StatusOK, api.sandboxToV1(sandbox))
+}
+
+func (api *ControlAPI) handleSandboxResume(w http.ResponseWriter, r *http.Request, vmid int) {
+	if api.sandboxManager == nil {
+		writeError(w, http.StatusInternalServerError, "sandbox manager unavailable")
+		return
+	}
+	if err := api.sandboxManager.Resume(r.Context(), vmid); err != nil {
+		switch {
+		case errors.Is(err, ErrSandboxNotFound):
+			writeError(w, http.StatusNotFound, "sandbox not found")
+		case errors.Is(err, ErrInvalidTransition):
+			if api.store != nil {
+				if sb, getErr := api.store.GetSandbox(r.Context(), vmid); getErr == nil {
+					writeError(w, http.StatusConflict, fmt.Sprintf("cannot resume sandbox in %s state. Valid states: SUSPENDED", sb.State))
+				} else {
+					writeError(w, http.StatusConflict, "invalid sandbox state for resume operation")
+				}
+			} else {
+				writeError(w, http.StatusConflict, "invalid sandbox state for resume operation")
+			}
+		default:
+			writeError(w, http.StatusInternalServerError, fmt.Sprintf("failed to resume sandbox: %v", err))
 		}
 		return
 	}

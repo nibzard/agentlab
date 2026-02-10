@@ -86,6 +86,14 @@ type Backend interface {
 	// ABOUTME: Returns ErrVMNotFound if the VM does not exist.
 	Stop(ctx context.Context, vmid VMID) error
 
+	// Suspend pauses a running VM.
+	// ABOUTME: Uses Proxmox suspend to pause execution.
+	Suspend(ctx context.Context, vmid VMID) error
+
+	// Resume resumes a suspended VM.
+	// ABOUTME: Uses Proxmox resume to continue execution.
+	Resume(ctx context.Context, vmid VMID) error
+
 	// Destroy permanently deletes a VM and its disks.
 	// ABOUTME: This operation is irreversible. Returns ErrVMNotFound if the VM does not exist.
 	Destroy(ctx context.Context, vmid VMID) error

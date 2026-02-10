@@ -2555,7 +2555,7 @@
       "id": "T103",
       "title": "Sandbox pause/resume: add Proxmox suspend/resume to backend + CLI",
       "priority": 5,
-      "status": "todo",
+      "status": "done",
       "details": "Add `agentlab sandbox pause`/`resume` built on Proxmox suspend/resume (future-friendly for sessions that want long-running processes). Keep conservative safety rules when workspaces are attached.",
       "steps": [
         "Extend proxmox.Backend with Suspend/Resume.",
@@ -2571,15 +2571,22 @@
         "api"
       ],
       "files": [
+        "internal/models/models.go",
         "internal/proxmox/proxmox.go",
         "internal/proxmox/api_backend.go",
         "internal/proxmox/shell_backend.go",
-        "internal/daemon/api.go",
         "internal/daemon/sandbox_manager.go",
+        "internal/daemon/api.go",
         "cmd/agentlab/commands.go",
-        "cmd/agentlab/main.go"
+        "cmd/agentlab/main.go",
+        "internal/proxmox/api_backend_test.go",
+        "internal/proxmox/shell_backend_test.go",
+        "internal/daemon/sandbox_manager_test.go",
+        "internal/daemon/job_orchestrator_test.go",
+        "cmd/agentlab/main_test.go"
       ],
-      "created_at": "2026-02-09T09:49:20Z"
+      "created_at": "2026-02-09T09:49:20Z",
+      "updated_at": "2026-02-10T07:22:35Z"
     },
     {
       "id": "T104",
@@ -3394,14 +3401,15 @@
         "release"
       ],
       "files": [
-        "Makefile",
         ".github/workflows/ci.yml",
-        "docs/testing.md",
+        "Makefile",
         "TESTING_REPORT.md",
-        "coverage.out",
         "coverage.html",
+        "coverage.out",
+        "dist/coverage/coverage.func.txt",
         "dist/coverage/coverage.out",
-        "dist/coverage/coverage.func.txt"
+        "docs/testing.md",
+        "to-do.json"
       ],
       "depends_on": [
         "T114",
@@ -3411,14 +3419,14 @@
         "T122"
       ],
       "created_at": "2026-02-10T02:16:01Z",
-      "updated_at": "2026-02-10T07:03:55Z"
+      "updated_at": "2026-02-10T07:05:01Z"
     },
     {
       "id": "T128",
       "title": "Bugfix sweep: triage failures from final runs, fix, and add regression tests",
       "priority": 4,
-      "status": "todo",
-      "details": "After the final quality/test runs, fix any discovered bugs and lock them in with regression tests. This is the cleanup buffer that turns failures into permanent improvements.",
+      "status": "done",
+      "details": "After the final quality/test runs, fix any discovered bugs and lock them in with regression tests. This is the cleanup buffer that turns failures into permanent improvements.\n\nUpdate: Final test matrix on 2026-02-10 was clean; re-ran 'go test ./internal/daemon -run TestNewService_RunDirError' to confirm the prior RunDir error test fix. No code changes required for T128.",
       "steps": [
         "Collect failures from `make test-ci`, docs checks, fuzz, and integration harness (if enabled) and group them by area (CLI, daemon, config, docs/tooling).",
         "For each bug: write a minimal failing test (unit/integration) that reproduces it, then implement the fix.",
@@ -3433,14 +3441,16 @@
       ],
       "files": [
         "cmd/agentlab/*",
-        "internal/daemon/*",
+        "docs/*",
         "internal/config/*",
-        "docs/*"
+        "internal/daemon/*",
+        "to-do.json"
       ],
       "depends_on": [
         "T127"
       ],
-      "created_at": "2026-02-10T02:16:01Z"
+      "created_at": "2026-02-10T02:16:01Z",
+      "updated_at": "2026-02-10T07:06:33Z"
     }
   ]
 }

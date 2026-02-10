@@ -63,6 +63,14 @@ func (b *orchestratorBackend) Stop(context.Context, proxmox.VMID) error {
 	return nil
 }
 
+func (b *orchestratorBackend) Suspend(context.Context, proxmox.VMID) error {
+	return nil
+}
+
+func (b *orchestratorBackend) Resume(context.Context, proxmox.VMID) error {
+	return nil
+}
+
 func (b *orchestratorBackend) Destroy(_ context.Context, vmid proxmox.VMID) error {
 	b.destroyCalls = append(b.destroyCalls, vmid)
 	return nil

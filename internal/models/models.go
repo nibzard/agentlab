@@ -15,8 +15,9 @@ import "time"
 //
 // The state machine enforces valid transitions:
 //
-//	REQUESTED → PROVISIONING → BOOTING → READY → RUNNING → (COMPLETED|FAILED|TIMEOUT) → STOPPED → DESTROYED
+//	REQUESTED → PROVISIONING → BOOTING → READY → RUNNING → (SUSPENDED|COMPLETED|FAILED|TIMEOUT) → STOPPED → DESTROYED
 //
+// SUSPENDED sandboxes can be resumed, transitioning back to RUNNING.
 // STOPPED sandboxes can be restarted, transitioning back through BOOTING/READY/RUNNING.
 //
 // States can also transition to TIMEOUT at any point before COMPLETED/FAILED/STOPPED,
@@ -34,6 +35,8 @@ const (
 	SandboxReady SandboxState = "READY"
 	// SandboxRunning indicates a job is actively executing in the sandbox.
 	SandboxRunning SandboxState = "RUNNING"
+	// SandboxSuspended indicates the VM has been suspended (paused) but not destroyed.
+	SandboxSuspended SandboxState = "SUSPENDED"
 	// SandboxCompleted indicates the job finished successfully.
 	SandboxCompleted SandboxState = "COMPLETED"
 	// SandboxFailed indicates the job failed.

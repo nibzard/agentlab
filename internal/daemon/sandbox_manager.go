@@ -445,7 +445,7 @@ func (m *SandboxManager) Stop(ctx context.Context, vmid int) (err error) {
 	if sandbox.State == models.SandboxStopped {
 		return nil
 	}
-	if sandbox.State != models.SandboxReady && sandbox.State != models.SandboxRunning {
+	if sandbox.State != models.SandboxReady && sandbox.State != models.SandboxRunning && sandbox.State != models.SandboxSuspended {
 		return fmt.Errorf("%w: %s -> %s", ErrInvalidTransition, sandbox.State, models.SandboxStopped)
 	}
 	if m.backend == nil {
@@ -478,6 +478,131 @@ func (m *SandboxManager) Stop(ctx context.Context, vmid int) (err error) {
 		return fmt.Errorf("stop vmid %d: %w", vmid, err)
 	}
 	if err = m.Transition(ctx, vmid, models.SandboxStopped); err != nil {
+		return err
+	}
+	return nil
+}
+
+// Pause suspends a sandbox and transitions it to SUSPENDED.
+//
+// The sandbox must be in READY or RUNNING state. When a workspace is attached,
+// pausing is blocked if a job is actively running.
+func (m *SandboxManager) Pause(ctx context.Context, vmid int) (err error) {
+	if m == nil || m.store == nil {
+		return errors.New("sandbox manager not configured")
+	}
+	sandbox, err := m.store.GetSandbox(ctx, vmid)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return ErrSandboxNotFound
+		}
+		return fmt.Errorf("load sandbox %d: %w", vmid, err)
+	}
+	if sandbox.State == models.SandboxDestroyed {
+		return ErrSandboxNotFound
+	}
+	if sandbox.State == models.SandboxSuspended {
+		return nil
+	}
+	if sandbox.State != models.SandboxReady && sandbox.State != models.SandboxRunning {
+		return fmt.Errorf("%w: %s -> %s", ErrInvalidTransition, sandbox.State, models.SandboxSuspended)
+	}
+	if sandbox.WorkspaceID != nil {
+		job, jobErr := m.store.GetJobBySandboxVMID(ctx, vmid)
+		if jobErr == nil {
+			if job.Status == models.JobRunning || job.Status == models.JobQueued {
+				return SandboxInUseError{JobID: job.ID}
+			}
+		} else if !errors.Is(jobErr, sql.ErrNoRows) {
+			return fmt.Errorf("load sandbox job: %w", jobErr)
+		}
+	}
+	if m.backend == nil {
+		return errors.New("proxmox backend unavailable")
+	}
+	startedAt := m.now().UTC()
+	defer func() {
+		duration := m.now().UTC().Sub(startedAt)
+		if err != nil {
+			m.recordLifecycleEvent(ctx, vmid, "sandbox.pause.failed", fmt.Sprintf("pause failed: %s", err.Error()), lifecycleEventPayload{
+				DurationMS: duration.Milliseconds(),
+				Error:      err.Error(),
+			})
+			return
+		}
+		m.recordLifecycleEvent(ctx, vmid, "sandbox.pause.completed", fmt.Sprintf("pause completed in %s", duration), lifecycleEventPayload{
+			DurationMS: duration.Milliseconds(),
+		})
+	}()
+	if err = m.backend.Suspend(ctx, proxmox.VMID(vmid)); err != nil {
+		if errors.Is(err, proxmox.ErrVMNotFound) {
+			return ErrSandboxNotFound
+		}
+		return fmt.Errorf("suspend vmid %d: %w", vmid, err)
+	}
+	if err = m.Transition(ctx, vmid, models.SandboxSuspended); err != nil {
+		return err
+	}
+	return nil
+}
+
+// Resume resumes a suspended sandbox and transitions it back to READY or RUNNING.
+//
+// The sandbox must be in SUSPENDED state. If a job is active, the sandbox
+// returns to RUNNING; otherwise it returns to READY.
+func (m *SandboxManager) Resume(ctx context.Context, vmid int) (err error) {
+	if m == nil || m.store == nil {
+		return errors.New("sandbox manager not configured")
+	}
+	sandbox, err := m.store.GetSandbox(ctx, vmid)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return ErrSandboxNotFound
+		}
+		return fmt.Errorf("load sandbox %d: %w", vmid, err)
+	}
+	if sandbox.State == models.SandboxDestroyed {
+		return ErrSandboxNotFound
+	}
+	if sandbox.State == models.SandboxRunning || sandbox.State == models.SandboxReady {
+		return nil
+	}
+	if sandbox.State != models.SandboxSuspended {
+		return fmt.Errorf("%w: %s -> resume", ErrInvalidTransition, sandbox.State)
+	}
+	if m.backend == nil {
+		return errors.New("proxmox backend unavailable")
+	}
+	startedAt := m.now().UTC()
+	defer func() {
+		duration := m.now().UTC().Sub(startedAt)
+		if err != nil {
+			m.recordLifecycleEvent(ctx, vmid, "sandbox.resume.failed", fmt.Sprintf("resume failed: %s", err.Error()), lifecycleEventPayload{
+				DurationMS: duration.Milliseconds(),
+				Error:      err.Error(),
+			})
+			return
+		}
+		m.recordLifecycleEvent(ctx, vmid, "sandbox.resume.completed", fmt.Sprintf("resume completed in %s", duration), lifecycleEventPayload{
+			DurationMS: duration.Milliseconds(),
+		})
+	}()
+	if err = m.backend.Resume(ctx, proxmox.VMID(vmid)); err != nil {
+		if errors.Is(err, proxmox.ErrVMNotFound) {
+			return ErrSandboxNotFound
+		}
+		return fmt.Errorf("resume vmid %d: %w", vmid, err)
+	}
+	target := models.SandboxReady
+	job, jobErr := m.store.GetJobBySandboxVMID(ctx, vmid)
+	if jobErr == nil {
+		if job.Status == models.JobRunning || job.Status == models.JobQueued {
+			target = models.SandboxRunning
+		}
+	} else if !errors.Is(jobErr, sql.ErrNoRows) {
+		return fmt.Errorf("load sandbox job: %w", jobErr)
+	}
+	if err = m.Transition(ctx, vmid, target); err != nil {
 		return err
 	}
 	return nil
@@ -526,7 +651,7 @@ func (m *SandboxManager) Revert(ctx context.Context, vmid int, opts RevertOption
 		}
 	}
 
-	wasRunning := sandbox.State == models.SandboxRunning || sandbox.State == models.SandboxReady
+	wasRunning := sandbox.State == models.SandboxRunning || sandbox.State == models.SandboxReady || sandbox.State == models.SandboxSuspended
 	if status == proxmox.StatusRunning {
 		wasRunning = true
 	}
@@ -575,6 +700,8 @@ func (m *SandboxManager) Revert(ctx context.Context, vmid int, opts RevertOption
 
 	shouldStop := false
 	if status == proxmox.StatusRunning {
+		shouldStop = true
+	} else if sandbox.State == models.SandboxSuspended {
 		shouldStop = true
 	} else if status == proxmox.StatusUnknown && wasRunning {
 		shouldStop = true
@@ -980,9 +1107,11 @@ func allowedTransition(from, to models.SandboxState) bool {
 	case models.SandboxBooting:
 		return to == models.SandboxReady || to == models.SandboxTimeout || to == models.SandboxDestroyed
 	case models.SandboxReady:
-		return to == models.SandboxRunning || to == models.SandboxStopped || to == models.SandboxTimeout || to == models.SandboxDestroyed
+		return to == models.SandboxRunning || to == models.SandboxSuspended || to == models.SandboxStopped || to == models.SandboxTimeout || to == models.SandboxDestroyed
 	case models.SandboxRunning:
-		return to == models.SandboxCompleted || to == models.SandboxFailed || to == models.SandboxTimeout || to == models.SandboxStopped || to == models.SandboxDestroyed
+		return to == models.SandboxSuspended || to == models.SandboxCompleted || to == models.SandboxFailed || to == models.SandboxTimeout || to == models.SandboxStopped || to == models.SandboxDestroyed
+	case models.SandboxSuspended:
+		return to == models.SandboxReady || to == models.SandboxRunning || to == models.SandboxStopped || to == models.SandboxTimeout || to == models.SandboxDestroyed
 	case models.SandboxCompleted:
 		return to == models.SandboxStopped || to == models.SandboxDestroyed
 	case models.SandboxFailed:

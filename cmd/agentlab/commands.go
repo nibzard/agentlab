@@ -71,6 +71,7 @@ var (
 		"BOOTING",
 		"READY",
 		"RUNNING",
+		"SUSPENDED",
 		"COMPLETED",
 		"FAILED",
 		"TIMEOUT",
@@ -840,6 +841,10 @@ func runSandboxCommand(ctx context.Context, args []string, base commonFlags) err
 		return runSandboxStart(ctx, args[1:], base)
 	case "stop":
 		return runSandboxStop(ctx, args[1:], base)
+	case "pause":
+		return runSandboxPause(ctx, args[1:], base)
+	case "resume":
+		return runSandboxResume(ctx, args[1:], base)
 	case "revert":
 		return runSandboxRevert(ctx, args[1:], base)
 	case "destroy":
@@ -860,7 +865,7 @@ func runSandboxCommand(ctx context.Context, args []string, base commonFlags) err
 		if !base.jsonOutput {
 			printSandboxUsage()
 		}
-		return unknownSubcommandError("sandbox", args[0], []string{"new", "list", "show", "start", "stop", "revert", "destroy", "lease", "prune", "expose", "exposed", "unexpose", "doctor"})
+		return unknownSubcommandError("sandbox", args[0], []string{"new", "list", "show", "start", "stop", "pause", "resume", "revert", "destroy", "lease", "prune", "expose", "exposed", "unexpose", "doctor"})
 	}
 }
 
@@ -1305,6 +1310,82 @@ func runSandboxStop(ctx context.Context, args []string, base commonFlags) error 
 		return err
 	}
 	fmt.Printf("sandbox %d stopped (state=%s)\n", resp.VMID, resp.State)
+	return nil
+}
+
+func runSandboxPause(ctx context.Context, args []string, base commonFlags) error {
+	fs := newFlagSet("sandbox pause")
+	opts := base
+	opts.bind(fs)
+	help := bindHelpFlag(fs)
+	if err := parseFlags(fs, args, printSandboxPauseUsage, help, opts.jsonOutput); err != nil {
+		return err
+	}
+	if fs.NArg() < 1 {
+		if !opts.jsonOutput {
+			printSandboxPauseUsage()
+		}
+		return fmt.Errorf("vmid is required")
+	}
+	vmid, err := parseVMID(fs.Arg(0))
+	if err != nil {
+		return err
+	}
+
+	client, err := apiClientFromFlags(opts)
+	if err != nil {
+		return err
+	}
+	payload, err := client.doJSON(ctx, http.MethodPost, fmt.Sprintf("/v1/sandboxes/%d/pause", vmid), nil)
+	if err != nil {
+		return wrapSandboxNotFound(ctx, client, vmid, err)
+	}
+	if opts.jsonOutput {
+		return prettyPrintJSON(os.Stdout, payload)
+	}
+	var resp sandboxResponse
+	if err := json.Unmarshal(payload, &resp); err != nil {
+		return err
+	}
+	fmt.Printf("sandbox %d paused (state=%s)\n", resp.VMID, resp.State)
+	return nil
+}
+
+func runSandboxResume(ctx context.Context, args []string, base commonFlags) error {
+	fs := newFlagSet("sandbox resume")
+	opts := base
+	opts.bind(fs)
+	help := bindHelpFlag(fs)
+	if err := parseFlags(fs, args, printSandboxResumeUsage, help, opts.jsonOutput); err != nil {
+		return err
+	}
+	if fs.NArg() < 1 {
+		if !opts.jsonOutput {
+			printSandboxResumeUsage()
+		}
+		return fmt.Errorf("vmid is required")
+	}
+	vmid, err := parseVMID(fs.Arg(0))
+	if err != nil {
+		return err
+	}
+
+	client, err := apiClientFromFlags(opts)
+	if err != nil {
+		return err
+	}
+	payload, err := client.doJSON(ctx, http.MethodPost, fmt.Sprintf("/v1/sandboxes/%d/resume", vmid), nil)
+	if err != nil {
+		return wrapSandboxNotFound(ctx, client, vmid, err)
+	}
+	if opts.jsonOutput {
+		return prettyPrintJSON(os.Stdout, payload)
+	}
+	var resp sandboxResponse
+	if err := json.Unmarshal(payload, &resp); err != nil {
+		return err
+	}
+	fmt.Printf("sandbox %d resumed (state=%s)\n", resp.VMID, resp.State)
 	return nil
 }
 
