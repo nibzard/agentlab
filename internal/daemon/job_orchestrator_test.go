@@ -132,6 +132,10 @@ func (b *orchestratorBackend) VolumeClone(context.Context, string, string) error
 	return nil
 }
 
+func (b *orchestratorBackend) VolumeCloneFromSnapshot(context.Context, string, string, string) error {
+	return nil
+}
+
 func (b *orchestratorBackend) ValidateTemplate(context.Context, proxmox.VMID) error {
 	return nil
 }

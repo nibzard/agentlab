@@ -9,7 +9,7 @@
 //
 //	job:       Manage jobs (run, show, artifacts)
 //	sandbox:   Manage sandboxes (new, list, show, start, stop, revert, destroy, lease, prune, expose, exposed, unexpose)
-//	workspace: Manage workspaces (create, list, check, attach, detach, rebind)
+//	workspace: Manage workspaces (create, list, check, attach, detach, rebind, fork, snapshot)
 //	profile:   Manage profiles (list)
 //	msg:       Manage messagebox (post, tail)
 //	ssh:       Generate SSH connection parameters
@@ -899,13 +899,15 @@ func runWorkspaceCommand(ctx context.Context, args []string, base commonFlags) e
 		return runWorkspaceDetach(ctx, args[1:], base)
 	case "rebind":
 		return runWorkspaceRebind(ctx, args[1:], base)
+	case "fork":
+		return runWorkspaceFork(ctx, args[1:], base)
 	case "snapshot":
 		return runWorkspaceSnapshotCommand(ctx, args[1:], base)
 	default:
 		if !base.jsonOutput {
 			printWorkspaceUsage()
 		}
-		return unknownSubcommandError("workspace", args[0], []string{"create", "list", "check", "attach", "detach", "rebind", "snapshot"})
+		return unknownSubcommandError("workspace", args[0], []string{"create", "list", "check", "attach", "detach", "rebind", "fork", "snapshot"})
 	}
 }
 
@@ -1993,6 +1995,62 @@ func runWorkspaceRebind(ctx context.Context, args []string, base commonFlags) er
 		return err
 	}
 	printWorkspaceRebind(resp, keepOld)
+	return nil
+}
+
+func runWorkspaceFork(ctx context.Context, args []string, base commonFlags) error {
+	fs := newFlagSet("workspace fork")
+	opts := base
+	opts.bind(fs)
+	var name string
+	var fromSnapshot string
+	var help bool
+	fs.StringVar(&name, "name", "", "new workspace name")
+	fs.StringVar(&fromSnapshot, "from-snapshot", "", "snapshot name to fork from")
+	fs.BoolVar(&help, "help", false, "show help")
+	fs.BoolVar(&help, "h", false, "show help")
+	if err := parseFlags(fs, args, printWorkspaceForkUsage, &help, opts.jsonOutput); err != nil {
+		return err
+	}
+	if fs.NArg() < 1 {
+		if !opts.jsonOutput {
+			printWorkspaceForkUsage()
+		}
+		return fmt.Errorf("workspace is required")
+	}
+	source := strings.TrimSpace(fs.Arg(0))
+	if source == "" {
+		return fmt.Errorf("workspace is required")
+	}
+	name = strings.TrimSpace(name)
+	fromSnapshot = strings.TrimSpace(fromSnapshot)
+	if name == "" {
+		if !opts.jsonOutput {
+			printWorkspaceForkUsage()
+		}
+		return fmt.Errorf("name is required")
+	}
+
+	client, err := apiClientFromFlags(opts)
+	if err != nil {
+		return err
+	}
+	req := workspaceForkRequest{
+		Name:         name,
+		FromSnapshot: fromSnapshot,
+	}
+	payload, err := client.doJSON(ctx, http.MethodPost, fmt.Sprintf("/v1/workspaces/%s/fork", url.PathEscape(source)), req)
+	if err != nil {
+		return wrapWorkspaceNotFound(source, err)
+	}
+	if opts.jsonOutput {
+		return prettyPrintJSON(os.Stdout, payload)
+	}
+	var resp workspaceResponse
+	if err := json.Unmarshal(payload, &resp); err != nil {
+		return err
+	}
+	printWorkspace(resp)
 	return nil
 }
 

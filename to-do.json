@@ -2224,35 +2224,35 @@
         "cli"
       ],
       "files": [
-        "internal/db/migrations.go",
-        "internal/db/migrations_test.go",
-        "internal/db/workspace_snapshots.go",
-        "internal/db/workspace_snapshots_test.go",
-        "internal/models/models.go",
-        "internal/daemon/workspace_manager.go",
-        "internal/daemon/workspace_snapshots.go",
-        "internal/daemon/api.go",
-        "internal/daemon/api_types.go",
-        "internal/daemon/metrics.go",
         "cmd/agentlab/api.go",
         "cmd/agentlab/commands.go",
         "cmd/agentlab/main.go",
         "cmd/agentlab/main_test.go",
         "docs/api.md",
-        "docs/faq.md"
+        "docs/faq.md",
+        "internal/daemon/api.go",
+        "internal/daemon/api_types.go",
+        "internal/daemon/metrics.go",
+        "internal/daemon/workspace_manager.go",
+        "internal/daemon/workspace_snapshots.go",
+        "internal/db/migrations.go",
+        "internal/db/migrations_test.go",
+        "internal/db/workspace_snapshots.go",
+        "internal/db/workspace_snapshots_test.go",
+        "internal/models/models.go"
       ],
       "depends_on": [
         "T091",
         "T093"
       ],
       "created_at": "2026-02-09T09:49:20Z",
-      "updated_at": "2026-02-10T03:43:16Z"
+      "updated_at": "2026-02-10T03:44:12Z"
     },
     {
       "id": "T095",
       "title": "Workspaces: implement fork (clone workspace from current or snapshot)",
       "priority": 3,
-      "status": "todo",
+      "status": "done",
       "details": "Implement `agentlab workspace fork` to create an independent workspace volume and DB record, from either the latest state (detached) or a named snapshot. Fork must not mutate the source.",
       "steps": [
         "WorkspaceManager: add Fork method that enforces detached+lease rules and calls backend VolumeClone (or clone-from-snapshot).",
@@ -2269,17 +2269,25 @@
       ],
       "files": [
         "internal/daemon/workspace_manager.go",
+        "internal/daemon/workspace_fork.go",
         "internal/daemon/api.go",
         "internal/daemon/api_types.go",
         "cmd/agentlab/commands.go",
         "cmd/agentlab/main.go",
-        "internal/daemon/*_test.go"
+        "cmd/agentlab/api.go",
+        "internal/proxmox/proxmox.go",
+        "internal/proxmox/api_backend.go",
+        "internal/proxmox/shell_backend.go",
+        "internal/daemon/workspace_fork_test.go",
+        "internal/daemon/sandbox_manager_test.go",
+        "internal/daemon/job_orchestrator_test.go"
       ],
       "depends_on": [
         "T093",
         "T094"
       ],
-      "created_at": "2026-02-09T09:49:20Z"
+      "created_at": "2026-02-09T09:49:20Z",
+      "updated_at": "2026-02-10T03:57:24Z"
     },
     {
       "id": "T096",

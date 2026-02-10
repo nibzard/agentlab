@@ -207,6 +207,11 @@ type V1WorkspaceCreateRequest struct {
 	Storage string `json:"storage,omitempty"`
 }
 
+type V1WorkspaceForkRequest struct {
+	Name         string `json:"name"`
+	FromSnapshot string `json:"from_snapshot,omitempty"`
+}
+
 type V1WorkspaceAttachRequest struct {
 	VMID int `json:"vmid"`
 }

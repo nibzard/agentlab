@@ -106,6 +106,7 @@ var (
 //   - POST   /v1/workspaces/{id}/attach  - Attach workspace to VM
 //   - POST   /v1/workspaces/{id}/detach  - Detach workspace from VM
 //   - POST   /v1/workspaces/{id}/rebind   - Rebind workspace to new VM
+//   - POST   /v1/workspaces/{id}/fork     - Fork workspace to a new volume
 //   - GET    /v1/workspaces/{id}/snapshots - List workspace snapshots
 //   - POST   /v1/workspaces/{id}/snapshots - Create workspace snapshot
 //   - POST   /v1/workspaces/{id}/snapshots/{name}/restore - Restore workspace snapshot
@@ -1114,6 +1115,13 @@ func (api *ControlAPI) handleWorkspaceByID(w http.ResponseWriter, r *http.Reques
 			}
 			api.handleWorkspaceRebind(w, r, id)
 			return
+		case "fork":
+			if r.Method != http.MethodPost {
+				writeMethodNotAllowed(w, []string{http.MethodPost})
+				return
+			}
+			api.handleWorkspaceFork(w, r, id)
+			return
 		}
 	case 4:
 		if parts[1] == "snapshots" && parts[3] == "restore" {
@@ -1594,6 +1602,45 @@ func (api *ControlAPI) handleWorkspaceRebind(w http.ResponseWriter, r *http.Requ
 		OldVMID:   result.OldVMID,
 	}
 	writeJSON(w, http.StatusOK, resp)
+}
+
+func (api *ControlAPI) handleWorkspaceFork(w http.ResponseWriter, r *http.Request, id string) {
+	if api.workspaceMgr == nil {
+		writeError(w, http.StatusInternalServerError, "workspace manager unavailable")
+		return
+	}
+	var req V1WorkspaceForkRequest
+	if err := decodeJSON(w, r, &req); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	req.Name = strings.TrimSpace(req.Name)
+	req.FromSnapshot = strings.TrimSpace(req.FromSnapshot)
+	if req.Name == "" {
+		writeError(w, http.StatusBadRequest, "name is required")
+		return
+	}
+	workspace, err := api.workspaceMgr.Fork(r.Context(), id, req.Name, req.FromSnapshot)
+	if err != nil {
+		switch {
+		case errors.Is(err, ErrWorkspaceNotFound):
+			writeError(w, http.StatusNotFound, "workspace not found")
+		case errors.Is(err, ErrWorkspaceExists):
+			writeError(w, http.StatusConflict, "workspace already exists")
+		case errors.Is(err, ErrWorkspaceForkAttached):
+			writeError(w, http.StatusConflict, "workspace must be detached for fork")
+		case errors.Is(err, ErrWorkspaceSnapshotNotFound):
+			writeError(w, http.StatusNotFound, "workspace snapshot not found")
+		case errors.Is(err, ErrWorkspaceLeaseHeld):
+			writeError(w, http.StatusConflict, "workspace lease held")
+		case errors.Is(err, proxmox.ErrStorageUnsupported):
+			writeError(w, http.StatusBadRequest, "workspace storage does not support cloning")
+		default:
+			writeError(w, http.StatusInternalServerError, "failed to fork workspace")
+		}
+		return
+	}
+	writeJSON(w, http.StatusCreated, workspaceToV1(workspace))
 }
 
 func (api *ControlAPI) handleWorkspaceSnapshotsList(w http.ResponseWriter, r *http.Request, id string) {

@@ -139,6 +139,10 @@ type Backend interface {
 	// ABOUTME: Callers should ensure the source volume is detached before cloning for consistency.
 	VolumeClone(ctx context.Context, sourceVolumeID, targetVolumeID string) error
 
+	// VolumeCloneFromSnapshot creates a new volume by cloning a workspace volume snapshot.
+	// ABOUTME: Callers should ensure the source volume is detached before cloning for consistency.
+	VolumeCloneFromSnapshot(ctx context.Context, sourceVolumeID, snapshotName, targetVolumeID string) error
+
 	// ValidateTemplate checks if a template VM is suitable for provisioning.
 	// ABOUTME: Returns nil if the template exists and has qemu-guest-agent enabled.
 	// Returns an error if the template is missing or misconfigured.

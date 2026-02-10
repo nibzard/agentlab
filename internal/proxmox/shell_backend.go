@@ -554,6 +554,39 @@ func (b *ShellBackend) VolumeClone(ctx context.Context, sourceVolumeID, targetVo
 	return err
 }
 
+// VolumeCloneFromSnapshot clones a workspace volume snapshot into a new volume ID.
+// ABOUTME: Callers should detach the source volume before cloning for consistency.
+func (b *ShellBackend) VolumeCloneFromSnapshot(ctx context.Context, sourceVolumeID, snapshotName, targetVolumeID string) error {
+	sourceVolumeID = strings.TrimSpace(sourceVolumeID)
+	if sourceVolumeID == "" {
+		return errors.New("source volume id is required")
+	}
+	snapshotName = strings.TrimSpace(snapshotName)
+	if snapshotName == "" {
+		return errors.New("snapshot name is required")
+	}
+	targetVolumeID = strings.TrimSpace(targetVolumeID)
+	if targetVolumeID == "" {
+		return errors.New("target volume id is required")
+	}
+	sourceStorage := volumeStorage(sourceVolumeID)
+	if sourceStorage == "" {
+		return fmt.Errorf("invalid source volume id format: %s", sourceVolumeID)
+	}
+	targetStorage := volumeStorage(targetVolumeID)
+	if targetStorage == "" {
+		return fmt.Errorf("invalid target volume id format: %s", targetVolumeID)
+	}
+	if sourceStorage != targetStorage {
+		return fmt.Errorf("%w: volume clone requires same storage (source=%s target=%s)", ErrStorageUnsupported, sourceStorage, targetStorage)
+	}
+	if err := b.ensureZFSStorage(ctx, sourceStorage, "volume clone"); err != nil {
+		return err
+	}
+	_, err := b.run(ctx, b.pvesmPath(), "clone", sourceVolumeID, targetVolumeID, "--snapname", snapshotName)
+	return err
+}
+
 func (b *ShellBackend) ValidateTemplate(ctx context.Context, template VMID) error {
 	// Check if VM exists
 	out, err := b.run(ctx, b.qmPath(), "config", strconv.Itoa(int(template)))

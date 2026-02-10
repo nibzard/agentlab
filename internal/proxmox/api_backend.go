@@ -666,6 +666,54 @@ func (b *APIBackend) VolumeClone(ctx context.Context, sourceVolumeID, targetVolu
 	return err
 }
 
+// VolumeCloneFromSnapshot clones a workspace volume snapshot into a new volume ID.
+// ABOUTME: Callers should detach the source volume before cloning for consistency.
+func (b *APIBackend) VolumeCloneFromSnapshot(ctx context.Context, sourceVolumeID, snapshotName, targetVolumeID string) error {
+	sourceVolumeID = strings.TrimSpace(sourceVolumeID)
+	if sourceVolumeID == "" {
+		return fmt.Errorf("source volume id is required")
+	}
+	snapshotName = strings.TrimSpace(snapshotName)
+	if snapshotName == "" {
+		return fmt.Errorf("snapshot name is required")
+	}
+	targetVolumeID = strings.TrimSpace(targetVolumeID)
+	if targetVolumeID == "" {
+		return fmt.Errorf("target volume id is required")
+	}
+	sourceStorage := volumeStorage(sourceVolumeID)
+	if sourceStorage == "" {
+		return fmt.Errorf("invalid source volume id format: %s", sourceVolumeID)
+	}
+	targetStorage := volumeStorage(targetVolumeID)
+	if targetStorage == "" {
+		return fmt.Errorf("invalid target volume id format: %s", targetVolumeID)
+	}
+	if sourceStorage != targetStorage {
+		return fmt.Errorf("%w: volume clone requires same storage (source=%s target=%s)", ErrStorageUnsupported, sourceStorage, targetStorage)
+	}
+	if err := b.ensureZFSStorage(ctx, sourceStorage, "volume clone"); err != nil {
+		if b.allowShellFallback(ctx) {
+			return b.ShellFallback.VolumeCloneFromSnapshot(ctx, sourceVolumeID, snapshotName, targetVolumeID)
+		}
+		return err
+	}
+
+	node, err := b.ensureNode(ctx)
+	if err != nil {
+		return err
+	}
+	params := url.Values{}
+	params.Set("target", targetVolumeID)
+	params.Set("snapname", snapshotName)
+	endpoint := fmt.Sprintf("/nodes/%s/storage/%s/content/%s/clone", node, sourceStorage, url.PathEscape(sourceVolumeID))
+	_, err = b.doPost(ctx, endpoint, params)
+	if err != nil && b.allowShellFallback(ctx) {
+		return b.ShellFallback.VolumeCloneFromSnapshot(ctx, sourceVolumeID, snapshotName, targetVolumeID)
+	}
+	return err
+}
+
 // ValidateTemplate checks if a template VM is suitable for provisioning.
 // ABOUTME: Returns an error if the template doesn't exist or doesn't have qemu-guest-agent enabled.
 func (b *APIBackend) ValidateTemplate(ctx context.Context, template VMID) error {
