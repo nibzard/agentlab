@@ -6,11 +6,12 @@ This document provides visual architecture diagrams for AgentLab using Mermaid s
 
 1. [System Architecture](#system-architecture)
 2. [Sandbox State Machine](#sandbox-state-machine)
-3. [Network Topology](#network-topology)
-4. [Job Execution Data Flow](#job-execution-data-flow)
-5. [Database Schema](#database-schema)
-6. [Request Lifecycle](#request-lifecycle)
-7. [Component Interaction](#component-interaction)
+3. [Persistent State Model](#persistent-state-model)
+4. [Network Topology](#network-topology)
+5. [Job Execution Data Flow](#job-execution-data-flow)
+6. [Database Schema](#database-schema)
+7. [Request Lifecycle](#request-lifecycle)
+8. [Component Interaction](#component-interaction)
 
 ---
 
@@ -201,6 +202,25 @@ stateDiagram-v2
 | **TIMEOUT** | Lease expired, VM may be stopped | show, logs, destroy |
 | **STOPPED** | VM stopped but not destroyed | show, logs, start, destroy |
 | **DESTROYED** | VM destroyed, terminal state | show |
+
+---
+
+## Persistent State Model
+
+AgentLab separates **ephemeral sandboxes** from **persistent workspaces**. Sessions bind a workspace to a profile and track the current sandbox VMID. For the full state model, workflows, and safety guides, see `docs/state-model.md`.
+
+```mermaid
+flowchart LR
+    Workspace[/Workspace Volume\\n/persisted at /work/]
+    Session[Session\\n(profile + workspace)]
+    Sandbox[Sandbox VM\\n(ephemeral root)]
+    Root[(Root Disk)]
+
+    Session -- workspace_id --> Workspace
+    Session -- current_vmid --> Sandbox
+    Workspace -- attach --> Sandbox
+    Sandbox -- root --> Root
+```
 
 ---
 
@@ -534,6 +554,11 @@ Common usage patterns:
 - **Job scope**: capture agent handoffs and decisions for a single job (`scope_type=job`, `scope_id=<job_id>`).
 - **Workspace scope**: keep durable notes tied to a workspace (`scope_type=workspace`, `scope_id=<workspace_id>`).
 - **Session scope**: share ad-hoc context across multiple agents (`scope_type=session`, `scope_id=<session_id>`).
+
+Multi-agent coordination tips:
+- Use `kind=handoff` or `kind=decision` to make scanning easy.
+- Include an `author` and a short summary in `text`; attach structured details in `payload`.
+- Follow with `agentlab msg tail --session <session_id> --follow --tail 50` during live collaboration.
 
 Retention notes:
 - Messages are stored in SQLite and are not auto-pruned today.
