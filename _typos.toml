@@ -1,0 +1,41 @@
+[files]
+extend-exclude = [
+  "bin/**",
+  "dist/**",
+  "coverage.html",
+  "coverage.out"
+]
+
+[default]
+extend-ignore-re = [
+  "\\bvmbr\\d\\b",
+  "\\bvmid\\b",
+  "\\bqga\\b",
+  "10\\.77\\.0\\.0/16",
+  "100\\.64\\.0\\.0/10",
+  "172\\.16\\.0\\.0/12",
+  "192\\.168\\.0\\.0/16"
+]
+
+[default.extend-words]
+"Proxmox" = "Proxmox"
+"tailscale" = "tailscale"
+"agentlab" = "agentlab"
+"agentlabd" = "agentlabd"
+"vmbr" = "vmbr"
+"vmbr0" = "vmbr0"
+"vmbr1" = "vmbr1"
+"vmid" = "vmid"
+"qemu" = "qemu"
+"qga" = "qga"
+"nftables" = "nftables"
+"systemd" = "systemd"
+"cloud-init" = "cloud-init"
+"qemu-guest-agent" = "qemu-guest-agent"
+"tailscale0" = "tailscale0"
+"tailnet" = "tailnet"
+"zfs" = "zfs"
+"lvm" = "lvm"
+"gofmt" = "gofmt"
+"staticcheck" = "staticcheck"
+"govulncheck" = "govulncheck"

@@ -1,0 +1,25 @@
+cache = true
+max_cache_age = "1d"
+timeout = "20s"
+retry_wait_time = "2s"
+max_retries = 2
+accept = ["200", "204", "206", "301", "302", "303", "307", "308"]
+exclude_loopback = true
+exclude_all_private = true
+
+exclude = [
+  "^tcp://",
+  "^ssh://",
+  "^git@",
+  "^mailto:",
+  "^https://github.com/user/",
+  "^https://github.com/YOUR_USERNAME/",
+  "tailnet\\.ts\\.net"
+]
+
+exclude_path = [
+  "bin",
+  "dist",
+  "coverage.html",
+  "coverage.out"
+]
