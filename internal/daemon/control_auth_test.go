@@ -103,3 +103,29 @@ func TestControlAuth_Allowlist(t *testing.T) {
 
 	assert.Equal(t, http.StatusOK, allowedRec.Code)
 }
+
+func TestControlAuth_WWWAuthenticateHeader(t *testing.T) {
+	auth, err := NewControlAuth("secret-token", nil)
+	require.NoError(t, err)
+
+	handler := auth.Wrap(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+
+	req := httptest.NewRequest(http.MethodGet, "/v1/status", nil)
+	req.RemoteAddr = "100.64.0.1:1234"
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+
+	assert.Equal(t, http.StatusUnauthorized, rec.Code)
+	assert.Equal(t, "Bearer", rec.Header().Get("WWW-Authenticate"))
+
+	req = httptest.NewRequest(http.MethodGet, "/v1/status", nil)
+	req.RemoteAddr = "100.64.0.1:1234"
+	req.Header.Set("Authorization", "Bearer wrong-token")
+	rec = httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+
+	assert.Equal(t, http.StatusUnauthorized, rec.Code)
+	assert.Equal(t, "Bearer", rec.Header().Get("WWW-Authenticate"))
+}

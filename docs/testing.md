@@ -529,6 +529,12 @@ Note: `internal/testing` currently reports 0.0% (helper-only package) and is exc
 - `cmd/agentlab` coverage: **37.3% → 40.4%** (coverage-audit run before/after sprint 1 tests)
 - Overall coverage: **45.5% → 46.5%**
 
+### Coverage Sprint 2 Update (2026-02-10)
+
+- `internal/config` coverage: **45.1% → 71.1%** (coverage-audit run before/after sprint 2 tests)
+- `internal/daemon` coverage: **49.0% → 49.2%**
+- Overall coverage: **46.5% → 47.0%**
+
 ### Coverage Targets (initial)
 
 Targets are conservative and are expected to ratchet up each coverage sprint.

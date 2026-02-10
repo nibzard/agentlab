@@ -50,8 +50,9 @@ func TestStatusHandler(t *testing.T) {
 	api.handleStatus(rec, req)
 
 	require.Equal(t, http.StatusOK, rec.Code)
+	body := rec.Body.Bytes()
 	var resp V1StatusResponse
-	require.NoError(t, json.NewDecoder(rec.Body).Decode(&resp))
+	require.NoError(t, json.Unmarshal(body, &resp))
 
 	assert.Equal(t, 1, resp.Sandboxes[string(models.SandboxRunning)])
 	assert.Equal(t, 1, resp.Sandboxes[string(models.SandboxFailed)])
@@ -65,4 +66,27 @@ func TestStatusHandler(t *testing.T) {
 	assert.NotZero(t, resp.Artifacts.FreeBytes)
 	require.Len(t, resp.RecentFailures, 1)
 	assert.Equal(t, "job.failed", resp.RecentFailures[0].Kind)
+
+	var raw map[string]any
+	require.NoError(t, json.Unmarshal(body, &raw))
+	if _, ok := raw["sandboxes"].(map[string]any); !ok {
+		t.Fatalf("expected sandboxes object in payload")
+	}
+	if _, ok := raw["jobs"].(map[string]any); !ok {
+		t.Fatalf("expected jobs object in payload")
+	}
+	if _, ok := raw["network_modes"].(map[string]any); !ok {
+		t.Fatalf("expected network_modes object in payload")
+	}
+	if metrics, ok := raw["metrics"].(map[string]any); !ok {
+		t.Fatalf("expected metrics object in payload")
+	} else if _, ok := metrics["enabled"].(bool); !ok {
+		t.Fatalf("expected metrics.enabled bool in payload")
+	}
+	if _, ok := raw["artifacts"].(map[string]any); !ok {
+		t.Fatalf("expected artifacts object in payload")
+	}
+	if _, ok := raw["recent_failures"].([]any); !ok {
+		t.Fatalf("expected recent_failures array in payload")
+	}
 }
