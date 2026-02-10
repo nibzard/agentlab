@@ -1,6 +1,7 @@
 # AgentLab Troubleshooting
 
 This guide helps resolve common issues with AgentLab.
+For the authoritative list of commands and flags, see `docs/cli.md` (auto-generated from `agentlab --help`).
 
 ## Table of Contents
 

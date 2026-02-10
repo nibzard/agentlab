@@ -21,6 +21,9 @@ Key paths:
 - Socket: `/run/agentlab/agentlabd.sock`
 - Cloud-init snippets (default): `/var/lib/vz/snippets`
 
+CLI reference:
+- `docs/cli.md` (auto-generated from `agentlab --help`)
+
 Network defaults:
 - Agent bridge: `vmbr1` on `10.77.0.0/16` (host `10.77.0.1`)
 - NAT egress: `vmbr0`

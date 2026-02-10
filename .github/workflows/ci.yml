@@ -26,6 +26,8 @@ jobs:
         run: make docs-tools
       - name: Docs Check
         run: make docs-check
+      - name: Docs Verify
+        run: make docs-verify
       - name: Test CI
         run: make test-ci
       - name: Coverage Summary

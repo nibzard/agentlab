@@ -18,7 +18,7 @@ LDFLAGS := -s -w \
 	-X 'github.com/agentlab/agentlab/internal/buildinfo.Commit=$(COMMIT)' \
 	-X 'github.com/agentlab/agentlab/internal/buildinfo.Date=$(DATE)'
 
-.PHONY: all build build-ssh-gateway lint test test-ci test-coverage test-race test-integration test-all coverage-audit coverage-html docs-tools docs-lint docs-links docs-typos docs-check clean
+.PHONY: all build build-ssh-gateway lint test test-ci test-coverage test-race test-integration test-all coverage-audit coverage-html docs-tools docs-lint docs-links docs-typos docs-check docs-gen docs-verify clean
 
 # Note: This project requires Go 1.24.0 or higher. Running 'go version' will show the installed version.
 
@@ -105,6 +105,17 @@ docs-typos:
 	\"$(TOOLS_DIR)/typos\" --config _typos.toml $(DOCS_MD)
 
 docs-check: docs-lint docs-links docs-typos
+
+docs-gen:
+	./scripts/dev/gen_cli_docs.sh
+
+docs-verify:
+	./scripts/dev/gen_cli_docs.sh
+	@if [ -n "$$(git status --porcelain -- docs/cli.md)" ]; then \
+		echo "docs/cli.md is out of date. Run 'make docs-gen'."; \
+		git status --porcelain -- docs/cli.md; \
+		exit 1; \
+	fi
 
 clean:
 	rm -rf $(BIN_DIR) $(DIST_DIR)
