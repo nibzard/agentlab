@@ -3083,23 +3083,24 @@
         "tooling"
       ],
       "files": [
-        "Makefile",
         ".github/workflows/ci.yml",
-        "CONTRIBUTING.md",
+        ".lychee.toml",
         ".markdownlint-cli2.yaml",
         ".markdownlint.jsonc",
-        ".lychee.toml",
+        "CONTRIBUTING.md",
+        "Makefile",
         "_typos.toml",
-        "scripts/dev/install_docs_tools.sh"
+        "scripts/dev/install_docs_tools.sh",
+        "to-do.json"
       ],
       "created_at": "2026-02-10T01:59:57Z",
-      "updated_at": "2026-02-10T05:54:52Z"
+      "updated_at": "2026-02-10T05:55:29Z"
     },
     {
       "id": "T119",
       "title": "Docs-as-code: add docs index + style guide + templates + review checklist",
       "priority": 4,
-      "status": "todo",
+      "status": "done",
       "details": "Make docs maintainable at scale: a clear entry point, consistent style rules, and templates that make it easy to add new docs without inventing structure each time. This also makes AI-driven changes safer and more reviewable.",
       "steps": [
         "Add docs/README.md describing the docs set, intended audiences, and where to put new content (runbook vs troubleshooting vs architecture vs upgrading).",
@@ -3115,14 +3116,16 @@
       "files": [
         "docs/README.md",
         "docs/STYLE.md",
-        "docs/templates/*",
-        "CONTRIBUTING.md",
-        ".github/CODEOWNERS"
+        "docs/templates/feature.md",
+        "docs/templates/troubleshooting.md",
+        "docs/templates/adr.md",
+        "CONTRIBUTING.md"
       ],
       "depends_on": [
         "T118"
       ],
-      "created_at": "2026-02-10T01:59:57Z"
+      "created_at": "2026-02-10T01:59:57Z",
+      "updated_at": "2026-02-10T05:57:46Z"
     },
     {
       "id": "T120",

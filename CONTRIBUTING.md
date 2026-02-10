@@ -917,6 +917,10 @@ Before submitting a PR:
    - [ ] User guide updated (if user-facing change)
    - [ ] Comments are clear and accurate
    - [ ] Docs checks pass when docs are touched (`make docs-check`)
+   - [ ] Links resolve (relative links and anchors)
+   - [ ] Commands are copy/paste-ready
+   - [ ] Security notes and secret redactions are accurate
+   - [ ] Backwards compatibility or upgrade notes included when behavior changes
 
 4. **Commit History**
    - [ ] Commits are logically organized
