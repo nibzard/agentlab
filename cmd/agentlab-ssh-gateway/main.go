@@ -1,3 +1,6 @@
+//go:build sshgateway
+// +build sshgateway
+
 // ABOUTME: Minimal SSH gateway prototype that routes usernames to sandbox create/connect.
 // ABOUTME: Authenticates users via authorized_keys and proxies SSH sessions to sandboxes via agentlabd.
 package main
