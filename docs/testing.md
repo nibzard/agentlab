@@ -524,6 +524,11 @@ Per-package baseline (coverage-audit, sorted ascending):
 
 Note: `internal/testing` currently reports 0.0% (helper-only package) and is excluded from targets.
 
+### Coverage Sprint 1 Update (2026-02-10)
+
+- `cmd/agentlab` coverage: **37.3% → 40.4%** (coverage-audit run before/after sprint 1 tests)
+- Overall coverage: **45.5% → 46.5%**
+
 ### Coverage Targets (initial)
 
 Targets are conservative and are expected to ratchet up each coverage sprint.

@@ -2964,24 +2964,25 @@
         "proxmox"
       ],
       "files": [
-        "internal/proxmox/fake_backend.go",
-        "internal/daemon/daemon.go",
-        "tests/integration_test.go",
-        "tests/e2e_proxmox_test.go",
+        ".github/workflows/ci.yml",
         "docs/testing.md",
-        ".github/workflows/ci.yml"
+        "internal/daemon/daemon.go",
+        "internal/proxmox/fake_backend.go",
+        "tests/e2e_proxmox_test.go",
+        "tests/integration_test.go",
+        "to-do.json"
       ],
       "depends_on": [
         "T112"
       ],
       "created_at": "2026-02-10T01:59:57Z",
-      "updated_at": "2026-02-10T04:45:41Z"
+      "updated_at": "2026-02-10T04:46:16Z"
     },
     {
       "id": "T116",
       "title": "Coverage sprint 1: raise CLI coverage with contract tests for remote endpoint + ssh/jump",
       "priority": 3,
-      "status": "todo",
+      "status": "done",
       "details": "Baseline `cmd/agentlab` coverage is low (~44% in the last attempted run) largely because many CLI paths are untested (flag parsing edge cases, remote header injection, config precedence, ssh fallback formatting, artifact download path). Add high-leverage tests that lock in the request/response contracts and user-facing behavior.",
       "steps": [
         "Add table-driven tests for global option precedence (flags > env > config) and ensure tokens are never printed in errors.",
@@ -2999,17 +3000,19 @@
         "ssh"
       ],
       "files": [
-        "cmd/agentlab/api.go",
-        "cmd/agentlab/main.go",
-        "cmd/agentlab/client_config.go",
+        "cmd/agentlab/api_test.go",
+        "cmd/agentlab/commands_artifacts_download_test.go",
+        "cmd/agentlab/commands_connect_test.go",
+        "cmd/agentlab/main_test.go",
         "cmd/agentlab/ssh.go",
-        "cmd/agentlab/*_test.go",
+        "cmd/agentlab/ssh_test.go",
         "docs/testing.md"
       ],
       "depends_on": [
         "T113"
       ],
-      "created_at": "2026-02-10T01:59:57Z"
+      "created_at": "2026-02-10T01:59:57Z",
+      "updated_at": "2026-02-10T04:56:00Z"
     },
     {
       "id": "T117",
