@@ -154,6 +154,7 @@ It requires `python3` (or `git daemon`) on the host.
 ## Remote CLI (tailnet)
 
 Enable the TCP control plane on the host, then connect from another machine (Mac, CI runner, etc.).
+For a copy/paste quickstart that covers bootstrap, connect, and non-interactive SSH, see `docs/remote-cli.md`.
 
 Quick enable (host):
 
