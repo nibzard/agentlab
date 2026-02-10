@@ -8,7 +8,7 @@
 // Commands are organized hierarchically:
 //
 //	job:       Manage jobs (run, show, artifacts)
-//	sandbox:   Manage sandboxes (new, list, show, start, stop, revert, destroy, lease, prune, expose, exposed, unexpose)
+//	sandbox:   Manage sandboxes (new, list, show, start, stop, pause, resume, revert, snapshot, destroy, lease, prune, expose, exposed, unexpose)
 //	workspace: Manage workspaces (create, list, check, fsck, attach, detach, rebind, fork, snapshot)
 //	profile:   Manage profiles (list)
 //	msg:       Manage messagebox (post, tail)
@@ -847,6 +847,8 @@ func runSandboxCommand(ctx context.Context, args []string, base commonFlags) err
 		return runSandboxResume(ctx, args[1:], base)
 	case "revert":
 		return runSandboxRevert(ctx, args[1:], base)
+	case "snapshot":
+		return runSandboxSnapshotCommand(ctx, args[1:], base)
 	case "destroy":
 		return runSandboxDestroy(ctx, args[1:], base)
 	case "lease":
@@ -865,7 +867,7 @@ func runSandboxCommand(ctx context.Context, args []string, base commonFlags) err
 		if !base.jsonOutput {
 			printSandboxUsage()
 		}
-		return unknownSubcommandError("sandbox", args[0], []string{"new", "list", "show", "start", "stop", "pause", "resume", "revert", "destroy", "lease", "prune", "expose", "exposed", "unexpose", "doctor"})
+		return unknownSubcommandError("sandbox", args[0], []string{"new", "list", "show", "start", "stop", "pause", "resume", "revert", "snapshot", "destroy", "lease", "prune", "expose", "exposed", "unexpose", "doctor"})
 	}
 }
 
@@ -1484,6 +1486,159 @@ func runSandboxRevert(ctx context.Context, args []string, base commonFlags) erro
 	} else {
 		fmt.Printf("sandbox %d reverted to snapshot %s (state=%s)\n", resp.Sandbox.VMID, snapshot, state)
 	}
+	return nil
+}
+
+// runSandboxSnapshotCommand dispatches sandbox snapshot subcommands.
+func runSandboxSnapshotCommand(ctx context.Context, args []string, base commonFlags) error {
+	if len(args) == 0 {
+		if !base.jsonOutput {
+			printSandboxSnapshotUsage()
+			return nil
+		}
+		return newUsageError(fmt.Errorf("sandbox snapshot command is required"), false)
+	}
+	if isHelpToken(args[0]) {
+		printSandboxSnapshotUsage()
+		return errHelp
+	}
+	switch args[0] {
+	case "save":
+		return runSandboxSnapshotSave(ctx, args[1:], base)
+	case "list":
+		return runSandboxSnapshotList(ctx, args[1:], base)
+	case "restore":
+		return runSandboxSnapshotRestore(ctx, args[1:], base)
+	default:
+		if !base.jsonOutput {
+			printSandboxSnapshotUsage()
+		}
+		return unknownSubcommandError("sandbox snapshot", args[0], []string{"save", "list", "restore"})
+	}
+}
+
+func runSandboxSnapshotSave(ctx context.Context, args []string, base commonFlags) error {
+	fs := newFlagSet("sandbox snapshot save")
+	opts := base
+	opts.bind(fs)
+	var force bool
+	help := bindHelpFlag(fs)
+	fs.BoolVar(&force, "force", false, "override snapshot safety checks")
+	if err := parseFlags(fs, args, printSandboxSnapshotSaveUsage, help, opts.jsonOutput); err != nil {
+		return err
+	}
+	if fs.NArg() < 2 {
+		if !opts.jsonOutput {
+			printSandboxSnapshotSaveUsage()
+		}
+		return fmt.Errorf("vmid and snapshot name are required")
+	}
+	vmid, err := parseVMID(fs.Arg(0))
+	if err != nil {
+		return err
+	}
+	name := strings.TrimSpace(fs.Arg(1))
+	if name == "" {
+		return fmt.Errorf("snapshot name is required")
+	}
+	client, err := apiClientFromFlags(opts)
+	if err != nil {
+		return err
+	}
+	req := sandboxSnapshotCreateRequest{Name: name, Force: force}
+	payload, err := client.doJSON(ctx, http.MethodPost, fmt.Sprintf("/v1/sandboxes/%d/snapshots", vmid), req)
+	if err != nil {
+		return wrapSandboxNotFound(ctx, client, vmid, err)
+	}
+	if opts.jsonOutput {
+		return prettyPrintJSON(os.Stdout, payload)
+	}
+	var resp sandboxSnapshotResponse
+	if err := json.Unmarshal(payload, &resp); err != nil {
+		return err
+	}
+	printSandboxSnapshot(resp)
+	return nil
+}
+
+func runSandboxSnapshotList(ctx context.Context, args []string, base commonFlags) error {
+	fs := newFlagSet("sandbox snapshot list")
+	opts := base
+	opts.bind(fs)
+	help := bindHelpFlag(fs)
+	if err := parseFlags(fs, args, printSandboxSnapshotListUsage, help, opts.jsonOutput); err != nil {
+		return err
+	}
+	if fs.NArg() < 1 {
+		if !opts.jsonOutput {
+			printSandboxSnapshotListUsage()
+		}
+		return fmt.Errorf("vmid is required")
+	}
+	vmid, err := parseVMID(fs.Arg(0))
+	if err != nil {
+		return err
+	}
+	client, err := apiClientFromFlags(opts)
+	if err != nil {
+		return err
+	}
+	payload, err := client.doJSON(ctx, http.MethodGet, fmt.Sprintf("/v1/sandboxes/%d/snapshots", vmid), nil)
+	if err != nil {
+		return wrapSandboxNotFound(ctx, client, vmid, err)
+	}
+	if opts.jsonOutput {
+		return prettyPrintJSON(os.Stdout, payload)
+	}
+	var resp sandboxSnapshotsResponse
+	if err := json.Unmarshal(payload, &resp); err != nil {
+		return err
+	}
+	printSandboxSnapshotList(resp.Snapshots)
+	return nil
+}
+
+func runSandboxSnapshotRestore(ctx context.Context, args []string, base commonFlags) error {
+	fs := newFlagSet("sandbox snapshot restore")
+	opts := base
+	opts.bind(fs)
+	var force bool
+	help := bindHelpFlag(fs)
+	fs.BoolVar(&force, "force", false, "override snapshot safety checks")
+	if err := parseFlags(fs, args, printSandboxSnapshotRestoreUsage, help, opts.jsonOutput); err != nil {
+		return err
+	}
+	if fs.NArg() < 2 {
+		if !opts.jsonOutput {
+			printSandboxSnapshotRestoreUsage()
+		}
+		return fmt.Errorf("vmid and snapshot name are required")
+	}
+	vmid, err := parseVMID(fs.Arg(0))
+	if err != nil {
+		return err
+	}
+	name := strings.TrimSpace(fs.Arg(1))
+	if name == "" {
+		return fmt.Errorf("snapshot name is required")
+	}
+	client, err := apiClientFromFlags(opts)
+	if err != nil {
+		return err
+	}
+	req := sandboxSnapshotRestoreRequest{Force: force}
+	payload, err := client.doJSON(ctx, http.MethodPost, fmt.Sprintf("/v1/sandboxes/%d/snapshots/%s/restore", vmid, url.PathEscape(name)), req)
+	if err != nil {
+		return wrapSandboxNotFound(ctx, client, vmid, err)
+	}
+	if opts.jsonOutput {
+		return prettyPrintJSON(os.Stdout, payload)
+	}
+	var resp sandboxSnapshotResponse
+	if err := json.Unmarshal(payload, &resp); err != nil {
+		return err
+	}
+	printSandboxSnapshot(resp)
 	return nil
 }
 
@@ -3083,6 +3238,23 @@ func printSandboxList(sandboxes []sandboxResponse) {
 			firewallGroup = orDash(sb.Network.FirewallGroup)
 		}
 		fmt.Fprintf(w, "%d\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n", sb.VMID, sb.Name, sb.Profile, sb.State, orDash(sb.IP), mode, firewallGroup, lease, lastUsed)
+	}
+	_ = w.Flush()
+}
+
+func printSandboxSnapshot(snapshot sandboxSnapshotResponse) {
+	fmt.Printf("Sandbox: %d\n", snapshot.VMID)
+	fmt.Printf("Snapshot: %s\n", snapshot.Name)
+	if snapshot.CreatedAt != "" {
+		fmt.Printf("Created At: %s\n", snapshot.CreatedAt)
+	}
+}
+
+func printSandboxSnapshotList(snapshots []sandboxSnapshotResponse) {
+	w := tabwriter.NewWriter(os.Stdout, 2, 8, 2, ' ', 0)
+	fmt.Fprintln(w, "NAME\tCREATED")
+	for _, snapshot := range snapshots {
+		fmt.Fprintf(w, "%s\t%s\n", snapshot.Name, snapshot.CreatedAt)
 	}
 	_ = w.Flush()
 }

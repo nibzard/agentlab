@@ -305,6 +305,50 @@ func (b *APIBackend) SnapshotDelete(ctx context.Context, vmid VMID, name string)
 	return err
 }
 
+// SnapshotList lists snapshots for a VM.
+func (b *APIBackend) SnapshotList(ctx context.Context, vmid VMID) ([]Snapshot, error) {
+	node, err := b.ensureNode(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	endpoint := fmt.Sprintf("/nodes/%s/qemu/%d/snapshot", node, vmid)
+	data, err := b.doGet(ctx, endpoint)
+	if err != nil {
+		if isAPIVMNotFound(err) {
+			return nil, fmt.Errorf("%w: %v", ErrVMNotFound, err)
+		}
+		return nil, err
+	}
+
+	var raw []struct {
+		Name        string  `json:"name"`
+		SnapTime    float64 `json:"snaptime"`
+		Description string  `json:"description"`
+	}
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return nil, fmt.Errorf("parse snapshot list: %w", err)
+	}
+
+	snapshots := make([]Snapshot, 0, len(raw))
+	for _, entry := range raw {
+		name := strings.TrimSpace(entry.Name)
+		if name == "" {
+			continue
+		}
+		var created time.Time
+		if entry.SnapTime > 0 {
+			created = time.Unix(int64(entry.SnapTime), 0).UTC()
+		}
+		snapshots = append(snapshots, Snapshot{
+			Name:        name,
+			Description: strings.TrimSpace(entry.Description),
+			CreatedAt:   created,
+		})
+	}
+	return snapshots, nil
+}
+
 // Status retrieves VM status.
 // ABOUTME: Returns StatusRunning, StatusStopped, or StatusUnknown.
 func (b *APIBackend) Status(ctx context.Context, vmid VMID) (Status, error) {

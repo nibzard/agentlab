@@ -205,6 +205,24 @@ func (b *FakeBackend) SnapshotDelete(_ context.Context, vmid VMID, name string) 
 	return nil
 }
 
+func (b *FakeBackend) SnapshotList(_ context.Context, vmid VMID) ([]Snapshot, error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	vm, ok := b.vms[vmid]
+	if !ok {
+		return nil, ErrVMNotFound
+	}
+	snapshots := make([]Snapshot, 0, len(vm.snapshots))
+	for name := range vm.snapshots {
+		trimmed := strings.TrimSpace(name)
+		if trimmed == "" {
+			continue
+		}
+		snapshots = append(snapshots, Snapshot{Name: trimmed})
+	}
+	return snapshots, nil
+}
+
 func (b *FakeBackend) Status(_ context.Context, vmid VMID) (Status, error) {
 	b.mu.Lock()
 	defer b.mu.Unlock()

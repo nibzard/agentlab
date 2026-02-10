@@ -22,7 +22,9 @@ type stubBackend struct {
 	resumeErr             error
 	destroyErr            error
 	detachErr             error
+	snapshotCreateErr     error
 	snapshotRollbackErr   error
+	snapshotListErr       error
 	statusErr             error
 	status                proxmox.Status
 	statsErr              error
@@ -40,7 +42,10 @@ type stubBackend struct {
 	suspendCalls          int
 	resumeCalls           int
 	detachCalls           int
+	snapshotCreateCalls   int
 	snapshotRollbackCalls int
+	snapshotListCalls     int
+	snapshotList          []proxmox.Snapshot
 }
 
 type volumeCloneCall struct {
@@ -87,6 +92,10 @@ func (s *stubBackend) Destroy(context.Context, proxmox.VMID) error {
 }
 
 func (s *stubBackend) SnapshotCreate(context.Context, proxmox.VMID, string) error {
+	s.snapshotCreateCalls++
+	if s.snapshotCreateErr != nil {
+		return s.snapshotCreateErr
+	}
 	return nil
 }
 
@@ -97,6 +106,16 @@ func (s *stubBackend) SnapshotRollback(context.Context, proxmox.VMID, string) er
 
 func (s *stubBackend) SnapshotDelete(context.Context, proxmox.VMID, string) error {
 	return nil
+}
+
+func (s *stubBackend) SnapshotList(context.Context, proxmox.VMID) ([]proxmox.Snapshot, error) {
+	s.snapshotListCalls++
+	if s.snapshotListErr != nil {
+		return nil, s.snapshotListErr
+	}
+	out := make([]proxmox.Snapshot, len(s.snapshotList))
+	copy(out, s.snapshotList)
+	return out, nil
 }
 
 func (s *stubBackend) Status(context.Context, proxmox.VMID) (proxmox.Status, error) {

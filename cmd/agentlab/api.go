@@ -204,6 +204,25 @@ type sandboxRevertResponse struct {
 	Snapshot   string          `json:"snapshot"`
 }
 
+type sandboxSnapshotCreateRequest struct {
+	Name  string `json:"name"`
+	Force bool   `json:"force,omitempty"`
+}
+
+type sandboxSnapshotRestoreRequest struct {
+	Force bool `json:"force,omitempty"`
+}
+
+type sandboxSnapshotResponse struct {
+	VMID      int    `json:"vmid"`
+	Name      string `json:"name"`
+	CreatedAt string `json:"created_at,omitempty"`
+}
+
+type sandboxSnapshotsResponse struct {
+	Snapshots []sandboxSnapshotResponse `json:"snapshots"`
+}
+
 type sandboxStopAllResult struct {
 	VMID    int    `json:"vmid"`
 	Name    string `json:"name,omitempty"`
