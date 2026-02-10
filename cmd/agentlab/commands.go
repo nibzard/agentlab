@@ -184,6 +184,13 @@ func (o *optionalBool) Ptr() *bool {
 	return &value
 }
 
+func bindHelpFlag(fs *flag.FlagSet) *bool {
+	help := new(bool)
+	fs.BoolVar(help, "help", false, "show help")
+	fs.BoolVar(help, "h", false, "show help")
+	return help
+}
+
 func parseFlags(fs *flag.FlagSet, args []string, usage func(), help *bool, jsonOutput bool) error {
 	fs.Usage = usage
 	if err := fs.Parse(args); err != nil {
@@ -204,10 +211,8 @@ func runStatusCommand(ctx context.Context, args []string, base commonFlags) erro
 	fs := newFlagSet("status")
 	opts := base
 	opts.bind(fs)
-	var help bool
-	fs.BoolVar(&help, "help", false, "show help")
-	fs.BoolVar(&help, "h", false, "show help")
-	if err := parseFlags(fs, args, printStatusUsage, &help, opts.jsonOutput); err != nil {
+	help := bindHelpFlag(fs)
+	if err := parseFlags(fs, args, printStatusUsage, help, opts.jsonOutput); err != nil {
 		return err
 	}
 
@@ -245,12 +250,10 @@ func runConnectCommand(ctx context.Context, args []string, base commonFlags) err
 	opts.bind(fs)
 	var jumpHost string
 	var jumpUser string
-	var help bool
+	help := bindHelpFlag(fs)
 	fs.StringVar(&jumpHost, "jump-host", "", "default SSH jump host (used when subnet route is unavailable)")
 	fs.StringVar(&jumpUser, "jump-user", "", "default SSH jump username")
-	fs.BoolVar(&help, "help", false, "show help")
-	fs.BoolVar(&help, "h", false, "show help")
-	if err := parseFlags(fs, args, printConnectUsage, &help, opts.jsonOutput); err != nil {
+	if err := parseFlags(fs, args, printConnectUsage, help, opts.jsonOutput); err != nil {
 		return err
 	}
 	if fs.NArg() != 0 {
@@ -339,10 +342,8 @@ func runDisconnectCommand(ctx context.Context, args []string, base commonFlags) 
 	fs := newFlagSet("disconnect")
 	opts := base
 	opts.bind(fs)
-	var help bool
-	fs.BoolVar(&help, "help", false, "show help")
-	fs.BoolVar(&help, "h", false, "show help")
-	if err := parseFlags(fs, args, printDisconnectUsage, &help, opts.jsonOutput); err != nil {
+	help := bindHelpFlag(fs)
+	if err := parseFlags(fs, args, printDisconnectUsage, help, opts.jsonOutput); err != nil {
 		return err
 	}
 	if fs.NArg() != 0 {
@@ -426,7 +427,7 @@ func runJobRun(ctx context.Context, args []string, base commonFlags) error {
 	var workspaceWait string
 	var stateful bool
 	var keepalive optionalBool
-	var help bool
+	help := bindHelpFlag(fs)
 	fs.StringVar(&repo, "repo", "", "git repository url")
 	fs.StringVar(&ref, "ref", "", "git ref (default main)")
 	fs.StringVar(&branch, "branch", "", "branch name (session-backed)")
@@ -441,9 +442,7 @@ func runJobRun(ctx context.Context, args []string, base commonFlags) error {
 	fs.StringVar(&workspaceWait, "workspace-wait", "", "wait for workspace detach (e.g. 2m, 30s)")
 	fs.BoolVar(&stateful, "stateful", false, "create a default workspace for a stateful job")
 	fs.Var(&keepalive, "keepalive", "keep sandbox after job completion")
-	fs.BoolVar(&help, "help", false, "show help")
-	fs.BoolVar(&help, "h", false, "show help")
-	if err := parseFlags(fs, args, printJobRunUsage, &help, opts.jsonOutput); err != nil {
+	if err := parseFlags(fs, args, printJobRunUsage, help, opts.jsonOutput); err != nil {
 		return err
 	}
 	if repo == "" || profile == "" || task == "" {
@@ -585,11 +584,9 @@ func runJobShow(ctx context.Context, args []string, base commonFlags) error {
 	opts := base
 	opts.bind(fs)
 	var eventsTail int
-	var help bool
+	help := bindHelpFlag(fs)
 	fs.IntVar(&eventsTail, "events-tail", -1, "number of recent events to include (0 to omit)")
-	fs.BoolVar(&help, "help", false, "show help")
-	fs.BoolVar(&help, "h", false, "show help")
-	if err := parseFlags(fs, args, printJobShowUsage, &help, opts.jsonOutput); err != nil {
+	if err := parseFlags(fs, args, printJobShowUsage, help, opts.jsonOutput); err != nil {
 		return err
 	}
 	if fs.NArg() < 1 {
@@ -651,10 +648,8 @@ func runJobArtifactsList(ctx context.Context, args []string, base commonFlags) e
 	fs := newFlagSet("job artifacts")
 	opts := base
 	opts.bind(fs)
-	var help bool
-	fs.BoolVar(&help, "help", false, "show help")
-	fs.BoolVar(&help, "h", false, "show help")
-	if err := parseFlags(fs, args, printJobArtifactsUsage, &help, opts.jsonOutput); err != nil {
+	help := bindHelpFlag(fs)
+	if err := parseFlags(fs, args, printJobArtifactsUsage, help, opts.jsonOutput); err != nil {
 		return err
 	}
 	if fs.NArg() < 1 {
@@ -696,15 +691,13 @@ func runJobArtifactsDownload(ctx context.Context, args []string, base commonFlag
 	var name string
 	var latest bool
 	var bundle bool
-	var help bool
+	help := bindHelpFlag(fs)
 	fs.StringVar(&out, "out", "", "output file path or directory")
 	fs.StringVar(&path, "path", "", "artifact path to download")
 	fs.StringVar(&name, "name", "", "artifact name to download")
 	fs.BoolVar(&latest, "latest", false, "download latest artifact")
 	fs.BoolVar(&bundle, "bundle", false, "download latest bundle (agentlab-artifacts.tar.gz)")
-	fs.BoolVar(&help, "help", false, "show help")
-	fs.BoolVar(&help, "h", false, "show help")
-	if err := parseFlags(fs, args, printJobArtifactsDownloadUsage, &help, opts.jsonOutput); err != nil {
+	if err := parseFlags(fs, args, printJobArtifactsDownloadUsage, help, opts.jsonOutput); err != nil {
 		return err
 	}
 	if fs.NArg() < 1 {
@@ -803,11 +796,9 @@ func runJobDoctor(ctx context.Context, args []string, base commonFlags) error {
 	opts := base
 	opts.bind(fs)
 	var out string
-	var help bool
+	help := bindHelpFlag(fs)
 	fs.StringVar(&out, "out", "", "output file path or directory")
-	fs.BoolVar(&help, "help", false, "show help")
-	fs.BoolVar(&help, "h", false, "show help")
-	if err := parseFlags(fs, args, printJobDoctorUsage, &help, opts.jsonOutput); err != nil {
+	if err := parseFlags(fs, args, printJobDoctorUsage, help, opts.jsonOutput); err != nil {
 		return err
 	}
 	if fs.NArg() < 1 {
@@ -1005,10 +996,8 @@ func runProfileList(ctx context.Context, args []string, base commonFlags) error 
 	fs := newFlagSet("profile list")
 	opts := base
 	opts.bind(fs)
-	var help bool
-	fs.BoolVar(&help, "help", false, "show help")
-	fs.BoolVar(&help, "h", false, "show help")
-	if err := parseFlags(fs, args, printProfileListUsage, &help, opts.jsonOutput); err != nil {
+	help := bindHelpFlag(fs)
+	if err := parseFlags(fs, args, printProfileListUsage, help, opts.jsonOutput); err != nil {
 		return err
 	}
 	client, err := apiClientFromFlags(opts)
@@ -1042,7 +1031,7 @@ func runSandboxNew(ctx context.Context, args []string, base commonFlags) error {
 	var jobID string
 	var andSSH bool
 	var keepalive optionalBool
-	var help bool
+	help := bindHelpFlag(fs)
 	fs.StringVar(&name, "name", "", "sandbox name")
 	fs.StringVar(&profile, "profile", "", "profile name")
 	fs.StringVar(&ttl, "ttl", "", ttlFlagDescription)
@@ -1051,9 +1040,7 @@ func runSandboxNew(ctx context.Context, args []string, base commonFlags) error {
 	fs.StringVar(&jobID, "job", "", "attach to existing job id")
 	fs.BoolVar(&andSSH, "and-ssh", false, "create sandbox and immediately ssh into it")
 	fs.Var(&keepalive, "keepalive", "enable keepalive lease for sandbox")
-	fs.BoolVar(&help, "help", false, "show help")
-	fs.BoolVar(&help, "h", false, "show help")
-	if err := parseFlags(fs, args, printSandboxNewUsage, &help, opts.jsonOutput); err != nil {
+	if err := parseFlags(fs, args, printSandboxNewUsage, help, opts.jsonOutput); err != nil {
 		return err
 	}
 	modifiers, err := parseSandboxModifiers(fs.Args())
@@ -1150,10 +1137,8 @@ func runSandboxList(ctx context.Context, args []string, base commonFlags) error 
 	fs := newFlagSet("sandbox list")
 	opts := base
 	opts.bind(fs)
-	var help bool
-	fs.BoolVar(&help, "help", false, "show help")
-	fs.BoolVar(&help, "h", false, "show help")
-	if err := parseFlags(fs, args, printSandboxListUsage, &help, opts.jsonOutput); err != nil {
+	help := bindHelpFlag(fs)
+	if err := parseFlags(fs, args, printSandboxListUsage, help, opts.jsonOutput); err != nil {
 		return err
 	}
 
@@ -1180,10 +1165,8 @@ func runSandboxShow(ctx context.Context, args []string, base commonFlags) error 
 	fs := newFlagSet("sandbox show")
 	opts := base
 	opts.bind(fs)
-	var help bool
-	fs.BoolVar(&help, "help", false, "show help")
-	fs.BoolVar(&help, "h", false, "show help")
-	if err := parseFlags(fs, args, printSandboxShowUsage, &help, opts.jsonOutput); err != nil {
+	help := bindHelpFlag(fs)
+	if err := parseFlags(fs, args, printSandboxShowUsage, help, opts.jsonOutput); err != nil {
 		return err
 	}
 	if fs.NArg() < 1 {
@@ -1221,10 +1204,8 @@ func runSandboxStart(ctx context.Context, args []string, base commonFlags) error
 	fs := newFlagSet("sandbox start")
 	opts := base
 	opts.bind(fs)
-	var help bool
-	fs.BoolVar(&help, "help", false, "show help")
-	fs.BoolVar(&help, "h", false, "show help")
-	if err := parseFlags(fs, args, printSandboxStartUsage, &help, opts.jsonOutput); err != nil {
+	help := bindHelpFlag(fs)
+	if err := parseFlags(fs, args, printSandboxStartUsage, help, opts.jsonOutput); err != nil {
 		return err
 	}
 	if fs.NArg() < 1 {
@@ -1263,12 +1244,10 @@ func runSandboxStop(ctx context.Context, args []string, base commonFlags) error 
 	opts.bind(fs)
 	var all bool
 	var force bool
-	var help bool
+	help := bindHelpFlag(fs)
 	fs.BoolVar(&all, "all", false, "stop all running sandboxes")
 	fs.BoolVar(&force, "force", false, "skip confirmation prompt")
-	fs.BoolVar(&help, "help", false, "show help")
-	fs.BoolVar(&help, "h", false, "show help")
-	if err := parseFlags(fs, args, printSandboxStopUsage, &help, opts.jsonOutput); err != nil {
+	if err := parseFlags(fs, args, printSandboxStopUsage, help, opts.jsonOutput); err != nil {
 		return err
 	}
 	client, err := apiClientFromFlags(opts)
@@ -1352,13 +1331,11 @@ func runSandboxRevert(ctx context.Context, args []string, base commonFlags) erro
 	var force bool
 	var noRestart bool
 	var restart bool
-	var help bool
+	help := bindHelpFlag(fs)
 	fs.BoolVar(&force, "force", false, "force revert even if a job is running")
 	fs.BoolVar(&noRestart, "no-restart", false, "do not restart the sandbox after revert")
 	fs.BoolVar(&restart, "restart", false, "restart the sandbox after revert")
-	fs.BoolVar(&help, "help", false, "show help")
-	fs.BoolVar(&help, "h", false, "show help")
-	if err := parseFlags(fs, args, printSandboxRevertUsage, &help, opts.jsonOutput); err != nil {
+	if err := parseFlags(fs, args, printSandboxRevertUsage, help, opts.jsonOutput); err != nil {
 		return err
 	}
 	if fs.NArg() < 1 {
@@ -1434,11 +1411,9 @@ func runSandboxDestroy(ctx context.Context, args []string, base commonFlags) err
 	opts := base
 	opts.bind(fs)
 	var force bool
-	var help bool
+	help := bindHelpFlag(fs)
 	fs.BoolVar(&force, "force", false, "force destroy even if in invalid state")
-	fs.BoolVar(&help, "help", false, "show help")
-	fs.BoolVar(&help, "h", false, "show help")
-	if err := parseFlags(fs, args, printSandboxDestroyUsage, &help, opts.jsonOutput); err != nil {
+	if err := parseFlags(fs, args, printSandboxDestroyUsage, help, opts.jsonOutput); err != nil {
 		return err
 	}
 	if fs.NArg() < 1 {
@@ -1500,11 +1475,9 @@ func runSandboxLeaseRenew(ctx context.Context, args []string, base commonFlags) 
 	opts := base
 	opts.bind(fs)
 	var ttl string
-	var help bool
+	help := bindHelpFlag(fs)
 	fs.StringVar(&ttl, "ttl", "", ttlFlagDescription)
-	fs.BoolVar(&help, "help", false, "show help")
-	fs.BoolVar(&help, "h", false, "show help")
-	if err := parseFlags(fs, args, printSandboxLeaseRenewUsage, &help, opts.jsonOutput); err != nil {
+	if err := parseFlags(fs, args, printSandboxLeaseRenewUsage, help, opts.jsonOutput); err != nil {
 		return err
 	}
 	if fs.NArg() < 1 {
@@ -1552,10 +1525,8 @@ func runSandboxPrune(ctx context.Context, args []string, base commonFlags) error
 	fs := newFlagSet("sandbox prune")
 	opts := base
 	opts.bind(fs)
-	var help bool
-	fs.BoolVar(&help, "help", false, "show help")
-	fs.BoolVar(&help, "h", false, "show help")
-	if err := parseFlags(fs, args, printSandboxPruneUsage, &help, opts.jsonOutput); err != nil {
+	help := bindHelpFlag(fs)
+	if err := parseFlags(fs, args, printSandboxPruneUsage, help, opts.jsonOutput); err != nil {
 		return err
 	}
 
@@ -1583,11 +1554,9 @@ func runSandboxExpose(ctx context.Context, args []string, base commonFlags) erro
 	opts := base
 	opts.bind(fs)
 	var force bool
-	var help bool
+	help := bindHelpFlag(fs)
 	fs.BoolVar(&force, "force", false, "skip confirmation prompt")
-	fs.BoolVar(&help, "help", false, "show help")
-	fs.BoolVar(&help, "h", false, "show help")
-	if err := parseFlags(fs, args, printSandboxExposeUsage, &help, opts.jsonOutput); err != nil {
+	if err := parseFlags(fs, args, printSandboxExposeUsage, help, opts.jsonOutput); err != nil {
 		return err
 	}
 	if fs.NArg() < 2 {
@@ -1640,10 +1609,8 @@ func runSandboxExposed(ctx context.Context, args []string, base commonFlags) err
 	fs := newFlagSet("sandbox exposed")
 	opts := base
 	opts.bind(fs)
-	var help bool
-	fs.BoolVar(&help, "help", false, "show help")
-	fs.BoolVar(&help, "h", false, "show help")
-	if err := parseFlags(fs, args, printSandboxExposedUsage, &help, opts.jsonOutput); err != nil {
+	help := bindHelpFlag(fs)
+	if err := parseFlags(fs, args, printSandboxExposedUsage, help, opts.jsonOutput); err != nil {
 		return err
 	}
 	client, err := apiClientFromFlags(opts)
@@ -1669,10 +1636,8 @@ func runSandboxUnexpose(ctx context.Context, args []string, base commonFlags) er
 	fs := newFlagSet("sandbox unexpose")
 	opts := base
 	opts.bind(fs)
-	var help bool
-	fs.BoolVar(&help, "help", false, "show help")
-	fs.BoolVar(&help, "h", false, "show help")
-	if err := parseFlags(fs, args, printSandboxUnexposeUsage, &help, opts.jsonOutput); err != nil {
+	help := bindHelpFlag(fs)
+	if err := parseFlags(fs, args, printSandboxUnexposeUsage, help, opts.jsonOutput); err != nil {
 		return err
 	}
 	if fs.NArg() < 1 {
@@ -1709,11 +1674,9 @@ func runSandboxDoctor(ctx context.Context, args []string, base commonFlags) erro
 	opts := base
 	opts.bind(fs)
 	var out string
-	var help bool
+	help := bindHelpFlag(fs)
 	fs.StringVar(&out, "out", "", "output file path or directory")
-	fs.BoolVar(&help, "help", false, "show help")
-	fs.BoolVar(&help, "h", false, "show help")
-	if err := parseFlags(fs, args, printSandboxDoctorUsage, &help, opts.jsonOutput); err != nil {
+	if err := parseFlags(fs, args, printSandboxDoctorUsage, help, opts.jsonOutput); err != nil {
 		return err
 	}
 	if fs.NArg() < 1 {
@@ -1738,13 +1701,11 @@ func runWorkspaceCreate(ctx context.Context, args []string, base commonFlags) er
 	var name string
 	var size string
 	var storage string
-	var help bool
+	help := bindHelpFlag(fs)
 	fs.StringVar(&name, "name", "", "workspace name")
 	fs.StringVar(&size, "size", "", "workspace size (e.g. 80G)")
 	fs.StringVar(&storage, "storage", "", "Proxmox storage (default local-zfs)")
-	fs.BoolVar(&help, "help", false, "show help")
-	fs.BoolVar(&help, "h", false, "show help")
-	if err := parseFlags(fs, args, printWorkspaceCreateUsage, &help, opts.jsonOutput); err != nil {
+	if err := parseFlags(fs, args, printWorkspaceCreateUsage, help, opts.jsonOutput); err != nil {
 		return err
 	}
 	name = strings.TrimSpace(name)
@@ -1789,10 +1750,8 @@ func runWorkspaceList(ctx context.Context, args []string, base commonFlags) erro
 	fs := newFlagSet("workspace list")
 	opts := base
 	opts.bind(fs)
-	var help bool
-	fs.BoolVar(&help, "help", false, "show help")
-	fs.BoolVar(&help, "h", false, "show help")
-	if err := parseFlags(fs, args, printWorkspaceListUsage, &help, opts.jsonOutput); err != nil {
+	help := bindHelpFlag(fs)
+	if err := parseFlags(fs, args, printWorkspaceListUsage, help, opts.jsonOutput); err != nil {
 		return err
 	}
 	client, err := apiClientFromFlags(opts)
@@ -1818,10 +1777,8 @@ func runWorkspaceCheck(ctx context.Context, args []string, base commonFlags) err
 	fs := newFlagSet("workspace check")
 	opts := base
 	opts.bind(fs)
-	var help bool
-	fs.BoolVar(&help, "help", false, "show help")
-	fs.BoolVar(&help, "h", false, "show help")
-	if err := parseFlags(fs, args, printWorkspaceCheckUsage, &help, opts.jsonOutput); err != nil {
+	help := bindHelpFlag(fs)
+	if err := parseFlags(fs, args, printWorkspaceCheckUsage, help, opts.jsonOutput); err != nil {
 		return err
 	}
 	if fs.NArg() < 1 {
@@ -1858,11 +1815,9 @@ func runWorkspaceFsck(ctx context.Context, args []string, base commonFlags) erro
 	opts := base
 	opts.bind(fs)
 	var repair bool
-	var help bool
+	help := bindHelpFlag(fs)
 	fs.BoolVar(&repair, "repair", false, "repair filesystem (requires detached workspace)")
-	fs.BoolVar(&help, "help", false, "show help")
-	fs.BoolVar(&help, "h", false, "show help")
-	if err := parseFlags(fs, args, printWorkspaceFsckUsage, &help, opts.jsonOutput); err != nil {
+	if err := parseFlags(fs, args, printWorkspaceFsckUsage, help, opts.jsonOutput); err != nil {
 		return err
 	}
 	if fs.NArg() < 1 {
@@ -1900,10 +1855,8 @@ func runWorkspaceAttach(ctx context.Context, args []string, base commonFlags) er
 	fs := newFlagSet("workspace attach")
 	opts := base
 	opts.bind(fs)
-	var help bool
-	fs.BoolVar(&help, "help", false, "show help")
-	fs.BoolVar(&help, "h", false, "show help")
-	if err := parseFlags(fs, args, printWorkspaceAttachUsage, &help, opts.jsonOutput); err != nil {
+	help := bindHelpFlag(fs)
+	if err := parseFlags(fs, args, printWorkspaceAttachUsage, help, opts.jsonOutput); err != nil {
 		return err
 	}
 	if fs.NArg() < 2 {
@@ -1945,10 +1898,8 @@ func runWorkspaceDetach(ctx context.Context, args []string, base commonFlags) er
 	fs := newFlagSet("workspace detach")
 	opts := base
 	opts.bind(fs)
-	var help bool
-	fs.BoolVar(&help, "help", false, "show help")
-	fs.BoolVar(&help, "h", false, "show help")
-	if err := parseFlags(fs, args, printWorkspaceDetachUsage, &help, opts.jsonOutput); err != nil {
+	help := bindHelpFlag(fs)
+	if err := parseFlags(fs, args, printWorkspaceDetachUsage, help, opts.jsonOutput); err != nil {
 		return err
 	}
 	if fs.NArg() < 1 {
@@ -1987,13 +1938,11 @@ func runWorkspaceRebind(ctx context.Context, args []string, base commonFlags) er
 	var profile string
 	var ttl string
 	var keepOld bool
-	var help bool
+	help := bindHelpFlag(fs)
 	fs.StringVar(&profile, "profile", "", "profile name")
 	fs.StringVar(&ttl, "ttl", "", ttlFlagDescription)
 	fs.BoolVar(&keepOld, "keep-old", false, "keep old sandbox running")
-	fs.BoolVar(&help, "help", false, "show help")
-	fs.BoolVar(&help, "h", false, "show help")
-	if err := parseFlags(fs, args, printWorkspaceRebindUsage, &help, opts.jsonOutput); err != nil {
+	if err := parseFlags(fs, args, printWorkspaceRebindUsage, help, opts.jsonOutput); err != nil {
 		return err
 	}
 	if fs.NArg() < 1 {
@@ -2049,12 +1998,10 @@ func runWorkspaceFork(ctx context.Context, args []string, base commonFlags) erro
 	opts.bind(fs)
 	var name string
 	var fromSnapshot string
-	var help bool
+	help := bindHelpFlag(fs)
 	fs.StringVar(&name, "name", "", "new workspace name")
 	fs.StringVar(&fromSnapshot, "from-snapshot", "", "snapshot name to fork from")
-	fs.BoolVar(&help, "help", false, "show help")
-	fs.BoolVar(&help, "h", false, "show help")
-	if err := parseFlags(fs, args, printWorkspaceForkUsage, &help, opts.jsonOutput); err != nil {
+	if err := parseFlags(fs, args, printWorkspaceForkUsage, help, opts.jsonOutput); err != nil {
 		return err
 	}
 	if fs.NArg() < 1 {
@@ -2131,10 +2078,8 @@ func runWorkspaceSnapshotCreate(ctx context.Context, args []string, base commonF
 	fs := newFlagSet("workspace snapshot create")
 	opts := base
 	opts.bind(fs)
-	var help bool
-	fs.BoolVar(&help, "help", false, "show help")
-	fs.BoolVar(&help, "h", false, "show help")
-	if err := parseFlags(fs, args, printWorkspaceSnapshotCreateUsage, &help, opts.jsonOutput); err != nil {
+	help := bindHelpFlag(fs)
+	if err := parseFlags(fs, args, printWorkspaceSnapshotCreateUsage, help, opts.jsonOutput); err != nil {
 		return err
 	}
 	if fs.NArg() < 2 {
@@ -2172,10 +2117,8 @@ func runWorkspaceSnapshotList(ctx context.Context, args []string, base commonFla
 	fs := newFlagSet("workspace snapshot list")
 	opts := base
 	opts.bind(fs)
-	var help bool
-	fs.BoolVar(&help, "help", false, "show help")
-	fs.BoolVar(&help, "h", false, "show help")
-	if err := parseFlags(fs, args, printWorkspaceSnapshotListUsage, &help, opts.jsonOutput); err != nil {
+	help := bindHelpFlag(fs)
+	if err := parseFlags(fs, args, printWorkspaceSnapshotListUsage, help, opts.jsonOutput); err != nil {
 		return err
 	}
 	if fs.NArg() < 1 {
@@ -2211,10 +2154,8 @@ func runWorkspaceSnapshotRestore(ctx context.Context, args []string, base common
 	fs := newFlagSet("workspace snapshot restore")
 	opts := base
 	opts.bind(fs)
-	var help bool
-	fs.BoolVar(&help, "help", false, "show help")
-	fs.BoolVar(&help, "h", false, "show help")
-	if err := parseFlags(fs, args, printWorkspaceSnapshotRestoreUsage, &help, opts.jsonOutput); err != nil {
+	help := bindHelpFlag(fs)
+	if err := parseFlags(fs, args, printWorkspaceSnapshotRestoreUsage, help, opts.jsonOutput); err != nil {
 		return err
 	}
 	if fs.NArg() < 2 {
@@ -2258,7 +2199,7 @@ func runSessionCreate(ctx context.Context, args []string, base commonFlags) erro
 	var workspaceCreate string
 	var workspaceSize string
 	var workspaceStorage string
-	var help bool
+	help := bindHelpFlag(fs)
 	fs.StringVar(&name, "name", "", "session name")
 	fs.StringVar(&profile, "profile", "", "profile name")
 	fs.StringVar(&branch, "branch", "", "branch label")
@@ -2266,9 +2207,7 @@ func runSessionCreate(ctx context.Context, args []string, base commonFlags) erro
 	fs.StringVar(&workspaceCreate, "workspace-create", "", "create workspace with name")
 	fs.StringVar(&workspaceSize, "workspace-size", "", "workspace size for creation (e.g. 80G)")
 	fs.StringVar(&workspaceStorage, "workspace-storage", "", "workspace storage (default local-zfs)")
-	fs.BoolVar(&help, "help", false, "show help")
-	fs.BoolVar(&help, "h", false, "show help")
-	if err := parseFlags(fs, args, printSessionCreateUsage, &help, opts.jsonOutput); err != nil {
+	if err := parseFlags(fs, args, printSessionCreateUsage, help, opts.jsonOutput); err != nil {
 		return err
 	}
 	name = strings.TrimSpace(name)
@@ -2331,10 +2270,8 @@ func runSessionList(ctx context.Context, args []string, base commonFlags) error 
 	fs := newFlagSet("session list")
 	opts := base
 	opts.bind(fs)
-	var help bool
-	fs.BoolVar(&help, "help", false, "show help")
-	fs.BoolVar(&help, "h", false, "show help")
-	if err := parseFlags(fs, args, printSessionListUsage, &help, opts.jsonOutput); err != nil {
+	help := bindHelpFlag(fs)
+	if err := parseFlags(fs, args, printSessionListUsage, help, opts.jsonOutput); err != nil {
 		return err
 	}
 	client, err := apiClientFromFlags(opts)
@@ -2360,10 +2297,8 @@ func runSessionShow(ctx context.Context, args []string, base commonFlags) error 
 	fs := newFlagSet("session show")
 	opts := base
 	opts.bind(fs)
-	var help bool
-	fs.BoolVar(&help, "help", false, "show help")
-	fs.BoolVar(&help, "h", false, "show help")
-	if err := parseFlags(fs, args, printSessionShowUsage, &help, opts.jsonOutput); err != nil {
+	help := bindHelpFlag(fs)
+	if err := parseFlags(fs, args, printSessionShowUsage, help, opts.jsonOutput); err != nil {
 		return err
 	}
 	if fs.NArg() < 1 {
@@ -2399,10 +2334,8 @@ func runSessionResume(ctx context.Context, args []string, base commonFlags) erro
 	fs := newFlagSet("session resume")
 	opts := base
 	opts.bind(fs)
-	var help bool
-	fs.BoolVar(&help, "help", false, "show help")
-	fs.BoolVar(&help, "h", false, "show help")
-	if err := parseFlags(fs, args, printSessionResumeUsage, &help, opts.jsonOutput); err != nil {
+	help := bindHelpFlag(fs)
+	if err := parseFlags(fs, args, printSessionResumeUsage, help, opts.jsonOutput); err != nil {
 		return err
 	}
 	if fs.NArg() < 1 {
@@ -2438,10 +2371,8 @@ func runSessionStop(ctx context.Context, args []string, base commonFlags) error 
 	fs := newFlagSet("session stop")
 	opts := base
 	opts.bind(fs)
-	var help bool
-	fs.BoolVar(&help, "help", false, "show help")
-	fs.BoolVar(&help, "h", false, "show help")
-	if err := parseFlags(fs, args, printSessionStopUsage, &help, opts.jsonOutput); err != nil {
+	help := bindHelpFlag(fs)
+	if err := parseFlags(fs, args, printSessionStopUsage, help, opts.jsonOutput); err != nil {
 		return err
 	}
 	if fs.NArg() < 1 {
@@ -2484,7 +2415,7 @@ func runSessionFork(ctx context.Context, args []string, base commonFlags) error 
 	var workspaceCreate string
 	var workspaceSize string
 	var workspaceStorage string
-	var help bool
+	help := bindHelpFlag(fs)
 	fs.StringVar(&name, "name", "", "new session name")
 	fs.StringVar(&profile, "profile", "", "profile name (defaults to source session)")
 	fs.StringVar(&branch, "branch", "", "branch label")
@@ -2492,9 +2423,7 @@ func runSessionFork(ctx context.Context, args []string, base commonFlags) error 
 	fs.StringVar(&workspaceCreate, "workspace-create", "", "create workspace with name")
 	fs.StringVar(&workspaceSize, "workspace-size", "", "workspace size for creation (e.g. 80G)")
 	fs.StringVar(&workspaceStorage, "workspace-storage", "", "workspace storage (default local-zfs)")
-	fs.BoolVar(&help, "help", false, "show help")
-	fs.BoolVar(&help, "h", false, "show help")
-	if err := parseFlags(fs, args, printSessionForkUsage, &help, opts.jsonOutput); err != nil {
+	if err := parseFlags(fs, args, printSessionForkUsage, help, opts.jsonOutput); err != nil {
 		return err
 	}
 	if fs.NArg() < 1 {
@@ -2566,15 +2495,13 @@ func runSessionBranch(ctx context.Context, args []string, base commonFlags) erro
 	var workspaceCreate string
 	var workspaceSize string
 	var workspaceStorage string
-	var help bool
+	help := bindHelpFlag(fs)
 	fs.StringVar(&profile, "profile", "", "profile name")
 	fs.StringVar(&workspace, "workspace", "", "workspace id or name (or new:<name>)")
 	fs.StringVar(&workspaceCreate, "workspace-create", "", "create workspace with name")
 	fs.StringVar(&workspaceSize, "workspace-size", "", "workspace size for creation (e.g. 80G)")
 	fs.StringVar(&workspaceStorage, "workspace-storage", "", "workspace storage (default local-zfs)")
-	fs.BoolVar(&help, "help", false, "show help")
-	fs.BoolVar(&help, "h", false, "show help")
-	if err := parseFlags(fs, args, printSessionBranchUsage, &help, opts.jsonOutput); err != nil {
+	if err := parseFlags(fs, args, printSessionBranchUsage, help, opts.jsonOutput); err != nil {
 		return err
 	}
 	if fs.NArg() < 1 {
@@ -2615,11 +2542,9 @@ func runSessionDoctor(ctx context.Context, args []string, base commonFlags) erro
 	opts := base
 	opts.bind(fs)
 	var out string
-	var help bool
+	help := bindHelpFlag(fs)
 	fs.StringVar(&out, "out", "", "output file path or directory")
-	fs.BoolVar(&help, "help", false, "show help")
-	fs.BoolVar(&help, "h", false, "show help")
-	if err := parseFlags(fs, args, printSessionDoctorUsage, &help, opts.jsonOutput); err != nil {
+	if err := parseFlags(fs, args, printSessionDoctorUsage, help, opts.jsonOutput); err != nil {
 		return err
 	}
 	if fs.NArg() < 1 {
@@ -2734,7 +2659,7 @@ func runMsgPost(ctx context.Context, args []string, base commonFlags) error {
 	var kind string
 	var text string
 	var payload string
-	var help bool
+	help := bindHelpFlag(fs)
 	fs.StringVar(&jobID, "job", "", "message scope job id")
 	fs.StringVar(&workspaceID, "workspace", "", "message scope workspace id")
 	fs.StringVar(&sessionID, "session", "", "message scope session id")
@@ -2742,9 +2667,7 @@ func runMsgPost(ctx context.Context, args []string, base commonFlags) error {
 	fs.StringVar(&kind, "kind", "", "message kind")
 	fs.StringVar(&text, "text", "", "message text")
 	fs.StringVar(&payload, "payload", "", "message json payload")
-	fs.BoolVar(&help, "help", false, "show help")
-	fs.BoolVar(&help, "h", false, "show help")
-	if err := parseFlags(fs, args, printMsgPostUsage, &help, opts.jsonOutput); err != nil {
+	if err := parseFlags(fs, args, printMsgPostUsage, help, opts.jsonOutput); err != nil {
 		return err
 	}
 	scopeType, scopeID, err := resolveMessageScope(jobID, workspaceID, sessionID)
@@ -2806,15 +2729,13 @@ func runMsgTail(ctx context.Context, args []string, base commonFlags) error {
 	var sessionID string
 	var follow bool
 	var tail int
-	var help bool
+	help := bindHelpFlag(fs)
 	fs.StringVar(&jobID, "job", "", "message scope job id")
 	fs.StringVar(&workspaceID, "workspace", "", "message scope workspace id")
 	fs.StringVar(&sessionID, "session", "", "message scope session id")
 	fs.BoolVar(&follow, "follow", false, "follow new messages")
 	fs.IntVar(&tail, "tail", defaultMessageTail, "show the last N messages")
-	fs.BoolVar(&help, "help", false, "show help")
-	fs.BoolVar(&help, "h", false, "show help")
-	if err := parseFlags(fs, args, printMsgTailUsage, &help, opts.jsonOutput); err != nil {
+	if err := parseFlags(fs, args, printMsgTailUsage, help, opts.jsonOutput); err != nil {
 		return err
 	}
 	scopeType, scopeID, err := resolveMessageScope(jobID, workspaceID, sessionID)
@@ -2879,12 +2800,10 @@ func runLogsCommand(ctx context.Context, args []string, base commonFlags) error 
 	opts.bind(fs)
 	var follow bool
 	var tail int
-	var help bool
+	help := bindHelpFlag(fs)
 	fs.BoolVar(&follow, "follow", false, "follow new events")
 	fs.IntVar(&tail, "tail", defaultLogTail, "show the last N events")
-	fs.BoolVar(&help, "help", false, "show help")
-	fs.BoolVar(&help, "h", false, "show help")
-	if err := parseFlags(fs, args, printLogsUsage, &help, opts.jsonOutput); err != nil {
+	if err := parseFlags(fs, args, printLogsUsage, help, opts.jsonOutput); err != nil {
 		return err
 	}
 	if fs.NArg() < 1 {

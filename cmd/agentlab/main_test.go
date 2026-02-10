@@ -680,7 +680,7 @@ func TestUsagePrints(t *testing.T) {
 
 	t.Run("printWorkspaceUsage outputs workspace usage", func(t *testing.T) {
 		output := CaptureOutput(printWorkspaceUsage)
-		assert.Contains(t, output, "workspace <create|list|check|attach|detach|rebind|fork|snapshot>")
+		assert.Contains(t, output, "workspace <create|list|check|fsck|attach|detach|rebind|fork|snapshot>")
 	})
 
 	t.Run("printConnectUsage outputs connect usage", func(t *testing.T) {
@@ -753,7 +753,7 @@ func TestGoldenFileSandboxUsageOutput(t *testing.T) {
 func TestGoldenFileWorkspaceUsageOutput(t *testing.T) {
 	got := CaptureOutput(printWorkspaceUsage)
 
-	assert.Contains(t, got, "agentlab workspace <create|list|check|attach|detach|rebind|fork|snapshot>")
+	assert.Contains(t, got, "agentlab workspace <create|list|check|fsck|attach|detach|rebind|fork|snapshot>")
 }
 
 func TestGoldenFileLogsUsageOutput(t *testing.T) {

@@ -1,6 +1,7 @@
 package main
 
 import (
+	"errors"
 	"io"
 	"os"
 	"path/filepath"
@@ -60,6 +61,31 @@ func TestParseVMID(t *testing.T) {
 			}
 			if got != tt.want {
 				t.Fatalf("parseVMID() = %d, want %d", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestBindHelpFlag(t *testing.T) {
+	tests := []struct {
+		name string
+		args []string
+	}{
+		{"short", []string{"-h"}},
+		{"long", []string{"--help"}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			fs := newFlagSet("test")
+			help := bindHelpFlag(fs)
+			called := false
+			usage := func() { called = true }
+			err := parseFlags(fs, tt.args, usage, help, false)
+			if !errors.Is(err, errHelp) {
+				t.Fatalf("parseFlags() error = %v, want errHelp", err)
+			}
+			if !called {
+				t.Fatalf("expected usage to be called")
 			}
 		})
 	}
