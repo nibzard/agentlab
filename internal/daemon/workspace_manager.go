@@ -23,15 +23,16 @@ const (
 )
 
 var (
-	ErrWorkspaceNotFound    = errors.New("workspace not found")
-	ErrWorkspaceExists      = errors.New("workspace already exists")
-	ErrWorkspaceAttached    = errors.New("workspace already attached")
-	ErrWorkspaceNotAttached = errors.New("workspace not attached")
-	ErrWorkspaceVMInUse     = errors.New("vmid already has workspace attached")
-	ErrWorkspaceLeaseHeld   = errors.New("workspace lease already held")
+	ErrWorkspaceNotFound         = errors.New("workspace not found")
+	ErrWorkspaceExists           = errors.New("workspace already exists")
+	ErrWorkspaceAttached         = errors.New("workspace already attached")
+	ErrWorkspaceNotAttached      = errors.New("workspace not attached")
+	ErrWorkspaceVMInUse          = errors.New("vmid already has workspace attached")
+	ErrWorkspaceLeaseHeld        = errors.New("workspace lease already held")
 	ErrWorkspaceSnapshotExists   = errors.New("workspace snapshot already exists")
 	ErrWorkspaceSnapshotNotFound = errors.New("workspace snapshot not found")
 	ErrWorkspaceSnapshotAttached = errors.New("workspace must be detached for snapshot operations")
+	ErrWorkspaceForkAttached     = errors.New("workspace must be detached for fork operations")
 )
 
 // WorkspaceManager handles persistent workspace volumes.

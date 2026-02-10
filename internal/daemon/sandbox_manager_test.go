@@ -29,10 +29,25 @@ type stubBackend struct {
 	vmConfigErr           error
 	volumeInfo            proxmox.VolumeInfo
 	volumeErr             error
+	volumeCloneErr        error
+	volumeCloneSnapErr    error
+	volumeCloneCalls      []volumeCloneCall
+	volumeCloneSnapCalls  []volumeCloneSnapshotCall
 	startCalls            int
 	stopCalls             int
 	detachCalls           int
 	snapshotRollbackCalls int
+}
+
+type volumeCloneCall struct {
+	source string
+	target string
+}
+
+type volumeCloneSnapshotCall struct {
+	source   string
+	snapshot string
+	target   string
 }
 
 func (s *stubBackend) Clone(context.Context, proxmox.VMID, proxmox.VMID, string) error {
@@ -144,7 +159,23 @@ func (s *stubBackend) VolumeSnapshotDelete(context.Context, string, string) erro
 	return nil
 }
 
-func (s *stubBackend) VolumeClone(context.Context, string, string) error {
+func (s *stubBackend) VolumeClone(_ context.Context, sourceVolumeID, targetVolumeID string) error {
+	s.volumeCloneCalls = append(s.volumeCloneCalls, volumeCloneCall{source: sourceVolumeID, target: targetVolumeID})
+	if s.volumeCloneErr != nil {
+		return s.volumeCloneErr
+	}
+	return nil
+}
+
+func (s *stubBackend) VolumeCloneFromSnapshot(_ context.Context, sourceVolumeID, snapshotName, targetVolumeID string) error {
+	s.volumeCloneSnapCalls = append(s.volumeCloneSnapCalls, volumeCloneSnapshotCall{
+		source:   sourceVolumeID,
+		snapshot: snapshotName,
+		target:   targetVolumeID,
+	})
+	if s.volumeCloneSnapErr != nil {
+		return s.volumeCloneSnapErr
+	}
 	return nil
 }
 

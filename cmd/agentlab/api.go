@@ -247,6 +247,12 @@ type workspaceCreateRequest struct {
 	Storage string `json:"storage,omitempty"`
 }
 
+// workspaceForkRequest contains parameters for forking a workspace.
+type workspaceForkRequest struct {
+	Name         string `json:"name"`
+	FromSnapshot string `json:"from_snapshot,omitempty"`
+}
+
 // workspaceAttachRequest contains parameters for attaching a workspace.
 type workspaceAttachRequest struct {
 	VMID int `json:"vmid"`
