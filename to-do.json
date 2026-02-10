@@ -3114,24 +3114,25 @@
         "process"
       ],
       "files": [
+        "CONTRIBUTING.md",
         "docs/README.md",
         "docs/STYLE.md",
+        "docs/templates/adr.md",
         "docs/templates/feature.md",
         "docs/templates/troubleshooting.md",
-        "docs/templates/adr.md",
-        "CONTRIBUTING.md"
+        "to-do.json"
       ],
       "depends_on": [
         "T118"
       ],
       "created_at": "2026-02-10T01:59:57Z",
-      "updated_at": "2026-02-10T05:57:46Z"
+      "updated_at": "2026-02-10T05:58:05Z"
     },
     {
       "id": "T120",
       "title": "Docs-as-code: auto-generate CLI reference docs from `agentlab` usage and verify in CI",
       "priority": 4,
-      "status": "todo",
+      "status": "done",
       "details": "Prevent documentation drift by generating a canonical CLI reference (`docs/cli.md`) from the actual CLI help output. CI should fail if the generated file is out of date.",
       "steps": [
         "Add a generator script (e.g. scripts/dev/gen_cli_docs.sh) that runs the built binary (or `go run ./cmd/agentlab`) to capture stable help output and writes docs/cli.md.",
@@ -3151,12 +3152,14 @@
         "Makefile",
         ".github/workflows/ci.yml",
         "docs/runbook.md",
-        "docs/troubleshooting.md"
+        "docs/troubleshooting.md",
+        "to-do.json"
       ],
       "depends_on": [
         "T118"
       ],
-      "created_at": "2026-02-10T01:59:57Z"
+      "created_at": "2026-02-10T01:59:57Z",
+      "updated_at": "2026-02-10T06:00:14Z"
     },
     {
       "id": "T121",
