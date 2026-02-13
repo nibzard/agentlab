@@ -20,13 +20,13 @@ import (
 )
 
 // BashRunner wraps commands in bash to provide interactive shell context.
-// ABOUTME: Using bash helps work around Proxmox IPC layer issues that can occur with direct exec.
+// ABOUTME: Uses an argument-safe bash exec pattern to avoid shell injection.
 type BashRunner struct{}
 
 func (br BashRunner) Run(ctx context.Context, name string, args ...string) (string, error) {
-	allArgs := append([]string{name}, args...)
-	fullCmd := strings.Join(allArgs, " ")
-	cmd := exec.CommandContext(ctx, "bash", "-c", fullCmd)
+	fullCmd := formatCommand(append([]string{name}, args...))
+	cmdArgs := append([]string{"-c", "exec \"$@\"", "bash", name}, args...)
+	cmd := exec.CommandContext(ctx, "bash", cmdArgs...)
 	var stdout bytes.Buffer
 	var stderr bytes.Buffer
 	cmd.Stdout = &stdout
@@ -52,7 +52,7 @@ func (er ExecRunner) Run(ctx context.Context, name string, args ...string) (stri
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
 	if err := cmd.Run(); err != nil {
-		fullCmd := strings.Join(append([]string{name}, args...), " ")
+		fullCmd := formatCommand(append([]string{name}, args...))
 		errMsg := strings.TrimSpace(stderr.String())
 		if errMsg != "" {
 			return "", fmt.Errorf("command %s failed: %w: %s", fullCmd, err, errMsg)
@@ -713,6 +713,9 @@ func (b *ShellBackend) sleep(ctx context.Context, d time.Duration) error {
 }
 
 func (b *ShellBackend) run(ctx context.Context, name string, args ...string) (string, error) {
+	if err := validateCommandArgs(name, args); err != nil {
+		return "", err
+	}
 	ctx, cancel := b.withCommandTimeout(ctx)
 	defer cancel()
 	return b.runner().Run(ctx, name, args...)
@@ -734,6 +737,60 @@ func nextBackoff(current, max time.Duration) time.Duration {
 		return max
 	}
 	return next
+}
+
+func validateCommandArgs(name string, args []string) error {
+	if err := validateCommandToken("command name", name, false); err != nil {
+		return err
+	}
+	for _, arg := range args {
+		if err := validateCommandToken("command argument", arg, true); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func validateCommandToken(label, value string, allowEmpty bool) error {
+	if !allowEmpty && strings.TrimSpace(value) == "" {
+		return fmt.Errorf("%s is required", label)
+	}
+	for _, r := range value {
+		if r < 0x20 || r == 0x7f {
+			return fmt.Errorf("%s contains control characters", label)
+		}
+	}
+	return nil
+}
+
+func formatCommand(args []string) string {
+	if len(args) == 0 {
+		return ""
+	}
+	quoted := make([]string, len(args))
+	for i, arg := range args {
+		quoted[i] = shellQuote(arg)
+	}
+	return strings.Join(quoted, " ")
+}
+
+func shellQuote(value string) string {
+	if value == "" {
+		return "''"
+	}
+	if strings.IndexFunc(value, isShellSpecial) == -1 {
+		return value
+	}
+	return "'" + strings.ReplaceAll(value, "'", "'\\''") + "'"
+}
+
+func isShellSpecial(r rune) bool {
+	switch r {
+	case ' ', '\t', '\n', '\r', '\v', '\f', '\\', '\'', '"', '$', '`', ';', '&', '|', '<', '>', '(', ')', '*', '?', '!', '#', '[', ']', '{', '}', '~':
+		return true
+	default:
+		return false
+	}
 }
 
 func (b *ShellBackend) leasePaths() []string {

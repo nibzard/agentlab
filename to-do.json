@@ -3512,15 +3512,16 @@
       "files": [
         "cmd/agentlab/bootstrap.go",
         "cmd/agentlab/bootstrap_test.go",
-        "cmd/agentlab/ssh.go"
+        "cmd/agentlab/ssh.go",
+        "to-do.json"
       ],
-      "updated_at": "2026-02-13T19:54:09Z"
+      "updated_at": "2026-02-13T19:55:24Z"
     },
     {
       "id": "T130",
       "title": "Harden Proxmox shell backend execution against injection",
       "priority": 1,
-      "status": "todo",
+      "status": "done",
       "details": "Stop using shell-based command assembly in Proxmox shell backend and route execution through argument-safe runners or strict command allowlists.",
       "steps": [
         "Replace BashRunner call sites that pass unescaped command strings with structured command arrays.",
@@ -3534,8 +3535,10 @@
         "proxmox"
       ],
       "files": [
-        "internal/proxmox/shell_backend.go"
-      ]
+        "internal/proxmox/shell_backend.go",
+        "internal/proxmox/shell_backend_test.go"
+      ],
+      "updated_at": "2026-02-13T20:00:23Z"
     },
     {
       "id": "T131",
