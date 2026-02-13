@@ -3587,15 +3587,16 @@
       ],
       "files": [
         "internal/secrets/bundle.go",
-        "internal/secrets/bundle_test.go"
+        "internal/secrets/bundle_test.go",
+        "to-do.json"
       ],
-      "updated_at": "2026-02-13T20:13:28Z"
+      "updated_at": "2026-02-13T20:13:50Z"
     },
     {
       "id": "T133",
       "title": "Fix duplicated HTTP POST switch branch in daemon API router",
       "priority": 2,
-      "status": "todo",
+      "status": "done",
       "details": "Resolve duplicated case handling in daemon API route switch and assert all expected methods are explicitly covered and tested.",
       "steps": [
         "Inspect duplicate `http.MethodPost` case in internal/daemon/api.go and replace with intended method branch.",
@@ -3610,7 +3611,8 @@
       "files": [
         "internal/daemon/api.go",
         "internal/daemon/api_errors_test.go"
-      ]
+      ],
+      "updated_at": "2026-02-13T20:29:36Z"
     },
     {
       "id": "T134",

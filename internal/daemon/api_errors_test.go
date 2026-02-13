@@ -33,6 +33,35 @@ func TestControlAPIErrorResponses(t *testing.T) {
 		}
 	})
 
+	t.Run("collection routes advertise GET+POST", func(t *testing.T) {
+		cases := []struct {
+			name  string
+			path  string
+			allow string
+		}{
+			{name: "messages", path: "/v1/messages", allow: http.MethodGet + ", " + http.MethodPost},
+			{name: "sandboxes", path: "/v1/sandboxes", allow: http.MethodGet + ", " + http.MethodPost},
+			{name: "workspaces", path: "/v1/workspaces", allow: http.MethodGet + ", " + http.MethodPost},
+			{name: "sessions", path: "/v1/sessions", allow: http.MethodGet + ", " + http.MethodPost},
+			{name: "exposures", path: "/v1/exposures", allow: http.MethodGet + ", " + http.MethodPost},
+		}
+
+		for _, tc := range cases {
+			t.Run(tc.name, func(t *testing.T) {
+				req := httptest.NewRequest(http.MethodPut, tc.path, nil)
+				rec := httptest.NewRecorder()
+				mux.ServeHTTP(rec, req)
+
+				if rec.Code != http.StatusMethodNotAllowed {
+					t.Fatalf("status = %d, want %d", rec.Code, http.StatusMethodNotAllowed)
+				}
+				if allow := rec.Header().Get("Allow"); allow != tc.allow {
+					t.Fatalf("allow header = %q, want %q", allow, tc.allow)
+				}
+			})
+		}
+	})
+
 	t.Run("missing id returns 404", func(t *testing.T) {
 		req := httptest.NewRequest(http.MethodGet, "/v1/jobs/", nil)
 		rec := httptest.NewRecorder()
