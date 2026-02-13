@@ -3660,9 +3660,67 @@
       ],
       "files": [
         "internal/proxmox/cloudinit_snippets.go",
-        "internal/proxmox/cloudinit_snippets_test.go"
+        "internal/proxmox/cloudinit_snippets_test.go",
+        "to-do.json"
       ],
-      "updated_at": "2026-02-13T20:41:46Z"
+      "updated_at": "2026-02-13T20:42:06Z"
+    },
+    {
+      "id": "T136",
+      "title": "Enforce strict permissions on /etc/agentlab/config.yaml at startup",
+      "priority": 2,
+      "status": "done",
+      "details": "Validate config file permissions on daemon start (e.g., 0600 or 0640). Warn or fail when group/world readable, and add tests to cover permissive configs.",
+      "tags": [
+        "security",
+        "config",
+        "hardening"
+      ],
+      "files": [
+        "internal/config/permissions.go",
+        "internal/config/permissions_test.go",
+        "internal/daemon/daemon.go",
+        "internal/daemon/daemon_lifecycle_test.go",
+        "docs/security.md",
+        "docs/runbook.md"
+      ],
+      "updated_at": "2026-02-13T20:53:53Z"
+    },
+    {
+      "id": "T137",
+      "title": "Add rate limiting for guest-facing bootstrap and artifact endpoints",
+      "priority": 2,
+      "status": "todo",
+      "details": "Introduce per-IP rate limiting for /v1/bootstrap/fetch and artifact upload endpoints with configurable QPS/burst and tests; ensure limits can be disabled for trusted environments.",
+      "tags": [
+        "security",
+        "api",
+        "hardening"
+      ],
+      "files": [
+        "internal/daemon/bootstrap_api.go",
+        "internal/daemon/artifact_api.go",
+        "internal/config/config.go",
+        "internal/daemon/api_errors_test.go",
+        "docs/security.md",
+        "docs/configuration.md"
+      ]
+    },
+    {
+      "id": "T138",
+      "title": "Document cloud-init snippet visibility in Proxmox UI",
+      "priority": 3,
+      "status": "todo",
+      "details": "Add documentation noting that cloud-init snippets (and embedded bootstrap tokens) are visible in the Proxmox UI/storage so operators understand exposure and lifecycle.",
+      "tags": [
+        "docs",
+        "security"
+      ],
+      "files": [
+        "docs/security.md",
+        "docs/runbook.md",
+        "docs/secrets.md"
+      ]
     }
   ]
 }

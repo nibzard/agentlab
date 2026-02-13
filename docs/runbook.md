@@ -100,6 +100,9 @@ secrets_bundle: default
 metrics_listen: "127.0.0.1:8847"
 ```
 
+Permissions: ensure `/etc/agentlab/config.yaml` is `0600`. `agentlabd` fails
+startup if the file is world-readable or group-writable, and warns on `0640`.
+
 7) Create at least one profile in `/etc/agentlab/profiles/`. Only `name` and
 `template_vmid` are required today; the raw YAML is stored for future use.
 

@@ -77,6 +77,39 @@ func TestRun_ConfigValidation(t *testing.T) {
 	})
 }
 
+func TestRun_ConfigPermissions(t *testing.T) {
+	t.Run("rejects world-readable config", func(t *testing.T) {
+		temp := t.TempDir()
+		configPath := filepath.Join(temp, "config.yaml")
+		require.NoError(t, os.WriteFile(configPath, []byte("{}"), 0o644))
+
+		cfg := config.Config{
+			ConfigPath:              configPath,
+			ProfilesDir:             filepath.Join(temp, "profiles"),
+			RunDir:                  filepath.Join(temp, "run"),
+			SocketPath:              filepath.Join(temp, "run", "agentlabd.sock"),
+			DBPath:                  filepath.Join(temp, "agentlab.db"),
+			BootstrapListen:         "127.0.0.1:0",
+			ArtifactListen:          "127.0.0.1:0",
+			ArtifactDir:             filepath.Join(temp, "artifacts"),
+			ArtifactMaxBytes:        1024,
+			ArtifactTokenTTLMinutes: 5,
+			SecretsDir:              filepath.Join(temp, "secrets"),
+			SecretsBundle:           "default",
+			SecretsAgeKeyPath:       filepath.Join(temp, "age.key"),
+			SecretsSopsPath:         "sops",
+			SnippetsDir:             filepath.Join(temp, "snippets"),
+			SnippetStorage:          "local",
+			ProxmoxCommandTimeout:   time.Second,
+			ProvisioningTimeout:     time.Second,
+		}
+
+		err := Run(context.Background(), cfg)
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "accessible by others")
+	})
+}
+
 func TestRun_ProfileLoadError(t *testing.T) {
 	t.Run("non-existent profiles dir", func(t *testing.T) {
 		temp := t.TempDir()
