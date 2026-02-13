@@ -3536,9 +3536,10 @@
       ],
       "files": [
         "internal/proxmox/shell_backend.go",
-        "internal/proxmox/shell_backend_test.go"
+        "internal/proxmox/shell_backend_test.go",
+        "to-do.json"
       ],
-      "updated_at": "2026-02-13T20:00:23Z"
+      "updated_at": "2026-02-13T20:01:13Z"
     },
     {
       "id": "T131",
@@ -3557,22 +3558,22 @@
         "config"
       ],
       "files": [
+        "README.md",
+        "docs/configuration.md",
         "internal/config/config.go",
         "internal/config/config_test.go",
         "internal/daemon/daemon.go",
         "internal/proxmox/api_backend.go",
         "internal/proxmox/api_backend_test.go",
-        "README.md",
-        "docs/configuration.md",
         "to-do.json"
       ],
-      "updated_at": "2026-02-13T20:04:26Z"
+      "updated_at": "2026-02-13T20:07:55Z"
     },
     {
       "id": "T132",
       "title": "Allowlist external binary paths used for secret decryption",
       "priority": 2,
-      "status": "todo",
+      "status": "done",
       "details": "Restrict the sops execution path to trusted/validated binaries and reject untrusted overrides to reduce local command substitution risk.",
       "steps": [
         "Normalize and validate configured sopsPath before exec.",
@@ -3587,7 +3588,8 @@
       "files": [
         "internal/secrets/bundle.go",
         "internal/secrets/bundle_test.go"
-      ]
+      ],
+      "updated_at": "2026-02-13T20:13:28Z"
     },
     {
       "id": "T133",

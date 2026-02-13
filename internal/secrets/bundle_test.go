@@ -118,6 +118,52 @@ artifact:
 	}
 }
 
+func TestSopsPathRejectsRelative(t *testing.T) {
+	t.Parallel()
+	store := Store{SopsPath: "bin/sops"}
+	if _, err := store.sopsPath(); err == nil || !strings.Contains(err.Error(), "absolute") {
+		t.Fatalf("expected absolute path error, got %v", err)
+	}
+}
+
+func TestSopsPathRejectsWhitespace(t *testing.T) {
+	t.Parallel()
+	store := Store{SopsPath: "/usr/bin/sops -d"}
+	if _, err := store.sopsPath(); err == nil || !strings.Contains(err.Error(), "whitespace") {
+		t.Fatalf("expected whitespace error, got %v", err)
+	}
+}
+
+func TestSopsPathAllowlist(t *testing.T) {
+	t.Parallel()
+	tmp := t.TempDir()
+	binPath := filepath.Join(tmp, "sops")
+	if err := os.WriteFile(binPath, []byte("#!/bin/sh\n"), 0o700); err != nil {
+		t.Fatalf("write sops stub: %v", err)
+	}
+	store := Store{SopsPath: binPath, SopsAllowlist: []string{binPath}}
+	resolved, err := store.sopsPath()
+	if err != nil {
+		t.Fatalf("expected allowlisted path, got %v", err)
+	}
+	if resolved != binPath {
+		t.Fatalf("resolved path = %q, want %q", resolved, binPath)
+	}
+}
+
+func TestSopsPathRejectsUnlisted(t *testing.T) {
+	t.Parallel()
+	tmp := t.TempDir()
+	binPath := filepath.Join(tmp, "sops")
+	if err := os.WriteFile(binPath, []byte("#!/bin/sh\n"), 0o700); err != nil {
+		t.Fatalf("write sops stub: %v", err)
+	}
+	store := Store{SopsPath: binPath}
+	if _, err := store.sopsPath(); err == nil || !strings.Contains(err.Error(), "allowlist") {
+		t.Fatalf("expected allowlist error, got %v", err)
+	}
+}
+
 func osWriteFile(path string, data []byte) error {
 	return os.WriteFile(path, data, 0o600)
 }
