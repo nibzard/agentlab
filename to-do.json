@@ -3690,7 +3690,7 @@
       "id": "T137",
       "title": "Add rate limiting for guest-facing bootstrap and artifact endpoints",
       "priority": 2,
-      "status": "todo",
+      "status": "done",
       "details": "Introduce per-IP rate limiting for /v1/bootstrap/fetch and artifact upload endpoints with configurable QPS/burst and tests; ensure limits can be disabled for trusted environments.",
       "tags": [
         "security",
@@ -3699,12 +3699,18 @@
       ],
       "files": [
         "internal/daemon/bootstrap_api.go",
+        "internal/daemon/bootstrap_api_test.go",
         "internal/daemon/artifact_api.go",
+        "internal/daemon/artifact_api_test.go",
+        "internal/daemon/daemon.go",
+        "internal/daemon/rate_limit.go",
         "internal/config/config.go",
-        "internal/daemon/api_errors_test.go",
+        "internal/config/config_test.go",
         "docs/security.md",
-        "docs/configuration.md"
-      ]
+        "docs/configuration.md",
+        "to-do.json"
+      ],
+      "updated_at": "2026-02-13T21:02:22Z"
     },
     {
       "id": "T138",

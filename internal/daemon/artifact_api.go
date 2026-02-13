@@ -29,15 +29,17 @@ type ArtifactAPI struct {
 	maxBytes    int64
 	now         func() time.Time
 	agentSubnet *net.IPNet
+	rateLimiter *IPRateLimiter
 }
 
-func NewArtifactAPI(store *db.Store, rootDir string, maxBytes int64, agentSubnet *net.IPNet) *ArtifactAPI {
+func NewArtifactAPI(store *db.Store, rootDir string, maxBytes int64, agentSubnet *net.IPNet, rateLimiter *IPRateLimiter) *ArtifactAPI {
 	api := &ArtifactAPI{
 		store:       store,
 		rootDir:     strings.TrimSpace(rootDir),
 		maxBytes:    maxBytes,
 		now:         time.Now,
 		agentSubnet: agentSubnet,
+		rateLimiter: rateLimiter,
 	}
 	return api
 }
@@ -60,6 +62,10 @@ func (api *ArtifactAPI) handleUpload(w http.ResponseWriter, r *http.Request) {
 	}
 	if !api.remoteAllowed(r.RemoteAddr) {
 		writeError(w, http.StatusForbidden, "artifact access restricted to agent subnet")
+		return
+	}
+	if api.rateLimiter != nil && !api.rateLimiter.Allow(r.RemoteAddr) {
+		writeRateLimitExceeded(w)
 		return
 	}
 	token := bearerToken(r.Header.Get("Authorization"))

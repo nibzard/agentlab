@@ -36,6 +36,10 @@ The main configuration file is located at `/etc/agentlab/config.yaml` by default
 | `artifact_dir` | string | `/var/lib/agentlab/artifacts` | Directory for stored artifacts |
 | `artifact_max_bytes` | int64 | `268435456` (256MB) | Maximum artifact size in bytes |
 | `artifact_token_ttl_minutes` | int | `1440` (24 hours) | Artifact token TTL in minutes |
+| `bootstrap_rate_limit_qps` | float | `1` | Per-IP QPS limit for guest bootstrap fetch (0 disables) |
+| `bootstrap_rate_limit_burst` | int | `3` | Per-IP burst limit for guest bootstrap fetch (0 disables) |
+| `artifact_rate_limit_qps` | float | `5` | Per-IP QPS limit for artifact uploads (0 disables) |
+| `artifact_rate_limit_burst` | int | `10` | Per-IP burst limit for artifact uploads (0 disables) |
 | `secrets_dir` | string | `/etc/agentlab/secrets` | Directory for encrypted secrets bundles |
 | `secrets_bundle` | string | `default` | Default secrets bundle name |
 | `secrets_age_key_path` | string | `/etc/agentlab/keys/age.key` | Path to age encryption key |
@@ -190,6 +194,15 @@ Considerations:
 - `artifact_max_bytes`: Total upload limit per token
 - Storage: Ensure adequate disk space in `artifact_dir`
 - Tokens: Single-use tokens with configurable TTL
+
+### Rate Limiting
+
+Guest-facing endpoints are rate limited per IP to reduce abuse from compromised or misbehaving sandboxes:
+
+- `bootstrap_rate_limit_qps` / `bootstrap_rate_limit_burst` apply to `POST /v1/bootstrap/fetch`
+- `artifact_rate_limit_qps` / `artifact_rate_limit_burst` apply to `POST /upload`
+
+Set any QPS or burst value to `0` to disable rate limiting for trusted environments.
 
 ## Profile Configuration
 

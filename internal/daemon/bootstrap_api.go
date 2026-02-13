@@ -37,9 +37,10 @@ type BootstrapAPI struct {
 	rand             io.Reader
 	agentSubnet      *net.IPNet
 	redactor         *Redactor
+	rateLimiter      *IPRateLimiter
 }
 
-func NewBootstrapAPI(store *db.Store, profiles map[string]models.Profile, secretsStore secrets.Store, secretsBundle string, agentSubnet *net.IPNet, artifactEndpoint string, artifactTokenTTL time.Duration, redactor *Redactor) *BootstrapAPI {
+func NewBootstrapAPI(store *db.Store, profiles map[string]models.Profile, secretsStore secrets.Store, secretsBundle string, agentSubnet *net.IPNet, artifactEndpoint string, artifactTokenTTL time.Duration, redactor *Redactor, rateLimiter *IPRateLimiter) *BootstrapAPI {
 	bundle := strings.TrimSpace(secretsBundle)
 	if bundle == "" {
 		bundle = "default"
@@ -61,6 +62,7 @@ func NewBootstrapAPI(store *db.Store, profiles map[string]models.Profile, secret
 		rand:             rand.Reader,
 		redactor:         redactor,
 		agentSubnet:      agentSubnet,
+		rateLimiter:      rateLimiter,
 	}
 	return api
 }
@@ -79,6 +81,10 @@ func (api *BootstrapAPI) handleBootstrapFetch(w http.ResponseWriter, r *http.Req
 	}
 	if !api.remoteAllowed(r.RemoteAddr) {
 		writeError(w, http.StatusForbidden, "bootstrap access restricted to agent subnet")
+		return
+	}
+	if api.rateLimiter != nil && !api.rateLimiter.Allow(r.RemoteAddr) {
+		writeRateLimitExceeded(w)
 		return
 	}
 	var req V1BootstrapFetchRequest
