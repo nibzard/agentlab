@@ -47,7 +47,7 @@ func TestArtifactUploadSuccess(t *testing.T) {
 
 	root := t.TempDir()
 	agentSubnet := mustParseCIDR(t, "10.77.0.0/16")
-	api := NewArtifactAPI(store, root, 1024, agentSubnet)
+	api := NewArtifactAPI(store, root, 1024, agentSubnet, nil)
 	api.now = func() time.Time { return now }
 
 	body := []byte("hello world")
@@ -125,7 +125,7 @@ func TestArtifactUploadCleansFileOnInsertFailure(t *testing.T) {
 
 	root := t.TempDir()
 	agentSubnet := mustParseCIDR(t, "10.77.0.0/16")
-	api := NewArtifactAPI(store, root, 1024, agentSubnet)
+	api := NewArtifactAPI(store, root, 1024, agentSubnet, nil)
 	api.now = func() time.Time { return now }
 
 	req := httptest.NewRequest(http.MethodPost, "/upload", strings.NewReader("data"))
@@ -141,6 +141,70 @@ func TestArtifactUploadCleansFileOnInsertFailure(t *testing.T) {
 	artifactPath := filepath.Join(root, job.ID, defaultArtifactName)
 	if _, err := os.Stat(artifactPath); err == nil || !os.IsNotExist(err) {
 		t.Fatalf("expected artifact file removed, got err=%v", err)
+	}
+}
+
+func TestArtifactUploadRateLimit(t *testing.T) {
+	ctx := context.Background()
+	store := newTestStore(t)
+	now := time.Date(2026, 1, 30, 2, 5, 0, 0, time.UTC)
+
+	job := models.Job{
+		ID:        "job_artifacts_limit",
+		RepoURL:   "https://example.com/repo.git",
+		Ref:       "main",
+		Profile:   "yolo",
+		Status:    models.JobRunning,
+		CreatedAt: now,
+		UpdatedAt: now,
+	}
+	if err := store.CreateJob(ctx, job); err != nil {
+		t.Fatalf("create job: %v", err)
+	}
+
+	token := "artifact-token-limit"
+	hash, err := db.HashArtifactToken(token)
+	if err != nil {
+		t.Fatalf("hash token: %v", err)
+	}
+	if err := store.CreateArtifactToken(ctx, hash, job.ID, 2005, now.Add(time.Hour)); err != nil {
+		t.Fatalf("create artifact token: %v", err)
+	}
+
+	root := t.TempDir()
+	agentSubnet := mustParseCIDR(t, "10.77.0.0/16")
+	limiter := NewIPRateLimiter(1, 1)
+	if limiter == nil {
+		t.Fatal("expected limiter to be initialized")
+	}
+	limiter.now = func() time.Time { return now }
+	if !limiter.Allow("10.77.0.55:1234") {
+		t.Fatal("expected limiter to allow initial token")
+	}
+
+	api := NewArtifactAPI(store, root, 1024, agentSubnet, limiter)
+	api.now = func() time.Time { return now }
+
+	req := httptest.NewRequest(http.MethodPost, "/upload", strings.NewReader("data"))
+	req.Header.Set("Authorization", "Bearer "+token)
+	req.RemoteAddr = "10.77.0.55:1234"
+	resp := httptest.NewRecorder()
+
+	api.handleUpload(resp, req)
+	if resp.Code != http.StatusTooManyRequests {
+		t.Fatalf("expected 429, got %d", resp.Code)
+	}
+
+	artifacts, err := store.ListArtifactsByJob(ctx, job.ID)
+	if err != nil {
+		t.Fatalf("list artifacts: %v", err)
+	}
+	if len(artifacts) != 0 {
+		t.Fatalf("expected no artifacts recorded, got %d", len(artifacts))
+	}
+
+	if _, err := os.Stat(filepath.Join(root, job.ID)); err == nil || !os.IsNotExist(err) {
+		t.Fatalf("expected no artifact directory created, got err=%v", err)
 	}
 }
 
@@ -171,7 +235,7 @@ func TestArtifactUploadRejectsTraversal(t *testing.T) {
 	}
 
 	agentSubnet := mustParseCIDR(t, "10.77.0.0/16")
-	api := NewArtifactAPI(store, t.TempDir(), 1024, agentSubnet)
+	api := NewArtifactAPI(store, t.TempDir(), 1024, agentSubnet, nil)
 	api.now = func() time.Time { return now }
 	req := httptest.NewRequest(http.MethodPost, "/upload?path=../evil", strings.NewReader("data"))
 	req.Header.Set("Authorization", "Bearer "+token)
@@ -211,7 +275,7 @@ func TestArtifactUploadEnforcesSizeLimit(t *testing.T) {
 	}
 
 	agentSubnet := mustParseCIDR(t, "10.77.0.0/16")
-	api := NewArtifactAPI(store, t.TempDir(), 4, agentSubnet)
+	api := NewArtifactAPI(store, t.TempDir(), 4, agentSubnet, nil)
 	api.now = func() time.Time { return now }
 	req := httptest.NewRequest(http.MethodPost, "/upload", strings.NewReader("too-large"))
 	req.Header.Set("Authorization", "Bearer "+token)

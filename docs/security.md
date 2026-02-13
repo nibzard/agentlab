@@ -21,6 +21,13 @@ permissions on startup:
 - Fail if group-writable/executable or world-readable.
 - Warn if group-readable (for example `0640`); prefer `0600`.
 
+## Guest endpoint rate limiting
+
+Guest-facing endpoints (`/v1/bootstrap/fetch` and `/upload`) are rate limited per IP
+to reduce abuse from compromised or misbehaving sandboxes. Limits are configurable in
+`/etc/agentlab/config.yaml`. Set the QPS or burst values to `0` only in trusted
+environments where rate limiting is not needed.
+
 ## Threat model notes
 
 - Treat the admin API key or OAuth client secret as high-value secrets.

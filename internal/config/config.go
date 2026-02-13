@@ -54,6 +54,10 @@ type Config struct {
 	ArtifactDir             string
 	ArtifactMaxBytes        int64
 	ArtifactTokenTTLMinutes int
+	BootstrapRateLimitQPS   float64
+	BootstrapRateLimitBurst int
+	ArtifactRateLimitQPS    float64
+	ArtifactRateLimitBurst  int
 	SecretsDir              string
 	SecretsBundle           string
 	SecretsAgeKeyPath       string
@@ -107,6 +111,10 @@ type FileConfig struct {
 	ArtifactDir             string   `yaml:"artifact_dir"`
 	ArtifactMaxBytes        int64    `yaml:"artifact_max_bytes"`
 	ArtifactTokenTTLMinutes int      `yaml:"artifact_token_ttl_minutes"`
+	BootstrapRateLimitQPS   *float64 `yaml:"bootstrap_rate_limit_qps"`
+	BootstrapRateLimitBurst *int     `yaml:"bootstrap_rate_limit_burst"`
+	ArtifactRateLimitQPS    *float64 `yaml:"artifact_rate_limit_qps"`
+	ArtifactRateLimitBurst  *int     `yaml:"artifact_rate_limit_burst"`
 	SecretsDir              string   `yaml:"secrets_dir"`
 	SecretsBundle           string   `yaml:"secrets_bundle"`
 	SecretsAgeKeyPath       string   `yaml:"secrets_age_key_path"`
@@ -146,6 +154,10 @@ type FileConfig struct {
 //   - MetricsListen: "" (disabled)
 //   - ArtifactMaxBytes: 256 MB
 //   - ArtifactTokenTTLMinutes: 1440 (24 hours)
+//   - BootstrapRateLimitQPS: 1 (per IP)
+//   - BootstrapRateLimitBurst: 3 (per IP)
+//   - ArtifactRateLimitQPS: 5 (per IP)
+//   - ArtifactRateLimitBurst: 10 (per IP)
 //   - ProxmoxBackend: "shell"
 //   - ProxmoxCloneMode: "linked"
 //   - ProxmoxCommandTimeout: 2 minutes
@@ -179,6 +191,10 @@ func DefaultConfig() Config {
 		ArtifactDir:             filepath.Join(dataDir, "artifacts"),
 		ArtifactMaxBytes:        256 * 1024 * 1024,
 		ArtifactTokenTTLMinutes: 1440,
+		BootstrapRateLimitQPS:   1,
+		BootstrapRateLimitBurst: 3,
+		ArtifactRateLimitQPS:    5,
+		ArtifactRateLimitBurst:  10,
 		SecretsDir:              "/etc/agentlab/secrets",
 		SecretsBundle:           "default",
 		SecretsAgeKeyPath:       "/etc/agentlab/keys/age.key",
@@ -313,6 +329,18 @@ func applyFileConfig(cfg *Config, fileCfg FileConfig) error {
 	}
 	if fileCfg.ArtifactTokenTTLMinutes > 0 {
 		cfg.ArtifactTokenTTLMinutes = fileCfg.ArtifactTokenTTLMinutes
+	}
+	if fileCfg.BootstrapRateLimitQPS != nil {
+		cfg.BootstrapRateLimitQPS = *fileCfg.BootstrapRateLimitQPS
+	}
+	if fileCfg.BootstrapRateLimitBurst != nil {
+		cfg.BootstrapRateLimitBurst = *fileCfg.BootstrapRateLimitBurst
+	}
+	if fileCfg.ArtifactRateLimitQPS != nil {
+		cfg.ArtifactRateLimitQPS = *fileCfg.ArtifactRateLimitQPS
+	}
+	if fileCfg.ArtifactRateLimitBurst != nil {
+		cfg.ArtifactRateLimitBurst = *fileCfg.ArtifactRateLimitBurst
 	}
 	if fileCfg.SecretsDir != "" {
 		cfg.SecretsDir = fileCfg.SecretsDir
@@ -467,6 +495,18 @@ func (c Config) Validate() error {
 	}
 	if c.ArtifactTokenTTLMinutes <= 0 {
 		return fmt.Errorf("artifact_token_ttl_minutes must be positive")
+	}
+	if c.BootstrapRateLimitQPS < 0 {
+		return fmt.Errorf("bootstrap_rate_limit_qps must be non-negative")
+	}
+	if c.BootstrapRateLimitBurst < 0 {
+		return fmt.Errorf("bootstrap_rate_limit_burst must be non-negative")
+	}
+	if c.ArtifactRateLimitQPS < 0 {
+		return fmt.Errorf("artifact_rate_limit_qps must be non-negative")
+	}
+	if c.ArtifactRateLimitBurst < 0 {
+		return fmt.Errorf("artifact_rate_limit_burst must be non-negative")
 	}
 	if c.SecretsDir == "" {
 		return fmt.Errorf("secrets_dir is required")

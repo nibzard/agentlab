@@ -295,12 +295,14 @@ func newService(cfg config.Config, profiles map[string]models.Profile, store *db
 	if artifactEndpoint == "" {
 		artifactEndpoint = buildArtifactUploadURL(cfg.ArtifactListen)
 	}
-	NewBootstrapAPI(store, profiles, secretsStore, cfg.SecretsBundle, agentSubnet, artifactEndpoint, time.Duration(cfg.ArtifactTokenTTLMinutes)*time.Minute, redactor).Register(bootstrapMux)
+	bootstrapLimiter := NewIPRateLimiter(cfg.BootstrapRateLimitQPS, cfg.BootstrapRateLimitBurst)
+	artifactLimiter := NewIPRateLimiter(cfg.ArtifactRateLimitQPS, cfg.ArtifactRateLimitBurst)
+	NewBootstrapAPI(store, profiles, secretsStore, cfg.SecretsBundle, agentSubnet, artifactEndpoint, time.Duration(cfg.ArtifactTokenTTLMinutes)*time.Minute, redactor, bootstrapLimiter).Register(bootstrapMux)
 	NewRunnerAPI(jobOrchestrator, agentSubnet).Register(bootstrapMux)
 
 	artifactMux := http.NewServeMux()
 	artifactMux.HandleFunc("/healthz", healthHandler)
-	NewArtifactAPI(store, cfg.ArtifactDir, cfg.ArtifactMaxBytes, agentSubnet).Register(artifactMux)
+	NewArtifactAPI(store, cfg.ArtifactDir, cfg.ArtifactMaxBytes, agentSubnet, artifactLimiter).Register(artifactMux)
 
 	artifactGC := NewArtifactGC(store, profiles, cfg.ArtifactDir, log.Default(), redactor)
 	idleStopper := NewIdleStopper(store, backend, profiles, sandboxManager, &ConntrackSessionDetector{}, log.Default(), metrics, IdleStopConfig{

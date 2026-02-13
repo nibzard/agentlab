@@ -529,6 +529,76 @@ func TestValidateRequiredFields(t *testing.T) {
 	}
 }
 
+func TestValidateRateLimits(t *testing.T) {
+	tests := []struct {
+		name        string
+		setup       func(*Config)
+		wantErr     bool
+		errContains string
+	}{
+		{
+			name: "negative bootstrap qps",
+			setup: func(c *Config) {
+				c.BootstrapRateLimitQPS = -1
+			},
+			wantErr:     true,
+			errContains: "bootstrap_rate_limit_qps",
+		},
+		{
+			name: "negative bootstrap burst",
+			setup: func(c *Config) {
+				c.BootstrapRateLimitBurst = -1
+			},
+			wantErr:     true,
+			errContains: "bootstrap_rate_limit_burst",
+		},
+		{
+			name: "negative artifact qps",
+			setup: func(c *Config) {
+				c.ArtifactRateLimitQPS = -1
+			},
+			wantErr:     true,
+			errContains: "artifact_rate_limit_qps",
+		},
+		{
+			name: "negative artifact burst",
+			setup: func(c *Config) {
+				c.ArtifactRateLimitBurst = -1
+			},
+			wantErr:     true,
+			errContains: "artifact_rate_limit_burst",
+		},
+		{
+			name: "zero values disable rate limiting",
+			setup: func(c *Config) {
+				c.BootstrapRateLimitQPS = 0
+				c.BootstrapRateLimitBurst = 0
+				c.ArtifactRateLimitQPS = 0
+				c.ArtifactRateLimitBurst = 0
+			},
+			wantErr: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cfg := DefaultConfig()
+			if tt.setup != nil {
+				tt.setup(&cfg)
+			}
+			err := cfg.Validate()
+			if tt.wantErr {
+				require.Error(t, err)
+				if tt.errContains != "" {
+					assert.Contains(t, err.Error(), tt.errContains)
+				}
+			} else {
+				assert.NoError(t, err)
+			}
+		})
+	}
+}
+
 func TestValidateListenAddresses(t *testing.T) {
 	tests := []struct {
 		name        string
@@ -774,6 +844,10 @@ func TestDefaultConfig(t *testing.T) {
 	assert.NotEmpty(t, cfg.ArtifactDir)
 	assert.Greater(t, cfg.ArtifactMaxBytes, int64(0))
 	assert.Greater(t, cfg.ArtifactTokenTTLMinutes, 0)
+	assert.Greater(t, cfg.BootstrapRateLimitQPS, 0.0)
+	assert.Greater(t, float64(cfg.BootstrapRateLimitBurst), 0.0)
+	assert.Greater(t, cfg.ArtifactRateLimitQPS, 0.0)
+	assert.Greater(t, float64(cfg.ArtifactRateLimitBurst), 0.0)
 	assert.NotEmpty(t, cfg.SecretsDir)
 	assert.NotEmpty(t, cfg.SecretsBundle)
 	assert.NotEmpty(t, cfg.SecretsAgeKeyPath)

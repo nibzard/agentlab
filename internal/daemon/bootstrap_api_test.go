@@ -103,7 +103,7 @@ behavior:
 	}
 
 	agentSubnet := mustParseCIDR(t, "10.77.0.0/16")
-	api := NewBootstrapAPI(store, profiles, secrets.Store{Dir: secretsDir, AllowPlaintext: true}, "default", agentSubnet, "http://10.77.0.1:8846/upload", time.Hour, nil)
+	api := NewBootstrapAPI(store, profiles, secrets.Store{Dir: secretsDir, AllowPlaintext: true}, "default", agentSubnet, "http://10.77.0.1:8846/upload", time.Hour, nil, nil)
 	api.now = func() time.Time { return now }
 
 	payload := `{"token":"` + token + `","vmid":2001}`
@@ -240,7 +240,7 @@ env:
 	}
 
 	agentSubnet := mustParseCIDR(t, "10.77.0.0/16")
-	api := NewBootstrapAPI(store, nil, secrets.Store{Dir: secretsDir, AllowPlaintext: true}, "default", agentSubnet, "http://10.77.0.1:8846/upload", time.Hour, nil)
+	api := NewBootstrapAPI(store, nil, secrets.Store{Dir: secretsDir, AllowPlaintext: true}, "default", agentSubnet, "http://10.77.0.1:8846/upload", time.Hour, nil, nil)
 	api.now = func() time.Time { return now }
 	api.rand = failingReader{}
 
@@ -284,9 +284,94 @@ env:
 	}
 }
 
+func TestBootstrapFetchRateLimit(t *testing.T) {
+	ctx := context.Background()
+	store := newTestStore(t)
+	now := time.Date(2026, 1, 30, 1, 45, 0, 0, time.UTC)
+
+	sandbox := models.Sandbox{
+		VMID:          2003,
+		Name:          "sandbox-2003",
+		Profile:       "yolo",
+		State:         models.SandboxRunning,
+		Keepalive:     false,
+		CreatedAt:     now,
+		LastUpdatedAt: now,
+	}
+	if err := store.CreateSandbox(ctx, sandbox); err != nil {
+		t.Fatalf("create sandbox: %v", err)
+	}
+
+	job := models.Job{
+		ID:          "job_bootstrap_limit",
+		RepoURL:     "https://example.com/repo.git",
+		Ref:         "main",
+		Profile:     "yolo",
+		Task:        "run tests",
+		Mode:        "dangerous",
+		Status:      models.JobRunning,
+		SandboxVMID: &sandbox.VMID,
+		CreatedAt:   now,
+		UpdatedAt:   now,
+	}
+	if err := store.CreateJob(ctx, job); err != nil {
+		t.Fatalf("create job: %v", err)
+	}
+
+	token := "token-limit"
+	hash, err := db.HashBootstrapToken(token)
+	if err != nil {
+		t.Fatalf("hash token: %v", err)
+	}
+	if err := store.CreateBootstrapToken(ctx, hash, sandbox.VMID, now.Add(5*time.Minute)); err != nil {
+		t.Fatalf("create bootstrap token: %v", err)
+	}
+
+	secretsDir := t.TempDir()
+	bundlePath := filepath.Join(secretsDir, "default.yaml")
+	bundle := []byte(`version: 1
+
+env:
+  OPENAI_API_KEY: "sk-test"
+`)
+	if err := os.WriteFile(bundlePath, bundle, 0o600); err != nil {
+		t.Fatalf("write bundle: %v", err)
+	}
+
+	agentSubnet := mustParseCIDR(t, "10.77.0.0/16")
+	limiter := NewIPRateLimiter(1, 1)
+	if limiter == nil {
+		t.Fatal("expected limiter to be initialized")
+	}
+	limiter.now = func() time.Time { return now }
+	if !limiter.Allow("10.77.0.55:1234") {
+		t.Fatal("expected limiter to allow initial token")
+	}
+
+	api := NewBootstrapAPI(store, nil, secrets.Store{Dir: secretsDir, AllowPlaintext: true}, "default", agentSubnet, "http://10.77.0.1:8846/upload", time.Hour, nil, limiter)
+	api.now = func() time.Time { return now }
+
+	payload := `{"token":"` + token + `","vmid":2003}`
+	req := httptest.NewRequest(http.MethodPost, "/v1/bootstrap/fetch", strings.NewReader(payload))
+	req.RemoteAddr = "10.77.0.55:1234"
+	resp := httptest.NewRecorder()
+	api.handleBootstrapFetch(resp, req)
+	if resp.Code != http.StatusTooManyRequests {
+		t.Fatalf("expected 429, got %d", resp.Code)
+	}
+
+	valid, err := store.ValidateBootstrapToken(ctx, hash, sandbox.VMID, now)
+	if err != nil {
+		t.Fatalf("validate token: %v", err)
+	}
+	if !valid {
+		t.Fatal("expected token to remain valid when rate limited")
+	}
+}
+
 func TestBootstrapFetchRejectsNonAgentSubnet(t *testing.T) {
 	agentSubnet := mustParseCIDR(t, "10.77.0.0/16")
-	api := NewBootstrapAPI(newTestStore(t), nil, secrets.Store{}, "default", agentSubnet, "http://10.77.0.1:8846/upload", time.Hour, nil)
+	api := NewBootstrapAPI(newTestStore(t), nil, secrets.Store{}, "default", agentSubnet, "http://10.77.0.1:8846/upload", time.Hour, nil, nil)
 	req := httptest.NewRequest(http.MethodPost, "/v1/bootstrap/fetch", strings.NewReader(`{"token":"t","vmid":1}`))
 	req.RemoteAddr = "192.168.1.5:2222"
 	resp := httptest.NewRecorder()
@@ -298,7 +383,7 @@ func TestBootstrapFetchRejectsNonAgentSubnet(t *testing.T) {
 
 func TestBootstrapFetchUsesConfiguredSubnet(t *testing.T) {
 	agentSubnet := mustParseCIDR(t, "10.78.0.0/16")
-	api := NewBootstrapAPI(newTestStore(t), nil, secrets.Store{}, "default", agentSubnet, "", time.Hour, nil)
+	api := NewBootstrapAPI(newTestStore(t), nil, secrets.Store{}, "default", agentSubnet, "", time.Hour, nil, nil)
 	req := httptest.NewRequest(http.MethodPost, "/v1/bootstrap/fetch", strings.NewReader(`{"token":"t","vmid":1}`))
 	req.RemoteAddr = "10.77.0.55:1234"
 	resp := httptest.NewRecorder()
