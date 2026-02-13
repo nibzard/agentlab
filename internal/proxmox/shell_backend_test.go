@@ -3,9 +3,12 @@ package proxmox
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"reflect"
+	"runtime"
+	"strings"
 	"testing"
 	"time"
 )
@@ -33,6 +36,28 @@ func (r *fakeRunner) Run(_ context.Context, name string, args ...string) (string
 	}
 	resp := r.responses[idx]
 	return resp.stdout, resp.err
+}
+
+func TestBashRunnerRejectsShellInjection(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("bash not available on windows")
+	}
+	runner := BashRunner{}
+	tmpDir := t.TempDir()
+	marker := filepath.Join(tmpDir, "pwned")
+	arg := fmt.Sprintf("ok;touch %s", marker)
+	out, err := runner.Run(context.Background(), "echo", arg)
+	if err != nil {
+		t.Fatalf("Run() error = %v", err)
+	}
+	if strings.TrimSpace(out) != arg {
+		t.Fatalf("Run() output = %q, want %q", strings.TrimSpace(out), arg)
+	}
+	if _, err := os.Stat(marker); err == nil {
+		t.Fatalf("expected no marker file, but it exists")
+	} else if !os.IsNotExist(err) {
+		t.Fatalf("stat marker: %v", err)
+	}
 }
 
 func TestShellBackendClone(t *testing.T) {
