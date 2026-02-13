@@ -2865,7 +2865,7 @@
         "T109"
       ],
       "created_at": "2026-02-09T12:17:58Z",
-      "updated_at": "2026-02-10T20:14:50Z"
+      "updated_at": "2026-02-10T20:16:08Z"
     },
     {
       "id": "T111",
@@ -3481,6 +3481,166 @@
       ],
       "created_at": "2026-02-10T02:16:01Z",
       "updated_at": "2026-02-10T07:06:33Z"
+    },
+    {
+      "id": "PROJECT-DONE",
+      "title": "Project done: no new tasks",
+      "status": "done",
+      "priority": 5,
+      "tags": [
+        "project-done"
+      ],
+      "details": "Final review on 2026-02-10 found nothing new to add."
+    },
+    {
+      "id": "T129",
+      "title": "Sanitize bootstrap command construction to prevent command injection",
+      "priority": 1,
+      "status": "done",
+      "details": "Remove shell-string interpolation from bootstrap command assembly in host orchestration paths; use strict argument-based execution and explicit whitelisting/validation of command components.",
+      "steps": [
+        "Refactor command builders in bootstrap flow to avoid concatenating user-influenced values into a shell string.",
+        "Add validation/allowlisting for host/user identifiers before command dispatch.",
+        "Add regression tests for safe/unsafe input in bootstrap execution path."
+      ],
+      "tags": [
+        "security",
+        "cli",
+        "safety",
+        "injection"
+      ],
+      "files": [
+        "cmd/agentlab/bootstrap.go",
+        "cmd/agentlab/bootstrap_test.go",
+        "cmd/agentlab/ssh.go"
+      ],
+      "updated_at": "2026-02-13T19:54:09Z"
+    },
+    {
+      "id": "T130",
+      "title": "Harden Proxmox shell backend execution against injection",
+      "priority": 1,
+      "status": "todo",
+      "details": "Stop using shell-based command assembly in Proxmox shell backend and route execution through argument-safe runners or strict command allowlists.",
+      "steps": [
+        "Replace BashRunner call sites that pass unescaped command strings with structured command arrays.",
+        "Audit all ExecRunner uses for untrusted input and add sanitization where needed.",
+        "Add tests that verify special shell characters cannot alter command execution behavior."
+      ],
+      "tags": [
+        "security",
+        "backend",
+        "injection",
+        "proxmox"
+      ],
+      "files": [
+        "internal/proxmox/shell_backend.go"
+      ]
+    },
+    {
+      "id": "T131",
+      "title": "Secure Proxmox TLS defaults and allow explicit insecure override only",
+      "priority": 1,
+      "status": "todo",
+      "details": "Default Proxmox API communication must verify TLS certificates by default; require explicit opt-in for insecure verification to avoid MITM exposure.",
+      "steps": [
+        "Set ProxmoxTLSInsecure default to false.",
+        "Ensure default config/validation surfaces keep unsafe mode explicit with clear warning and docs references.",
+        "Add test that the default client verifies certificates unless explicitly overridden."
+      ],
+      "tags": [
+        "security",
+        "tls",
+        "config"
+      ],
+      "files": [
+        "internal/config/config.go",
+        "internal/proxmox/api_backend.go",
+        "internal/proxmox/api_backend_test.go"
+      ]
+    },
+    {
+      "id": "T132",
+      "title": "Allowlist external binary paths used for secret decryption",
+      "priority": 2,
+      "status": "todo",
+      "details": "Restrict the sops execution path to trusted/validated binaries and reject untrusted overrides to reduce local command substitution risk.",
+      "steps": [
+        "Normalize and validate configured sopsPath before exec.",
+        "Allow absolute trusted binaries only or explicit whitelist when custom path is required.",
+        "Add tests for rejected path injection and relative path ambiguity."
+      ],
+      "tags": [
+        "security",
+        "secrets",
+        "exec"
+      ],
+      "files": [
+        "internal/secrets/bundle.go",
+        "internal/secrets/bundle_test.go"
+      ]
+    },
+    {
+      "id": "T133",
+      "title": "Fix duplicated HTTP POST switch branch in daemon API router",
+      "priority": 2,
+      "status": "todo",
+      "details": "Resolve duplicated case handling in daemon API route switch and assert all expected methods are explicitly covered and tested.",
+      "steps": [
+        "Inspect duplicate `http.MethodPost` case in internal/daemon/api.go and replace with intended method branch.",
+        "Add tests for method coverage (405/allowed methods) on affected endpoint(s).",
+        "Verify request handling output/error behavior remains unchanged for intended paths."
+      ],
+      "tags": [
+        "quality",
+        "bug",
+        "api"
+      ],
+      "files": [
+        "internal/daemon/api.go",
+        "internal/daemon/api_errors_test.go"
+      ]
+    },
+    {
+      "id": "T134",
+      "title": "Sanitize CLI API path construction and endpoint segments",
+      "priority": 2,
+      "status": "todo",
+      "details": "Normalize and escape API path segments before composing endpoint URLs so malformed values cannot alter target routes.",
+      "steps": [
+        "Centralize endpoint path joining in cmd/agentlab/api.go.",
+        "Reject malformed path segments and encode reserved characters where appropriate.",
+        "Add tests for bad segment characters and route-boundary cases."
+      ],
+      "tags": [
+        "security",
+        "api",
+        "cli",
+        "validation"
+      ],
+      "files": [
+        "cmd/agentlab/api.go"
+      ]
+    },
+    {
+      "id": "T135",
+      "title": "Strengthen cloud-init snippet hostname/path validation",
+      "priority": 3,
+      "status": "todo",
+      "details": "Harden hostname and path handling in snippet generation to prevent malformed or unexpected snippet/file paths from creating unsafe runtime behavior.",
+      "steps": [
+        "Review `internal/proxmox/cloudinit_snippets.go` validation boundaries for hostnames and generated paths.",
+        "Add strict allowlist for allowed characters and normalized path handling.",
+        "Add tests for edge-case hostnames and filename/path characters."
+      ],
+      "tags": [
+        "security",
+        "validation",
+        "cloud-init"
+      ],
+      "files": [
+        "internal/proxmox/cloudinit_snippets.go"
+      ]
     }
   ]
 }

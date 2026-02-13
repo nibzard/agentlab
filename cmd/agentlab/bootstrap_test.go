@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -89,4 +90,42 @@ func TestResolveBootstrapBinariesUploadRequiresBoth(t *testing.T) {
 	_, err := resolveBootstrapBinaries(root, bootstrapOptions{})
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "both agentlab and agentlabd binaries")
+}
+
+func TestNewBootstrapSSHClientRejectsUnsafeHost(t *testing.T) {
+	_, err := newBootstrapSSHClient(bootstrapOptions{host: "root@bad;rm -rf /"})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "ssh host")
+}
+
+func TestNewBootstrapSSHClientRejectsUnsafeUser(t *testing.T) {
+	_, err := newBootstrapSSHClient(bootstrapOptions{host: "example.com", sshUser: "root;rm"})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "ssh user")
+}
+
+func TestNewBootstrapSSHClientAllowsIPv6(t *testing.T) {
+	client, err := newBootstrapSSHClient(bootstrapOptions{host: "[::1]"})
+	require.NoError(t, err)
+	assert.Equal(t, "root@[::1]", client.target)
+}
+
+func TestNewBootstrapSSHClientRejectsPortInHost(t *testing.T) {
+	_, err := newBootstrapSSHClient(bootstrapOptions{host: "example.com:2222"})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "ssh host")
+}
+
+func TestBuildRemoteDownloadArgsAvoidsInterpolation(t *testing.T) {
+	binaries := bootstrapBinaries{
+		agentlabURL:  "https://example.com/agentlab?sig=abc&x=y",
+		agentlabdURL: "https://example.com/agentlabd?sig=def&x=z",
+	}
+	args := buildRemoteDownloadArgs("/tmp/agentlab-bootstrap", binaries)
+	require.Len(t, args, 7)
+	script := args[2]
+	assert.False(t, strings.Contains(script, binaries.agentlabURL))
+	assert.False(t, strings.Contains(script, binaries.agentlabdURL))
+	assert.Equal(t, binaries.agentlabdURL, args[5])
+	assert.Equal(t, binaries.agentlabURL, args[6])
 }

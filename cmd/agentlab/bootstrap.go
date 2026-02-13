@@ -11,9 +11,11 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -180,7 +182,7 @@ func runBootstrapCommand(ctx context.Context, args []string, base commonFlags) e
 	var routeCheck *tailnetRouteCheck
 	backupPath := ""
 
-	if _, err := sshClient.run(ctx, shellJoin([]string{"mkdir", "-p", remoteBase}), nil); err != nil {
+	if _, err := sshClient.runArgs(ctx, []string{"mkdir", "-p", remoteBase}, nil); err != nil {
 		return err
 	}
 	steps = append(steps, bootstrapStep{Name: "prepare_remote_dir", Status: "ok", Detail: remoteBase})
@@ -190,26 +192,26 @@ func runBootstrapCommand(ctx context.Context, args []string, base commonFlags) e
 	}
 	steps = append(steps, bootstrapStep{Name: "upload_bundle", Status: "ok"})
 
-	if _, err := sshClient.run(ctx, shellJoin([]string{"tar", "-xzf", remoteBundle, "-C", remoteBase}), nil); err != nil {
+	if _, err := sshClient.runArgs(ctx, []string{"tar", "-xzf", remoteBundle, "-C", remoteBase}, nil); err != nil {
 		return err
 	}
 	steps = append(steps, bootstrapStep{Name: "extract_bundle", Status: "ok"})
 
 	if binaries.mode == "download" {
-		if _, err := sshClient.run(ctx, buildRemoteDownloadCommand(remoteRoot, binaries), nil); err != nil {
+		if _, err := sshClient.runArgs(ctx, buildRemoteDownloadArgs(remoteRoot, binaries), nil); err != nil {
 			return err
 		}
 		steps = append(steps, bootstrapStep{Name: "download_binaries", Status: "ok"})
 	}
 
 	setupArgs := append([]string{filepath.Join(remoteRoot, "scripts/net/setup_vmbr1.sh"), "--apply"}, boolFlag("--force", bootstrap.force)...)
-	if _, err := sshClient.run(ctx, sudoCommand(bootstrap, shellJoin(setupArgs)), nil); err != nil {
+	if _, err := sshClient.runArgs(ctx, withSudoArgs(bootstrap, setupArgs), nil); err != nil {
 		return err
 	}
 	steps = append(steps, bootstrapStep{Name: "configure_vmbr1", Status: "ok"})
 
 	nftArgs := append([]string{filepath.Join(remoteRoot, "scripts/net/apply.sh"), "--apply"}, boolFlag("--force", bootstrap.force)...)
-	if _, err := sshClient.run(ctx, sudoCommand(bootstrap, shellJoin(nftArgs)), nil); err != nil {
+	if _, err := sshClient.runArgs(ctx, withSudoArgs(bootstrap, nftArgs), nil); err != nil {
 		return err
 	}
 	steps = append(steps, bootstrapStep{Name: "configure_nftables", Status: "ok"})
@@ -219,13 +221,13 @@ func runBootstrapCommand(ctx context.Context, args []string, base commonFlags) e
 		if strings.TrimSpace(bootstrap.tailscaleHostname) != "" {
 			cmdArgs = append(cmdArgs, "--hostname", strings.TrimSpace(bootstrap.tailscaleHostname))
 		}
-		if _, err := sshClient.run(ctx, sudoCommand(bootstrap, shellJoin(cmdArgs)), nil); err != nil {
+		if _, err := sshClient.runArgs(ctx, withSudoArgs(bootstrap, cmdArgs), nil); err != nil {
 			return err
 		}
 		steps = append(steps, bootstrapStep{Name: "configure_tailscale_router", Status: "ok"})
 	}
 
-	backupOut, err := sshClient.run(ctx, sudoCommand(bootstrap, buildConfigBackupCommand()), nil)
+	backupOut, err := sshClient.runArgs(ctx, withSudoArgs(bootstrap, buildConfigBackupArgs()), nil)
 	if err != nil {
 		return err
 	}
@@ -249,12 +251,12 @@ func runBootstrapCommand(ctx context.Context, args []string, base commonFlags) e
 	if bootstrap.noTailscaleServe {
 		installArgs = append(installArgs, "--no-tailscale-serve")
 	}
-	if _, err := sshClient.run(ctx, sudoCommand(bootstrap, shellJoin(installArgs)), nil); err != nil {
+	if _, err := sshClient.runArgs(ctx, withSudoArgs(bootstrap, installArgs), nil); err != nil {
 		return err
 	}
 	steps = append(steps, bootstrapStep{Name: "install_agentlab", Status: "ok"})
 
-	initOut, err := sshClient.run(ctx, sudoCommand(bootstrap, shellJoin([]string{"agentlab", "init", "--json"})), nil)
+	initOut, err := sshClient.runArgs(ctx, withSudoArgs(bootstrap, []string{"agentlab", "init", "--json"}), nil)
 	if err != nil {
 		return err
 	}
@@ -293,7 +295,7 @@ func runBootstrapCommand(ctx context.Context, args []string, base commonFlags) e
 	}
 
 	if !bootstrap.keepTemp {
-		if _, err := sshClient.run(ctx, shellJoin([]string{"rm", "-rf", remoteBase}), nil); err != nil {
+		if _, err := sshClient.runArgs(ctx, []string{"rm", "-rf", remoteBase}, nil); err != nil {
 			warnings = append(warnings, fmt.Sprintf("failed to remove remote temp dir %s", remoteBase))
 		} else {
 			steps = append(steps, bootstrapStep{Name: "cleanup_remote", Status: "ok"})
@@ -612,8 +614,11 @@ func newBootstrapSSHClient(opts bootstrapOptions) (*bootstrapSSHClient, error) {
 		user = "root"
 	}
 	host = strings.TrimSpace(host)
-	if host == "" {
-		return nil, fmt.Errorf("host is required")
+	if err := validateSSHUser(user); err != nil {
+		return nil, err
+	}
+	if err := validateSSHHost(host); err != nil {
+		return nil, err
 	}
 	target := host
 	if user != "" {
@@ -656,14 +661,21 @@ func (c *bootstrapSSHClient) run(ctx context.Context, command string, stdin io.R
 	return output, nil
 }
 
+func (c *bootstrapSSHClient) runArgs(ctx context.Context, args []string, stdin io.Reader) (string, error) {
+	command, err := formatRemoteCommand(args)
+	if err != nil {
+		return "", err
+	}
+	return c.run(ctx, command, stdin)
+}
+
 func (c *bootstrapSSHClient) upload(ctx context.Context, localPath, remotePath string) error {
 	file, err := os.Open(localPath)
 	if err != nil {
 		return err
 	}
 	defer file.Close()
-	cmd := fmt.Sprintf("cat > %s", shellQuote(remotePath))
-	_, err = c.run(ctx, cmd, file)
+	_, err = c.runArgs(ctx, shCommand("cat > \"$1\"", remotePath), file)
 	return err
 }
 
@@ -679,11 +691,16 @@ func splitUserHost(raw string) (string, string) {
 	return value[:idx], value[idx+1:]
 }
 
-func buildRemoteDownloadCommand(remoteRoot string, binaries bootstrapBinaries) string {
+func buildRemoteDownloadArgs(remoteRoot string, binaries bootstrapBinaries) []string {
 	dest := filepath.Join(remoteRoot, "dist")
 	script := strings.Join([]string{
 		"set -euo pipefail",
-		fmt.Sprintf("mkdir -p %s", shellQuote(dest)),
+		"dest=\"$1\"",
+		"url_agentlabd=\"$2\"",
+		"url_agentlab=\"$3\"",
+		"file_agentlabd=\"$dest/agentlabd_linux_amd64\"",
+		"file_agentlab=\"$dest/agentlab_linux_amd64\"",
+		"mkdir -p \"$dest\"",
 		"if command -v curl >/dev/null 2>&1; then",
 		"  dl() { curl -fsSL \"$1\" -o \"$2\"; }",
 		"elif command -v wget >/dev/null 2>&1; then",
@@ -691,18 +708,21 @@ func buildRemoteDownloadCommand(remoteRoot string, binaries bootstrapBinaries) s
 		"else",
 		"  echo 'curl or wget is required' >&2; exit 1;",
 		"fi",
-		fmt.Sprintf("dl %s %s", shellQuote(binaries.agentlabdURL), shellQuote(filepath.Join(dest, "agentlabd_linux_amd64"))),
-		fmt.Sprintf("dl %s %s", shellQuote(binaries.agentlabURL), shellQuote(filepath.Join(dest, "agentlab_linux_amd64"))),
-		fmt.Sprintf("chmod +x %s %s", shellQuote(filepath.Join(dest, "agentlabd_linux_amd64")), shellQuote(filepath.Join(dest, "agentlab_linux_amd64"))),
+		"dl \"$url_agentlabd\" \"$file_agentlabd\"",
+		"dl \"$url_agentlab\" \"$file_agentlab\"",
+		"chmod +x \"$file_agentlabd\" \"$file_agentlab\"",
 	}, "\n")
-	return "sh -c " + shellQuote(script)
+	return shCommand(script, dest, binaries.agentlabdURL, binaries.agentlabURL)
 }
 
-func sudoCommand(opts bootstrapOptions, command string) string {
+func withSudoArgs(opts bootstrapOptions, args []string) []string {
 	if !needsSudo(opts) {
-		return command
+		return args
 	}
-	return "sudo -n " + command
+	out := make([]string, 0, len(args)+2)
+	out = append(out, "sudo", "-n")
+	out = append(out, args...)
+	return out
 }
 
 func needsSudo(opts bootstrapOptions) bool {
@@ -716,7 +736,7 @@ func needsSudo(opts bootstrapOptions) bool {
 	return user != "root"
 }
 
-func buildConfigBackupCommand() string {
+func buildConfigBackupArgs() []string {
 	script := strings.Join([]string{
 		"set -euo pipefail",
 		"cfg=/etc/agentlab/config.yaml",
@@ -727,7 +747,7 @@ func buildConfigBackupCommand() string {
 		"  echo \"BACKUP=${backup}\"",
 		"fi",
 	}, "\n")
-	return "sh -c " + shellQuote(script)
+	return shCommand(script)
 }
 
 func parseBackupPath(output string) string {
@@ -796,20 +816,91 @@ func verifyEndpoint(ctx context.Context, endpoint, token string, timeout time.Du
 	return err
 }
 
-func shellJoin(args []string) string {
-	if len(args) == 0 {
-		return ""
-	}
-	quoted := make([]string, 0, len(args))
-	for _, arg := range args {
-		quoted = append(quoted, shellQuote(arg))
-	}
-	return strings.Join(quoted, " ")
-}
-
 func boolFlag(flag string, enabled bool) []string {
 	if !enabled {
 		return nil
 	}
 	return []string{flag}
+}
+
+func shCommand(script string, args ...string) []string {
+	if len(args) == 0 {
+		return []string{"sh", "-c", script}
+	}
+	out := make([]string, 0, 3+len(args))
+	out = append(out, "sh", "-c", script, "sh")
+	out = append(out, args...)
+	return out
+}
+
+func formatRemoteCommand(args []string) (string, error) {
+	if len(args) == 0 {
+		return "", errors.New("remote command args are empty")
+	}
+	quoted := make([]string, len(args))
+	for i, arg := range args {
+		if err := validateRemoteArg(arg); err != nil {
+			return "", err
+		}
+		quoted[i] = shellQuote(arg)
+	}
+	return strings.Join(quoted, " "), nil
+}
+
+func validateRemoteArg(arg string) error {
+	if arg == "" {
+		return fmt.Errorf("remote command argument is empty")
+	}
+	for _, r := range arg {
+		if r < 0x20 || r == 0x7f {
+			return fmt.Errorf("remote command argument contains control characters")
+		}
+	}
+	return nil
+}
+
+var sshUserPattern = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9._+-]*$`)
+var sshHostPattern = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9._-]*$`)
+
+func validateSSHUser(user string) error {
+	if strings.TrimSpace(user) == "" {
+		return fmt.Errorf("ssh user is required")
+	}
+	if !sshUserPattern.MatchString(user) {
+		return fmt.Errorf("ssh user contains invalid characters")
+	}
+	return nil
+}
+
+func validateSSHHost(host string) error {
+	host = strings.TrimSpace(host)
+	if host == "" {
+		return fmt.Errorf("ssh host is required")
+	}
+	if strings.HasPrefix(host, "-") {
+		return fmt.Errorf("ssh host must not start with '-'")
+	}
+	if strings.ContainsAny(host, " \t\r\n") {
+		return fmt.Errorf("ssh host must not contain whitespace")
+	}
+	trimmed := strings.TrimPrefix(host, "[")
+	trimmed = strings.TrimSuffix(trimmed, "]")
+	if ip := parseIPWithZone(trimmed); ip != nil {
+		return nil
+	}
+	if strings.Contains(host, ":") {
+		return fmt.Errorf("ssh host must not include port; use --ssh-port")
+	}
+	if !sshHostPattern.MatchString(host) {
+		return fmt.Errorf("ssh host contains invalid characters")
+	}
+	return nil
+}
+
+func parseIPWithZone(value string) net.IP {
+	ip := value
+	if idx := strings.LastIndex(ip, "%"); idx != -1 {
+		ip = ip[:idx]
+	}
+	return net.ParseIP(ip)
 }
