@@ -21,6 +21,18 @@ permissions on startup:
 - Fail if group-writable/executable or world-readable.
 - Warn if group-readable (for example `0640`); prefer `0600`.
 
+## Cloud-init snippet visibility
+
+Cloud-init user-data snippets are stored in the Proxmox snippets storage (default
+`/var/lib/vz/snippets`) and are visible in the Proxmox UI and API to anyone who
+can view VM config or snippets. These snippets include the one-time bootstrap
+token, controller URL, and VMID. The token is short-lived and single-use, but
+the snippet content should still be treated as sensitive.
+
+Restrict Proxmox UI access and snippets storage permissions to trusted operators.
+Snippets are deleted when sandboxes are destroyed; if a VM is kept or snapshotted,
+remove stale snippets manually.
+
 ## Guest endpoint rate limiting
 
 Guest-facing endpoints (`/v1/bootstrap/fetch` and `/upload`) are rate limited per IP
