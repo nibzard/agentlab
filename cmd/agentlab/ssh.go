@@ -263,7 +263,11 @@ func withWaitTimeout(ctx context.Context, timeout time.Duration) (context.Contex
 }
 
 func fetchSandbox(ctx context.Context, client *apiClient, vmid int) (sandboxResponse, error) {
-	payload, err := client.doJSON(ctx, http.MethodGet, fmt.Sprintf("/v1/sandboxes/%d", vmid), nil)
+	path, err := endpointPath("/v1/sandboxes", strconv.Itoa(vmid))
+	if err != nil {
+		return sandboxResponse{}, err
+	}
+	payload, err := client.doJSON(ctx, http.MethodGet, path, nil)
 	if err != nil {
 		return sandboxResponse{}, wrapSandboxNotFound(ctx, client, vmid, err)
 	}
@@ -275,7 +279,11 @@ func fetchSandbox(ctx context.Context, client *apiClient, vmid int) (sandboxResp
 }
 
 func startSandbox(ctx context.Context, client *apiClient, vmid int) (sandboxResponse, error) {
-	payload, err := client.doJSON(ctx, http.MethodPost, fmt.Sprintf("/v1/sandboxes/%d/start", vmid), nil)
+	path, err := endpointPath("/v1/sandboxes", strconv.Itoa(vmid), "start")
+	if err != nil {
+		return sandboxResponse{}, err
+	}
+	payload, err := client.doJSON(ctx, http.MethodPost, path, nil)
 	if err != nil {
 		return sandboxResponse{}, wrapSandboxNotFound(ctx, client, vmid, err)
 	}
