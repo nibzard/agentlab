@@ -862,13 +862,13 @@ func (b *APIBackend) client() *http.Client {
 		return b.HTTPClient
 	}
 
-	// Create default client with insecure TLS skip for self-signed certs.
-	// Prefer using NewAPIBackend to get a client configured from settings.
+	// Create default client with TLS verification enabled.
+	// Prefer using NewAPIBackend to honor proxmox TLS settings.
 	return &http.Client{
 		Timeout: b.commandTimeout(),
 		Transport: &http.Transport{
 			TLSClientConfig: &tls.Config{
-				InsecureSkipVerify: true, // Skip cert verification for local Proxmox
+				InsecureSkipVerify: false,
 			},
 		},
 	}

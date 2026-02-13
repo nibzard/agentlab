@@ -150,7 +150,7 @@ type FileConfig struct {
 //   - ProxmoxCloneMode: "linked"
 //   - ProxmoxCommandTimeout: 2 minutes
 //   - ProvisioningTimeout: 10 minutes
-//   - ProxmoxTLSInsecure: true
+//   - ProxmoxTLSInsecure: false
 //   - ProxmoxAPIShellFallback: false
 //   - IdleStopEnabled: true
 //   - IdleStopInterval: 1 minute
@@ -196,7 +196,7 @@ func DefaultConfig() Config {
 		ProxmoxAPIURL:           "https://localhost:8006",
 		ProxmoxAPIToken:         "", // Must be configured
 		ProxmoxNode:             "", // Auto-detected if empty
-		ProxmoxTLSInsecure:      true,
+		ProxmoxTLSInsecure:      false,
 		ProxmoxTLSCAPath:        "",
 		ProxmoxAPIShellFallback: false,
 	}

@@ -3544,7 +3544,7 @@
       "id": "T131",
       "title": "Secure Proxmox TLS defaults and allow explicit insecure override only",
       "priority": 1,
-      "status": "todo",
+      "status": "done",
       "details": "Default Proxmox API communication must verify TLS certificates by default; require explicit opt-in for insecure verification to avoid MITM exposure.",
       "steps": [
         "Set ProxmoxTLSInsecure default to false.",
@@ -3558,9 +3558,15 @@
       ],
       "files": [
         "internal/config/config.go",
+        "internal/config/config_test.go",
+        "internal/daemon/daemon.go",
         "internal/proxmox/api_backend.go",
-        "internal/proxmox/api_backend_test.go"
-      ]
+        "internal/proxmox/api_backend_test.go",
+        "README.md",
+        "docs/configuration.md",
+        "to-do.json"
+      ],
+      "updated_at": "2026-02-13T20:04:26Z"
     },
     {
       "id": "T132",
