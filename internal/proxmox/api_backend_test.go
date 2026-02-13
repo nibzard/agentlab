@@ -601,3 +601,35 @@ func TestAPIBackendVolumeSnapshotFallbackToShell(t *testing.T) {
 		t.Fatalf("expected 2 shell calls, got %d", len(runner.calls))
 	}
 }
+
+func TestAPIBackendDefaultClientVerifiesTLS(t *testing.T) {
+	backend := &APIBackend{}
+	client := backend.client()
+	transport, ok := client.Transport.(*http.Transport)
+	if !ok || transport == nil {
+		t.Fatalf("expected http.Transport, got %T", client.Transport)
+	}
+	if transport.TLSClientConfig == nil {
+		t.Fatalf("expected TLSClientConfig to be set")
+	}
+	if transport.TLSClientConfig.InsecureSkipVerify {
+		t.Fatalf("expected TLS verification enabled by default")
+	}
+}
+
+func TestNewAPIHTTPClientInsecureOverride(t *testing.T) {
+	client, err := newAPIHTTPClient(0, true, "")
+	if err != nil {
+		t.Fatalf("newAPIHTTPClient() error = %v", err)
+	}
+	transport, ok := client.Transport.(*http.Transport)
+	if !ok || transport == nil {
+		t.Fatalf("expected http.Transport, got %T", client.Transport)
+	}
+	if transport.TLSClientConfig == nil {
+		t.Fatalf("expected TLSClientConfig to be set")
+	}
+	if !transport.TLSClientConfig.InsecureSkipVerify {
+		t.Fatalf("expected TLS verification disabled when insecure override is set")
+	}
+}

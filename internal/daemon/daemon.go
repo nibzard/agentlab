@@ -202,6 +202,9 @@ func newService(cfg config.Config, profiles map[string]models.Profile, store *db
 		switch strings.ToLower(strings.TrimSpace(cfg.ProxmoxBackend)) {
 		case "api":
 			// Use API backend
+			if cfg.ProxmoxTLSInsecure {
+				log.Printf("warning: proxmox_tls_insecure is enabled; Proxmox API TLS verification is disabled. This is insecure and should only be used temporarily. See docs/configuration.md for proxmox_tls_ca_path guidance.")
+			}
 			apiBackend, err := proxmox.NewAPIBackend(
 				cfg.ProxmoxAPIURL,
 				cfg.ProxmoxAPIToken,

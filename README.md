@@ -203,9 +203,9 @@ proxmox_backend: api  # Use API backend (recommended)
 proxmox_api_url: https://localhost:8006
 proxmox_api_token: root@pam!token-id=token-uuid
 proxmox_node: ""  # Auto-detected if empty
-proxmox_tls_insecure: true  # Default: skip TLS verification for self-signed certs
-# proxmox_tls_insecure: false
+proxmox_tls_insecure: false  # Default: verify TLS certificates
 # proxmox_tls_ca_path: /etc/agentlab/certs/proxmox-ca.pem
+# proxmox_tls_insecure: true  # INSECURE: disable verification for self-signed certs
 ```
 
 **Creating API Token:**

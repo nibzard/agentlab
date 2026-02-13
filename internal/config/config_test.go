@@ -783,6 +783,7 @@ func TestDefaultConfig(t *testing.T) {
 	assert.GreaterOrEqual(t, cfg.ProxmoxCommandTimeout, time.Duration(0))
 	assert.GreaterOrEqual(t, cfg.ProvisioningTimeout, time.Duration(0))
 	assert.Equal(t, "linked", cfg.ProxmoxCloneMode)
+	assert.False(t, cfg.ProxmoxTLSInsecure)
 	assert.NotZero(t, cfg.IdleStopInterval)
 	assert.GreaterOrEqual(t, cfg.IdleStopMinutesDefault, 0)
 	assert.GreaterOrEqual(t, cfg.IdleStopCPUThreshold, 0.0)
