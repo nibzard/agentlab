@@ -35,6 +35,14 @@ const (
 	BundleVersion = 1
 )
 
+var defaultSopsAllowlist = []string{
+	"/usr/bin/sops",
+	"/usr/local/bin/sops",
+	"/usr/local/sbin/sops",
+	"/opt/homebrew/bin/sops",
+	"/snap/bin/sops",
+}
+
 // Bundle describes decrypted secrets content.
 //
 // Bundles are delivered to guest VMs during bootstrap and contain
@@ -104,6 +112,7 @@ type Store struct {
 	Dir            string
 	AgeKeyPath     string
 	SopsPath       string
+	SopsAllowlist  []string
 	AllowPlaintext bool
 	SopsDecrypt    func(ctx context.Context, path string, env []string) ([]byte, error)
 }
@@ -193,14 +202,46 @@ func (s Store) decryptSops(ctx context.Context, path string) ([]byte, error) {
 	if s.SopsDecrypt != nil {
 		return s.SopsDecrypt(ctx, path, s.sopsEnv())
 	}
-	return decryptSops(ctx, s.sopsPath(), path, s.sopsEnv())
+	sopsPath, err := s.sopsPath()
+	if err != nil {
+		return nil, err
+	}
+	return decryptSops(ctx, sopsPath, path, s.sopsEnv())
 }
 
-func (s Store) sopsPath() string {
-	if strings.TrimSpace(s.SopsPath) != "" {
-		return s.SopsPath
+func (s Store) sopsPath() (string, error) {
+	raw := strings.TrimSpace(s.SopsPath)
+	if raw == "" {
+		raw = "sops"
 	}
-	return "sops"
+	if strings.ContainsAny(raw, " \t\r\n") {
+		return "", fmt.Errorf("sops path must not contain whitespace")
+	}
+	if raw != "sops" && !filepath.IsAbs(raw) {
+		return "", fmt.Errorf("sops path must be absolute (got %q)", raw)
+	}
+	resolved := raw
+	if raw == "sops" {
+		path, err := exec.LookPath(raw)
+		if err != nil {
+			return "", fmt.Errorf("locate sops binary: %w", err)
+		}
+		resolved = path
+	}
+	if !filepath.IsAbs(resolved) {
+		return "", fmt.Errorf("resolved sops path is not absolute: %q", resolved)
+	}
+	resolved = filepath.Clean(resolved)
+	if evaluated, err := filepath.EvalSymlinks(resolved); err == nil {
+		resolved = evaluated
+	}
+	if err := validateExecutable(resolved); err != nil {
+		return "", err
+	}
+	if !pathInAllowlist(resolved, s.sopsAllowlist()) {
+		return "", fmt.Errorf("sops path %s is not in allowlist", resolved)
+	}
+	return resolved, nil
 }
 
 func (s Store) sopsEnv() []string {
@@ -208,6 +249,55 @@ func (s Store) sopsEnv() []string {
 		return nil
 	}
 	return []string{"SOPS_AGE_KEY_FILE=" + s.AgeKeyPath}
+}
+
+func (s Store) sopsAllowlist() []string {
+	if len(s.SopsAllowlist) > 0 {
+		return s.SopsAllowlist
+	}
+	return defaultSopsAllowlist
+}
+
+func validateExecutable(path string) error {
+	info, err := os.Stat(path)
+	if err != nil {
+		return fmt.Errorf("sops binary %s not found: %w", path, err)
+	}
+	if info.IsDir() {
+		return fmt.Errorf("sops path %s is a directory", path)
+	}
+	if info.Mode()&0o111 == 0 {
+		return fmt.Errorf("sops path %s is not executable", path)
+	}
+	return nil
+}
+
+func pathInAllowlist(path string, allowlist []string) bool {
+	normalized := normalizeAllowlistPath(path)
+	if normalized == "" {
+		return false
+	}
+	for _, allowed := range allowlist {
+		if normalizeAllowlistPath(allowed) == normalized {
+			return true
+		}
+	}
+	return false
+}
+
+func normalizeAllowlistPath(path string) string {
+	path = strings.TrimSpace(path)
+	if path == "" {
+		return ""
+	}
+	if !filepath.IsAbs(path) {
+		return ""
+	}
+	path = filepath.Clean(path)
+	if resolved, err := filepath.EvalSymlinks(path); err == nil {
+		path = resolved
+	}
+	return path
 }
 
 func findBundleFile(base string, allowPlain bool) (string, bool) {
