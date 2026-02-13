@@ -614,7 +614,14 @@ func runJobShow(ctx context.Context, args []string, base commonFlags) error {
 	if eventsTail >= 0 {
 		query = fmt.Sprintf("?events_tail=%d", eventsTail)
 	}
-	payload, err := client.doJSON(ctx, http.MethodGet, fmt.Sprintf("/v1/jobs/%s%s", jobID, query), nil)
+	path, err := endpointPath("/v1/jobs", jobID)
+	if err != nil {
+		return err
+	}
+	if query != "" {
+		path += query
+	}
+	payload, err := client.doJSON(ctx, http.MethodGet, path, nil)
 	if err != nil {
 		return wrapJobNotFound(jobID, err)
 	}
@@ -673,7 +680,11 @@ func runJobArtifactsList(ctx context.Context, args []string, base commonFlags) e
 	if err != nil {
 		return err
 	}
-	payload, err := client.doJSON(ctx, http.MethodGet, fmt.Sprintf("/v1/jobs/%s/artifacts", jobID), nil)
+	artifactsPath, err := endpointPath("/v1/jobs", jobID, "artifacts")
+	if err != nil {
+		return err
+	}
+	payload, err := client.doJSON(ctx, http.MethodGet, artifactsPath, nil)
 	if err != nil {
 		return wrapJobNotFound(jobID, err)
 	}
@@ -729,7 +740,11 @@ func runJobArtifactsDownload(ctx context.Context, args []string, base commonFlag
 	if err != nil {
 		return err
 	}
-	payload, err := client.doJSON(ctx, http.MethodGet, fmt.Sprintf("/v1/jobs/%s/artifacts", jobID), nil)
+	artifactsPath, err := endpointPath("/v1/jobs", jobID, "artifacts")
+	if err != nil {
+		return err
+	}
+	payload, err := client.doJSON(ctx, http.MethodGet, artifactsPath, nil)
 	if err != nil {
 		return wrapJobNotFound(jobID, err)
 	}
@@ -760,7 +775,11 @@ func runJobArtifactsDownload(ctx context.Context, args []string, base commonFlag
 		return err
 	}
 
-	downloadPath := fmt.Sprintf("/v1/jobs/%s/artifacts/download?path=%s", jobID, url.QueryEscape(artifact.Path))
+	downloadPath, err := endpointPath("/v1/jobs", jobID, "artifacts", "download")
+	if err != nil {
+		return err
+	}
+	downloadPath = downloadPath + "?path=" + url.QueryEscape(artifact.Path)
 	respBody, err := client.doRequest(ctx, http.MethodGet, downloadPath, nil, nil)
 	if err != nil {
 		return err
@@ -818,7 +837,10 @@ func runJobDoctor(ctx context.Context, args []string, base commonFlags) error {
 		return fmt.Errorf("job_id is required")
 	}
 	bundleName := defaultDoctorBundleName("job", jobID)
-	path := fmt.Sprintf("/v1/jobs/%s/doctor", jobID)
+	path, err := endpointPath("/v1/jobs", jobID, "doctor")
+	if err != nil {
+		return err
+	}
 	return downloadDoctorBundle(ctx, opts, path, out, bundleName, "job", jobID)
 }
 
@@ -1197,7 +1219,11 @@ func runSandboxShow(ctx context.Context, args []string, base commonFlags) error 
 		return err
 	}
 	touchSandboxBestEffort(ctx, client, vmid)
-	payload, err := client.doJSON(ctx, http.MethodGet, fmt.Sprintf("/v1/sandboxes/%d", vmid), nil)
+	path, err := endpointPath("/v1/sandboxes", strconv.Itoa(vmid))
+	if err != nil {
+		return err
+	}
+	payload, err := client.doJSON(ctx, http.MethodGet, path, nil)
 	if err != nil {
 		return wrapSandboxNotFound(ctx, client, vmid, err)
 	}
@@ -1235,7 +1261,11 @@ func runSandboxStart(ctx context.Context, args []string, base commonFlags) error
 	if err != nil {
 		return err
 	}
-	payload, err := client.doJSON(ctx, http.MethodPost, fmt.Sprintf("/v1/sandboxes/%d/start", vmid), nil)
+	path, err := endpointPath("/v1/sandboxes", strconv.Itoa(vmid), "start")
+	if err != nil {
+		return err
+	}
+	payload, err := client.doJSON(ctx, http.MethodPost, path, nil)
 	if err != nil {
 		return wrapSandboxNotFound(ctx, client, vmid, err)
 	}
@@ -1305,7 +1335,11 @@ func runSandboxStop(ctx context.Context, args []string, base commonFlags) error 
 		return err
 	}
 
-	payload, err := client.doJSON(ctx, http.MethodPost, fmt.Sprintf("/v1/sandboxes/%d/stop", vmid), nil)
+	path, err := endpointPath("/v1/sandboxes", strconv.Itoa(vmid), "stop")
+	if err != nil {
+		return err
+	}
+	payload, err := client.doJSON(ctx, http.MethodPost, path, nil)
 	if err != nil {
 		return wrapSandboxNotFound(ctx, client, vmid, err)
 	}
@@ -1343,7 +1377,11 @@ func runSandboxPause(ctx context.Context, args []string, base commonFlags) error
 	if err != nil {
 		return err
 	}
-	payload, err := client.doJSON(ctx, http.MethodPost, fmt.Sprintf("/v1/sandboxes/%d/pause", vmid), nil)
+	path, err := endpointPath("/v1/sandboxes", strconv.Itoa(vmid), "pause")
+	if err != nil {
+		return err
+	}
+	payload, err := client.doJSON(ctx, http.MethodPost, path, nil)
 	if err != nil {
 		return wrapSandboxNotFound(ctx, client, vmid, err)
 	}
@@ -1381,7 +1419,11 @@ func runSandboxResume(ctx context.Context, args []string, base commonFlags) erro
 	if err != nil {
 		return err
 	}
-	payload, err := client.doJSON(ctx, http.MethodPost, fmt.Sprintf("/v1/sandboxes/%d/resume", vmid), nil)
+	path, err := endpointPath("/v1/sandboxes", strconv.Itoa(vmid), "resume")
+	if err != nil {
+		return err
+	}
+	payload, err := client.doJSON(ctx, http.MethodPost, path, nil)
 	if err != nil {
 		return wrapSandboxNotFound(ctx, client, vmid, err)
 	}
@@ -1470,7 +1512,11 @@ func runSandboxRevert(ctx context.Context, args []string, base commonFlags) erro
 		}
 	}
 	req := sandboxRevertRequest{Force: force, Restart: restartPtr}
-	payload, err := client.doJSON(ctx, http.MethodPost, fmt.Sprintf("/v1/sandboxes/%d/revert", vmid), req)
+	path, err := endpointPath("/v1/sandboxes", strconv.Itoa(vmid), "revert")
+	if err != nil {
+		return err
+	}
+	payload, err := client.doJSON(ctx, http.MethodPost, path, req)
 	if err != nil {
 		return wrapSandboxNotFound(ctx, client, vmid, err)
 	}
@@ -1551,7 +1597,11 @@ func runSandboxSnapshotSave(ctx context.Context, args []string, base commonFlags
 		return err
 	}
 	req := sandboxSnapshotCreateRequest{Name: name, Force: force}
-	payload, err := client.doJSON(ctx, http.MethodPost, fmt.Sprintf("/v1/sandboxes/%d/snapshots", vmid), req)
+	path, err := endpointPath("/v1/sandboxes", strconv.Itoa(vmid), "snapshots")
+	if err != nil {
+		return err
+	}
+	payload, err := client.doJSON(ctx, http.MethodPost, path, req)
 	if err != nil {
 		return wrapSandboxNotFound(ctx, client, vmid, err)
 	}
@@ -1588,7 +1638,11 @@ func runSandboxSnapshotList(ctx context.Context, args []string, base commonFlags
 	if err != nil {
 		return err
 	}
-	payload, err := client.doJSON(ctx, http.MethodGet, fmt.Sprintf("/v1/sandboxes/%d/snapshots", vmid), nil)
+	path, err := endpointPath("/v1/sandboxes", strconv.Itoa(vmid), "snapshots")
+	if err != nil {
+		return err
+	}
+	payload, err := client.doJSON(ctx, http.MethodGet, path, nil)
 	if err != nil {
 		return wrapSandboxNotFound(ctx, client, vmid, err)
 	}
@@ -1632,7 +1686,11 @@ func runSandboxSnapshotRestore(ctx context.Context, args []string, base commonFl
 		return err
 	}
 	req := sandboxSnapshotRestoreRequest{Force: force}
-	payload, err := client.doJSON(ctx, http.MethodPost, fmt.Sprintf("/v1/sandboxes/%d/snapshots/%s/restore", vmid, url.PathEscape(name)), req)
+	path, err := endpointPath("/v1/sandboxes", strconv.Itoa(vmid), "snapshots", name, "restore")
+	if err != nil {
+		return err
+	}
+	payload, err := client.doJSON(ctx, http.MethodPost, path, req)
 	if err != nil {
 		return wrapSandboxNotFound(ctx, client, vmid, err)
 	}
@@ -1673,7 +1731,11 @@ func runSandboxDestroy(ctx context.Context, args []string, base commonFlags) err
 		return err
 	}
 	req := sandboxDestroyRequest{Force: force}
-	payload, err := client.doJSON(ctx, http.MethodPost, fmt.Sprintf("/v1/sandboxes/%d/destroy", vmid), req)
+	path, err := endpointPath("/v1/sandboxes", strconv.Itoa(vmid), "destroy")
+	if err != nil {
+		return err
+	}
+	payload, err := client.doJSON(ctx, http.MethodPost, path, req)
 	if err != nil {
 		return wrapSandboxNotFound(ctx, client, vmid, err)
 	}
@@ -1747,7 +1809,11 @@ func runSandboxLeaseRenew(ctx context.Context, args []string, base commonFlags) 
 		return err
 	}
 	req := leaseRenewRequest{TTLMinutes: minutes}
-	payload, err := client.doJSON(ctx, http.MethodPost, fmt.Sprintf("/v1/sandboxes/%d/lease/renew", vmid), req)
+	path, err := endpointPath("/v1/sandboxes", strconv.Itoa(vmid), "lease", "renew")
+	if err != nil {
+		return err
+	}
+	payload, err := client.doJSON(ctx, http.MethodPost, path, req)
 	if err != nil {
 		return wrapSandboxNotFound(ctx, client, vmid, err)
 	}
@@ -1895,7 +1961,11 @@ func runSandboxUnexpose(ctx context.Context, args []string, base commonFlags) er
 	if err != nil {
 		return err
 	}
-	payload, err := client.doJSON(ctx, http.MethodDelete, fmt.Sprintf("/v1/exposures/%s", url.PathEscape(name)), nil)
+	path, err := endpointPath("/v1/exposures", name)
+	if err != nil {
+		return err
+	}
+	payload, err := client.doJSON(ctx, http.MethodDelete, path, nil)
 	if err != nil {
 		return err
 	}
@@ -1931,7 +2001,10 @@ func runSandboxDoctor(ctx context.Context, args []string, base commonFlags) erro
 		return err
 	}
 	bundleName := defaultDoctorBundleName("sandbox", strconv.Itoa(vmid))
-	path := fmt.Sprintf("/v1/sandboxes/%d/doctor", vmid)
+	path, err := endpointPath("/v1/sandboxes", strconv.Itoa(vmid), "doctor")
+	if err != nil {
+		return err
+	}
 	return downloadDoctorBundle(ctx, opts, path, out, bundleName, "sandbox", strconv.Itoa(vmid))
 }
 
@@ -2036,7 +2109,11 @@ func runWorkspaceCheck(ctx context.Context, args []string, base commonFlags) err
 	if err != nil {
 		return err
 	}
-	payload, err := client.doJSON(ctx, http.MethodGet, fmt.Sprintf("/v1/workspaces/%s/check", workspace), nil)
+	path, err := endpointPath("/v1/workspaces", workspace, "check")
+	if err != nil {
+		return err
+	}
+	payload, err := client.doJSON(ctx, http.MethodGet, path, nil)
 	if err != nil {
 		return wrapWorkspaceNotFound(workspace, err)
 	}
@@ -2077,7 +2154,11 @@ func runWorkspaceFsck(ctx context.Context, args []string, base commonFlags) erro
 		return err
 	}
 	req := workspaceFsckRequest{Repair: repair}
-	payload, err := client.doJSON(ctx, http.MethodPost, fmt.Sprintf("/v1/workspaces/%s/fsck", workspace), req)
+	path, err := endpointPath("/v1/workspaces", workspace, "fsck")
+	if err != nil {
+		return err
+	}
+	payload, err := client.doJSON(ctx, http.MethodPost, path, req)
 	if err != nil {
 		return wrapWorkspaceNotFound(workspace, err)
 	}
@@ -2119,7 +2200,11 @@ func runWorkspaceAttach(ctx context.Context, args []string, base commonFlags) er
 		return err
 	}
 	req := workspaceAttachRequest{VMID: vmid}
-	payload, err := client.doJSON(ctx, http.MethodPost, fmt.Sprintf("/v1/workspaces/%s/attach", workspace), req)
+	path, err := endpointPath("/v1/workspaces", workspace, "attach")
+	if err != nil {
+		return err
+	}
+	payload, err := client.doJSON(ctx, http.MethodPost, path, req)
 	if err != nil {
 		err = wrapSandboxNotFound(ctx, client, vmid, err)
 		return wrapWorkspaceNotFound(workspace, err)
@@ -2157,7 +2242,11 @@ func runWorkspaceDetach(ctx context.Context, args []string, base commonFlags) er
 	if err != nil {
 		return err
 	}
-	payload, err := client.doJSON(ctx, http.MethodPost, fmt.Sprintf("/v1/workspaces/%s/detach", workspace), nil)
+	path, err := endpointPath("/v1/workspaces", workspace, "detach")
+	if err != nil {
+		return err
+	}
+	payload, err := client.doJSON(ctx, http.MethodPost, path, nil)
 	if err != nil {
 		return wrapWorkspaceNotFound(workspace, err)
 	}
@@ -2217,7 +2306,11 @@ func runWorkspaceRebind(ctx context.Context, args []string, base commonFlags) er
 		TTLMinutes: ttlMinutes,
 		KeepOld:    keepOld,
 	}
-	payload, err := client.doJSON(ctx, http.MethodPost, fmt.Sprintf("/v1/workspaces/%s/rebind", workspace), req)
+	path, err := endpointPath("/v1/workspaces", workspace, "rebind")
+	if err != nil {
+		return err
+	}
+	payload, err := client.doJSON(ctx, http.MethodPost, path, req)
 	if err != nil {
 		err = wrapUnknownProfileError(ctx, client, profile, err)
 		return wrapWorkspaceNotFound(workspace, err)
@@ -2272,7 +2365,11 @@ func runWorkspaceFork(ctx context.Context, args []string, base commonFlags) erro
 		Name:         name,
 		FromSnapshot: fromSnapshot,
 	}
-	payload, err := client.doJSON(ctx, http.MethodPost, fmt.Sprintf("/v1/workspaces/%s/fork", url.PathEscape(source)), req)
+	path, err := endpointPath("/v1/workspaces", source, "fork")
+	if err != nil {
+		return err
+	}
+	payload, err := client.doJSON(ctx, http.MethodPost, path, req)
 	if err != nil {
 		return wrapWorkspaceNotFound(source, err)
 	}
@@ -2339,7 +2436,11 @@ func runWorkspaceSnapshotCreate(ctx context.Context, args []string, base commonF
 		return err
 	}
 	req := workspaceSnapshotCreateRequest{Name: name}
-	payload, err := client.doJSON(ctx, http.MethodPost, fmt.Sprintf("/v1/workspaces/%s/snapshots", workspace), req)
+	path, err := endpointPath("/v1/workspaces", workspace, "snapshots")
+	if err != nil {
+		return err
+	}
+	payload, err := client.doJSON(ctx, http.MethodPost, path, req)
 	if err != nil {
 		return wrapWorkspaceNotFound(workspace, err)
 	}
@@ -2376,7 +2477,11 @@ func runWorkspaceSnapshotList(ctx context.Context, args []string, base commonFla
 	if err != nil {
 		return err
 	}
-	payload, err := client.doJSON(ctx, http.MethodGet, fmt.Sprintf("/v1/workspaces/%s/snapshots", workspace), nil)
+	path, err := endpointPath("/v1/workspaces", workspace, "snapshots")
+	if err != nil {
+		return err
+	}
+	payload, err := client.doJSON(ctx, http.MethodGet, path, nil)
 	if err != nil {
 		return wrapWorkspaceNotFound(workspace, err)
 	}
@@ -2414,7 +2519,11 @@ func runWorkspaceSnapshotRestore(ctx context.Context, args []string, base common
 	if err != nil {
 		return err
 	}
-	payload, err := client.doJSON(ctx, http.MethodPost, fmt.Sprintf("/v1/workspaces/%s/snapshots/%s/restore", workspace, name), nil)
+	path, err := endpointPath("/v1/workspaces", workspace, "snapshots", name, "restore")
+	if err != nil {
+		return err
+	}
+	payload, err := client.doJSON(ctx, http.MethodPost, path, nil)
 	if err != nil {
 		return wrapWorkspaceNotFound(workspace, err)
 	}
@@ -2556,7 +2665,11 @@ func runSessionShow(ctx context.Context, args []string, base commonFlags) error 
 	if err != nil {
 		return err
 	}
-	payload, err := client.doJSON(ctx, http.MethodGet, "/v1/sessions/"+url.PathEscape(sessionID), nil)
+	path, err := endpointPath("/v1/sessions", sessionID)
+	if err != nil {
+		return err
+	}
+	payload, err := client.doJSON(ctx, http.MethodGet, path, nil)
 	if err != nil {
 		return wrapSessionNotFound(sessionID, err)
 	}
@@ -2593,7 +2706,11 @@ func runSessionResume(ctx context.Context, args []string, base commonFlags) erro
 	if err != nil {
 		return err
 	}
-	payload, err := client.doJSON(ctx, http.MethodPost, "/v1/sessions/"+url.PathEscape(sessionID)+"/resume", nil)
+	path, err := endpointPath("/v1/sessions", sessionID, "resume")
+	if err != nil {
+		return err
+	}
+	payload, err := client.doJSON(ctx, http.MethodPost, path, nil)
 	if err != nil {
 		return wrapSessionNotFound(sessionID, err)
 	}
@@ -2630,7 +2747,11 @@ func runSessionStop(ctx context.Context, args []string, base commonFlags) error 
 	if err != nil {
 		return err
 	}
-	payload, err := client.doJSON(ctx, http.MethodPost, "/v1/sessions/"+url.PathEscape(sessionID)+"/stop", nil)
+	path, err := endpointPath("/v1/sessions", sessionID, "stop")
+	if err != nil {
+		return err
+	}
+	payload, err := client.doJSON(ctx, http.MethodPost, path, nil)
 	if err != nil {
 		return wrapSessionNotFound(sessionID, err)
 	}
@@ -2711,7 +2832,11 @@ func runSessionFork(ctx context.Context, args []string, base commonFlags) error 
 		WorkspaceCreate: workspaceCreateReq,
 		Branch:          branch,
 	}
-	payload, err := client.doJSON(ctx, http.MethodPost, "/v1/sessions/"+url.PathEscape(sourceID)+"/fork", req)
+	path, err := endpointPath("/v1/sessions", sourceID, "fork")
+	if err != nil {
+		return err
+	}
+	payload, err := client.doJSON(ctx, http.MethodPost, path, req)
 	if err != nil {
 		err = wrapUnknownProfileError(ctx, client, profile, err)
 		return wrapSessionNotFound(sourceID, wrapWorkspaceNotFound(workspaceTargetName(workspaceID, workspaceCreateReq), err))
@@ -2799,7 +2924,10 @@ func runSessionDoctor(ctx context.Context, args []string, base commonFlags) erro
 		return fmt.Errorf("session id or name is required")
 	}
 	bundleName := defaultDoctorBundleName("session", sessionID)
-	path := fmt.Sprintf("/v1/sessions/%s/doctor", url.PathEscape(sessionID))
+	path, err := endpointPath("/v1/sessions", sessionID, "doctor")
+	if err != nil {
+		return err
+	}
 	return downloadDoctorBundle(ctx, opts, path, out, bundleName, "session", sessionID)
 }
 
@@ -2821,7 +2949,11 @@ func resolveBranchSession(ctx context.Context, client *apiClient, branch, profil
 	workspaceStorage = strings.TrimSpace(workspaceStorage)
 	selectionProvided := workspace != "" || workspaceCreate != "" || workspaceSize != "" || workspaceStorage != ""
 
-	payload, err := client.doJSON(ctx, http.MethodGet, "/v1/sessions/"+url.PathEscape(sessionName), nil)
+	path, err := endpointPath("/v1/sessions", sessionName)
+	if err != nil {
+		return sessionResponse{}, err
+	}
+	payload, err := client.doJSON(ctx, http.MethodGet, path, nil)
 	if err == nil {
 		var resp sessionResponse
 		if err := json.Unmarshal(payload, &resp); err != nil {
@@ -3121,7 +3253,12 @@ func fetchEvents(ctx context.Context, client *apiClient, vmid int, tail int, aft
 	} else {
 		query = fmt.Sprintf("?limit=%d", limit)
 	}
-	payload, err := client.doJSON(ctx, http.MethodGet, fmt.Sprintf("/v1/sandboxes/%d/events%s", vmid, query), nil)
+	path, err := endpointPath("/v1/sandboxes", strconv.Itoa(vmid), "events")
+	if err != nil {
+		return eventsResponse{}, err
+	}
+	path += query
+	payload, err := client.doJSON(ctx, http.MethodGet, path, nil)
 	if err != nil {
 		return eventsResponse{}, wrapSandboxNotFound(ctx, client, vmid, err)
 	}

@@ -28,6 +28,7 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"net/url"
 	"strings"
 	"time"
 )
@@ -529,6 +530,54 @@ func (c *apiClient) newRequest(ctx context.Context, method, path string, body io
 		req.Header.Set("Authorization", "Bearer "+c.token)
 	}
 	return req, nil
+}
+
+func endpointPath(base string, segments ...string) (string, error) {
+	base = strings.TrimSpace(base)
+	if base == "" {
+		return "", errors.New("endpoint base path is required")
+	}
+	if strings.ContainsAny(base, "?#") {
+		return "", fmt.Errorf("endpoint base path must not include query or fragment")
+	}
+	if !strings.HasPrefix(base, "/") {
+		base = "/" + base
+	}
+	base = strings.TrimRight(base, "/")
+	if len(segments) == 0 {
+		return base, nil
+	}
+	escaped := make([]string, 0, len(segments))
+	for _, segment := range segments {
+		value, err := sanitizePathSegment(segment)
+		if err != nil {
+			return "", err
+		}
+		escaped = append(escaped, value)
+	}
+	return base + "/" + strings.Join(escaped, "/"), nil
+}
+
+func sanitizePathSegment(segment string) (string, error) {
+	if segment == "" {
+		return "", errors.New("path segment is required")
+	}
+	if segment == "." || segment == ".." {
+		return "", fmt.Errorf("invalid path segment %q", segment)
+	}
+	if strings.Contains(segment, "/") || strings.Contains(segment, "\\") {
+		return "", fmt.Errorf("invalid path segment %q", segment)
+	}
+	for _, r := range segment {
+		if r < 0x20 || r == 0x7f {
+			return "", fmt.Errorf("invalid path segment %q", segment)
+		}
+	}
+	escaped := url.PathEscape(segment)
+	if escaped == "" {
+		return "", fmt.Errorf("invalid path segment %q", segment)
+	}
+	return escaped, nil
 }
 
 // doJSON sends an HTTP request with a JSON payload and returns the JSON response.

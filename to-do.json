@@ -3610,15 +3610,16 @@
       ],
       "files": [
         "internal/daemon/api.go",
-        "internal/daemon/api_errors_test.go"
+        "internal/daemon/api_errors_test.go",
+        "to-do.json"
       ],
-      "updated_at": "2026-02-13T20:29:36Z"
+      "updated_at": "2026-02-13T20:30:53Z"
     },
     {
       "id": "T134",
       "title": "Sanitize CLI API path construction and endpoint segments",
       "priority": 2,
-      "status": "todo",
+      "status": "done",
       "details": "Normalize and escape API path segments before composing endpoint URLs so malformed values cannot alter target routes.",
       "steps": [
         "Centralize endpoint path joining in cmd/agentlab/api.go.",
@@ -3632,8 +3633,14 @@
         "validation"
       ],
       "files": [
-        "cmd/agentlab/api.go"
-      ]
+        "cmd/agentlab/api.go",
+        "cmd/agentlab/commands.go",
+        "cmd/agentlab/api_test.go",
+        "cmd/agentlab/ssh.go",
+        "cmd/agentlab/touch.go",
+        "to-do.json"
+      ],
+      "updated_at": "2026-02-13T20:37:48Z"
     },
     {
       "id": "T135",

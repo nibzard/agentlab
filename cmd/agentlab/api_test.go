@@ -381,3 +381,33 @@ func TestPrettyPrintJSON(t *testing.T) {
 		t.Fatalf("prettyPrintJSON() fallback = %q, want %q", buf.String(), string(bad))
 	}
 }
+
+func TestEndpointPath(t *testing.T) {
+	got, err := endpointPath("/v1/jobs/", "job-123", "artifacts")
+	if err != nil {
+		t.Fatalf("endpointPath() error = %v", err)
+	}
+	if got != "/v1/jobs/job-123/artifacts" {
+		t.Fatalf("endpointPath() = %q, want %q", got, "/v1/jobs/job-123/artifacts")
+	}
+}
+
+func TestEndpointPathEscapesSegments(t *testing.T) {
+	got, err := endpointPath("v1/jobs", "job id", "a?b#c")
+	if err != nil {
+		t.Fatalf("endpointPath() error = %v", err)
+	}
+	want := "/v1/jobs/job%20id/a%3Fb%23c"
+	if got != want {
+		t.Fatalf("endpointPath() = %q, want %q", got, want)
+	}
+}
+
+func TestEndpointPathRejectsBadSegments(t *testing.T) {
+	tests := []string{"", ".", "..", "a/b", "a\\b", "bad\x00value", "bad\nvalue"}
+	for _, segment := range tests {
+		if _, err := endpointPath("/v1/jobs", segment); err == nil {
+			t.Fatalf("endpointPath() expected error for segment %q", segment)
+		}
+	}
+}

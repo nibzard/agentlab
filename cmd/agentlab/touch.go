@@ -2,8 +2,8 @@ package main
 
 import (
 	"context"
-	"fmt"
 	"net/http"
+	"strconv"
 	"time"
 )
 
@@ -18,5 +18,9 @@ func touchSandboxBestEffort(ctx context.Context, client *apiClient, vmid int) {
 	}
 	touchCtx, cancel := context.WithTimeout(ctx, touchRequestTimeout)
 	defer cancel()
-	_, _ = client.doJSON(touchCtx, http.MethodPost, fmt.Sprintf("/v1/sandboxes/%d/touch", vmid), nil)
+	path, err := endpointPath("/v1/sandboxes", strconv.Itoa(vmid), "touch")
+	if err != nil {
+		return
+	}
+	_, _ = client.doJSON(touchCtx, http.MethodPost, path, nil)
 }
