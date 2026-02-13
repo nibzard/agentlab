@@ -13,6 +13,14 @@ Use one of these client-side credential sources:
 Never place tailnet admin credentials in `/etc/agentlab` on the host or any file that is
 readable by other users.
 
+## Host config permissions
+
+`/etc/agentlab/config.yaml` is treated as sensitive. `agentlabd` enforces strict
+permissions on startup:
+- Require owner-readable and not accessible by others.
+- Fail if group-writable/executable or world-readable.
+- Warn if group-readable (for example `0640`); prefer `0600`.
+
 ## Threat model notes
 
 - Treat the admin API key or OAuth client secret as high-value secrets.

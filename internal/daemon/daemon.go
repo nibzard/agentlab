@@ -87,6 +87,11 @@ func Run(ctx context.Context, cfg config.Config) error {
 	if err := cfg.Validate(); err != nil {
 		return err
 	}
+	if warning, err := config.CheckConfigPermissions(cfg.ConfigPath); err != nil {
+		return err
+	} else if warning != "" {
+		log.Printf("warning: %s", warning)
+	}
 	profiles, err := LoadProfiles(cfg.ProfilesDir)
 	if err != nil {
 		return err
