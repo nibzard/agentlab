@@ -60,8 +60,8 @@ func (s SnippetStore) Create(input SnippetInput) (CloudInitSnippet, error) {
 	if hostname == "" {
 		hostname = fmt.Sprintf("sandbox-%d", input.VMID)
 	}
-	if strings.ContainsAny(hostname, " \t\n") {
-		return CloudInitSnippet{}, fmt.Errorf("hostname contains whitespace: %q", hostname)
+	if err := validateHostname(hostname); err != nil {
+		return CloudInitSnippet{}, err
 	}
 	sshKey := strings.TrimSpace(input.SSHPublicKey)
 	if sshKey == "" {
@@ -79,13 +79,13 @@ func (s SnippetStore) Create(input SnippetInput) (CloudInitSnippet, error) {
 		return CloudInitSnippet{}, errors.New("controller URL is required")
 	}
 
-	storage := strings.TrimSpace(s.Storage)
-	if storage == "" {
-		storage = defaultSnippetStorage
+	storage, err := normalizeSnippetStorage(s.Storage)
+	if err != nil {
+		return CloudInitSnippet{}, err
 	}
-	dir := strings.TrimSpace(s.Dir)
-	if dir == "" {
-		dir = defaultSnippetDir
+	dir, err := normalizeSnippetDir(s.Dir)
+	if err != nil {
+		return CloudInitSnippet{}, err
 	}
 
 	content, err := renderCloudInitUserData(hostname, sshKey, token, controller, int(input.VMID))
@@ -109,6 +109,11 @@ func (s SnippetStore) Create(input SnippetInput) (CloudInitSnippet, error) {
 				continue
 			}
 			return CloudInitSnippet{}, fmt.Errorf("create snippet file: %w", err)
+		}
+		if err := ensureWithinDir(dir, fullPath); err != nil {
+			_ = file.Close()
+			_ = os.Remove(fullPath)
+			return CloudInitSnippet{}, err
 		}
 		_, writeErr := io.WriteString(file, content)
 		closeErr := file.Close()
@@ -165,6 +170,105 @@ func randomSuffix(r io.Reader, bytesLen int) (string, error) {
 		return "", err
 	}
 	return hex.EncodeToString(buf), nil
+}
+
+func normalizeSnippetStorage(storage string) (string, error) {
+	storage = strings.TrimSpace(storage)
+	if storage == "" {
+		storage = defaultSnippetStorage
+	}
+	if len(storage) > 64 {
+		return "", fmt.Errorf("snippet storage name too long: %d", len(storage))
+	}
+	for _, r := range storage {
+		if !isStorageNameChar(r) {
+			return "", fmt.Errorf("invalid snippet storage name: %q", storage)
+		}
+	}
+	return storage, nil
+}
+
+func normalizeSnippetDir(dir string) (string, error) {
+	dir = strings.TrimSpace(dir)
+	if dir == "" {
+		dir = defaultSnippetDir
+	}
+	cleaned := filepath.Clean(dir)
+	if !filepath.IsAbs(cleaned) {
+		return "", fmt.Errorf("snippets dir must be absolute: %q", dir)
+	}
+	return cleaned, nil
+}
+
+func ensureWithinDir(dir, path string) error {
+	rel, err := filepath.Rel(dir, path)
+	if err != nil {
+		return fmt.Errorf("resolve snippet path: %w", err)
+	}
+	if rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+		return fmt.Errorf("snippet path escapes base dir: %q", path)
+	}
+	return nil
+}
+
+func validateHostname(hostname string) error {
+	if hostname == "" {
+		return errors.New("hostname is required")
+	}
+	if len(hostname) > 253 {
+		return fmt.Errorf("hostname too long: %d", len(hostname))
+	}
+	if strings.HasPrefix(hostname, ".") || strings.HasSuffix(hostname, ".") {
+		return fmt.Errorf("hostname must not start or end with a dot: %q", hostname)
+	}
+	labels := strings.Split(hostname, ".")
+	for _, label := range labels {
+		if label == "" {
+			return fmt.Errorf("hostname contains empty label: %q", hostname)
+		}
+		if len(label) > 63 {
+			return fmt.Errorf("hostname label too long: %q", label)
+		}
+		if label[0] == '-' || label[len(label)-1] == '-' {
+			return fmt.Errorf("hostname label must not start or end with hyphen: %q", label)
+		}
+		for _, r := range label {
+			if !isHostnameLabelChar(r) {
+				return fmt.Errorf("hostname contains invalid character: %q", hostname)
+			}
+		}
+	}
+	return nil
+}
+
+func isHostnameLabelChar(r rune) bool {
+	switch {
+	case r >= 'a' && r <= 'z':
+		return true
+	case r >= 'A' && r <= 'Z':
+		return true
+	case r >= '0' && r <= '9':
+		return true
+	case r == '-':
+		return true
+	default:
+		return false
+	}
+}
+
+func isStorageNameChar(r rune) bool {
+	switch {
+	case r >= 'a' && r <= 'z':
+		return true
+	case r >= 'A' && r <= 'Z':
+		return true
+	case r >= '0' && r <= '9':
+		return true
+	case r == '-', r == '_', r == '.':
+		return true
+	default:
+		return false
+	}
 }
 
 func renderCloudInitUserData(hostname, sshKey, token, controller string, vmid int) (string, error) {

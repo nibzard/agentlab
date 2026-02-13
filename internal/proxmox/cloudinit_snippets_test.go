@@ -2,6 +2,7 @@ package proxmox
 
 import (
 	"bytes"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -134,5 +135,76 @@ func TestSnippetStoreRequiresToken(t *testing.T) {
 	})
 	if err == nil {
 		t.Fatalf("expected error for missing bootstrap token")
+	}
+}
+
+func TestSnippetStoreRejectsInvalidHostname(t *testing.T) {
+	tests := []string{
+		"bad host",
+		"bad\thost",
+		"bad\nhost",
+		".leadingdot",
+		"trailingdot.",
+		"double..dot",
+		"-leading-hyphen",
+		"trailing-hyphen-",
+		"has_underscore",
+		strings.Repeat("a", 64),
+		"label." + strings.Repeat("b", 64),
+	}
+	for i, hostname := range tests {
+		t.Run(fmt.Sprintf("case-%d", i), func(t *testing.T) {
+			store := SnippetStore{Dir: t.TempDir()}
+			_, err := store.Create(SnippetInput{
+				VMID:           12,
+				Hostname:       hostname,
+				SSHPublicKey:   "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIBtestkey agent@test",
+				BootstrapToken: "token-xyz",
+				ControllerURL:  "http://10.77.0.1:8844",
+			})
+			if err == nil {
+				t.Fatalf("expected error for hostname %q", hostname)
+			}
+		})
+	}
+}
+
+func TestSnippetStoreRejectsInvalidStorageName(t *testing.T) {
+	tests := []string{
+		"local:snippets",
+		"local/snippets",
+		"local snippets",
+		"local\nsnippets",
+		"local\tbad",
+		"local@bad",
+	}
+	for i, storage := range tests {
+		t.Run(fmt.Sprintf("case-%d", i), func(t *testing.T) {
+			store := SnippetStore{Dir: t.TempDir(), Storage: storage}
+			_, err := store.Create(SnippetInput{
+				VMID:           13,
+				Hostname:       "sandbox-13",
+				SSHPublicKey:   "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIBtestkey agent@test",
+				BootstrapToken: "token-xyz",
+				ControllerURL:  "http://10.77.0.1:8844",
+			})
+			if err == nil {
+				t.Fatalf("expected error for storage %q", storage)
+			}
+		})
+	}
+}
+
+func TestSnippetStoreRejectsRelativeDir(t *testing.T) {
+	store := SnippetStore{Dir: "snippets"}
+	_, err := store.Create(SnippetInput{
+		VMID:           14,
+		Hostname:       "sandbox-14",
+		SSHPublicKey:   "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIBtestkey agent@test",
+		BootstrapToken: "token-xyz",
+		ControllerURL:  "http://10.77.0.1:8844",
+	})
+	if err == nil {
+		t.Fatalf("expected error for relative snippets dir")
 	}
 }

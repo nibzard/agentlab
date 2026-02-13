@@ -3634,19 +3634,19 @@
       ],
       "files": [
         "cmd/agentlab/api.go",
-        "cmd/agentlab/commands.go",
         "cmd/agentlab/api_test.go",
+        "cmd/agentlab/commands.go",
         "cmd/agentlab/ssh.go",
         "cmd/agentlab/touch.go",
         "to-do.json"
       ],
-      "updated_at": "2026-02-13T20:37:48Z"
+      "updated_at": "2026-02-13T20:38:10Z"
     },
     {
       "id": "T135",
       "title": "Strengthen cloud-init snippet hostname/path validation",
       "priority": 3,
-      "status": "todo",
+      "status": "done",
       "details": "Harden hostname and path handling in snippet generation to prevent malformed or unexpected snippet/file paths from creating unsafe runtime behavior.",
       "steps": [
         "Review `internal/proxmox/cloudinit_snippets.go` validation boundaries for hostnames and generated paths.",
@@ -3659,8 +3659,10 @@
         "cloud-init"
       ],
       "files": [
-        "internal/proxmox/cloudinit_snippets.go"
-      ]
+        "internal/proxmox/cloudinit_snippets.go",
+        "internal/proxmox/cloudinit_snippets_test.go"
+      ],
+      "updated_at": "2026-02-13T20:41:46Z"
     }
   ]
 }
