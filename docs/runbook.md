@@ -21,6 +21,12 @@ Key paths:
 - Socket: `/run/agentlab/agentlabd.sock`
 - Cloud-init snippets (default): `/var/lib/vz/snippets`
 
+Cloud-init snippets are visible in the Proxmox UI and API to anyone who can view
+VM config or snippet storage. They include the one-time bootstrap token, controller
+URL, and VMID. The token is short-lived and single-use, but treat snippet contents
+as sensitive and restrict Proxmox access accordingly. Snippets are deleted when
+sandboxes are destroyed; remove stale snippets manually if a VM is kept or snapshotted.
+
 CLI reference:
 - `docs/cli.md` (auto-generated from `agentlab --help`)
 

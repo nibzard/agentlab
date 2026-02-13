@@ -81,6 +81,15 @@ Artifact upload tokens are minted per job by `agentlabd` and are **not** stored 
 secrets bundle. When the embedded artifact upload service is enabled (default), the
 `artifact` section above is ignored.
 
+## Cloud-init bootstrap tokens
+
+The secrets bundle does not contain the per-sandbox bootstrap token. `agentlabd`
+generates the token and writes it into the cloud-init snippet so the guest can
+fetch secrets once. Proxmox exposes snippets in the UI and API, so anyone who can
+view VM config or snippet storage can see the token along with the controller URL
+and VMID. The token is short-lived and single-use, but treat snippet contents as
+sensitive and restrict access to Proxmox UI and snippets storage.
+
 ## Rotation workflow
 
 1. Create a new bundle file with new tokens (e.g., `default-2026-01-30.age`).

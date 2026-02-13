@@ -3716,7 +3716,7 @@
       "id": "T138",
       "title": "Document cloud-init snippet visibility in Proxmox UI",
       "priority": 3,
-      "status": "todo",
+      "status": "done",
       "details": "Add documentation noting that cloud-init snippets (and embedded bootstrap tokens) are visible in the Proxmox UI/storage so operators understand exposure and lifecycle.",
       "tags": [
         "docs",
@@ -3726,7 +3726,8 @@
         "docs/security.md",
         "docs/runbook.md",
         "docs/secrets.md"
-      ]
+      ],
+      "updated_at": "2026-02-13T21:07:01Z"
     }
   ]
 }
