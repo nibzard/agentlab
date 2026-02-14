@@ -208,6 +208,47 @@ For debugging, include `X-AgentLab-Debug: true` to request redacted `details` on
 { "vmid": 1000, "lease_expires_at": "2026-01-30T03:45:00Z" }
 ```
 
+## Event contract
+
+Daemon event records use a shared JSON envelope in `V1Event.json`:
+
+```json
+{
+  "kind": "sandbox.start.completed",
+  "schema_version": 1,
+  "stage": "lifecycle",
+  "payload": {
+    "duration_ms": 512,
+    "result": "ok"
+  }
+}
+```
+
+`schema_version` and `stage` allow clients to consume events with predictable semantics even as payload fields evolve.
+Events emitted by daemon versions before the canonical contract continue to surface as plain JSON payloads and are treated as `schema_version: 0` for compatibility.
+
+Current canonical stages:
+
+- `lifecycle` - state transitions and lifecycle completion/failure events
+- `lease` - lease allocation and renewal flows
+- `slo` - startup SLO measurements
+- `recovery` - stop/start fallback and restore operations
+- `snapshot` - snapshot create/restore activity
+- `report` - periodic job runner reports
+- `network` - IP and network assignment milestones
+- `artifact` - artifact upload/gc lifecycle
+- `exposure` - exposure create/delete lifecycle
+
+Canonical kinds are grouped by domain in `internal/daemon/event_types.go`:
+
+- `sandbox.*`
+- `job.*`
+- `workspace.*` (including lease and recovery operations)
+- `artifact.*`
+- `exposure.*`
+
+Clients should rely on `kind`, `schema_version`, and `stage` as the stable contract boundary.
+
 ## Endpoints
 
 ### POST /v1/jobs
@@ -230,7 +271,16 @@ Response includes `events` when requested or by default:
   "id": "job_0123abcd",
   "status": "RUNNING",
   "events": [
-    { "id": 10, "ts": "2026-01-30T03:14:00Z", "kind": "job.report", "job_id": "job_0123abcd", "msg": "bootstrapped" }
+    {
+      "id": 10,
+      "ts": "2026-01-30T03:14:00Z",
+      "kind": "job.report",
+      "schema_version": 1,
+      "stage": "report",
+      "job_id": "job_0123abcd",
+      "msg": "bootstrapped",
+      "json": { "status": "running", "artifacts": ["artifacts.tar.gz"] }
+    }
   ]
 }
 ```
@@ -332,6 +382,8 @@ Query params (mutually exclusive `tail`/`after`):
 - `tail=<n>` returns the last N events (default used by CLI logs).
 - `after=<id>` returns events with id greater than `after` (for follow).
 - `limit=<n>` caps the number of events (default 200, max 1000).
+
+Each event follows the same event contract shape above, including `kind`, `schema_version`, `stage`, and `json` payload.
 
 ### POST /v1/messages
 Post a message to the shared messagebox.

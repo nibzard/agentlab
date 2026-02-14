@@ -3707,7 +3707,15 @@ func eventToV1(ev db.Event) V1Event {
 	if ev.JobID != nil {
 		resp.JobID = *ev.JobID
 	}
-	if strings.TrimSpace(ev.JSON) != "" {
+	if version, stage, payloadData, ok := parseLegacyEventPayload(ev.JSON); ok {
+		if version > 0 {
+			resp.Schema = version
+			resp.Stage = string(stage)
+		}
+		if len(payloadData) > 0 {
+			resp.Payload = payloadData
+		}
+	} else if strings.TrimSpace(ev.JSON) != "" {
 		payload := []byte(ev.JSON)
 		if !json.Valid(payload) {
 			payload, _ = json.Marshal(ev.JSON)

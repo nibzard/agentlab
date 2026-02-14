@@ -399,6 +399,8 @@ type V1Event struct {
 	ID          int64           `json:"id"`
 	Timestamp   string          `json:"ts"`
 	Kind        string          `json:"kind"`
+	Schema      int             `json:"schema_version,omitempty"`
+	Stage       string          `json:"stage,omitempty"`
 	SandboxVMID *int            `json:"sandbox_vmid,omitempty"`
 	JobID       string          `json:"job_id,omitempty"`
 	Message     string          `json:"msg,omitempty"`

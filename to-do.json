@@ -3764,6 +3764,286 @@
         "2026-02-13T22:19:50Z: Blocked — no access to a real Proxmox host in this environment to re-run provisioning or capture logs after adding debug-response diagnostics.",
         "No access to a real Proxmox host in this environment to re-run provisioning or capture logs for ACTUAL_PROXMOX_TESTING.md and SUMMARY.md."
       ]
+    },
+    {
+      "id": "T140",
+      "title": "Typed event contract: define canonical event kinds, stages, and payload schemas",
+      "priority": 1,
+      "status": "done",
+      "details": "Move from stringly-typed event emission to a versioned event contract so automation and projections can rely on stable semantics across daemon, CLI, and docs.",
+      "steps": [
+        "Define an event catalog with canonical kinds/stages for sandbox lifecycle, job lifecycle, workspace lease, artifact lifecycle, and recovery flows.",
+        "Define per-kind payload schemas (minimum required fields + optional fields) and version each schema explicitly.",
+        "Implement typed event helpers/builders and reject unknown kinds at compile-time where possible.",
+        "Document the contract and migration rules (how to add/change/deprecate event kinds without breaking clients).",
+        "Add unit tests that validate kind names, schema-required fields, and serialization stability."
+      ],
+      "tags": [
+        "roadmap-v0.3",
+        "events",
+        "observability",
+        "api"
+      ],
+      "files": [
+        "docs/api.md",
+        "docs/architecture.md",
+        "internal/db/events.go",
+        "internal/daemon/event_contract.go",
+        "internal/daemon/event_contract_test.go",
+        "internal/daemon/event_types.go",
+        "internal/daemon/api.go",
+        "to-do.json"
+      ],
+      "depends_on": [
+        "T036"
+      ],
+      "created_at": "2026-02-14T19:27:23Z",
+      "updated_at": "2026-02-14T19:41:24Z"
+    },
+    {
+      "id": "T141",
+      "title": "Event emission unification: route daemon event writes through typed recorder",
+      "priority": 1,
+      "status": "todo",
+      "details": "Adopt a single typed event recorder in all orchestration paths to eliminate drift in kind names and payload structure.",
+      "steps": [
+        "Implement a central event recorder interface and wire it through daemon components.",
+        "Migrate job orchestration, sandbox management, workspace flows, bootstrap, and artifact GC to typed emitters.",
+        "Ensure all failure paths emit typed error events with stable error fields.",
+        "Preserve backward compatibility for existing event queries while switching write paths.",
+        "Add focused tests for each major path to ensure expected event sequence and payload fields."
+      ],
+      "tags": [
+        "roadmap-v0.3",
+        "events",
+        "daemon",
+        "refactor"
+      ],
+      "files": [
+        "internal/daemon/api.go",
+        "internal/daemon/artifact_gc.go",
+        "internal/daemon/bootstrap_api.go",
+        "internal/daemon/job_orchestrator.go",
+        "internal/daemon/sandbox_manager.go",
+        "internal/daemon/workspace_manager.go",
+        "internal/daemon/workspace_rebind.go",
+        "internal/db/events.go",
+        "to-do.json"
+      ],
+      "depends_on": [
+        "T140"
+      ],
+      "created_at": "2026-02-14T19:27:23Z"
+    },
+    {
+      "id": "T142",
+      "title": "Event projections: derive sandbox/job health views from event stream",
+      "priority": 2,
+      "status": "todo",
+      "details": "Create projection handlers that turn the event stream into stable read models for status surfaces and diagnostics.",
+      "steps": [
+        "Define projection outputs for sandbox lifecycle summary, job timeline summary, and recent failure digest.",
+        "Implement projection update handlers triggered by typed events.",
+        "Add replay support so projections can be rebuilt from stored events.",
+        "Expose projection-backed fields in `/v1/status` and job/sandbox show endpoints where appropriate.",
+        "Add tests for replay determinism and projection correctness on out-of-order or duplicate-safe scenarios."
+      ],
+      "tags": [
+        "roadmap-v0.3",
+        "events",
+        "projections",
+        "status"
+      ],
+      "files": [
+        "internal/daemon/api.go",
+        "internal/daemon/api_types.go",
+        "internal/daemon/event_projection.go",
+        "internal/daemon/event_projection_test.go",
+        "internal/db/events.go",
+        "to-do.json"
+      ],
+      "depends_on": [
+        "T140",
+        "T141",
+        "T061"
+      ],
+      "created_at": "2026-02-14T19:27:23Z"
+    },
+    {
+      "id": "T143",
+      "title": "Preflight contracts: add job/sandbox validate-plan endpoints with deterministic JSON",
+      "priority": 1,
+      "status": "todo",
+      "details": "Prevent invalid requests from entering long provisioning paths by exposing explicit preflight/plan APIs with stable machine-readable output.",
+      "steps": [
+        "Add API request/response types for preflight validation (`ok`, `errors[]`, `warnings[]`, normalized plan).",
+        "Implement endpoints for job preflight and sandbox preflight that reuse profile/resource/network validation logic.",
+        "Include explicit checks for template availability, workspace availability, profile constraints, and required config preconditions.",
+        "Return stable error codes and field pointers for each validation failure.",
+        "Document endpoint contracts and include example payloads."
+      ],
+      "tags": [
+        "roadmap-v0.3",
+        "api",
+        "preflight",
+        "validation"
+      ],
+      "files": [
+        "docs/api.md",
+        "internal/daemon/api.go",
+        "internal/daemon/api_types.go",
+        "internal/daemon/job_orchestrator.go",
+        "internal/daemon/profile_validation.go",
+        "internal/daemon/workspace_manager.go",
+        "to-do.json"
+      ],
+      "depends_on": [
+        "T013",
+        "T032",
+        "T089"
+      ],
+      "created_at": "2026-02-14T19:27:23Z"
+    },
+    {
+      "id": "T144",
+      "title": "CLI preflight UX: add `agentlab job validate` and `agentlab sandbox validate`",
+      "priority": 2,
+      "status": "todo",
+      "details": "Expose preflight APIs directly in CLI workflows so users and agents can validate plans before costly provisioning.",
+      "steps": [
+        "Add `agentlab job validate` command with parity to `job run` flags and deterministic `--json` output.",
+        "Add `agentlab sandbox validate` command with parity to `sandbox new` flags and deterministic `--json` output.",
+        "Print concise human output with actionable next steps when validation fails.",
+        "Ensure non-zero exit codes on invalid plans for CI/automation usage.",
+        "Add CLI tests covering flag parsing, API request shape, and output contracts."
+      ],
+      "tags": [
+        "roadmap-v0.3",
+        "cli",
+        "preflight",
+        "automation"
+      ],
+      "files": [
+        "README.md",
+        "cmd/agentlab/api.go",
+        "cmd/agentlab/commands.go",
+        "cmd/agentlab/main.go",
+        "cmd/agentlab/main_test.go",
+        "docs/cli.md",
+        "to-do.json"
+      ],
+      "depends_on": [
+        "T143",
+        "T022"
+      ],
+      "created_at": "2026-02-14T19:27:23Z"
+    },
+    {
+      "id": "T145",
+      "title": "Error code taxonomy: standardize API and CLI machine-readable failures",
+      "priority": 1,
+      "status": "todo",
+      "details": "Define and enforce stable error codes/messages so agents can automate retries and remediation without fragile string matching.",
+      "steps": [
+        "Create a versioned error code catalog grouped by domain (auth, validation, provisioning, workspace, network, artifacts).",
+        "Implement API error envelope updates to always include `code`, `message`, and optional `details` in a stable shape.",
+        "Map daemon-originated error codes to CLI output and exit codes without losing context.",
+        "Add compatibility notes and migration guidance for existing clients.",
+        "Add tests that assert code stability for representative failure paths."
+      ],
+      "tags": [
+        "roadmap-v0.3",
+        "api",
+        "cli",
+        "errors",
+        "automation"
+      ],
+      "files": [
+        "cmd/agentlab/errors.go",
+        "cmd/agentlab/main.go",
+        "docs/api.md",
+        "docs/cli.md",
+        "internal/daemon/api.go",
+        "internal/daemon/api_types.go",
+        "internal/daemon/control_auth.go",
+        "to-do.json"
+      ],
+      "depends_on": [
+        "T106",
+        "T143"
+      ],
+      "created_at": "2026-02-14T19:27:23Z"
+    },
+    {
+      "id": "T146",
+      "title": "Multi-skill bundle: package and version AgentLab skills for install/upgrade",
+      "priority": 2,
+      "status": "todo",
+      "details": "Replace single-file skill delivery with a versioned multi-skill bundle and explicit install/upgrade flow so agents can discover and use consistent capabilities.",
+      "steps": [
+        "Define a bundle manifest (name, version, supported agent versions, included skills).",
+        "Split current skill guidance into focused skill files (job execution, workspace recovery, troubleshooting, networking, artifact triage).",
+        "Implement install/upgrade behavior in host setup and init flows with idempotent updates.",
+        "Add CLI/status output to show installed skill bundle version.",
+        "Document compatibility guarantees and rollback procedure for skill upgrades."
+      ],
+      "tags": [
+        "roadmap-v0.3",
+        "skills",
+        "devex",
+        "packaging"
+      ],
+      "files": [
+        "README.md",
+        "cmd/agentlab/init.go",
+        "docs/runbook.md",
+        "scripts/install_host.sh",
+        "skills/agentlab/SKILL.md",
+        "skills/agentlab/bundle/manifest.json",
+        "to-do.json"
+      ],
+      "depends_on": [
+        "T030",
+        "T031",
+        "T101"
+      ],
+      "created_at": "2026-02-14T19:27:23Z"
+    },
+    {
+      "id": "T147",
+      "title": "Schema publishing: add `/v1/schema` and `agentlab schema` for contract discovery",
+      "priority": 2,
+      "status": "todo",
+      "details": "Expose machine-readable API and event schemas so external agents can self-discover contracts and validate payloads offline.",
+      "steps": [
+        "Define schema document format and versioning strategy for API resources and typed events.",
+        "Add daemon endpoint `/v1/schema` returning the active schema bundle with version metadata.",
+        "Add CLI command `agentlab schema` to print/fetch schema JSON.",
+        "Include schema version in `/v1/status` and CLI diagnostics for easy support triage.",
+        "Document schema lifecycle and compatibility policy."
+      ],
+      "tags": [
+        "roadmap-v0.3",
+        "schema",
+        "api",
+        "events",
+        "automation"
+      ],
+      "files": [
+        "cmd/agentlab/commands.go",
+        "cmd/agentlab/main.go",
+        "docs/api.md",
+        "internal/daemon/api.go",
+        "internal/daemon/api_types.go",
+        "internal/daemon/schema.go",
+        "internal/daemon/schema_test.go",
+        "to-do.json"
+      ],
+      "depends_on": [
+        "T140",
+        "T143"
+      ],
+      "created_at": "2026-02-14T19:27:23Z"
     }
   ]
 }

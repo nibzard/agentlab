@@ -545,6 +545,28 @@ erDiagram
 
 ---
 
+### Event Contract and Versioning
+
+Event records are the canonical audit trail and are consumed by both CLI logs and external automations.
+`internal/daemon/event_types.go` defines the canonical taxonomy:
+
+- Domains: `sandbox`, `job`, `workspace`, `artifact`, `exposure`, `recovery`.
+- Stages: `lifecycle`, `lease`, `slo`, `recovery`, `snapshot`, `report`, `network`, `artifact`, `exposure`.
+- Payload schema per kind with versioned `schema_version` and required/optional field sets.
+
+Current contract behavior:
+
+- New events emitted by daemon components must use `NewEventPayloadForKind` to attach schema metadata.
+- Unknown kinds are rejected at emission time (`unknown event kind` errors).
+- Known kinds are stored as envelopes: `{ "kind", "schema_version", "stage", "payload" }`.
+- Legacy rows without envelopes are still read as raw payloads and exposed as `schema_version: 0` in API responses.
+
+Migration rule:
+
+- Add new or changed kinds in `internal/daemon/event_types.go`.
+- Update the corresponding schema definition and payload requirements before changing emitters.
+- Consumers should gate on `schema_version` and ignore missing/new payload fields when possible.
+
 ## Messagebox
 
 Messagebox provides an append-only coordination log scoped to a job, workspace, or session.
