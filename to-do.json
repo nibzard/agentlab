@@ -4004,7 +4004,12 @@
         "scripts/README.md",
         "scripts/install_host.sh",
         "skills/agentlab/SKILL.md",
+        "skills/agentlab/artifact-triage.md",
         "skills/agentlab/bundle/manifest.json",
+        "skills/agentlab/job-execution.md",
+        "skills/agentlab/networking.md",
+        "skills/agentlab/troubleshooting.md",
+        "skills/agentlab/workspace-recovery.md",
         "to-do.json"
       ],
       "depends_on": [
@@ -4013,13 +4018,13 @@
         "T101"
       ],
       "created_at": "2026-02-14T19:27:23Z",
-      "updated_at": "2026-02-14T20:25:23Z"
+      "updated_at": "2026-02-14T20:25:39Z"
     },
     {
       "id": "T147",
       "title": "Schema publishing: add `/v1/schema` and `agentlab schema` for contract discovery",
       "priority": 2,
-      "status": "todo",
+      "status": "done",
       "details": "Expose machine-readable API and event schemas so external agents can self-discover contracts and validate payloads offline.",
       "steps": [
         "Define schema document format and versioning strategy for API resources and typed events.",
@@ -4037,6 +4042,7 @@
       ],
       "files": [
         "cmd/agentlab/commands.go",
+        "cmd/agentlab/commands_happy_path_test.go",
         "cmd/agentlab/main.go",
         "docs/api.md",
         "internal/daemon/api.go",
@@ -4049,7 +4055,8 @@
         "T140",
         "T143"
       ],
-      "created_at": "2026-02-14T19:27:23Z"
+      "created_at": "2026-02-14T19:27:23Z",
+      "updated_at": "2026-02-14T20:34:26Z"
     }
   ]
 }

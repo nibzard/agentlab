@@ -401,6 +401,9 @@ func TestCLIStatusHappyPath(t *testing.T) {
 	if !strings.Contains(out, "Artifacts:") || !strings.Contains(out, "Metrics:") {
 		t.Fatalf("expected artifacts/metrics output, got %q", out)
 	}
+	if !strings.Contains(out, "Schema Versions:") {
+		t.Fatalf("expected schema versions output, got %q", out)
+	}
 	if !strings.Contains(out, "job.failed") {
 		t.Fatalf("expected recent failure output, got %q", out)
 	}
@@ -416,7 +419,47 @@ func TestCLIStatusHappyPath(t *testing.T) {
 	if err := json.Unmarshal([]byte(jsonOut), &got); err != nil {
 		t.Fatalf("unmarshal status json: %v", err)
 	}
+	if got.APISchemaVersion != 1 {
+		t.Fatalf("expected api_schema_version=1, got %d", got.APISchemaVersion)
+	}
+	if got.EventSchemaVersion != 1 {
+		t.Fatalf("expected event_schema_version=1, got %d", got.EventSchemaVersion)
+	}
 	if got.Metrics.Enabled != true {
 		t.Fatalf("expected metrics enabled, got %#v", got.Metrics.Enabled)
+	}
+}
+
+func TestCLISchemaHappyPath(t *testing.T) {
+	mux := http.NewServeMux()
+	mux.HandleFunc("/v1/schema", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			t.Errorf("/v1/schema method = %s", r.Method)
+			w.WriteHeader(http.StatusMethodNotAllowed)
+			return
+		}
+		resp := map[string]any{
+			"generated_at":        "2026-02-14T00:00:00Z",
+			"api_schema_version":  1,
+			"event_schema_version": 1,
+			"resources": []map[string]any{
+				{"path": "/v1/status", "methods": []string{"GET"}, "summary": "Fetch control-plane status", "response_type": "V1StatusResponse"},
+			},
+			"compatibility": map[string]string{"api": "Additive changes preferred"},
+		}
+		writeJSON(t, w, http.StatusOK, resp)
+	})
+
+	socketPath := startUnixHTTPServer(t, mux)
+	base := commonFlags{socketPath: socketPath, jsonOutput: false, timeout: time.Second}
+
+	out := captureStdout(t, func() {
+		err := runSchemaCommand(context.Background(), nil, base)
+		if err != nil {
+			t.Fatalf("runSchemaCommand() error = %v", err)
+		}
+	})
+	if !strings.Contains(out, "\"api_schema_version\": 1") {
+		t.Fatalf("expected schema output, got %q", out)
 	}
 }
