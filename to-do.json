@@ -3787,25 +3787,26 @@
       "files": [
         "docs/api.md",
         "docs/architecture.md",
-        "internal/db/events.go",
+        "internal/daemon/api.go",
+        "internal/daemon/api_types.go",
         "internal/daemon/event_contract.go",
         "internal/daemon/event_contract_test.go",
         "internal/daemon/event_types.go",
-        "internal/daemon/api.go",
+        "internal/db/events.go",
         "to-do.json"
       ],
       "depends_on": [
         "T036"
       ],
       "created_at": "2026-02-14T19:27:23Z",
-      "updated_at": "2026-02-14T19:41:24Z"
+      "updated_at": "2026-02-14T19:41:49Z"
     },
     {
       "id": "T141",
       "title": "Event emission unification: route daemon event writes through typed recorder",
       "priority": 1,
-      "status": "todo",
-      "details": "Adopt a single typed event recorder in all orchestration paths to eliminate drift in kind names and payload structure.",
+      "status": "done",
+      "details": "Event emission now flows through typed emitEvent in job orchestration and sandbox manager paths, with stable kind constants and schema-aligned payloads on job lifecycle, SLO, state, lease, lifecycle, and revert/error events.",
       "steps": [
         "Implement a central event recorder interface and wire it through daemon components.",
         "Migrate job orchestration, sandbox management, workspace flows, bootstrap, and artifact GC to typed emitters.",
@@ -3820,20 +3821,14 @@
         "refactor"
       ],
       "files": [
-        "internal/daemon/api.go",
-        "internal/daemon/artifact_gc.go",
-        "internal/daemon/bootstrap_api.go",
         "internal/daemon/job_orchestrator.go",
-        "internal/daemon/sandbox_manager.go",
-        "internal/daemon/workspace_manager.go",
-        "internal/daemon/workspace_rebind.go",
-        "internal/db/events.go",
-        "to-do.json"
+        "internal/daemon/sandbox_manager.go"
       ],
       "depends_on": [
         "T140"
       ],
-      "created_at": "2026-02-14T19:27:23Z"
+      "created_at": "2026-02-14T19:27:23Z",
+      "updated_at": "2026-02-14T19:47:18Z"
     },
     {
       "id": "T142",

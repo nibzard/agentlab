@@ -287,7 +287,7 @@ func (o *JobOrchestrator) Run(ctx context.Context, jobID string) error {
 		if !errors.Is(err, proxmox.ErrGuestIPNotFound) && !errors.Is(err, context.DeadlineExceeded) && !errors.Is(err, context.Canceled) {
 			return o.failJob(job, sandbox.VMID, err)
 		}
-		_ = o.store.RecordEvent(ctx, "sandbox.ip_pending", &sandbox.VMID, &job.ID, "sandbox started but IP not yet discovered", "")
+		_ = emitEvent(ctx, NewStoreEventRecorder(o.store), EventKindSandboxIPPending, &sandbox.VMID, &job.ID, "sandbox started but IP not yet discovered", nil)
 	}
 	if ip != "" {
 		candidateIP := strings.TrimSpace(ip)
@@ -330,7 +330,7 @@ func (o *JobOrchestrator) Run(ctx context.Context, jobID string) error {
 			o.metrics.IncJobStatus(models.JobRunning)
 		}
 		o.observeJobStart(ctx, job, sandbox.VMID)
-		_ = o.store.RecordEvent(ctx, "job.running", &sandbox.VMID, &job.ID, "sandbox running", "")
+		_ = emitEvent(ctx, NewStoreEventRecorder(o.store), EventKindJobRunning, &sandbox.VMID, &job.ID, "sandbox running", nil)
 	}
 	if job.WorkspaceID != nil && strings.TrimSpace(*job.WorkspaceID) != "" {
 		owner := workspaceLeaseOwnerForJobOrSession(job.ID, job.SessionID)
@@ -490,7 +490,7 @@ func (o *JobOrchestrator) ProvisionSandbox(ctx context.Context, vmid int) (model
 		if !errors.Is(err, proxmox.ErrGuestIPNotFound) && !errors.Is(err, context.DeadlineExceeded) && !errors.Is(err, context.Canceled) {
 			return fail(err)
 		}
-		_ = o.store.RecordEvent(ctx, "sandbox.ip_pending", &sandbox.VMID, nil, "sandbox started but IP not yet discovered", "")
+		_ = emitEvent(ctx, NewStoreEventRecorder(o.store), EventKindSandboxIPPending, &sandbox.VMID, nil, "sandbox started but IP not yet discovered", nil)
 	}
 	if ip != "" {
 		resolvedIP, persistErr := o.persistDiscoveredSandboxIP(ctx, sandbox.VMID, ip, nil)
@@ -573,7 +573,18 @@ func (o *JobOrchestrator) HandleReport(ctx context.Context, report JobReport) er
 	if err := o.store.UpdateJobResult(ctx, job.ID, report.Status, resultJSON); err != nil {
 		return err
 	}
-	_ = o.store.RecordEvent(ctx, "job.report", &report.VMID, &job.ID, report.Message, "")
+	payload := struct {
+		Status    string               `json:"status"`
+		Message   string               `json:"message,omitempty"`
+		Artifacts []V1ArtifactMetadata `json:"artifacts,omitempty"`
+		Result    json.RawMessage      `json:"result,omitempty"`
+	}{
+		Status:    string(report.Status),
+		Message:   report.Message,
+		Artifacts: report.Artifacts,
+		Result:    report.Result,
+	}
+	_ = emitEvent(ctx, NewStoreEventRecorder(o.store), EventKindJobReport, &report.VMID, &job.ID, report.Message, payload)
 
 	if report.Status == models.JobRunning {
 		_ = o.ensureSandboxRunning(ctx, report.VMID)
@@ -850,7 +861,16 @@ func (o *JobOrchestrator) failJob(job models.Job, vmid int, cause error) error {
 	failureCtx, cancel := o.withFailureTimeout()
 	defer cancel()
 	_ = o.store.UpdateJobResult(failureCtx, job.ID, models.JobFailed, resultJSON)
-	_ = o.store.RecordEvent(failureCtx, "job.failed", nullableVMID(vmid), &job.ID, message, "")
+	payload := struct {
+		Status  string `json:"status"`
+		Message string `json:"message,omitempty"`
+		Error   string `json:"error,omitempty"`
+	}{
+		Status:  string(models.JobFailed),
+		Message: message,
+		Error:   message,
+	}
+	_ = emitEvent(failureCtx, NewStoreEventRecorder(o.store), EventKindJobFailed, nullableVMID(vmid), &job.ID, message, payload)
 	if job.WorkspaceID != nil && strings.TrimSpace(*job.WorkspaceID) != "" && !job.Keepalive && !jobUsesSessionLease(job.SessionID) {
 		owner := workspaceLeaseOwnerForJobOrSession(job.ID, job.SessionID)
 		o.releaseWorkspaceLease(failureCtx, *job.WorkspaceID, owner, job.ID, vmid)
@@ -926,7 +946,7 @@ func (o *JobOrchestrator) createCleanSnapshot(ctx context.Context, vmid int, job
 	}{
 		Name: cleanSnapshotName,
 	}
-	kind := "sandbox.snapshot.created"
+	eventKind := EventKindSandboxSnapshotCreated
 	msg := fmt.Sprintf("snapshot %s created", cleanSnapshotName)
 	if err != nil {
 		errMsg := err.Error()
@@ -934,16 +954,11 @@ func (o *JobOrchestrator) createCleanSnapshot(ctx context.Context, vmid int, job
 			errMsg = o.redactor.Redact(errMsg)
 		}
 		payload.Error = errMsg
-		kind = "sandbox.snapshot.failed"
+		eventKind = EventKindSandboxSnapshotFailed
 		msg = fmt.Sprintf("snapshot %s failed: %s", cleanSnapshotName, errMsg)
 		if o.logger != nil {
 			o.logger.Printf("sandbox %d: snapshot %s failed: %v", vmid, cleanSnapshotName, err)
 		}
-	}
-
-	jsonPayload, jsonErr := json.Marshal(payload)
-	if jsonErr != nil && o.logger != nil {
-		o.logger.Printf("sandbox %d: snapshot event json failed: %v", vmid, jsonErr)
 	}
 	eventCtx := ctx
 	var cancel context.CancelFunc
@@ -951,7 +966,7 @@ func (o *JobOrchestrator) createCleanSnapshot(ctx context.Context, vmid int, job
 		eventCtx, cancel = o.withFailureTimeout()
 		defer cancel()
 	}
-	_ = o.store.RecordEvent(eventCtx, kind, &vmid, jobID, msg, string(jsonPayload))
+	_ = emitEvent(eventCtx, NewStoreEventRecorder(o.store), eventKind, &vmid, jobID, msg, payload)
 }
 
 // CleanupSnippet removes a remembered cloud-init snippet for a VMID.
@@ -1027,7 +1042,7 @@ func (o *JobOrchestrator) observeSandboxReady(ctx context.Context, sandbox model
 	payload := sloEventPayload{
 		DurationMS: duration.Milliseconds(),
 	}
-	o.recordSLOEvent(ctx, "sandbox.slo.ready", &sandbox.VMID, nil, fmt.Sprintf("ready in %s", duration), payload)
+	o.recordSLOEvent(ctx, EventKindSandboxSLOReady, &sandbox.VMID, nil, fmt.Sprintf("ready in %s", duration), payload)
 }
 
 func (o *JobOrchestrator) observeSandboxSSH(sandbox models.Sandbox, ip string) {
@@ -1060,7 +1075,7 @@ func (o *JobOrchestrator) observeJobStart(ctx context.Context, job models.Job, v
 	payload := sloEventPayload{
 		DurationMS: duration.Milliseconds(),
 	}
-	o.recordSLOEvent(ctx, "job.slo.start", &vmid, &jobID, fmt.Sprintf("job started in %s", duration), payload)
+	o.recordSLOEvent(ctx, EventKindJobSLOStart, &vmid, &jobID, fmt.Sprintf("job started in %s", duration), payload)
 }
 
 func (o *JobOrchestrator) probeSSHReady(vmid int, createdAt time.Time, ip string) {
@@ -1115,27 +1130,21 @@ func (o *JobOrchestrator) recordSSHProbeResult(ctx context.Context, vmid int, cr
 		IP:         ip,
 	}
 	msg := fmt.Sprintf("ssh ready in %s", duration)
-	kind := "sandbox.slo.ssh_ready"
+	eventKind := EventKindSandboxSLOSSHReady
 	if probeErr != nil {
 		payload.Error = probeErr.Error()
 		msg = fmt.Sprintf("ssh not ready after %s: %s", duration, probeErr.Error())
-		kind = "sandbox.slo.ssh_failed"
+		eventKind = EventKindSandboxSLOSSHFailed
 	}
 	if probeErr == nil && o.metrics != nil {
 		o.metrics.ObserveSandboxSSH(duration)
 	}
-	o.recordSLOEvent(ctx, kind, &vmid, nil, msg, payload)
+	o.recordSLOEvent(ctx, eventKind, &vmid, nil, msg, payload)
 }
 
-func (o *JobOrchestrator) recordSLOEvent(ctx context.Context, kind string, vmid *int, jobID *string, msg string, payload sloEventPayload) {
+func (o *JobOrchestrator) recordSLOEvent(ctx context.Context, kind EventKind, vmid *int, jobID *string, msg string, payload sloEventPayload) {
 	if o == nil || o.store == nil || kind == "" {
 		return
-	}
-	data, err := json.Marshal(payload)
-	if err != nil {
-		if o.logger != nil {
-			o.logger.Printf("slo event json failed: %v", err)
-		}
 	}
 	eventCtx := ctx
 	var cancel context.CancelFunc
@@ -1143,7 +1152,7 @@ func (o *JobOrchestrator) recordSLOEvent(ctx context.Context, kind string, vmid 
 		eventCtx, cancel = o.withFailureTimeout()
 		defer cancel()
 	}
-	_ = o.store.RecordEvent(eventCtx, kind, vmid, jobID, msg, string(data))
+	_ = emitEvent(eventCtx, NewStoreEventRecorder(o.store), kind, vmid, jobID, msg, payload)
 }
 
 func (o *JobOrchestrator) persistDiscoveredSandboxIP(ctx context.Context, vmid int, candidateIP string, jobID *string) (string, error) {
@@ -1160,7 +1169,11 @@ func (o *JobOrchestrator) persistDiscoveredSandboxIP(ctx context.Context, vmid i
 	}
 	if conflictVMID > 0 {
 		msg := fmt.Sprintf("discarding duplicate sandbox IP %s already assigned to sandbox %d", ip, conflictVMID)
-		_ = o.store.RecordEvent(ctx, "sandbox.ip_conflict", &vmid, jobID, msg, "")
+		payload := map[string]any{
+			"conflicting_vmid": conflictVMID,
+			"ip":               ip,
+		}
+		_ = emitEvent(ctx, NewStoreEventRecorder(o.store), EventKindSandboxIPConflict, &vmid, jobID, msg, payload)
 		return "", nil
 	}
 	if err := o.store.UpdateSandboxIP(ctx, vmid, ip); err != nil {

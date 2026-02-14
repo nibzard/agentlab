@@ -3,7 +3,6 @@ package daemon
 import (
 	"context"
 	"database/sql"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"log"
@@ -386,7 +385,7 @@ func (m *SandboxManager) Start(ctx context.Context, vmid int) (err error) {
 	defer func() {
 		duration := m.now().UTC().Sub(startedAt)
 		if err != nil {
-			m.recordLifecycleEvent(ctx, vmid, "sandbox.start.failed", fmt.Sprintf("start failed: %s", err.Error()), lifecycleEventPayload{
+		m.recordLifecycleEvent(ctx, vmid, EventKindSandboxStartFailed, fmt.Sprintf("start failed: %s", err.Error()), lifecycleEventPayload{
 				DurationMS: duration.Milliseconds(),
 				Error:      err.Error(),
 			})
@@ -395,7 +394,7 @@ func (m *SandboxManager) Start(ctx context.Context, vmid int) (err error) {
 			}
 			return
 		}
-		m.recordLifecycleEvent(ctx, vmid, "sandbox.start.completed", fmt.Sprintf("start completed in %s", duration), lifecycleEventPayload{
+		m.recordLifecycleEvent(ctx, vmid, EventKindSandboxStartCompleted, fmt.Sprintf("start completed in %s", duration), lifecycleEventPayload{
 			DurationMS: duration.Milliseconds(),
 		})
 		if m.metrics != nil {
@@ -455,7 +454,7 @@ func (m *SandboxManager) Stop(ctx context.Context, vmid int) (err error) {
 	defer func() {
 		duration := m.now().UTC().Sub(startedAt)
 		if err != nil {
-			m.recordLifecycleEvent(ctx, vmid, "sandbox.stop.failed", fmt.Sprintf("stop failed: %s", err.Error()), lifecycleEventPayload{
+			m.recordLifecycleEvent(ctx, vmid, EventKindSandboxStopFailed, fmt.Sprintf("stop failed: %s", err.Error()), lifecycleEventPayload{
 				DurationMS: duration.Milliseconds(),
 				Error:      err.Error(),
 			})
@@ -464,7 +463,7 @@ func (m *SandboxManager) Stop(ctx context.Context, vmid int) (err error) {
 			}
 			return
 		}
-		m.recordLifecycleEvent(ctx, vmid, "sandbox.stop.completed", fmt.Sprintf("stop completed in %s", duration), lifecycleEventPayload{
+		m.recordLifecycleEvent(ctx, vmid, EventKindSandboxStopCompleted, fmt.Sprintf("stop completed in %s", duration), lifecycleEventPayload{
 			DurationMS: duration.Milliseconds(),
 		})
 		if m.metrics != nil {
@@ -524,13 +523,13 @@ func (m *SandboxManager) Pause(ctx context.Context, vmid int) (err error) {
 	defer func() {
 		duration := m.now().UTC().Sub(startedAt)
 		if err != nil {
-			m.recordLifecycleEvent(ctx, vmid, "sandbox.pause.failed", fmt.Sprintf("pause failed: %s", err.Error()), lifecycleEventPayload{
+			m.recordLifecycleEvent(ctx, vmid, EventKindSandboxPauseFailed, fmt.Sprintf("pause failed: %s", err.Error()), lifecycleEventPayload{
 				DurationMS: duration.Milliseconds(),
 				Error:      err.Error(),
 			})
 			return
 		}
-		m.recordLifecycleEvent(ctx, vmid, "sandbox.pause.completed", fmt.Sprintf("pause completed in %s", duration), lifecycleEventPayload{
+		m.recordLifecycleEvent(ctx, vmid, EventKindSandboxPauseCompleted, fmt.Sprintf("pause completed in %s", duration), lifecycleEventPayload{
 			DurationMS: duration.Milliseconds(),
 		})
 	}()
@@ -577,13 +576,13 @@ func (m *SandboxManager) Resume(ctx context.Context, vmid int) (err error) {
 	defer func() {
 		duration := m.now().UTC().Sub(startedAt)
 		if err != nil {
-			m.recordLifecycleEvent(ctx, vmid, "sandbox.resume.failed", fmt.Sprintf("resume failed: %s", err.Error()), lifecycleEventPayload{
+			m.recordLifecycleEvent(ctx, vmid, EventKindSandboxResumeFailed, fmt.Sprintf("resume failed: %s", err.Error()), lifecycleEventPayload{
 				DurationMS: duration.Milliseconds(),
 				Error:      err.Error(),
 			})
 			return
 		}
-		m.recordLifecycleEvent(ctx, vmid, "sandbox.resume.completed", fmt.Sprintf("resume completed in %s", duration), lifecycleEventPayload{
+		m.recordLifecycleEvent(ctx, vmid, EventKindSandboxResumeCompleted, fmt.Sprintf("resume completed in %s", duration), lifecycleEventPayload{
 			DurationMS: duration.Milliseconds(),
 		})
 	}()
@@ -661,7 +660,7 @@ func (m *SandboxManager) Revert(ctx context.Context, vmid int, opts RevertOption
 	}
 
 	startedAt := m.now().UTC()
-	m.recordRevertEvent(ctx, vmid, "sandbox.revert.started", "revert started", revertEventPayload{
+	m.recordRevertEvent(ctx, vmid, EventKindSandboxRevertStarted, "revert started", revertEventPayload{
 		Snapshot:   snapshotName,
 		Restart:    restart,
 		WasRunning: wasRunning,
@@ -673,7 +672,7 @@ func (m *SandboxManager) Revert(ctx context.Context, vmid int, opts RevertOption
 			return
 		}
 		duration := m.now().UTC().Sub(startedAt)
-		m.recordRevertEvent(ctx, vmid, "sandbox.revert.failed", fmt.Sprintf("revert failed: %s", err.Error()), revertEventPayload{
+		m.recordRevertEvent(ctx, vmid, EventKindSandboxRevertFailed, fmt.Sprintf("revert failed: %s", err.Error()), revertEventPayload{
 			Snapshot:   snapshotName,
 			Restart:    restart,
 			WasRunning: wasRunning,
@@ -747,7 +746,7 @@ func (m *SandboxManager) Revert(ctx context.Context, vmid int, opts RevertOption
 	}
 
 	duration := m.now().UTC().Sub(startedAt)
-	m.recordRevertEvent(ctx, vmid, "sandbox.revert.completed", "revert completed", revertEventPayload{
+	m.recordRevertEvent(ctx, vmid, EventKindSandboxRevertFinished, "revert completed", revertEventPayload{
 		Snapshot:   snapshotName,
 		Restart:    restart,
 		WasRunning: wasRunning,
@@ -804,7 +803,7 @@ func (m *SandboxManager) Destroy(ctx context.Context, vmid int) (err error) {
 	defer func() {
 		duration := m.now().UTC().Sub(startedAt)
 		if err != nil {
-			m.recordLifecycleEvent(ctx, vmid, "sandbox.destroy.failed", fmt.Sprintf("destroy failed: %s", err.Error()), lifecycleEventPayload{
+			m.recordLifecycleEvent(ctx, vmid, EventKindSandboxDestroyFailed, fmt.Sprintf("destroy failed: %s", err.Error()), lifecycleEventPayload{
 				DurationMS: duration.Milliseconds(),
 				Error:      err.Error(),
 			})
@@ -813,7 +812,7 @@ func (m *SandboxManager) Destroy(ctx context.Context, vmid int) (err error) {
 			}
 			return
 		}
-		m.recordLifecycleEvent(ctx, vmid, "sandbox.destroy.completed", fmt.Sprintf("destroy completed in %s", duration), lifecycleEventPayload{
+		m.recordLifecycleEvent(ctx, vmid, EventKindSandboxDestroyCompleted, fmt.Sprintf("destroy completed in %s", duration), lifecycleEventPayload{
 			DurationMS: duration.Milliseconds(),
 		})
 		if m.metrics != nil {
@@ -954,7 +953,7 @@ func (m *SandboxManager) ForceDestroy(ctx context.Context, vmid int) (err error)
 	defer func() {
 		duration := m.now().UTC().Sub(startedAt)
 		if err != nil {
-			m.recordLifecycleEvent(ctx, vmid, "sandbox.destroy.failed", fmt.Sprintf("force destroy failed: %s", err.Error()), lifecycleEventPayload{
+			m.recordLifecycleEvent(ctx, vmid, EventKindSandboxDestroyFailed, fmt.Sprintf("force destroy failed: %s", err.Error()), lifecycleEventPayload{
 				DurationMS: duration.Milliseconds(),
 				Error:      err.Error(),
 			})
@@ -963,7 +962,7 @@ func (m *SandboxManager) ForceDestroy(ctx context.Context, vmid int) (err error)
 			}
 			return
 		}
-		m.recordLifecycleEvent(ctx, vmid, "sandbox.destroy.completed", fmt.Sprintf("force destroy completed in %s", duration), lifecycleEventPayload{
+		m.recordLifecycleEvent(ctx, vmid, EventKindSandboxDestroyCompleted, fmt.Sprintf("force destroy completed in %s", duration), lifecycleEventPayload{
 			DurationMS: duration.Milliseconds(),
 		})
 		if m.metrics != nil {
@@ -1033,12 +1032,22 @@ func (m *SandboxManager) PruneOrphans(ctx context.Context) (int, error) {
 
 func (m *SandboxManager) recordStateEvent(ctx context.Context, vmid int, from, to models.SandboxState) {
 	msg := fmt.Sprintf("%s -> %s", from, to)
-	_ = m.store.RecordEvent(ctx, "sandbox.state", &vmid, nil, msg, "")
+	payload := struct {
+		FromState string `json:"from_state"`
+		ToState   string `json:"to_state"`
+	}{
+		FromState: string(from),
+		ToState:   string(to),
+	}
+	_ = emitEvent(ctx, NewStoreEventRecorder(m.store), EventKindSandboxState, &vmid, nil, msg, payload)
 }
 
 func (m *SandboxManager) recordLeaseEvent(ctx context.Context, vmid int, expiresAt time.Time) {
 	msg := fmt.Sprintf("renewed until %s", expiresAt.UTC().Format(time.RFC3339Nano))
-	_ = m.store.RecordEvent(ctx, "sandbox.lease", &vmid, nil, msg, "")
+	payload := map[string]any{
+		"expires_at": expiresAt.UTC().Format(time.RFC3339Nano),
+	}
+	_ = emitEvent(ctx, NewStoreEventRecorder(m.store), EventKindSandboxLease, &vmid, nil, msg, payload)
 }
 
 func (m *SandboxManager) releaseWorkspaceLeases(ctx context.Context, vmid int) {
@@ -1072,30 +1081,18 @@ func (m *SandboxManager) releaseWorkspaceLeases(ctx context.Context, vmid int) {
 	}
 }
 
-func (m *SandboxManager) recordRevertEvent(ctx context.Context, vmid int, kind string, msg string, payload revertEventPayload) {
-	if m == nil || m.store == nil {
+func (m *SandboxManager) recordRevertEvent(ctx context.Context, vmid int, kind EventKind, msg string, payload revertEventPayload) {
+	if m == nil || m.store == nil || kind == "" {
 		return
 	}
-	data, err := json.Marshal(payload)
-	if err != nil {
-		if m.logger != nil {
-			m.logger.Printf("sandbox %d: revert event json failed: %v", vmid, err)
-		}
-	}
-	_ = m.store.RecordEvent(ctx, kind, &vmid, nil, msg, string(data))
+	_ = emitEvent(ctx, NewStoreEventRecorder(m.store), kind, &vmid, nil, msg, payload)
 }
 
-func (m *SandboxManager) recordLifecycleEvent(ctx context.Context, vmid int, kind string, msg string, payload lifecycleEventPayload) {
-	if m == nil || m.store == nil {
+func (m *SandboxManager) recordLifecycleEvent(ctx context.Context, vmid int, kind EventKind, msg string, payload lifecycleEventPayload) {
+	if m == nil || m.store == nil || kind == "" {
 		return
 	}
-	data, err := json.Marshal(payload)
-	if err != nil {
-		if m.logger != nil {
-			m.logger.Printf("sandbox %d: lifecycle event json failed: %v", vmid, err)
-		}
-	}
-	_ = m.store.RecordEvent(ctx, kind, &vmid, nil, msg, string(data))
+	_ = emitEvent(ctx, NewStoreEventRecorder(m.store), kind, &vmid, nil, msg, payload)
 }
 
 func allowedTransition(from, to models.SandboxState) bool {
