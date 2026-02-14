@@ -3734,7 +3734,7 @@
       "title": "Re-validate sandbox provisioning on real Proxmox and reconcile testing docs",
       "priority": 1,
       "status": "blocked",
-      "details": "ACTUAL_PROXMOX_TESTING.md and SUMMARY.md report sandbox provisioning as a blocker. Re-run provisioning on the current build in a real Proxmox environment, capture logs, and either fix the provisioning workflow (snippet creation/clone/start/IP discovery) or update the testing docs to reflect the resolved state with diagnostics.\n\nUpdate 2026-02-13T22:19:50Z: Added opt-in provisioning failure diagnostics via `X-AgentLab-Debug: true` so debug requests include redacted `details` for 500 provisioning errors, and reconciled ACTUAL_PROXMOX_TESTING.md/SUMMARY.md/docs/api.md to match.\n\nUpdate remains: real host still unavailable in this environment; provisioning cannot be revalidated and no definitive root cause has been captured.",
+      "details": "ACTUAL_PROXMOX_TESTING.md and SUMMARY.md report sandbox provisioning as a blocker. Re-run provisioning on the current build in a real Proxmox environment, capture logs, and either fix the provisioning workflow (snippet creation/clone/start/IP discovery) or update the testing docs to reflect the resolved state with diagnostics.\n\nUpdate 2026-02-13T22:19:50Z: Added opt-in provisioning failure diagnostics via `X-AgentLab-Debug: true` so debug requests include redacted `details` for 500 provisioning errors, and reconciled ACTUAL_PROXMOX_TESTING.md/SUMMARY.md/docs/api.md to match.\n\nUpdate remains: real host still unavailable in this environment; provisioning cannot be revalidated and no definitive root cause has been captured.\\n\\n[Iteration status] Blocked: real Proxmox host remains unavailable in this environment; no revalidation or logs collected for provisioning workflow this iteration.",
       "tags": [
         "testing",
         "proxmox",
@@ -3750,7 +3750,7 @@
         "internal/proxmox/shell_backend.go",
         "to-do.json"
       ],
-      "updated_at": "2026-02-13T22:19:50Z",
+      "updated_at": "2026-02-14T20:35:02Z",
       "blockers": [
         "2026-02-13: Blocked — no access to a real Proxmox host in this environment to re-run provisioning or capture logs for ACTUAL_PROXMOX_TESTING.md and SUMMARY.md.",
         "2026-02-13T21:42:47Z: Still blocked — no access to a real Proxmox host in this environment to re-run provisioning or capture logs for ACTUAL_PROXMOX_TESTING.md and SUMMARY.md.",
@@ -3762,7 +3762,8 @@
         "2026-02-13T21:48:52Z: Blocked — no access to a real Proxmox host in this environment to re-run provisioning or capture logs for ACTUAL_PROXMOX_TESTING.md and SUMMARY.md.",
         "2026-02-13T21:50:03Z: Blocked — no access to a real Proxmox host in this environment to re-run provisioning or capture logs for ACTUAL_PROXMOX_TESTING.md and SUMMARY.md.",
         "2026-02-13T22:19:50Z: Blocked — no access to a real Proxmox host in this environment to re-run provisioning or capture logs after adding debug-response diagnostics.",
-        "No access to a real Proxmox host in this environment to re-run provisioning or capture logs for ACTUAL_PROXMOX_TESTING.md and SUMMARY.md."
+        "No access to a real Proxmox host in this environment to re-run provisioning or capture logs for ACTUAL_PROXMOX_TESTING.md and SUMMARY.md.",
+        "2026-02-14T20:35:02Z: Blocked — no access to a real Proxmox host in this environment to re-run provisioning or capture logs for ACTUAL_PROXMOX_TESTING.md and SUMMARY.md."
       ]
     },
     {
@@ -4056,7 +4057,7 @@
         "T143"
       ],
       "created_at": "2026-02-14T19:27:23Z",
-      "updated_at": "2026-02-14T20:34:26Z"
+      "updated_at": "2026-02-14T20:34:45Z"
     }
   ]
 }
