@@ -251,7 +251,7 @@ func TestSandboxLeaseRenewal(t *testing.T) {
 		VMID:         101,
 		Name:         "keepalive",
 		Profile:      "default",
-		State:        models.SandboxReady,
+		State:        models.SandboxRunning,
 		Keepalive:    true,
 		LeaseExpires: base.Add(30 * time.Minute),
 		CreatedAt:    base,
@@ -266,6 +266,60 @@ func TestSandboxLeaseRenewal(t *testing.T) {
 	expected := base.Add(2 * time.Hour)
 	if !expiresAt.Equal(expected) {
 		t.Fatalf("expected expiry %s, got %s", expected, expiresAt)
+	}
+}
+
+func TestSandboxLeaseRenewalRunningWithoutKeepalive(t *testing.T) {
+	ctx := context.Background()
+	store := newTestStore(t)
+	mgr := NewSandboxManager(store, nil, log.New(io.Discard, "", 0))
+	base := time.Date(2026, 1, 29, 10, 15, 0, 0, time.UTC)
+	mgr.now = func() time.Time { return base }
+
+	sandbox := models.Sandbox{
+		VMID:         111,
+		Name:         "running-no-keepalive",
+		Profile:      "default",
+		State:        models.SandboxRunning,
+		Keepalive:    false,
+		LeaseExpires: base.Add(15 * time.Minute),
+		CreatedAt:    base,
+	}
+	if err := store.CreateSandbox(ctx, sandbox); err != nil {
+		t.Fatalf("create sandbox: %v", err)
+	}
+	expiresAt, err := mgr.RenewLease(ctx, sandbox.VMID, 90*time.Minute)
+	if err != nil {
+		t.Fatalf("renew lease: %v", err)
+	}
+	expected := base.Add(90 * time.Minute)
+	if !expiresAt.Equal(expected) {
+		t.Fatalf("expected expiry %s, got %s", expected, expiresAt)
+	}
+}
+
+func TestSandboxLeaseRenewalRejectsNonRunningState(t *testing.T) {
+	ctx := context.Background()
+	store := newTestStore(t)
+	mgr := NewSandboxManager(store, nil, log.New(io.Discard, "", 0))
+	base := time.Date(2026, 1, 29, 10, 30, 0, 0, time.UTC)
+	mgr.now = func() time.Time { return base }
+
+	sandbox := models.Sandbox{
+		VMID:         112,
+		Name:         "stopped-sb",
+		Profile:      "default",
+		State:        models.SandboxStopped,
+		Keepalive:    true,
+		LeaseExpires: base.Add(15 * time.Minute),
+		CreatedAt:    base,
+	}
+	if err := store.CreateSandbox(ctx, sandbox); err != nil {
+		t.Fatalf("create sandbox: %v", err)
+	}
+	_, err := mgr.RenewLease(ctx, sandbox.VMID, 90*time.Minute)
+	if !errors.Is(err, ErrInvalidTransition) {
+		t.Fatalf("expected invalid transition, got %v", err)
 	}
 }
 
@@ -658,6 +712,86 @@ func TestSandboxRevertMissingSnapshot(t *testing.T) {
 	}
 }
 
+func TestSandboxSnapshotRestoreReconcilesToStoppedAndClearsIP(t *testing.T) {
+	ctx := context.Background()
+	store := newTestStore(t)
+	backend := &stubBackend{status: proxmox.StatusStopped}
+	mgr := NewSandboxManager(store, backend, log.New(io.Discard, "", 0))
+
+	sandbox := models.Sandbox{
+		VMID:      115,
+		Name:      "snapshot-restore-reconcile",
+		Profile:   "default",
+		State:     models.SandboxRunning,
+		IP:        "10.77.0.50",
+		Keepalive: false,
+		CreatedAt: time.Now().UTC(),
+	}
+	if err := store.CreateSandbox(ctx, sandbox); err != nil {
+		t.Fatalf("create sandbox: %v", err)
+	}
+
+	snapshot, err := mgr.SnapshotRestore(ctx, sandbox.VMID, "checkpoint-1", SandboxSnapshotOptions{Force: true})
+	if err != nil {
+		t.Fatalf("snapshot restore: %v", err)
+	}
+	if snapshot.Name != "checkpoint-1" {
+		t.Fatalf("snapshot name = %q, want %q", snapshot.Name, "checkpoint-1")
+	}
+	if backend.snapshotRollbackCalls != 1 {
+		t.Fatalf("expected snapshot rollback once, got %d", backend.snapshotRollbackCalls)
+	}
+
+	updated, err := store.GetSandbox(ctx, sandbox.VMID)
+	if err != nil {
+		t.Fatalf("get sandbox: %v", err)
+	}
+	if updated.State != models.SandboxStopped {
+		t.Fatalf("expected STOPPED state, got %s", updated.State)
+	}
+	if updated.IP != "" {
+		t.Fatalf("expected IP cleared after restore, got %q", updated.IP)
+	}
+}
+
+func TestSandboxSnapshotRestoreKeepsRunningStateWhenBackendRunning(t *testing.T) {
+	ctx := context.Background()
+	store := newTestStore(t)
+	backend := &stubBackend{status: proxmox.StatusRunning}
+	mgr := NewSandboxManager(store, backend, log.New(io.Discard, "", 0))
+
+	sandbox := models.Sandbox{
+		VMID:      116,
+		Name:      "snapshot-restore-running",
+		Profile:   "default",
+		State:     models.SandboxRunning,
+		IP:        "10.77.0.60",
+		Keepalive: false,
+		CreatedAt: time.Now().UTC(),
+	}
+	if err := store.CreateSandbox(ctx, sandbox); err != nil {
+		t.Fatalf("create sandbox: %v", err)
+	}
+
+	if _, err := mgr.SnapshotRestore(ctx, sandbox.VMID, "checkpoint-2", SandboxSnapshotOptions{Force: true}); err != nil {
+		t.Fatalf("snapshot restore: %v", err)
+	}
+	if backend.snapshotRollbackCalls != 1 {
+		t.Fatalf("expected snapshot rollback once, got %d", backend.snapshotRollbackCalls)
+	}
+
+	updated, err := store.GetSandbox(ctx, sandbox.VMID)
+	if err != nil {
+		t.Fatalf("get sandbox: %v", err)
+	}
+	if updated.State != models.SandboxRunning {
+		t.Fatalf("expected RUNNING state, got %s", updated.State)
+	}
+	if updated.IP != sandbox.IP {
+		t.Fatalf("expected IP to remain %q, got %q", sandbox.IP, updated.IP)
+	}
+}
+
 func TestSandboxDestroyMissingVM(t *testing.T) {
 	ctx := context.Background()
 	store := newTestStore(t)
@@ -818,7 +952,7 @@ func TestSandboxManagerConcurrentRenewLease(t *testing.T) {
 		VMID:          105,
 		Name:          "concurrent-lease",
 		Profile:       "default",
-		State:         models.SandboxReady,
+		State:         models.SandboxRunning,
 		Keepalive:     true,
 		LeaseExpires:  base.Add(5 * time.Minute),
 		CreatedAt:     base,

@@ -35,7 +35,6 @@ type profileStorageSpec struct {
 }
 
 func applyProfileVMConfig(profile models.Profile, cfg proxmox.VMConfig) (proxmox.VMConfig, error) {
-	raw := strings.TrimSpace(profile.RawYAML)
 	spec, err := parseProfileProvisionSpec(profile.RawYAML)
 	if err != nil {
 		return cfg, err

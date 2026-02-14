@@ -25,6 +25,7 @@ type orchestratorBackend struct {
 	blockClone     bool
 	blockConfigure bool
 	blockStart     bool
+	startHook      func()
 }
 
 type snapshotCall struct {
@@ -52,6 +53,9 @@ func (b *orchestratorBackend) Configure(ctx context.Context, _ proxmox.VMID, cfg
 
 func (b *orchestratorBackend) Start(ctx context.Context, vmid proxmox.VMID) error {
 	b.startCalls = append(b.startCalls, vmid)
+	if b.startHook != nil {
+		b.startHook()
+	}
 	if b.blockStart {
 		<-ctx.Done()
 		return ctx.Err()
@@ -226,6 +230,52 @@ func TestJobOrchestratorRun(t *testing.T) {
 	}
 	if backend.snapshotCalls[0].vmid != proxmox.VMID(sandbox.VMID) || backend.snapshotCalls[0].name != cleanSnapshotName {
 		t.Fatalf("expected snapshot call for vmid %d name %q, got %+v", sandbox.VMID, cleanSnapshotName, backend.snapshotCalls[0])
+	}
+}
+
+func TestJobOrchestratorRunDoesNotOverrideTerminalStatus(t *testing.T) {
+	ctx := context.Background()
+	store := newTestStore(t)
+	backend := &orchestratorBackend{guestIP: "10.77.0.98"}
+	manager := NewSandboxManager(store, backend, log.New(io.Discard, "", 0))
+	profiles := map[string]models.Profile{
+		"yolo": {Name: "yolo", TemplateVM: 9000},
+	}
+	snippetDir := t.TempDir()
+	snippetStore := proxmox.SnippetStore{Storage: "local", Dir: snippetDir}
+	orchestrator := NewJobOrchestrator(store, profiles, backend, manager, nil, snippetStore, "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIBtestkey agent@test", "http://10.77.0.1:8844", log.New(io.Discard, "", 0), nil, nil)
+	orchestrator.rand = bytes.NewReader(bytes.Repeat([]byte{0x01}, 64))
+	now := time.Date(2026, 1, 29, 12, 15, 0, 0, time.UTC)
+	orchestrator.now = func() time.Time { return now }
+
+	job := models.Job{
+		ID:        "job_fast_terminal",
+		RepoURL:   "https://example.com/repo.git",
+		Ref:       "main",
+		Profile:   "yolo",
+		Task:      "fast-run",
+		Status:    models.JobQueued,
+		CreatedAt: now,
+		UpdatedAt: now,
+	}
+	if err := store.CreateJob(ctx, job); err != nil {
+		t.Fatalf("create job: %v", err)
+	}
+
+	backend.startHook = func() {
+		_ = store.UpdateJobResult(context.Background(), job.ID, models.JobCompleted, `{"status":"COMPLETED","message":"fast finish"}`)
+	}
+
+	if err := orchestrator.Run(ctx, job.ID); err != nil {
+		t.Fatalf("run job: %v", err)
+	}
+
+	updatedJob, err := store.GetJob(ctx, job.ID)
+	if err != nil {
+		t.Fatalf("get job: %v", err)
+	}
+	if updatedJob.Status != models.JobCompleted {
+		t.Fatalf("expected job COMPLETED, got %s", updatedJob.Status)
 	}
 }
 
@@ -878,4 +928,124 @@ func TestWorkspaceRebindTimeoutCleanup(t *testing.T) {
 	if len(backend.destroyCalls) != 1 {
 		t.Fatalf("expected destroy call, got %d", len(backend.destroyCalls))
 	}
+}
+
+func TestPersistDiscoveredSandboxIPStoresUniqueIP(t *testing.T) {
+	ctx := context.Background()
+	store := newTestStore(t)
+	orchestrator := NewJobOrchestrator(store, map[string]models.Profile{}, nil, nil, nil, proxmox.SnippetStore{}, "", "", log.New(io.Discard, "", 0), nil, nil)
+
+	now := time.Date(2026, 2, 14, 10, 0, 0, 0, time.UTC)
+	sandbox := models.Sandbox{
+		VMID:          1501,
+		Name:          "sandbox-1501",
+		Profile:       "default",
+		State:         models.SandboxBooting,
+		CreatedAt:     now,
+		LastUpdatedAt: now,
+	}
+	require.NoError(t, store.CreateSandbox(ctx, sandbox))
+
+	resolved, err := orchestrator.persistDiscoveredSandboxIP(ctx, sandbox.VMID, " 10.77.0.88 ", nil)
+	require.NoError(t, err)
+	require.Equal(t, "10.77.0.88", resolved)
+
+	updated, err := store.GetSandbox(ctx, sandbox.VMID)
+	require.NoError(t, err)
+	require.Equal(t, "10.77.0.88", updated.IP)
+}
+
+func TestPersistDiscoveredSandboxIPRejectsDuplicateAndRecordsConflict(t *testing.T) {
+	ctx := context.Background()
+	store := newTestStore(t)
+	orchestrator := NewJobOrchestrator(store, map[string]models.Profile{}, nil, nil, nil, proxmox.SnippetStore{}, "", "", log.New(io.Discard, "", 0), nil, nil)
+
+	now := time.Date(2026, 2, 14, 10, 5, 0, 0, time.UTC)
+	existing := models.Sandbox{
+		VMID:          1502,
+		Name:          "sandbox-1502",
+		Profile:       "default",
+		State:         models.SandboxRunning,
+		IP:            "10.77.0.90",
+		CreatedAt:     now,
+		LastUpdatedAt: now,
+	}
+	require.NoError(t, store.CreateSandbox(ctx, existing))
+
+	target := models.Sandbox{
+		VMID:          1503,
+		Name:          "sandbox-1503",
+		Profile:       "default",
+		State:         models.SandboxBooting,
+		CreatedAt:     now,
+		LastUpdatedAt: now,
+	}
+	require.NoError(t, store.CreateSandbox(ctx, target))
+
+	jobID := "job-ip-conflict"
+	resolved, err := orchestrator.persistDiscoveredSandboxIP(ctx, target.VMID, existing.IP, &jobID)
+	require.NoError(t, err)
+	require.Empty(t, resolved)
+
+	updatedTarget, err := store.GetSandbox(ctx, target.VMID)
+	require.NoError(t, err)
+	require.Empty(t, updatedTarget.IP)
+
+	events, err := store.ListEventsBySandbox(ctx, target.VMID, 0, 20)
+	require.NoError(t, err)
+	require.NotEmpty(t, events)
+	last := events[len(events)-1]
+	require.Equal(t, "sandbox.ip_conflict", last.Kind)
+	require.NotNil(t, last.JobID)
+	require.Equal(t, jobID, *last.JobID)
+	require.Contains(t, last.Message, "discarding duplicate sandbox IP")
+	require.Contains(t, last.Message, "sandbox 1502")
+}
+
+func TestActiveSandboxWithIPIgnoresInactiveStates(t *testing.T) {
+	ctx := context.Background()
+	store := newTestStore(t)
+	orchestrator := NewJobOrchestrator(store, map[string]models.Profile{}, nil, nil, nil, proxmox.SnippetStore{}, "", "", log.New(io.Discard, "", 0), nil, nil)
+
+	now := time.Date(2026, 2, 14, 10, 10, 0, 0, time.UTC)
+	sandboxes := []models.Sandbox{
+		{
+			VMID:          1504,
+			Name:          "sandbox-1504",
+			Profile:       "default",
+			State:         models.SandboxStopped,
+			IP:            "10.77.0.91",
+			CreatedAt:     now,
+			LastUpdatedAt: now,
+		},
+		{
+			VMID:          1505,
+			Name:          "sandbox-1505",
+			Profile:       "default",
+			State:         models.SandboxDestroyed,
+			IP:            "10.77.0.91",
+			CreatedAt:     now,
+			LastUpdatedAt: now,
+		},
+		{
+			VMID:          1506,
+			Name:          "sandbox-1506",
+			Profile:       "default",
+			State:         models.SandboxRunning,
+			IP:            "10.77.0.92",
+			CreatedAt:     now,
+			LastUpdatedAt: now,
+		},
+	}
+	for _, sb := range sandboxes {
+		require.NoError(t, store.CreateSandbox(ctx, sb))
+	}
+
+	conflictVMID, err := orchestrator.activeSandboxWithIP(ctx, 1599, "10.77.0.91")
+	require.NoError(t, err)
+	require.Equal(t, 0, conflictVMID)
+
+	conflictVMID, err = orchestrator.activeSandboxWithIP(ctx, 1599, "10.77.0.92")
+	require.NoError(t, err)
+	require.Equal(t, 1506, conflictVMID)
 }

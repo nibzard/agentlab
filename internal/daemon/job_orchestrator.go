@@ -290,8 +290,14 @@ func (o *JobOrchestrator) Run(ctx context.Context, jobID string) error {
 		_ = o.store.RecordEvent(ctx, "sandbox.ip_pending", &sandbox.VMID, &job.ID, "sandbox started but IP not yet discovered", "")
 	}
 	if ip != "" {
-		if err := o.store.UpdateSandboxIP(ctx, sandbox.VMID, ip); err != nil {
-			return o.failJob(job, sandbox.VMID, err)
+		candidateIP := strings.TrimSpace(ip)
+		resolvedIP, persistErr := o.persistDiscoveredSandboxIP(ctx, sandbox.VMID, candidateIP, &job.ID)
+		if persistErr != nil {
+			return o.failJob(job, sandbox.VMID, persistErr)
+		}
+		ip = resolvedIP
+		if ip == "" && o.logger != nil {
+			o.logger.Printf("sandbox %d: ignoring duplicate IP candidate %s", sandbox.VMID, candidateIP)
 		}
 	}
 	o.observeSandboxSSH(sandbox, ip)
@@ -305,14 +311,27 @@ func (o *JobOrchestrator) Run(ctx context.Context, jobID string) error {
 	}
 	jobIDValue := job.ID
 	o.createCleanSnapshot(ctx, sandbox.VMID, &jobIDValue)
-	if err := o.store.UpdateJobStatus(ctx, job.ID, models.JobRunning); err != nil {
+	currentJob, err := o.store.GetJob(ctx, job.ID)
+	if err != nil {
 		return o.failJob(job, sandbox.VMID, err)
 	}
-	if o.metrics != nil {
-		o.metrics.IncJobStatus(models.JobRunning)
+	switch currentJob.Status {
+	case models.JobCompleted, models.JobFailed, models.JobTimeout:
+		// Fast jobs may report terminal state before provisioning reaches this point.
+		// Do not overwrite final status with RUNNING.
+		return nil
+	case models.JobRunning:
+		// Another path already marked the job running.
+	default:
+		if err := o.store.UpdateJobStatus(ctx, job.ID, models.JobRunning); err != nil {
+			return o.failJob(job, sandbox.VMID, err)
+		}
+		if o.metrics != nil {
+			o.metrics.IncJobStatus(models.JobRunning)
+		}
+		o.observeJobStart(ctx, job, sandbox.VMID)
+		_ = o.store.RecordEvent(ctx, "job.running", &sandbox.VMID, &job.ID, "sandbox running", "")
 	}
-	o.observeJobStart(ctx, job, sandbox.VMID)
-	_ = o.store.RecordEvent(ctx, "job.running", &sandbox.VMID, &job.ID, "sandbox running", "")
 	if job.WorkspaceID != nil && strings.TrimSpace(*job.WorkspaceID) != "" {
 		owner := workspaceLeaseOwnerForJobOrSession(job.ID, job.SessionID)
 		ttl := workspaceLeaseDuration(job.TTLMinutes)
@@ -474,11 +493,13 @@ func (o *JobOrchestrator) ProvisionSandbox(ctx context.Context, vmid int) (model
 		_ = o.store.RecordEvent(ctx, "sandbox.ip_pending", &sandbox.VMID, nil, "sandbox started but IP not yet discovered", "")
 	}
 	if ip != "" {
-		if o.logger != nil {
-			o.logger.Printf("sandbox %d: obtained IP %s", sandbox.VMID, ip)
+		resolvedIP, persistErr := o.persistDiscoveredSandboxIP(ctx, sandbox.VMID, ip, nil)
+		if persistErr != nil {
+			return fail(persistErr)
 		}
-		if err := o.store.UpdateSandboxIP(ctx, sandbox.VMID, ip); err != nil {
-			return fail(err)
+		ip = resolvedIP
+		if ip != "" && o.logger != nil {
+			o.logger.Printf("sandbox %d: obtained IP %s", sandbox.VMID, ip)
 		}
 	}
 	o.observeSandboxSSH(sandbox, ip)
@@ -1123,6 +1144,60 @@ func (o *JobOrchestrator) recordSLOEvent(ctx context.Context, kind string, vmid 
 		defer cancel()
 	}
 	_ = o.store.RecordEvent(eventCtx, kind, vmid, jobID, msg, string(data))
+}
+
+func (o *JobOrchestrator) persistDiscoveredSandboxIP(ctx context.Context, vmid int, candidateIP string, jobID *string) (string, error) {
+	if o == nil || o.store == nil {
+		return strings.TrimSpace(candidateIP), nil
+	}
+	ip := strings.TrimSpace(candidateIP)
+	if ip == "" {
+		return "", nil
+	}
+	conflictVMID, err := o.activeSandboxWithIP(ctx, vmid, ip)
+	if err != nil {
+		return "", err
+	}
+	if conflictVMID > 0 {
+		msg := fmt.Sprintf("discarding duplicate sandbox IP %s already assigned to sandbox %d", ip, conflictVMID)
+		_ = o.store.RecordEvent(ctx, "sandbox.ip_conflict", &vmid, jobID, msg, "")
+		return "", nil
+	}
+	if err := o.store.UpdateSandboxIP(ctx, vmid, ip); err != nil {
+		return "", err
+	}
+	return ip, nil
+}
+
+func (o *JobOrchestrator) activeSandboxWithIP(ctx context.Context, vmid int, ip string) (int, error) {
+	if o == nil || o.store == nil || vmid <= 0 || strings.TrimSpace(ip) == "" {
+		return 0, nil
+	}
+	sandboxes, err := o.store.ListSandboxes(ctx)
+	if err != nil {
+		return 0, err
+	}
+	for _, sb := range sandboxes {
+		if sb.VMID == vmid {
+			continue
+		}
+		if !sandboxStateTracksActiveIP(sb.State) {
+			continue
+		}
+		if strings.EqualFold(strings.TrimSpace(sb.IP), strings.TrimSpace(ip)) {
+			return sb.VMID, nil
+		}
+	}
+	return 0, nil
+}
+
+func sandboxStateTracksActiveIP(state models.SandboxState) bool {
+	switch state {
+	case models.SandboxRequested, models.SandboxProvisioning, models.SandboxBooting, models.SandboxReady, models.SandboxRunning, models.SandboxSuspended:
+		return true
+	default:
+		return false
+	}
 }
 
 func nextSandboxStateTowardRunning(current models.SandboxState) (models.SandboxState, bool) {

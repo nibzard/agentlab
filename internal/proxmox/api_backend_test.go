@@ -278,6 +278,62 @@ func TestAPIBackendConfigure(t *testing.T) {
 	}
 }
 
+func TestAPIBackendConfigureRetriesWithoutFWGroup(t *testing.T) {
+	var calls []apiRequest
+	callCount := 0
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, _ := io.ReadAll(r.Body)
+		_ = r.Body.Close()
+		form, _ := url.ParseQuery(string(body))
+		calls = append(calls, apiRequest{
+			method:   r.Method,
+			path:     r.URL.Path,
+			rawQuery: r.URL.RawQuery,
+			form:     form,
+		})
+		w.Header().Set("Content-Type", "application/json")
+		callCount++
+		if callCount == 1 {
+			w.WriteHeader(http.StatusBadRequest)
+			_, _ = w.Write([]byte(`{"errors":{"net0.fwgroup":"property is not defined in schema and the schema does not allow additional properties"}}`))
+			return
+		}
+		_, _ = w.Write([]byte(`{"data":{}}`))
+	}))
+	defer srv.Close()
+
+	backend := &APIBackend{
+		BaseURL:    srv.URL + "/api2/json",
+		Node:       "pve",
+		HTTPClient: srv.Client(),
+	}
+
+	firewall := true
+	cfg := VMConfig{
+		Name:          "sandbox-101",
+		Cores:         2,
+		MemoryMB:      2048,
+		Bridge:        "vmbr1",
+		NetModel:      "virtio",
+		Firewall:      &firewall,
+		FirewallGroup: "agent_nat_default",
+		CloudInit:     "local:snippets/ci.yaml",
+	}
+
+	if err := backend.Configure(context.Background(), 101, cfg); err != nil {
+		t.Fatalf("Configure() error = %v", err)
+	}
+	if len(calls) != 2 {
+		t.Fatalf("expected 2 API calls, got %d", len(calls))
+	}
+	if got := calls[0].form.Get("net0"); got != "virtio,bridge=vmbr1,firewall=1,fwgroup=agent_nat_default" {
+		t.Fatalf("first net0 = %q", got)
+	}
+	if got := calls[1].form.Get("net0"); got != "virtio,bridge=vmbr1,firewall=1" {
+		t.Fatalf("second net0 = %q", got)
+	}
+}
+
 func TestAPIBackendVMConfig(t *testing.T) {
 	var call apiRequest
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

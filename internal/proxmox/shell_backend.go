@@ -113,29 +113,34 @@ func (b *ShellBackend) Clone(ctx context.Context, template VMID, target VMID, na
 }
 
 func (b *ShellBackend) Configure(ctx context.Context, vmid VMID, cfg VMConfig) error {
-	args := []string{"set", strconv.Itoa(int(vmid))}
-	if cfg.Name != "" {
-		args = append(args, "--name", cfg.Name)
+	buildConfigureArgs := func(firewallGroup string) []string {
+		args := []string{"set", strconv.Itoa(int(vmid))}
+		if cfg.Name != "" {
+			args = append(args, "--name", cfg.Name)
+		}
+		if cfg.Cores > 0 {
+			args = append(args, "--cores", strconv.Itoa(cfg.Cores))
+		}
+		if cfg.MemoryMB > 0 {
+			args = append(args, "--memory", strconv.Itoa(cfg.MemoryMB))
+		}
+		if cfg.SCSIHW != "" {
+			args = append(args, "--scsihw", cfg.SCSIHW)
+		}
+		if cfg.CPUPinning != "" {
+			args = append(args, "--cpulist", cfg.CPUPinning)
+		}
+		if cfg.Bridge != "" || cfg.NetModel != "" || cfg.Firewall != nil || firewallGroup != "" {
+			net0 := buildNet0(cfg.NetModel, cfg.Bridge, cfg.Firewall, firewallGroup)
+			args = append(args, "--net0", net0)
+		}
+		if cfg.CloudInit != "" {
+			args = append(args, "--cicustom", formatCICustom(cfg.CloudInit))
+		}
+		return args
 	}
-	if cfg.Cores > 0 {
-		args = append(args, "--cores", strconv.Itoa(cfg.Cores))
-	}
-	if cfg.MemoryMB > 0 {
-		args = append(args, "--memory", strconv.Itoa(cfg.MemoryMB))
-	}
-	if cfg.SCSIHW != "" {
-		args = append(args, "--scsihw", cfg.SCSIHW)
-	}
-	if cfg.CPUPinning != "" {
-		args = append(args, "--cpulist", cfg.CPUPinning)
-	}
-	if cfg.Bridge != "" || cfg.NetModel != "" || cfg.Firewall != nil || cfg.FirewallGroup != "" {
-		net0 := buildNet0(cfg.NetModel, cfg.Bridge, cfg.Firewall, cfg.FirewallGroup)
-		args = append(args, "--net0", net0)
-	}
-	if cfg.CloudInit != "" {
-		args = append(args, "--cicustom", formatCICustom(cfg.CloudInit))
-	}
+
+	args := buildConfigureArgs(cfg.FirewallGroup)
 	if len(args) == 2 {
 		if cfg.RootDiskGB > 0 {
 			return b.ensureRootDiskSize(ctx, vmid, cfg.RootDisk, cfg.RootDiskGB)
@@ -143,7 +148,13 @@ func (b *ShellBackend) Configure(ctx context.Context, vmid VMID, cfg VMConfig) e
 		return nil
 	}
 	if _, err := b.run(ctx, b.qmPath(), args...); err != nil {
-		return err
+		if cfg.FirewallGroup == "" || !isUnsupportedFWGroupError(err) {
+			return err
+		}
+		fallbackArgs := buildConfigureArgs("")
+		if _, retryErr := b.run(ctx, b.qmPath(), fallbackArgs...); retryErr != nil {
+			return fmt.Errorf("%w; retry without fwgroup failed: %v", err, retryErr)
+		}
 	}
 	if cfg.RootDiskGB > 0 {
 		if err := b.ensureRootDiskSize(ctx, vmid, cfg.RootDisk, cfg.RootDiskGB); err != nil {

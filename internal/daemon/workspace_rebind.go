@@ -235,7 +235,8 @@ func (o *JobOrchestrator) RebindWorkspace(ctx context.Context, workspaceID, prof
 		_ = o.store.RecordEvent(ctx, "sandbox.ip_pending", &created.VMID, nil, "sandbox started but IP not yet discovered", "")
 	}
 	if ipAddress != "" {
-		if err = o.store.UpdateSandboxIP(ctx, created.VMID, ipAddress); err != nil {
+		ipAddress, err = o.persistDiscoveredSandboxIP(ctx, created.VMID, ipAddress, nil)
+		if err != nil {
 			return result, err
 		}
 	}

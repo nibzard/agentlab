@@ -1434,10 +1434,24 @@ func (api *ControlAPI) handleSandboxCreate(w http.ResponseWriter, r *http.Reques
 		sandbox.WorkspaceID = &workspace
 	}
 
-	createdSandbox, err := createSandboxWithRetry(ctx, api.store, sandbox)
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, "failed to create sandbox")
-		return
+	var createdSandbox models.Sandbox
+	if req.VMID != nil {
+		if err := api.store.CreateSandbox(ctx, sandbox); err != nil {
+			if isUniqueConstraint(err) {
+				writeError(w, http.StatusConflict, "sandbox vmid already exists")
+				return
+			}
+			writeError(w, http.StatusInternalServerError, "failed to create sandbox")
+			return
+		}
+		createdSandbox = sandbox
+	} else {
+		var err error
+		createdSandbox, err = createSandboxWithRetry(ctx, api.store, sandbox)
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, "failed to create sandbox")
+			return
+		}
 	}
 
 	if req.JobID != "" {
@@ -1461,7 +1475,7 @@ func (api *ControlAPI) handleSandboxCreate(w http.ResponseWriter, r *http.Reques
 			if api.logger != nil {
 				api.logger.Printf("provision sandbox %d failed: %v", createdSandbox.VMID, err)
 			}
-			if isDebugRequest(req) {
+			if isDebugRequest(r) {
 				errMsg := err.Error()
 				if api.redactor != nil {
 					errMsg = api.redactor.Redact(errMsg)
@@ -2991,16 +3005,18 @@ func (api *ControlAPI) handleSandboxLeaseRenew(w http.ResponseWriter, r *http.Re
 		switch {
 		case errors.Is(err, ErrSandboxNotFound):
 			writeError(w, http.StatusNotFound, "sandbox not found")
-		case errors.Is(err, ErrLeaseNotRenewable):
+		case errors.Is(err, ErrInvalidTransition):
 			if api.store != nil {
 				if sb, getErr := api.store.GetSandbox(r.Context(), vmid); getErr == nil {
 					writeError(w, http.StatusConflict, fmt.Sprintf("cannot renew lease in %s state. Valid states: RUNNING", sb.State))
 				} else {
-					writeError(w, http.StatusConflict, "sandbox lease not renewable")
+					writeError(w, http.StatusConflict, "sandbox lease not renewable in current state")
 				}
 			} else {
-				writeError(w, http.StatusConflict, "sandbox lease not renewable")
+				writeError(w, http.StatusConflict, "sandbox lease not renewable in current state")
 			}
+		case errors.Is(err, ErrLeaseNotRenewable):
+			writeError(w, http.StatusConflict, "sandbox lease not renewable")
 		default:
 			writeError(w, http.StatusInternalServerError, fmt.Sprintf("failed to renew lease: %v", err))
 		}

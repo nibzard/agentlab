@@ -129,7 +129,19 @@ func (b *APIBackend) Configure(ctx context.Context, vmid VMID, cfg VMConfig) err
 	if len(params) > 0 {
 		endpoint := fmt.Sprintf("/nodes/%s/qemu/%d/config", node, vmid)
 		if _, err := b.doPut(ctx, endpoint, params); err != nil {
-			return err
+			if cfg.FirewallGroup == "" || !isUnsupportedFWGroupError(err) {
+				return err
+			}
+			fallback := url.Values{}
+			for key, values := range params {
+				copied := make([]string, len(values))
+				copy(copied, values)
+				fallback[key] = copied
+			}
+			fallback.Set("net0", buildNet0(cfg.NetModel, cfg.Bridge, cfg.Firewall, ""))
+			if _, retryErr := b.doPut(ctx, endpoint, fallback); retryErr != nil {
+				return fmt.Errorf("%w; retry without fwgroup failed: %v", err, retryErr)
+			}
 		}
 	}
 

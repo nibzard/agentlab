@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/agentlab/agentlab/internal/models"
 	"github.com/agentlab/agentlab/internal/proxmox"
@@ -131,6 +132,33 @@ func (m *SandboxManager) SnapshotRestore(ctx context.Context, vmid int, name str
 		}
 		return proxmox.Snapshot{}, fmt.Errorf("rollback snapshot %s: %w", name, err)
 	}
+
+	// Proxmox rollback may stop the VM even when the DB state still says RUNNING.
+	// Reconcile state and clear stale IP data to avoid surfacing a non-reachable target.
+	status = proxmox.StatusUnknown
+	if current, statusErr := m.backend.Status(ctx, proxmox.VMID(vmid)); statusErr == nil {
+		status = current
+	}
+	if status != proxmox.StatusRunning {
+		if sandbox.State != models.SandboxStopped {
+			if err := m.Transition(ctx, vmid, models.SandboxStopped); err != nil {
+				return proxmox.Snapshot{}, err
+			}
+		}
+		if err := m.store.UpdateSandboxIP(ctx, vmid, ""); err != nil {
+			return proxmox.Snapshot{}, err
+		}
+	} else {
+		ipCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
+		ip, ipErr := m.backend.GuestIP(ipCtx, proxmox.VMID(vmid))
+		cancel()
+		if ipErr == nil && strings.TrimSpace(ip) != "" {
+			if err := m.store.UpdateSandboxIP(ctx, vmid, strings.TrimSpace(ip)); err != nil {
+				return proxmox.Snapshot{}, err
+			}
+		}
+	}
+
 	return proxmox.Snapshot{Name: name}, nil
 }
 

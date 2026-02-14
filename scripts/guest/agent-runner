@@ -328,9 +328,9 @@ report_status() {
     --argjson artifacts "$artifacts_json" \
     --argjson result "$result_json" \
     '({job_id:$job_id, vmid:$vmid, status:$status}
-      + ( $message != "" ? {message:$message} : {} )
-      + ( ( $artifacts | length ) > 0 ? {artifacts:$artifacts} : {} )
-      + ( $result != null ? {result:$result} : {} )
+      + (if $message != "" then {message:$message} else {} end)
+      + (if (($artifacts | length) > 0) then {artifacts:$artifacts} else {} end)
+      + (if $result != null then {result:$result} else {} end)
     )')
 
   post_with_backoff "$REPORT_URL" "$payload" "report status" || true

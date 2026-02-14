@@ -163,6 +163,58 @@ func TestShellBackendConfigure(t *testing.T) {
 	}
 }
 
+func TestShellBackendConfigureRetriesWithoutFWGroup(t *testing.T) {
+	runner := &fakeRunner{responses: []runnerResponse{
+		{err: errors.New("400 Parameter verification failed.\nnet0.fwgroup: property is not defined in schema and the schema does not allow additional properties")},
+		{},
+	}}
+	backend := &ShellBackend{Runner: runner}
+
+	firewall := true
+	cfg := VMConfig{
+		Name:          "sandbox-101",
+		Cores:         4,
+		MemoryMB:      4096,
+		Bridge:        "vmbr1",
+		NetModel:      "virtio",
+		Firewall:      &firewall,
+		FirewallGroup: "agent_nat_default",
+		CloudInit:     "local:snippets/ci.yaml",
+	}
+
+	if err := backend.Configure(context.Background(), 101, cfg); err != nil {
+		t.Fatalf("Configure() error = %v", err)
+	}
+
+	want := []runnerCall{
+		{
+			name: "qm",
+			args: []string{
+				"set", "101",
+				"--name", "sandbox-101",
+				"--cores", "4",
+				"--memory", "4096",
+				"--net0", "virtio,bridge=vmbr1,firewall=1,fwgroup=agent_nat_default",
+				"--cicustom", "user=local:snippets/ci.yaml",
+			},
+		},
+		{
+			name: "qm",
+			args: []string{
+				"set", "101",
+				"--name", "sandbox-101",
+				"--cores", "4",
+				"--memory", "4096",
+				"--net0", "virtio,bridge=vmbr1,firewall=1",
+				"--cicustom", "user=local:snippets/ci.yaml",
+			},
+		},
+	}
+	if !reflect.DeepEqual(runner.calls, want) {
+		t.Fatalf("Configure() calls = %#v, want %#v", runner.calls, want)
+	}
+}
+
 func TestShellBackendConfigureResizesRootDisk(t *testing.T) {
 	runner := &fakeRunner{responses: []runnerResponse{
 		{}, // qm set

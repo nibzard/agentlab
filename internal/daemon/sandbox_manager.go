@@ -310,9 +310,9 @@ func (m *SandboxManager) Transition(ctx context.Context, vmid int, target models
 	return nil
 }
 
-// RenewLease extends a keepalive sandbox lease.
+// RenewLease extends a sandbox lease.
 //
-// Only sandboxes with Keepalive=true can have their leases renewed. The new
+// Lease renewal is only allowed while the sandbox is in RUNNING state. The new
 // expiration time is calculated as now + ttl.
 //
 // Parameters:
@@ -324,7 +324,7 @@ func (m *SandboxManager) Transition(ctx context.Context, vmid int, target models
 //
 // Returns an error if:
 //   - The sandbox doesn't exist or is destroyed
-//   - The sandbox is not a keepalive sandbox
+//   - The sandbox is not in RUNNING state
 //   - The TTL is not positive
 func (m *SandboxManager) RenewLease(ctx context.Context, vmid int, ttl time.Duration) (time.Time, error) {
 	if m == nil || m.store == nil {
@@ -340,8 +340,8 @@ func (m *SandboxManager) RenewLease(ctx context.Context, vmid int, ttl time.Dura
 	if sandbox.State == models.SandboxDestroyed {
 		return time.Time{}, ErrSandboxNotFound
 	}
-	if !sandbox.Keepalive {
-		return time.Time{}, ErrLeaseNotRenewable
+	if sandbox.State != models.SandboxRunning {
+		return time.Time{}, fmt.Errorf("%w: %s -> renew_lease", ErrInvalidTransition, sandbox.State)
 	}
 	expiresAt := m.now().UTC().Add(ttl)
 	if err := m.store.UpdateSandboxLease(ctx, vmid, expiresAt); err != nil {
