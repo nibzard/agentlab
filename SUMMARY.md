@@ -111,7 +111,7 @@ The implementation is faithful to the spec, security posture is pragmatic, and c
 ❌ Database shows sandboxes stuck in `PROVISIONING` state
 ❌ No VMs created in Proxmox after API requests
 ❌ No error logs written to `/var/log/agentlab/agentlabd.log`
-❌ Generic error message wraps actual failure without exposing it
+❌ Generic error message wraps actual failure by default; optional debug header now exposes redacted `details` for 500 responses.
 
 ## What I Could Not Test (Due to Provisioning Failure)
 
@@ -136,7 +136,7 @@ The implementation is faithful to the spec, security posture is pragmatic, and c
 ## Critical Finding: Sandbox Provisioning Broken
 
 **Status**: CRITICAL BUG - Core feature doesn't work
-**Symptom**: API returns generic error, daemon logs nothing, VMs never created
+**Symptom**: API returns generic error by default, VMs never created in observed runs.
 **Root Cause**: Unknown - likely in ProvisionSandbox workflow (snippet/boot stage)
 **Severity**: BLOCKER for alpha testing
 

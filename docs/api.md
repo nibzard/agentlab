@@ -16,8 +16,11 @@ curl --unix-socket /run/agentlab/agentlabd.sock http://localhost/healthz
 ## Error shape
 
 ```json
-{ "error": "message" }
+{ "error": "message", "details": "redacted details if enabled" }
 ```
+
+By default, server errors (`5xx`) return only `error`.
+For debugging, include `X-AgentLab-Debug: true` to request redacted `details` on `5xx` responses.
 
 ## Versioned types
 
@@ -280,6 +283,8 @@ Response:
 
 ### POST /v1/sandboxes
 Create and provision a sandbox VM. If `vmid` is omitted, agentlabd allocates the next available VMID starting at 1000 based on its database. Provisioning clones the template, writes a cloud-init snippet, applies profile resources, starts the VM, and records the guest IP.
+
+For provisioning failures, add `X-AgentLab-Debug: true` to include redacted failure details in the HTTP response payload.
 
 Notes:
 - If `job_id` is provided, the sandbox record is created and attached to the job, but provisioning is deferred to the job runner.

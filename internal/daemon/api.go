@@ -1461,6 +1461,17 @@ func (api *ControlAPI) handleSandboxCreate(w http.ResponseWriter, r *http.Reques
 			if api.logger != nil {
 				api.logger.Printf("provision sandbox %d failed: %v", createdSandbox.VMID, err)
 			}
+			if isDebugRequest(req) {
+				errMsg := err.Error()
+				if api.redactor != nil {
+					errMsg = api.redactor.Redact(errMsg)
+				}
+				writeJSON(w, http.StatusInternalServerError, V1ErrorResponse{
+					Error:   "failed to provision sandbox",
+					Details: errMsg,
+				})
+				return
+			}
 			writeError(w, http.StatusInternalServerError, "failed to provision sandbox", err)
 			return
 		}
@@ -3585,6 +3596,14 @@ func writeError(w http.ResponseWriter, status int, msg string, err ...error) {
 		resp.Details = details
 	}
 	_ = json.NewEncoder(w).Encode(resp)
+}
+
+func isDebugRequest(r *http.Request) bool {
+	if r == nil {
+		return false
+	}
+	debug := strings.ToLower(strings.TrimSpace(r.Header.Get("X-AgentLab-Debug")))
+	return debug == "1" || debug == "true" || debug == "yes" || debug == "on"
 }
 
 func writeMethodNotAllowed(w http.ResponseWriter, methods []string) {
