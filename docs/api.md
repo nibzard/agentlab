@@ -59,6 +59,74 @@ For debugging, include `X-AgentLab-Debug: true` to request redacted `details` on
 ```
 
 ```json
+// V1PreflightIssue
+{
+  "code": "missing_required_field",
+  "field": "repo_url",
+  "message": "repo_url is required"
+}
+```
+
+```json
+// V1JobValidatePlanRequest
+{
+  "repo_url": "https://github.com/org/repo.git",
+  "ref": "main",
+  "profile": "yolo-ephemeral",
+  "task": "fix the failing tests",
+  "mode": "dangerous",
+  "ttl_minutes": 120,
+  "keepalive": false,
+  "workspace_id": "workspace-001",
+  "workspace_wait_seconds": 60,
+  "session_id": "sess_1234abcd"
+}
+```
+
+```json
+// V1JobValidatePlan
+{
+  "repo_url": "https://github.com/org/repo.git",
+  "ref": "main",
+  "profile": "yolo-ephemeral",
+  "task": "fix the failing tests",
+  "mode": "dangerous",
+  "ttl_minutes": 120,
+  "keepalive": false,
+  "workspace_id": "workspace-001",
+  "workspace_wait_seconds": 60,
+  "session_id": "sess_1234abcd"
+}
+```
+
+```json
+// V1JobValidatePlanResponse
+{
+  "ok": true,
+  "errors": [],
+  "warnings": [
+    {
+      "code": "job_ref_defaulted",
+      "field": "ref",
+      "message": "ref was defaulted to main"
+    }
+  ],
+  "plan": {
+    "repo_url": "https://github.com/org/repo.git",
+    "ref": "main",
+    "profile": "yolo-ephemeral",
+    "task": "fix the failing tests",
+    "mode": "dangerous",
+    "ttl_minutes": 120,
+    "keepalive": false,
+    "workspace_id": "workspace-001",
+    "workspace_wait_seconds": 60,
+    "session_id": "sess_1234abcd"
+  }
+}
+```
+
+```json
 // V1SandboxCreateRequest
 {
   "name": "sandbox-1000",
@@ -84,6 +152,50 @@ For debugging, include `X-AgentLab-Debug: true` to request redacted `details` on
   "lease_expires_at": "2026-01-30T02:45:00Z",
   "created_at": "2026-01-29T23:45:00Z",
   "updated_at": "2026-01-29T23:45:00Z"
+}
+```
+
+```json
+// V1SandboxValidatePlanRequest
+{
+  "name": "sandbox-1000",
+  "profile": "yolo-ephemeral",
+  "keepalive": false,
+  "ttl_minutes": 180,
+  "workspace_id": "workspace-001",
+  "vmid": 1000,
+  "job_id": "job_0123abcd"
+}
+```
+
+```json
+// V1SandboxValidatePlan
+{
+  "name": "sandbox-1000",
+  "profile": "yolo-ephemeral",
+  "keepalive": false,
+  "ttl_minutes": 180,
+  "workspace_id": "workspace-001",
+  "vmid": 1000,
+  "job_id": "job_0123abcd"
+}
+```
+
+```json
+// V1SandboxValidatePlanResponse
+{
+  "ok": true,
+  "errors": [],
+  "warnings": [],
+  "plan": {
+    "name": "sandbox-1000",
+    "profile": "yolo-ephemeral",
+    "keepalive": false,
+    "ttl_minutes": 180,
+    "workspace_id": "workspace-001",
+    "vmid": 1000,
+    "job_id": "job_0123abcd"
+  }
 }
 ```
 
@@ -257,6 +369,57 @@ Create a job record.
 - Required: `repo_url`, `profile`, `task`
 - Defaults: `ref=main`, `mode=dangerous`
 - Optional workspace selection fields: `workspace_id` (id or name), `workspace_create` (new workspace `{ "name": "...", "size_gb": 80, "storage": "local-zfs" }`), `workspace_wait_seconds` (wait for detach; 409 on timeout). `workspace_id` and `workspace_create` are mutually exclusive.
+- Optional session binding: `session_id` attaches to session workspace and inherits workspace when omitted.
+
+### POST /v1/jobs/validate-plan
+Validate a job create request without creating resources.
+
+- Returns
+  - `ok`: whether the request can be executed
+  - `errors`: ordered list of blocking issues
+  - `warnings`: ordered list of non-blocking issues
+  - `plan`: normalized request when `ok=true`
+- Response `errors` and `warnings` entries use:
+  - `code` stable error code
+  - `field` logical field pointer
+  - `message` deterministic message
+
+Example request:
+
+```json
+{
+  "repo_url": "https://github.com/org/repo.git",
+  "profile": "yolo-ephemeral",
+  "task": "fix the failing tests",
+  "ttl_minutes": 120
+}
+```
+
+Example response:
+
+```json
+{
+  "ok": true,
+  "errors": [],
+  "warnings": [
+    {
+      "code": "job_ref_defaulted",
+      "field": "ref",
+      "message": "ref was defaulted to main"
+    }
+  ],
+  "plan": {
+    "repo_url": "https://github.com/org/repo.git",
+    "ref": "main",
+    "profile": "yolo-ephemeral",
+    "task": "fix the failing tests",
+    "mode": "dangerous",
+    "ttl_minutes": 120,
+    "keepalive": false,
+    "workspace_id": "workspace-001"
+  }
+}
+```
 
 ### GET /v1/jobs/{id}
 Fetch a job by id.
@@ -343,6 +506,48 @@ Notes:
 Optional:
 - `job_id` attaches the sandbox to an existing job.
 - `ttl_minutes` sets `lease_expires_at` from the request time.
+
+### POST /v1/sandboxes/validate-plan
+Validate a sandbox create request without provisioning resources.
+
+- Returns
+  - `ok`: whether the request can be executed
+  - `errors`: ordered list of blocking issues
+  - `warnings`: ordered list of non-blocking issues
+  - `plan`: normalized request when `ok=true`
+- Response `errors` and `warnings` entries use:
+  - `code` stable error code
+  - `field` logical field pointer
+  - `message` deterministic message
+
+Example request:
+
+```json
+{
+  "profile": "yolo-ephemeral",
+  "ttl_minutes": 120,
+  "workspace_id": "workspace-001",
+  "vmid": 1000
+}
+```
+
+Example response:
+
+```json
+{
+  "ok": true,
+  "errors": [],
+  "warnings": [],
+  "plan": {
+    "name": "sandbox-1000",
+    "profile": "yolo-ephemeral",
+    "keepalive": false,
+    "ttl_minutes": 120,
+    "workspace_id": "workspace-001",
+    "vmid": 1000
+  }
+}
+```
 
 ### GET /v1/sandboxes
 List sandboxes.
