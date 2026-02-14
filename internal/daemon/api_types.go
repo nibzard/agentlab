@@ -22,12 +22,55 @@ type V1StatusMetrics struct {
 }
 
 type V1StatusResponse struct {
-	Sandboxes      map[string]int    `json:"sandboxes"`
-	Jobs           map[string]int    `json:"jobs"`
-	NetworkModes   map[string]int    `json:"network_modes,omitempty"`
-	Artifacts      V1StatusArtifacts `json:"artifacts"`
-	Metrics        V1StatusMetrics   `json:"metrics"`
-	RecentFailures []V1Event         `json:"recent_failures"`
+	Sandboxes           map[string]int                    `json:"sandboxes"`
+	Jobs                map[string]int                    `json:"jobs"`
+	NetworkModes        map[string]int                    `json:"network_modes,omitempty"`
+	Artifacts           V1StatusArtifacts                 `json:"artifacts"`
+	Metrics             V1StatusMetrics                   `json:"metrics"`
+	RecentFailures      []V1Event                         `json:"recent_failures"`
+	SandboxHealth       map[int]V1SandboxLifecycleSummary `json:"sandbox_health"`
+	JobTimelines        map[string]V1JobTimelineSummary   `json:"job_timelines"`
+	RecentFailureDigest []V1FailureDigest                 `json:"recent_failure_digest"`
+}
+
+type V1FailureDigest struct {
+	EventID     int64  `json:"event_id"`
+	Timestamp   string `json:"ts"`
+	Kind        string `json:"kind"`
+	Schema      int    `json:"schema,omitempty"`
+	Stage       string `json:"stage,omitempty"`
+	SandboxVMID *int   `json:"sandbox_vmid,omitempty"`
+	JobID       string `json:"job_id,omitempty"`
+	Error       string `json:"error,omitempty"`
+	Message     string `json:"message,omitempty"`
+}
+
+type V1SandboxLifecycleSummary struct {
+	VMID               int    `json:"vmid"`
+	State              string `json:"state"`
+	Healthy            bool   `json:"healthy"`
+	LastEventID        int64  `json:"last_event_id"`
+	LastEventKind      string `json:"last_event_kind,omitempty"`
+	LastEventAt        string `json:"last_event_at,omitempty"`
+	FailureCount       int    `json:"failure_count"`
+	LastFailureAt      string `json:"last_failure_at,omitempty"`
+	LastFailureKind    string `json:"last_failure_kind,omitempty"`
+	LastFailureMessage string `json:"last_failure_message,omitempty"`
+}
+
+type V1JobTimelineSummary struct {
+	JobID              string `json:"job_id"`
+	Status             string `json:"status"`
+	StartedAt          string `json:"started_at,omitempty"`
+	CompletedAt        string `json:"completed_at,omitempty"`
+	EventCount         int    `json:"event_count"`
+	FailureCount       int    `json:"failure_count"`
+	LastEventID        int64  `json:"last_event_id"`
+	LastEventKind      string `json:"last_event_kind,omitempty"`
+	LastEventAt        string `json:"last_event_at,omitempty"`
+	LastFailureAt      string `json:"last_failure_at,omitempty"`
+	LastFailureKind    string `json:"last_failure_kind,omitempty"`
+	LastFailureMessage string `json:"last_failure_message,omitempty"`
 }
 
 type V1HostResponse struct {
@@ -129,29 +172,30 @@ type V1JobValidatePlan struct {
 }
 
 type V1JobValidatePlanResponse struct {
-	OK       bool                `json:"ok"`
-	Errors   []V1PreflightIssue  `json:"errors"`
-	Warnings []V1PreflightIssue  `json:"warnings"`
-	Plan     *V1JobValidatePlan  `json:"plan,omitempty"`
+	OK       bool               `json:"ok"`
+	Errors   []V1PreflightIssue `json:"errors"`
+	Warnings []V1PreflightIssue `json:"warnings"`
+	Plan     *V1JobValidatePlan `json:"plan,omitempty"`
 }
 
 type V1JobResponse struct {
-	ID          string          `json:"id"`
-	RepoURL     string          `json:"repo_url"`
-	Ref         string          `json:"ref"`
-	Profile     string          `json:"profile"`
-	Task        string          `json:"task,omitempty"`
-	Mode        string          `json:"mode,omitempty"`
-	TTLMinutes  *int            `json:"ttl_minutes,omitempty"`
-	Keepalive   bool            `json:"keepalive"`
-	WorkspaceID *string         `json:"workspace_id,omitempty"`
-	SessionID   *string         `json:"session_id,omitempty"`
-	Status      string          `json:"status"`
-	SandboxVMID *int            `json:"sandbox_vmid,omitempty"`
-	Result      json.RawMessage `json:"result,omitempty"`
-	Events      []V1Event       `json:"events,omitempty"`
-	CreatedAt   string          `json:"created_at"`
-	UpdatedAt   string          `json:"updated_at"`
+	ID          string                `json:"id"`
+	RepoURL     string                `json:"repo_url"`
+	Ref         string                `json:"ref"`
+	Profile     string                `json:"profile"`
+	Task        string                `json:"task,omitempty"`
+	Mode        string                `json:"mode,omitempty"`
+	TTLMinutes  *int                  `json:"ttl_minutes,omitempty"`
+	Keepalive   bool                  `json:"keepalive"`
+	WorkspaceID *string               `json:"workspace_id,omitempty"`
+	SessionID   *string               `json:"session_id,omitempty"`
+	Status      string                `json:"status"`
+	SandboxVMID *int                  `json:"sandbox_vmid,omitempty"`
+	Result      json.RawMessage       `json:"result,omitempty"`
+	Events      []V1Event             `json:"events,omitempty"`
+	Timeline    *V1JobTimelineSummary `json:"timeline,omitempty"`
+	CreatedAt   string                `json:"created_at"`
+	UpdatedAt   string                `json:"updated_at"`
 }
 
 type V1SandboxCreateRequest struct {
@@ -185,10 +229,10 @@ type V1SandboxValidatePlan struct {
 }
 
 type V1SandboxValidatePlanResponse struct {
-	OK       bool                    `json:"ok"`
-	Errors   []V1PreflightIssue      `json:"errors"`
-	Warnings []V1PreflightIssue      `json:"warnings"`
-	Plan     *V1SandboxValidatePlan  `json:"plan,omitempty"`
+	OK       bool                   `json:"ok"`
+	Errors   []V1PreflightIssue     `json:"errors"`
+	Warnings []V1PreflightIssue     `json:"warnings"`
+	Plan     *V1SandboxValidatePlan `json:"plan,omitempty"`
 }
 
 type V1SandboxDestroyRequest struct {
@@ -210,18 +254,19 @@ type V1SandboxSnapshotRestoreRequest struct {
 }
 
 type V1SandboxResponse struct {
-	VMID          int               `json:"vmid"`
-	Name          string            `json:"name"`
-	Profile       string            `json:"profile"`
-	State         string            `json:"state"`
-	IP            string            `json:"ip,omitempty"`
-	WorkspaceID   *string           `json:"workspace_id,omitempty"`
-	Network       *V1SandboxNetwork `json:"network,omitempty"`
-	Keepalive     bool              `json:"keepalive"`
-	LeaseExpires  *string           `json:"lease_expires_at,omitempty"`
-	LastUsedAt    *string           `json:"last_used_at,omitempty"`
-	CreatedAt     string            `json:"created_at"`
-	LastUpdatedAt string            `json:"updated_at"`
+	VMID          int                        `json:"vmid"`
+	Name          string                     `json:"name"`
+	Profile       string                     `json:"profile"`
+	State         string                     `json:"state"`
+	IP            string                     `json:"ip,omitempty"`
+	WorkspaceID   *string                    `json:"workspace_id,omitempty"`
+	Network       *V1SandboxNetwork          `json:"network,omitempty"`
+	Keepalive     bool                       `json:"keepalive"`
+	LeaseExpires  *string                    `json:"lease_expires_at,omitempty"`
+	LastUsedAt    *string                    `json:"last_used_at,omitempty"`
+	Health        *V1SandboxLifecycleSummary `json:"health,omitempty"`
+	CreatedAt     string                     `json:"created_at"`
+	LastUpdatedAt string                     `json:"updated_at"`
 }
 
 type V1SandboxNetwork struct {

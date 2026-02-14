@@ -60,6 +60,31 @@ func (s *Store) ListEventsBySandbox(ctx context.Context, vmid int, afterID int64
 	return out, nil
 }
 
+// ListAllEvents returns all events in ascending ID order.
+func (s *Store) ListAllEvents(ctx context.Context) ([]Event, error) {
+	if s == nil || s.DB == nil {
+		return nil, errors.New("db store is nil")
+	}
+	rows, err := s.DB.QueryContext(ctx, `SELECT id, ts, kind, sandbox_vmid, job_id, msg, json
+		FROM events ORDER BY id ASC`)
+	if err != nil {
+		return nil, fmt.Errorf("list all events: %w", err)
+	}
+	defer rows.Close()
+	var out []Event
+	for rows.Next() {
+		ev, err := scanEventRow(rows)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, ev)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate events: %w", err)
+	}
+	return out, nil
+}
+
 // ListEventsByJob returns events for a job after a given ID.
 //
 // Queries events associated with a specific job ID, starting from
@@ -80,6 +105,63 @@ func (s *Store) ListEventsByJob(ctx context.Context, jobID string, afterID int64
 		FROM events WHERE job_id = ? AND id > ? ORDER BY id ASC LIMIT ?`, jobID, afterID, limit)
 	if err != nil {
 		return nil, fmt.Errorf("list events: %w", err)
+	}
+	defer rows.Close()
+	var out []Event
+	for rows.Next() {
+		ev, err := scanEventRow(rows)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, ev)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate events: %w", err)
+	}
+	return out, nil
+}
+
+// ListEventsByJobAll returns all events for a job in ascending ID order.
+func (s *Store) ListEventsByJobAll(ctx context.Context, jobID string) ([]Event, error) {
+	if s == nil || s.DB == nil {
+		return nil, errors.New("db store is nil")
+	}
+	jobID = strings.TrimSpace(jobID)
+	if jobID == "" {
+		return nil, errors.New("job id is required")
+	}
+	rows, err := s.DB.QueryContext(ctx, `SELECT id, ts, kind, sandbox_vmid, job_id, msg, json
+		FROM events WHERE job_id = ? ORDER BY id ASC`, jobID)
+	if err != nil {
+		return nil, fmt.Errorf("list job events: %w", err)
+	}
+	defer rows.Close()
+	var out []Event
+	for rows.Next() {
+		ev, err := scanEventRow(rows)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, ev)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate events: %w", err)
+	}
+	return out, nil
+}
+
+// ListEventsBySandboxAll returns all events for a sandbox in ascending ID order.
+func (s *Store) ListEventsBySandboxAll(ctx context.Context, vmid int) ([]Event, error) {
+	if s == nil || s.DB == nil {
+		return nil, errors.New("db store is nil")
+	}
+	if vmid <= 0 {
+		return nil, errors.New("vmid must be positive")
+	}
+	rows, err := s.DB.QueryContext(ctx, `SELECT id, ts, kind, sandbox_vmid, job_id, msg, json
+		FROM events WHERE sandbox_vmid = ? ORDER BY id ASC`, vmid)
+	if err != nil {
+		return nil, fmt.Errorf("list sandbox events: %w", err)
 	}
 	defer rows.Close()
 	var out []Event

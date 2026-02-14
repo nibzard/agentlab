@@ -1087,6 +1087,16 @@ func (api *ControlAPI) handleJobGet(w http.ResponseWriter, r *http.Request, jobI
 			resp.Events = append(resp.Events, eventToV1(ev))
 		}
 	}
+	projection := NewEventProjection()
+	jobEvents, err := api.store.ListEventsByJobAll(r.Context(), job.ID)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to build job timeline")
+		return
+	}
+	projection.Replay(jobEvents)
+	if summary, ok := projection.JobTimelines[job.ID]; ok {
+		resp.Timeline = &summary
+	}
 	writeJSON(w, http.StatusOK, resp)
 }
 
@@ -1271,14 +1281,24 @@ func (api *ControlAPI) handleStatus(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "failed to load recent failures")
 		return
 	}
+	projection := NewEventProjection()
+	allEvents, err := api.store.ListAllEvents(ctx)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to load event projection")
+		return
+	}
+	projection.Replay(allEvents)
 
 	resp := V1StatusResponse{
-		Sandboxes:      formatSandboxCounts(sandboxCounts),
-		Jobs:           formatJobCounts(jobCounts),
-		NetworkModes:   formatNetworkModeCounts(networkModes),
-		Artifacts:      buildArtifactStatus(api.artifactRoot),
-		Metrics:        V1StatusMetrics{Enabled: api.metricsEnabled},
-		RecentFailures: make([]V1Event, 0, len(failureEvents)),
+		Sandboxes:           formatSandboxCounts(sandboxCounts),
+		Jobs:                formatJobCounts(jobCounts),
+		NetworkModes:        formatNetworkModeCounts(networkModes),
+		Artifacts:           buildArtifactStatus(api.artifactRoot),
+		Metrics:             V1StatusMetrics{Enabled: api.metricsEnabled},
+		RecentFailures:      make([]V1Event, 0, len(failureEvents)),
+		SandboxHealth:       projection.SandboxHealth,
+		JobTimelines:        projection.JobTimelines,
+		RecentFailureDigest: projection.RecentFailureDigest,
 	}
 	for _, ev := range failureEvents {
 		resp.RecentFailures = append(resp.RecentFailures, eventToV1(ev))
@@ -1761,7 +1781,18 @@ func (api *ControlAPI) handleSandboxGet(w http.ResponseWriter, r *http.Request, 
 		writeError(w, http.StatusInternalServerError, "failed to load sandbox")
 		return
 	}
-	writeJSON(w, http.StatusOK, api.sandboxToV1(sandbox))
+	resp := api.sandboxToV1(sandbox)
+	projection := NewEventProjection()
+	sandboxEvents, err := api.store.ListEventsBySandboxAll(r.Context(), vmid)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to build sandbox health")
+		return
+	}
+	projection.Replay(sandboxEvents)
+	if summary, ok := projection.SandboxHealth[vmid]; ok {
+		resp.Health = &summary
+	}
+	writeJSON(w, http.StatusOK, resp)
 }
 
 func (api *ControlAPI) handleSandboxCreate(w http.ResponseWriter, r *http.Request) {
