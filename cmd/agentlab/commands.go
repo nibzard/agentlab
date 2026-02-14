@@ -400,6 +400,8 @@ func runJobCommand(ctx context.Context, args []string, base commonFlags) error {
 	switch args[0] {
 	case "run":
 		return runJobRun(ctx, args[1:], base)
+	case "validate":
+		return runJobValidate(ctx, args[1:], base)
 	case "show":
 		return runJobShow(ctx, args[1:], base)
 	case "artifacts":
@@ -410,7 +412,7 @@ func runJobCommand(ctx context.Context, args []string, base commonFlags) error {
 		if !base.jsonOutput {
 			printJobUsage()
 		}
-		return unknownSubcommandError("job", args[0], []string{"run", "show", "artifacts", "doctor"})
+		return unknownSubcommandError("job", args[0], []string{"run", "validate", "show", "artifacts", "doctor"})
 	}
 }
 
@@ -582,6 +584,192 @@ func runJobRun(ctx context.Context, args []string, base commonFlags) error {
 	}
 	printJob(resp)
 	return nil
+}
+
+func runJobValidate(ctx context.Context, args []string, base commonFlags) error {
+	fs := newFlagSet("job validate")
+	opts := base
+	opts.bind(fs)
+	var repo string
+	var ref string
+	var branch string
+	var profile string
+	var task string
+	var mode string
+	var ttl string
+	var workspace string
+	var workspaceCreate string
+	var workspaceSize string
+	var workspaceStorage string
+	var workspaceWait string
+	var stateful bool
+	var keepalive optionalBool
+	help := bindHelpFlag(fs)
+	fs.StringVar(&repo, "repo", "", "git repository url")
+	fs.StringVar(&ref, "ref", "", "git ref (default main)")
+	fs.StringVar(&branch, "branch", "", "branch name (session-backed)")
+	fs.StringVar(&profile, "profile", "", "profile name")
+	fs.StringVar(&task, "task", "", "task description")
+	fs.StringVar(&mode, "mode", "", "mode (default dangerous)")
+	fs.StringVar(&ttl, "ttl", "", ttlFlagDescription)
+	fs.StringVar(&workspace, "workspace", "", "workspace id or name (or new:<name>)")
+	fs.StringVar(&workspaceCreate, "workspace-create", "", "create workspace with name")
+	fs.StringVar(&workspaceSize, "workspace-size", "", "workspace size for creation (e.g. 80G)")
+	fs.StringVar(&workspaceStorage, "workspace-storage", "", "workspace storage (default local-zfs)")
+	fs.StringVar(&workspaceWait, "workspace-wait", "", "wait for workspace detach (e.g. 2m, 30s)")
+	fs.BoolVar(&stateful, "stateful", false, "create a default workspace for a stateful job")
+	fs.Var(&keepalive, "keepalive", "keep sandbox after job completion")
+	if err := parseFlags(fs, args, printJobValidateUsage, help, opts.jsonOutput); err != nil {
+		return err
+	}
+	if repo == "" || profile == "" || task == "" {
+		if !opts.jsonOutput {
+			printJobValidateUsage()
+		}
+		return fmt.Errorf("repo, profile, and task are required")
+	}
+	ttlMinutes, err := parseTTLMinutes(ttl)
+	if err != nil {
+		return err
+	}
+	branch = strings.TrimSpace(branch)
+	workspace = strings.TrimSpace(workspace)
+	workspaceCreate = strings.TrimSpace(workspaceCreate)
+	workspaceSize = strings.TrimSpace(workspaceSize)
+	workspaceStorage = strings.TrimSpace(workspaceStorage)
+	workspaceWait = strings.TrimSpace(workspaceWait)
+	client, err := apiClientFromFlags(opts)
+	if err != nil {
+		return err
+	}
+	var (
+		workspaceID        *string
+		workspaceCreateReq *workspaceCreateRequest
+		workspaceWaitSecs  *int
+		sessionID          *string
+	)
+	if branch != "" {
+		session, err := resolveBranchSession(ctx, client, branch, profile, workspace, workspaceCreate, workspaceSize, workspaceStorage)
+		if err != nil {
+			return wrapUnknownProfileError(ctx, client, profile, err)
+		}
+		if strings.TrimSpace(session.WorkspaceID) == "" {
+			return fmt.Errorf("session workspace_id is required")
+		}
+		ws := strings.TrimSpace(session.WorkspaceID)
+		workspaceID = &ws
+		sessionID = &session.ID
+	} else {
+		if workspace != "" && workspaceCreate != "" {
+			return fmt.Errorf("--workspace and --workspace-create are mutually exclusive")
+		}
+		if strings.HasPrefix(workspace, "new:") {
+			name := strings.TrimSpace(strings.TrimPrefix(workspace, "new:"))
+			if name == "" {
+				return fmt.Errorf("workspace name is required after new")
+			}
+			if workspaceCreate != "" {
+				return fmt.Errorf("--workspace new:<name> cannot be combined with --workspace-create")
+			}
+			workspaceCreate = name
+			workspace = ""
+		}
+		if stateful && workspace == "" && workspaceCreate == "" {
+			defaultName, err := defaultStatefulWorkspaceName(repo)
+			if err != nil {
+				return err
+			}
+			workspaceCreate = defaultName
+		}
+
+		if workspace != "" {
+			value := strings.TrimSpace(workspace)
+			if value != "" {
+				workspaceID = &value
+			}
+		}
+		if workspaceCreate != "" {
+			sizeGB := 0
+			if workspaceSize == "" {
+				if stateful {
+					sizeGB = defaultStatefulWorkspaceSizeGB
+				} else {
+					return fmt.Errorf("--workspace-size is required when creating a workspace")
+				}
+			} else {
+				sizeGB, err = parseSizeGB(workspaceSize)
+				if err != nil {
+					return err
+				}
+			}
+			storage := workspaceStorage
+			if storage == "" && stateful {
+				storage = defaultStatefulWorkspaceStorage
+			}
+			workspaceCreateReq = &workspaceCreateRequest{
+				Name:    workspaceCreate,
+				SizeGB:  sizeGB,
+				Storage: storage,
+			}
+		} else if workspaceSize != "" || workspaceStorage != "" {
+			return fmt.Errorf("--workspace-size/--workspace-storage require workspace creation (use --workspace new:<name> or --workspace-create)")
+		}
+	}
+	if workspaceWait != "" {
+		workspaceWaitSecs, err = parseWorkspaceWaitSeconds(workspaceWait)
+		if err != nil {
+			return err
+		}
+		if workspaceID == nil && workspaceCreateReq == nil {
+			return fmt.Errorf("--workspace-wait requires --workspace or --workspace-create")
+		}
+	}
+	req := jobValidatePlanRequest{
+		RepoURL:              repo,
+		Ref:                  ref,
+		Profile:              profile,
+		Task:                 task,
+		Mode:                 mode,
+		TTLMinutes:           ttlMinutes,
+		Keepalive:            keepalive.Ptr(),
+		WorkspaceID:          workspaceID,
+		WorkspaceCreate:      workspaceCreateReq,
+		WorkspaceWaitSeconds: workspaceWaitSecs,
+		SessionID:            sessionID,
+	}
+	payload, err := client.doJSON(ctx, http.MethodPost, "/v1/jobs/validate-plan", req)
+	if err != nil {
+		err = wrapJobWorkspaceCompatibilityError(err)
+		err = wrapJobWorkspaceConflict(workspaceID, workspaceCreateReq, workspaceWaitSecs, err)
+		err = wrapWorkspaceNotFound(workspaceTargetName(workspaceID, workspaceCreateReq), err)
+		return wrapUnknownProfileError(ctx, client, profile, err)
+	}
+	if opts.jsonOutput {
+		if err := prettyPrintJSON(os.Stdout, payload); err != nil {
+			return err
+		}
+		var jsonResp jobValidatePlanResponse
+		if err := json.Unmarshal(payload, &jsonResp); err != nil {
+			return err
+		}
+		if jsonResp.OK {
+			return nil
+		}
+		return newPrintedJSONOnlyError(fmt.Errorf("job preflight validation failed"))
+	}
+	var resp jobValidatePlanResponse
+	if err := json.Unmarshal(payload, &resp); err != nil {
+		return err
+	}
+	printJobValidatePlan(resp.Plan)
+	printPreflightIssues("Warnings", resp.Warnings)
+	printPreflightIssues("Errors", resp.Errors)
+	if resp.OK {
+		fmt.Println("Validation passed")
+		return nil
+	}
+	fmt.Println("Validation failed")
+	return newCLIError("job preflight validation failed", "agentlab job run --help", "fix listed validation errors", "rerun with corrected flags")
 }
 
 // runJobShow displays details of a single job.
@@ -860,6 +1048,8 @@ func runSandboxCommand(ctx context.Context, args []string, base commonFlags) err
 	switch args[0] {
 	case "new":
 		return runSandboxNew(ctx, args[1:], base)
+	case "validate":
+		return runSandboxValidate(ctx, args[1:], base)
 	case "list":
 		return runSandboxList(ctx, args[1:], base)
 	case "show":
@@ -894,7 +1084,7 @@ func runSandboxCommand(ctx context.Context, args []string, base commonFlags) err
 		if !base.jsonOutput {
 			printSandboxUsage()
 		}
-		return unknownSubcommandError("sandbox", args[0], []string{"new", "list", "show", "start", "stop", "pause", "resume", "revert", "snapshot", "destroy", "lease", "prune", "expose", "exposed", "unexpose", "doctor"})
+		return unknownSubcommandError("sandbox", args[0], []string{"new", "validate", "list", "show", "start", "stop", "pause", "resume", "revert", "snapshot", "destroy", "lease", "prune", "expose", "exposed", "unexpose", "doctor"})
 	}
 }
 
@@ -1165,6 +1355,127 @@ func runSandboxNew(ctx context.Context, args []string, base commonFlags) error {
 	}
 	printSandbox(resp)
 	return nil
+}
+
+func runSandboxValidate(ctx context.Context, args []string, base commonFlags) error {
+	fs := newFlagSet("sandbox validate")
+	opts := base
+	opts.bind(fs)
+	var name string
+	var profile string
+	var ttl string
+	var workspace string
+	var vmid int
+	var jobID string
+	var keepalive optionalBool
+	help := bindHelpFlag(fs)
+	fs.StringVar(&name, "name", "", "sandbox name")
+	fs.StringVar(&profile, "profile", "", "profile name")
+	fs.StringVar(&ttl, "ttl", "", ttlFlagDescription)
+	fs.StringVar(&workspace, "workspace", "", "workspace id or name")
+	fs.IntVar(&vmid, "vmid", 0, "vmid override")
+	fs.StringVar(&jobID, "job", "", "attach to existing job id")
+	fs.Var(&keepalive, "keepalive", "enable keepalive lease for sandbox")
+	if err := parseFlags(fs, args, printSandboxValidateUsage, help, opts.jsonOutput); err != nil {
+		return err
+	}
+	modifiers, err := parseSandboxModifiers(fs.Args())
+	if err != nil {
+		if !opts.jsonOutput {
+			printSandboxValidateUsage()
+		}
+		return err
+	}
+	profile = strings.TrimSpace(profile)
+	if profile != "" && len(modifiers) > 0 {
+		return fmt.Errorf("cannot combine --profile with modifiers")
+	}
+	if profile == "" && len(modifiers) == 0 {
+		if !opts.jsonOutput {
+			printSandboxValidateUsage()
+		}
+		return fmt.Errorf("profile is required (or provide +modifiers)")
+	}
+	ttlMinutes, err := parseTTLMinutes(ttl)
+	if err != nil {
+		return err
+	}
+	workspace = strings.TrimSpace(workspace)
+	jobID = strings.TrimSpace(jobID)
+	name = strings.TrimSpace(name)
+	var workspaceID *string
+	if workspace != "" {
+		value := workspace
+		workspaceID = &value
+	}
+	var vmidPtr *int
+	if vmid > 0 {
+		value := vmid
+		vmidPtr = &value
+	}
+
+	client, err := apiClientFromFlags(opts)
+	if err != nil {
+		return err
+	}
+	if profile != "" || len(modifiers) > 0 {
+		profiles, err := fetchProfiles(ctx, client)
+		if err != nil {
+			return err
+		}
+		if len(modifiers) > 0 {
+			resolvedProfile, resolveErr := resolveProfileFromModifiers(modifiers, profiles)
+			if resolveErr != nil {
+				return resolveErr
+			}
+			profile = resolvedProfile
+		} else {
+			resolvedProfile, resolveErr := validateProfileName(profile, profiles)
+			if resolveErr != nil {
+				return resolveErr
+			}
+			profile = resolvedProfile
+		}
+	}
+	req := sandboxValidatePlanRequest{
+		Name:       name,
+		Profile:    profile,
+		Keepalive:  keepalive.Ptr(),
+		TTLMinutes: ttlMinutes,
+		Workspace:  workspaceID,
+		VMID:       vmidPtr,
+		JobID:      jobID,
+	}
+	payload, err := client.doJSON(ctx, http.MethodPost, "/v1/sandboxes/validate-plan", req)
+	if err != nil {
+		return err
+	}
+	if opts.jsonOutput {
+		if err := prettyPrintJSON(os.Stdout, payload); err != nil {
+			return err
+		}
+		var jsonResp sandboxValidatePlanResponse
+		if err := json.Unmarshal(payload, &jsonResp); err != nil {
+			return err
+		}
+		if jsonResp.OK {
+			return nil
+		}
+		return newPrintedJSONOnlyError(fmt.Errorf("sandbox preflight validation failed"))
+	}
+	var resp sandboxValidatePlanResponse
+	if err := json.Unmarshal(payload, &resp); err != nil {
+		return err
+	}
+	printSandboxValidatePlan(resp.Plan)
+	printPreflightIssues("Warnings", resp.Warnings)
+	printPreflightIssues("Errors", resp.Errors)
+	if resp.OK {
+		fmt.Println("Validation passed")
+		return nil
+	}
+	fmt.Println("Validation failed")
+	return newCLIError("sandbox preflight validation failed", "agentlab sandbox new --help", "fix listed validation errors", "rerun with corrected flags")
 }
 
 func runSandboxList(ctx context.Context, args []string, base commonFlags) error {
@@ -3384,6 +3695,74 @@ func printSandboxList(sandboxes []sandboxResponse) {
 	_ = w.Flush()
 }
 
+func printPreflightIssues(label string, issues []preflightIssue) {
+	label = strings.TrimSpace(label)
+	if len(issues) == 0 {
+		return
+	}
+	if label == "" {
+		label = "Issues"
+	}
+	fmt.Printf("%s:\n", label)
+	for _, issue := range issues {
+		code := strings.TrimSpace(issue.Code)
+		field := strings.TrimSpace(issue.Field)
+		msg := strings.TrimSpace(issue.Message)
+		if msg == "" {
+			msg = "(no message)"
+		}
+		entry := msg
+		if code != "" {
+			entry = fmt.Sprintf("%s [%s]", entry, code)
+		}
+		if field != "" {
+			entry = fmt.Sprintf("%s (%s)", entry, field)
+		}
+		fmt.Printf("  - %s\n", entry)
+	}
+}
+
+func printWorkspacePlanCreate(req *workspaceCreateRequest) {
+	if req == nil {
+		return
+	}
+	fmt.Printf("Workspace Create Name: %s\n", req.Name)
+	fmt.Printf("Workspace Size (GB): %d\n", req.SizeGB)
+	fmt.Printf("Workspace Storage: %s\n", req.Storage)
+}
+
+func printJobValidatePlan(plan *jobValidatePlan) {
+	if plan == nil {
+		return
+	}
+	fmt.Println("Plan:")
+	fmt.Printf("Repo: %s\n", orDash(plan.RepoURL))
+	fmt.Printf("Ref: %s\n", orDash(plan.Ref))
+	fmt.Printf("Profile: %s\n", plan.Profile)
+	fmt.Printf("Task: %s\n", plan.Task)
+	fmt.Printf("Mode: %s\n", orDash(plan.Mode))
+	fmt.Printf("TTL Minutes: %s\n", ttlMinutesString(plan.TTLMinutes))
+	fmt.Printf("Keepalive: %t\n", plan.Keepalive)
+	fmt.Printf("Workspace ID: %s\n", orDashPtr(plan.WorkspaceID))
+	printWorkspacePlanCreate(plan.WorkspaceCreate)
+	fmt.Printf("Workspace Wait Seconds: %s\n", ttlSecondsString(plan.WorkspaceWaitSeconds))
+	fmt.Printf("Session ID: %s\n", orDashPtr(plan.SessionID))
+}
+
+func printSandboxValidatePlan(plan *sandboxValidatePlan) {
+	if plan == nil {
+		return
+	}
+	fmt.Println("Plan:")
+	fmt.Printf("Name: %s\n", orDash(plan.Name))
+	fmt.Printf("Profile: %s\n", plan.Profile)
+	fmt.Printf("Keepalive: %t\n", plan.Keepalive)
+	fmt.Printf("TTL Minutes: %s\n", ttlMinutesString(plan.TTLMinutes))
+	fmt.Printf("Workspace ID: %s\n", orDashPtr(plan.Workspace))
+	fmt.Printf("VMID: %s\n", intOrDash(plan.VMID))
+	fmt.Printf("Job ID: %s\n", orDash(plan.JobID))
+}
+
 func printSandboxSnapshot(snapshot sandboxSnapshotResponse) {
 	fmt.Printf("Sandbox: %d\n", snapshot.VMID)
 	fmt.Printf("Snapshot: %s\n", snapshot.Name)
@@ -4163,6 +4542,20 @@ func ttlMinutesString(value *int) string {
 		return "-"
 	}
 	return strconv.Itoa(*value)
+}
+
+func ttlSecondsString(value *int) string {
+	if value == nil || *value <= 0 {
+		return "-"
+	}
+	return strconv.Itoa(*value)
+}
+
+func intOrDash(value int) string {
+	if value <= 0 {
+		return "-"
+	}
+	return strconv.Itoa(value)
 }
 
 func vmidString(value *int) string {

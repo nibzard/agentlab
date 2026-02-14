@@ -9,6 +9,34 @@ import (
 	"strings"
 )
 
+type printedJSONOnlyError struct {
+	err error
+}
+
+func (e *printedJSONOnlyError) Error() string {
+	if e == nil {
+		return "validation failed"
+	}
+	if e.err != nil {
+		return strings.TrimSpace(e.err.Error())
+	}
+	return "validation failed"
+}
+
+func (e *printedJSONOnlyError) Unwrap() error {
+	if e == nil {
+		return nil
+	}
+	return e.err
+}
+
+func newPrintedJSONOnlyError(err error) error {
+	if err == nil {
+		return &printedJSONOnlyError{err: errors.New("validation failed")}
+	}
+	return &printedJSONOnlyError{err: err}
+}
+
 type cliError struct {
 	msg   string
 	next  string

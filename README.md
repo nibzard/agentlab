@@ -342,6 +342,24 @@ agentlab sandbox new \
 
 Note: Modifiers are derived from profile names split on `-`, and combined modifiers are resolved by sorting and joining with `-`.
 
+#### Validate Sandbox Plan
+
+```bash
+agentlab sandbox validate \
+  --profile yolo-ephemeral \
+  --name my-sandbox \
+  --ttl 10m
+
+# JSON output for automation
+agentlab sandbox validate \
+  --name my-sandbox \
+  --vmid 1001 \
+  --profile yolo-ephemeral \
+  --json
+```
+
+Use `agentlab sandbox validate` before `sandbox new` to confirm modifiers, workspace/VMID, and profile compatibility before creating a sandbox.
+
 #### Show Sandbox Details
 
 ```bash
@@ -543,7 +561,30 @@ agentlab job run \
   --task "data analysis" \
   --profile yolo-ephemeral \
   --stateful
+
 ```
+
+#### Validate Job Plan
+
+```bash
+agentlab job validate \
+  --repo https://github.com/user/repo \
+  --task "run tests" \
+  --profile yolo-ephemeral \
+  --ttl 30m
+
+# JSON output for automation
+agentlab job validate \
+  --repo https://github.com/user/repo \
+  --task "run tests" \
+  --profile yolo-ephemeral \
+  --ttl 30m \
+  --json
+```
+
+`agentlab job validate` validates the exact job preflight request without creating a job.
+
+The `job validate` command accepts the same flags as `job run` (including `--branch` and workspace flags) and returns non-zero on validation failure.
 
 **Flags:**
 - `--repo <url>` (required): Git repository URL

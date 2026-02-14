@@ -3864,7 +3864,7 @@
         "T061"
       ],
       "created_at": "2026-02-14T19:27:23Z",
-      "updated_at": "2026-02-14T20:08:26Z"
+      "updated_at": "2026-02-14T20:09:13Z"
     },
     {
       "id": "T143",
@@ -3903,7 +3903,7 @@
       "id": "T144",
       "title": "CLI preflight UX: add `agentlab job validate` and `agentlab sandbox validate`",
       "priority": 2,
-      "status": "todo",
+      "status": "done",
       "details": "Expose preflight APIs directly in CLI workflows so users and agents can validate plans before costly provisioning.",
       "steps": [
         "Add `agentlab job validate` command with parity to `job run` flags and deterministic `--json` output.",
@@ -3922,6 +3922,8 @@
         "README.md",
         "cmd/agentlab/api.go",
         "cmd/agentlab/commands.go",
+        "cmd/agentlab/commands_validate_test.go",
+        "cmd/agentlab/errors.go",
         "cmd/agentlab/main.go",
         "cmd/agentlab/main_test.go",
         "docs/cli.md",
@@ -3931,7 +3933,8 @@
         "T143",
         "T022"
       ],
-      "created_at": "2026-02-14T19:27:23Z"
+      "created_at": "2026-02-14T19:27:23Z",
+      "updated_at": "2026-02-14T20:16:37Z"
     },
     {
       "id": "T145",

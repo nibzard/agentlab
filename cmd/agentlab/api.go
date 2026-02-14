@@ -106,6 +106,47 @@ type jobCreateRequest struct {
 	SessionID            *string                 `json:"session_id,omitempty"`
 }
 
+type preflightIssue struct {
+	Code    string `json:"code"`
+	Field   string `json:"field"`
+	Message string `json:"message"`
+}
+
+type jobValidatePlanRequest struct {
+	RepoURL              string             `json:"repo_url"`
+	Ref                  string             `json:"ref,omitempty"`
+	Profile              string             `json:"profile"`
+	Task                 string             `json:"task"`
+	Mode                 string             `json:"mode"`
+	TTLMinutes           *int               `json:"ttl_minutes,omitempty"`
+	Keepalive            *bool              `json:"keepalive,omitempty"`
+	WorkspaceID          *string            `json:"workspace_id,omitempty"`
+	WorkspaceCreate      *workspaceCreateRequest `json:"workspace_create,omitempty"`
+	WorkspaceWaitSeconds *int               `json:"workspace_wait_seconds,omitempty"`
+	SessionID            *string            `json:"session_id,omitempty"`
+}
+
+type jobValidatePlan struct {
+	RepoURL              string                 `json:"repo_url"`
+	Ref                  string                 `json:"ref"`
+	Profile              string                 `json:"profile"`
+	Task                 string                 `json:"task"`
+	Mode                 string                 `json:"mode"`
+	TTLMinutes           *int                   `json:"ttl_minutes,omitempty"`
+	Keepalive            bool                   `json:"keepalive"`
+	WorkspaceID          *string                `json:"workspace_id,omitempty"`
+	WorkspaceCreate      *workspaceCreateRequest `json:"workspace_create,omitempty"`
+	WorkspaceWaitSeconds *int                   `json:"workspace_wait_seconds,omitempty"`
+	SessionID            *string                `json:"session_id,omitempty"`
+}
+
+type jobValidatePlanResponse struct {
+	OK       bool             `json:"ok"`
+	Errors   []preflightIssue `json:"errors"`
+	Warnings []preflightIssue `json:"warnings"`
+	Plan     *jobValidatePlan `json:"plan,omitempty"`
+}
+
 // jobResponse represents a job returned from the API.
 type jobResponse struct {
 	ID          string          `json:"id"`
@@ -151,6 +192,33 @@ type sandboxCreateRequest struct {
 	Workspace  *string `json:"workspace_id,omitempty"`
 	VMID       *int    `json:"vmid,omitempty"`
 	JobID      string  `json:"job_id,omitempty"`
+}
+
+type sandboxValidatePlanRequest struct {
+	Name       string  `json:"name,omitempty"`
+	Profile    string  `json:"profile"`
+	Keepalive  *bool   `json:"keepalive,omitempty"`
+	TTLMinutes *int    `json:"ttl_minutes,omitempty"`
+	Workspace  *string `json:"workspace_id,omitempty"`
+	VMID       *int    `json:"vmid,omitempty"`
+	JobID      string  `json:"job_id,omitempty"`
+}
+
+type sandboxValidatePlan struct {
+	Name       string  `json:"name,omitempty"`
+	Profile    string  `json:"profile"`
+	Keepalive  bool    `json:"keepalive"`
+	TTLMinutes *int    `json:"ttl_minutes,omitempty"`
+	Workspace  *string `json:"workspace_id,omitempty"`
+	VMID       *int    `json:"vmid,omitempty"`
+	JobID      string  `json:"job_id,omitempty"`
+}
+
+type sandboxValidatePlanResponse struct {
+	OK       bool                 `json:"ok"`
+	Errors   []preflightIssue     `json:"errors"`
+	Warnings []preflightIssue     `json:"warnings"`
+	Plan     *sandboxValidatePlan `json:"plan,omitempty"`
 }
 
 // sandboxDestroyRequest contains parameters for destroying a sandbox.

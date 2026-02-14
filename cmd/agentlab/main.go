@@ -55,11 +55,13 @@ Usage:
   agentlab [--endpoint URL] [--token TOKEN] [--socket PATH] [--json] [--timeout DURATION] init [--apply] [--smoke-test] [--assets <path>] [--force] [--control-port <port>] [--control-token <token>] [--rotate-control-token] [--tailscale-serve|--no-tailscale-serve]
   agentlab [--json] bootstrap --host <ssh_host> [--ssh-user <user>] [--ssh-port <port>] [--identity <path>] [--assets <path>] [--control-port <port>] [--control-token <token>] [--rotate-control-token] [--tailscale-serve|--no-tailscale-serve] [--tailscale-authkey <key>] [--tailscale-hostname <name>] [--tailscale-tailnet <name>] [--tailscale-api-key <key>] [--tailscale-oauth-client-id <id>] [--tailscale-oauth-client-secret <secret>] [--tailscale-oauth-scopes <scopes>] [--release-url <url>] [--agentlab-bin <path>] [--agentlabd-bin <path>] [--agentlab-url <url>] [--agentlabd-url <url>] [--force] [--keep-temp] [--verbose]
   agentlab [--endpoint URL] [--token TOKEN] [--socket PATH] [--json] [--timeout DURATION] job run --repo <url> --task <task> --profile <profile> [--ref <ref>] [--branch <branch>] [--mode <mode>] [--ttl <ttl>] [--keepalive] [--workspace <id|name|new:name>] [--workspace-create <name>] [--workspace-size <size>] [--workspace-storage <storage>] [--workspace-wait <duration>] [--stateful]
+  agentlab [--endpoint URL] [--token TOKEN] [--socket PATH] [--json] [--timeout DURATION] job validate --repo <url> --task <task> --profile <profile> [--ref <ref>] [--branch <branch>] [--mode <mode>] [--ttl <ttl>] [--keepalive] [--workspace <id|name|new:name>] [--workspace-create <name>] [--workspace-size <size>] [--workspace-storage <storage>] [--workspace-wait <duration>] [--stateful]
   agentlab [--endpoint URL] [--token TOKEN] [--socket PATH] [--json] [--timeout DURATION] job show <job_id> [--events-tail <n>]
   agentlab [--endpoint URL] [--token TOKEN] [--socket PATH] [--json] [--timeout DURATION] job artifacts <job_id>
   agentlab [--endpoint URL] [--token TOKEN] [--socket PATH] [--json] [--timeout DURATION] job artifacts download <job_id> [--out <path>] [--path <path>] [--name <name>] [--latest] [--bundle]
   agentlab [--endpoint URL] [--token TOKEN] [--socket PATH] [--json] [--timeout DURATION] job doctor <job_id> [--out <path>]
   agentlab [--endpoint URL] [--token TOKEN] [--socket PATH] [--json] [--timeout DURATION] sandbox new [--name <name>] [--ttl <ttl>] [--keepalive] [--workspace <id>] [--vmid <vmid>] [--job <id>] [--and-ssh] (--profile <profile> | +mod [+mod...])
+  agentlab [--endpoint URL] [--token TOKEN] [--socket PATH] [--json] [--timeout DURATION] sandbox validate [--name <name>] [--ttl <ttl>] [--keepalive] [--workspace <id>] [--vmid <vmid>] [--job <id>] (+mod [+mod...] | --profile <profile>)
   agentlab [--endpoint URL] [--token TOKEN] [--socket PATH] [--json] [--timeout DURATION] sandbox list
   agentlab [--endpoint URL] [--token TOKEN] [--socket PATH] [--json] [--timeout DURATION] sandbox show <vmid>
   agentlab [--endpoint URL] [--token TOKEN] [--socket PATH] [--json] [--timeout DURATION] sandbox start <vmid>
@@ -304,6 +306,10 @@ func showUsageOnError(err error) bool {
 }
 
 func writeJSONError(w io.Writer, err error) {
+	var skipPrintedJSON *printedJSONOnlyError
+	if errors.As(err, &skipPrintedJSON) {
+		return
+	}
 	payload := map[string]string{
 		"error":   "internal error",
 		"message": "internal error",
@@ -340,7 +346,7 @@ func writeJSONError(w io.Writer, err error) {
 }
 
 func printJobUsage() {
-	fmt.Fprintln(os.Stdout, "Usage: agentlab job <run|show|artifacts|doctor> [flags]")
+	fmt.Fprintln(os.Stdout, "Usage: agentlab job <run|validate|show|artifacts|doctor> [flags]")
 }
 
 func printStatusUsage() {
@@ -357,6 +363,11 @@ func printBootstrapUsage() {
 
 func printJobRunUsage() {
 	fmt.Fprintln(os.Stdout, "Usage: agentlab job run --repo <url> --task <task> --profile <profile> [--ref <ref>] [--branch <branch>] [--mode <mode>] [--ttl <ttl>] [--keepalive] [--workspace <id|name|new:name>] [--workspace-create <name>] [--workspace-size <size>] [--workspace-storage <storage>] [--workspace-wait <duration>] [--stateful]")
+}
+
+func printJobValidateUsage() {
+	fmt.Fprintln(os.Stdout, "Usage: agentlab job validate --repo <url> --task <task> --profile <profile> [--ref <ref>] [--branch <branch>] [--mode <mode>] [--ttl <ttl>] [--keepalive] [--workspace <id|name|new:name>] [--workspace-create <name>] [--workspace-size <size>] [--workspace-storage <storage>] [--workspace-wait <duration>] [--stateful]")
+	fmt.Fprintln(os.Stdout, "Note: Validation returns plan details and exits with non-zero status when preflight validation fails.")
 }
 
 func printJobShowUsage() {
@@ -379,12 +390,17 @@ func printJobDoctorUsage() {
 }
 
 func printSandboxUsage() {
-	fmt.Fprintln(os.Stdout, "Usage: agentlab sandbox <new|list|show|start|stop|pause|resume|revert|snapshot|destroy|lease|prune|expose|exposed|unexpose|doctor>")
+	fmt.Fprintln(os.Stdout, "Usage: agentlab sandbox <new|validate|list|show|start|stop|pause|resume|revert|snapshot|destroy|lease|prune|expose|exposed|unexpose|doctor>")
 }
 
 func printSandboxNewUsage() {
 	fmt.Fprintln(os.Stdout, "Usage: agentlab sandbox new [--name <name>] [--ttl <ttl>] [--keepalive] [--workspace <id>] [--vmid <vmid>] [--job <id>] [--and-ssh] (--profile <profile> | +mod [+mod...])")
 	fmt.Fprintln(os.Stdout, "Note: Modifiers are resolved by sorting and joining with '-' (e.g., +secure +small -> secure-small).")
+}
+
+func printSandboxValidateUsage() {
+	fmt.Fprintln(os.Stdout, "Usage: agentlab sandbox validate [--name <name>] [--ttl <ttl>] [--keepalive] [--workspace <id>] [--vmid <vmid>] [--job <id>] (--profile <profile> | +mod [+mod...])")
+	fmt.Fprintln(os.Stdout, "Note: Validation returns plan details and exits with non-zero status when preflight validation fails.")
 }
 
 func printSandboxListUsage() {
