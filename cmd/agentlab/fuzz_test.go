@@ -153,18 +153,25 @@ func FuzzParseAPIError(f *testing.F) {
 		if status < 100 || status > 999 {
 			return
 		}
-		err := parseAPIError(status, payload)
-		if err == nil {
-			t.Fatalf("expected error for status %d", status)
+	err := parseAPIError(status, payload)
+	if err == nil {
+		t.Fatalf("expected error for status %d", status)
+	}
+	var apiErr apiError
+	if json.Unmarshal(payload, &apiErr) == nil && apiErr.Error != "" {
+		msg := strings.TrimSpace(apiErr.Message)
+		if msg == "" {
+			msg = strings.TrimSpace(apiErr.Error)
 		}
-		var apiErr apiError
-		if json.Unmarshal(payload, &apiErr) == nil && apiErr.Error != "" {
-			if err.Error() != apiErr.Error {
-				t.Fatalf("expected error %q, got %q", apiErr.Error, err.Error())
-			}
-			return
+		if msg == "" {
+			t.Fatalf("expected message in payload for status %d", status)
 		}
-		expected := fmt.Sprintf("request failed with status %d", status)
+		if err.Error() != msg {
+			t.Fatalf("expected error %q, got %q", apiErr.Error, err.Error())
+		}
+		return
+	}
+	expected := fmt.Sprintf("request failed with status %d", status)
 		if err.Error() != expected {
 			t.Fatalf("expected error %q, got %q", expected, err.Error())
 		}

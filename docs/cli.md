@@ -72,7 +72,8 @@ Global Flags:
   --timeout       Request timeout (e.g. 30s, 2m)
 
 Errors:
-  When --json is set, errors are emitted as: {"error":"message"}
+  When --json is set, errors are emitted as: {"error":"message","code":"...","message":"..."}
+  `error` is retained for compatibility; `code` and `message` are machine-readable.
 
 Exit codes:
   0: Success or help displayed

@@ -3896,7 +3896,7 @@
         "T089"
       ],
       "created_at": "2026-02-14T19:27:23Z",
-      "updated_at": "2026-02-14T19:55:38Z"
+      "updated_at": "2026-02-14T19:56:13Z"
     },
     {
       "id": "T144",
@@ -3936,7 +3936,7 @@
       "id": "T145",
       "title": "Error code taxonomy: standardize API and CLI machine-readable failures",
       "priority": 1,
-      "status": "todo",
+      "status": "done",
       "details": "Define and enforce stable error codes/messages so agents can automate retries and remediation without fragile string matching.",
       "steps": [
         "Create a versioned error code catalog grouped by domain (auth, validation, provisioning, workspace, network, artifacts).",
@@ -3953,20 +3953,26 @@
         "automation"
       ],
       "files": [
+        "cmd/agentlab/api.go",
+        "cmd/agentlab/api_test.go",
         "cmd/agentlab/errors.go",
+        "cmd/agentlab/fuzz_test.go",
         "cmd/agentlab/main.go",
         "docs/api.md",
         "docs/cli.md",
         "internal/daemon/api.go",
+        "internal/daemon/api_errors_test.go",
         "internal/daemon/api_types.go",
         "internal/daemon/control_auth.go",
+        "internal/daemon/error_codes.go",
         "to-do.json"
       ],
       "depends_on": [
         "T106",
         "T143"
       ],
-      "created_at": "2026-02-14T19:27:23Z"
+      "created_at": "2026-02-14T19:27:23Z",
+      "updated_at": "2026-02-14T20:02:03Z"
     },
     {
       "id": "T146",

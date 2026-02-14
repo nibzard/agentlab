@@ -111,6 +111,12 @@ func TestControlAPIErrorResponses(t *testing.T) {
 		if payload.Details == "" || !strings.Contains(payload.Details, redactedValue) {
 			t.Fatalf("expected redacted details, got %q", payload.Details)
 		}
+		if payload.Code != daemonErrorCodeValidationBadRequest {
+			t.Fatalf("expected code %q for bad request, got %q", daemonErrorCodeValidationBadRequest, payload.Code)
+		}
+		if payload.Message != "bad request" {
+			t.Fatalf("expected message %q, got %q", "bad request", payload.Message)
+		}
 	})
 
 	t.Run("details omitted for server errors", func(t *testing.T) {
@@ -126,6 +132,12 @@ func TestControlAPIErrorResponses(t *testing.T) {
 		}
 		if payload.Details != "" {
 			t.Fatalf("expected empty details for server errors, got %q", payload.Details)
+		}
+		if payload.Code != daemonErrorCodeServerError {
+			t.Fatalf("expected code %q for server error, got %q", daemonErrorCodeServerError, payload.Code)
+		}
+		if payload.Message != "internal error" {
+			t.Fatalf("expected message %q, got %q", "internal error", payload.Message)
 		}
 	})
 }

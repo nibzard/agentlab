@@ -39,6 +39,19 @@ const (
 	maxJSONOutputBytes = 4 << 20 // 4MB maximum JSON response size
 )
 
+const (
+	apiErrorCodeValidationBadRequest    = "v1/validation/bad_request"
+	apiErrorCodeValidationMalformedJSON = "v1/validation/malformed_json"
+	apiErrorCodeAuthUnauthorized        = "v1/auth/unauthorized"
+	apiErrorCodeAuthForbidden           = "v1/auth/forbidden"
+	apiErrorCodeResourceNotFound        = "v1/resource/not_found"
+	apiErrorCodeConflict               = "v1/resource/conflict"
+	apiErrorCodeValidationConflict     = "v1/validation/conflict"
+	apiErrorCodeServerError            = "v1/internal/server_error"
+	apiErrorCodeServiceUnavailable     = "v1/internal/unavailable"
+	apiErrorCodeInternalError          = "v1/internal/error"
+)
+
 // apiClient is an HTTP client for communicating with agentlabd.
 type apiClient struct {
 	socketPath string
@@ -52,7 +65,30 @@ type apiClient struct {
 // apiError represents an error response from the agentlabd API.
 type apiError struct {
 	Error   string `json:"error"`
+	Code    string `json:"code,omitempty"`
+	Message string `json:"message,omitempty"`
 	Details string `json:"details,omitempty"`
+}
+
+type apiResponseError struct {
+	Status  int
+	Error   string
+	Code    string
+	Message string
+	Details string
+}
+
+func (e apiResponseError) Error() string {
+	if strings.TrimSpace(e.Message) != "" {
+		return strings.TrimSpace(e.Message)
+	}
+	if strings.TrimSpace(e.Error) != "" {
+		return strings.TrimSpace(e.Error)
+	}
+	if e.Status > 0 {
+		return fmt.Sprintf("request failed with status %d", e.Status)
+	}
+	return "request failed"
 }
 
 // jobCreateRequest contains parameters for creating a new job.
@@ -652,11 +688,90 @@ func (c *apiClient) doRequest(ctx context.Context, method, path string, body io.
 func parseAPIError(status int, data []byte) error {
 	if len(data) > 0 {
 		var apiErr apiError
-		if err := json.Unmarshal(data, &apiErr); err == nil && apiErr.Error != "" {
-			return errors.New(apiErr.Error)
+		if err := json.Unmarshal(data, &apiErr); err == nil {
+			msg := strings.TrimSpace(apiErr.Message)
+			if msg == "" {
+				msg = strings.TrimSpace(apiErr.Error)
+			}
+			if msg != "" {
+				code := strings.TrimSpace(apiErr.Code)
+				if code == "" {
+					code = apiErrorCode(status, msg)
+				}
+				return apiResponseError{
+					Status:  status,
+					Error:   strings.TrimSpace(apiErr.Error),
+					Code:    code,
+					Message: msg,
+					Details: strings.TrimSpace(apiErr.Details),
+				}
+			}
 		}
 	}
-	return fmt.Errorf("request failed with status %d", status)
+	msg := fmt.Sprintf("request failed with status %d", status)
+	return apiResponseError{
+		Status:  status,
+		Error:   msg,
+		Code:    apiErrorCode(status, ""),
+		Message: msg,
+	}
+}
+
+func apiErrorCode(status int, message string) string {
+	normalized := strings.TrimSpace(strings.ToLower(message))
+	switch {
+	case strings.Contains(normalized, "invalid request body"):
+		return apiErrorCodeValidationMalformedJSON
+	case strings.Contains(normalized, "unexpected trailing data"):
+		return apiErrorCodeValidationMalformedJSON
+	case strings.Contains(normalized, "request body is required"):
+		return apiErrorCodeValidationBadRequest
+	case strings.Contains(normalized, "invalid json"):
+		return apiErrorCodeValidationMalformedJSON
+	case strings.Contains(normalized, "malformed"):
+		return apiErrorCodeValidationMalformedJSON
+	case strings.Contains(normalized, "missing bearer token"):
+		return apiErrorCodeAuthUnauthorized
+	case strings.Contains(normalized, "invalid bearer token"):
+		return apiErrorCodeAuthForbidden
+	case strings.Contains(normalized, "forbidden"):
+		return apiErrorCodeAuthForbidden
+	case strings.Contains(normalized, "remote address not allowed"):
+		return apiErrorCodeAuthForbidden
+	case strings.Contains(normalized, "not found"):
+		return apiErrorCodeResourceNotFound
+	case strings.Contains(normalized, "conflict"):
+		return apiErrorCodeValidationConflict
+	case strings.Contains(normalized, "already exists"):
+		return apiErrorCodeConflict
+	case strings.Contains(normalized, "is required") ||
+		strings.Contains(normalized, "must be") ||
+		strings.Contains(normalized, "invalid value") ||
+		strings.Contains(normalized, "invalid state"):
+		return apiErrorCodeValidationBadRequest
+	}
+
+	switch status {
+	case http.StatusBadRequest:
+		return apiErrorCodeValidationBadRequest
+	case http.StatusUnauthorized:
+		return apiErrorCodeAuthUnauthorized
+	case http.StatusForbidden:
+		return apiErrorCodeAuthForbidden
+	case http.StatusNotFound:
+		return apiErrorCodeResourceNotFound
+	case http.StatusConflict:
+		return apiErrorCodeConflict
+	case http.StatusServiceUnavailable:
+		return apiErrorCodeServiceUnavailable
+	case http.StatusInternalServerError:
+		return apiErrorCodeServerError
+	default:
+		if status >= http.StatusInternalServerError {
+			return apiErrorCodeServerError
+		}
+		return apiErrorCodeInternalError
+	}
 }
 
 func (c *apiClient) target() string {

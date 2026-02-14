@@ -79,7 +79,8 @@ var (
 // is served over a Unix socket and is used by the agentlab CLI for local control.
 //
 // Endpoints:
-//   - POST   /v1/jobs                 - Create a new job
+//   - POST   /v1/jobs                      - Create a new job
+//   - POST   /v1/jobs/validate-plan         - Validate a job plan without creating resources
 //   - GET    /v1/jobs/{id}            - Get job details
 //   - GET    /v1/jobs/{id}/artifacts  - List job artifacts
 //   - GET    /v1/jobs/{id}/artifacts/download - Download job artifacts
@@ -94,6 +95,7 @@ var (
 //   - POST   /v1/sandboxes/{vmid}/pause     - Pause a running sandbox
 //   - POST   /v1/sandboxes/{vmid}/resume    - Resume a paused sandbox
 //   - POST   /v1/sandboxes/stop_all         - Stop all running sandboxes
+//   - POST   /v1/sandboxes/validate-plan   - Validate a sandbox plan without creating resources
 //   - POST   /v1/sandboxes/{vmid}/touch     - Update sandbox last_used_at
 //   - POST   /v1/sandboxes/{vmid}/revert    - Revert a sandbox to snapshot "clean"
 //   - GET    /v1/sandboxes/{vmid}/snapshots - List sandbox snapshots
@@ -249,12 +251,14 @@ func (api *ControlAPI) Register(mux *http.ServeMux) {
 	if mux == nil {
 		return
 	}
+	mux.HandleFunc("/v1/jobs/validate-plan", api.handleJobValidatePlan)
 	mux.HandleFunc("/v1/jobs", api.handleJobs)
 	mux.HandleFunc("/v1/jobs/", api.handleJobByID)
 	mux.HandleFunc("/v1/profiles", api.handleProfiles)
 	mux.HandleFunc("/v1/status", api.handleStatus)
 	mux.HandleFunc("/v1/host", api.handleHost)
 	mux.HandleFunc("/v1/messages", api.handleMessages)
+	mux.HandleFunc("/v1/sandboxes/validate-plan", api.handleSandboxValidatePlan)
 	mux.HandleFunc("/v1/sandboxes", api.handleSandboxes)
 	mux.HandleFunc("/v1/sandboxes/", api.handleSandboxByID)
 	mux.HandleFunc("/v1/sandboxes/stop_all", api.handleSandboxStopAll)
@@ -274,6 +278,464 @@ func (api *ControlAPI) handleJobs(w http.ResponseWriter, r *http.Request) {
 	default:
 		writeMethodNotAllowed(w, []string{http.MethodPost})
 	}
+}
+
+func (api *ControlAPI) handleJobValidatePlan(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		writeMethodNotAllowed(w, []string{http.MethodPost})
+		return
+	}
+
+	var req V1JobValidatePlanRequest
+	if err := decodeJSON(w, r, &req); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+
+	req.RepoURL = strings.TrimSpace(req.RepoURL)
+	req.Ref = strings.TrimSpace(req.Ref)
+	req.Profile = strings.TrimSpace(req.Profile)
+	req.Task = strings.TrimSpace(req.Task)
+	req.Mode = strings.TrimSpace(req.Mode)
+	if req.WorkspaceID != nil {
+		value := strings.TrimSpace(*req.WorkspaceID)
+		if value == "" {
+			req.WorkspaceID = nil
+		} else {
+			req.WorkspaceID = &value
+		}
+	}
+	if req.SessionID != nil {
+		value := strings.TrimSpace(*req.SessionID)
+		if value == "" {
+			req.SessionID = nil
+		} else {
+			req.SessionID = &value
+		}
+	}
+	if req.WorkspaceCreate != nil {
+		req.WorkspaceCreate.Name = strings.TrimSpace(req.WorkspaceCreate.Name)
+		req.WorkspaceCreate.Storage = strings.TrimSpace(req.WorkspaceCreate.Storage)
+	}
+
+	plan := V1JobValidatePlan{
+		RepoURL: req.RepoURL,
+		Profile: req.Profile,
+		Task:    req.Task,
+		Mode:    req.Mode,
+	}
+	if req.WorkspaceID != nil {
+		workspaceID := *req.WorkspaceID
+		plan.WorkspaceID = &workspaceID
+	}
+	if req.WorkspaceCreate != nil {
+		createCopy := *req.WorkspaceCreate
+		plan.WorkspaceCreate = &createCopy
+	}
+	if req.SessionID != nil {
+		sessionID := *req.SessionID
+		plan.SessionID = &sessionID
+	}
+	if req.WorkspaceWaitSeconds != nil {
+		waitSeconds := *req.WorkspaceWaitSeconds
+		plan.WorkspaceWaitSeconds = &waitSeconds
+	}
+
+	resp := V1JobValidatePlanResponse{
+		Errors:   make([]V1PreflightIssue, 0),
+		Warnings: make([]V1PreflightIssue, 0),
+	}
+	ctx := r.Context()
+
+	if req.Ref == "" {
+		req.Ref = defaultJobRef
+		plan.Ref = req.Ref
+		resp.Warnings = append(resp.Warnings, V1PreflightIssue{Code: "job_ref_defaulted", Field: "ref", Message: "ref was defaulted to main"})
+	} else {
+		plan.Ref = req.Ref
+	}
+
+	if req.Mode == "" {
+		req.Mode = defaultJobMode
+		plan.Mode = req.Mode
+		resp.Warnings = append(resp.Warnings, V1PreflightIssue{Code: "job_mode_defaulted", Field: "mode", Message: "mode was defaulted to dangerous"})
+	} else {
+		plan.Mode = req.Mode
+	}
+
+	if req.RepoURL == "" {
+		resp.Errors = append(resp.Errors, V1PreflightIssue{Code: "missing_required_field", Field: "repo_url", Message: "repo_url is required"})
+	}
+	if req.Profile == "" {
+		resp.Errors = append(resp.Errors, V1PreflightIssue{Code: "missing_required_field", Field: "profile", Message: "profile is required"})
+	}
+	if req.Task == "" {
+		resp.Errors = append(resp.Errors, V1PreflightIssue{Code: "missing_required_field", Field: "task", Message: "task is required"})
+	}
+
+	if req.TTLMinutes != nil && *req.TTLMinutes <= 0 {
+		resp.Errors = append(resp.Errors, V1PreflightIssue{Code: "invalid_field_value", Field: "ttl_minutes", Message: "ttl_minutes must be positive"})
+	}
+
+	if req.WorkspaceWaitSeconds != nil && *req.WorkspaceWaitSeconds < 0 {
+		resp.Errors = append(resp.Errors, V1PreflightIssue{Code: "invalid_field_value", Field: "workspace_wait_seconds", Message: "workspace_wait_seconds must be non-negative"})
+	}
+
+	if req.WorkspaceID != nil && req.WorkspaceCreate != nil {
+		resp.Errors = append(resp.Errors, V1PreflightIssue{Code: "field_conflict", Field: "workspace_id", Message: "workspace_id and workspace_create are mutually exclusive"})
+	}
+
+	if req.SessionID != nil && req.WorkspaceCreate != nil {
+		resp.Errors = append(resp.Errors, V1PreflightIssue{Code: "field_conflict", Field: "workspace_create", Message: "session_id cannot be combined with workspace_create"})
+	}
+
+	if req.WorkspaceWaitSeconds != nil && *req.WorkspaceWaitSeconds > 0 && req.WorkspaceID == nil && req.WorkspaceCreate == nil {
+		resp.Errors = append(resp.Errors, V1PreflightIssue{Code: "missing_required_dependency", Field: "workspace_wait_seconds", Message: "workspace_wait_seconds requires workspace_id or workspace_create"})
+	}
+
+	if req.SessionID != nil {
+		session, err := api.resolveSession(ctx, *req.SessionID)
+		if err != nil {
+			if errors.Is(err, sql.ErrNoRows) {
+				resp.Errors = append(resp.Errors, V1PreflightIssue{Code: "not_found", Field: "session_id", Message: "session not found"})
+			} else {
+				resp.Errors = append(resp.Errors, V1PreflightIssue{Code: "session_lookup_error", Field: "session_id", Message: err.Error()})
+			}
+		} else {
+			workspaceID := strings.TrimSpace(session.WorkspaceID)
+			if workspaceID == "" {
+				resp.Errors = append(resp.Errors, V1PreflightIssue{Code: "session_invalid", Field: "session_id", Message: "session workspace_id is required"})
+			} else if req.WorkspaceID != nil && strings.TrimSpace(*req.WorkspaceID) != workspaceID {
+				resp.Errors = append(resp.Errors, V1PreflightIssue{Code: "field_mismatch", Field: "workspace_id", Message: "session workspace_id mismatch"})
+			} else {
+				value := workspaceID
+				req.WorkspaceID = &value
+				plan.WorkspaceID = &value
+			}
+		}
+	}
+
+	var profile models.Profile
+	if req.Profile != "" {
+		if !api.profileExists(req.Profile) {
+			resp.Errors = append(resp.Errors, V1PreflightIssue{Code: "unknown_profile", Field: "profile", Message: "unknown profile"})
+		} else {
+			p, ok := api.profile(req.Profile)
+			if !ok {
+				resp.Errors = append(resp.Errors, V1PreflightIssue{Code: "unknown_profile", Field: "profile", Message: "unknown profile"})
+			} else {
+				profile = p
+			}
+		}
+	}
+
+	ttlMinutes := derefInt(req.TTLMinutes)
+	keepalive := false
+	if req.Keepalive != nil {
+		keepalive = *req.Keepalive
+	}
+	if profile.Name != "" {
+		if err := validateProfileForProvisioning(profile); err != nil {
+			resp.Errors = append(resp.Errors, V1PreflightIssue{Code: "invalid_profile", Field: "profile", Message: err.Error()})
+		} else {
+			defaults, defaultsErr := parseProfileBehaviorDefaults(profile.RawYAML)
+			if defaultsErr != nil {
+				resp.Errors = append(resp.Errors, V1PreflightIssue{Code: "invalid_profile_default", Field: "ttl_minutes", Message: "invalid profile behavior defaults"})
+			} else {
+				appliedTTL, appliedKeepalive, err := applyProfileBehaviorDefaults(profile, req.TTLMinutes, req.Keepalive)
+				if err != nil {
+					resp.Errors = append(resp.Errors, V1PreflightIssue{Code: "invalid_profile_default", Field: "ttl_minutes", Message: "invalid profile behavior defaults"})
+				} else {
+					ttlMinutes = appliedTTL
+					keepalive = appliedKeepalive
+					if req.TTLMinutes == nil && defaults.TTLMinutes != nil {
+						resp.Warnings = append(resp.Warnings, V1PreflightIssue{Code: "profile_default_applied", Field: "ttl_minutes", Message: "ttl_minutes defaulted from profile behavior"})
+					}
+					if req.Keepalive == nil && defaults.Keepalive != nil {
+						resp.Warnings = append(resp.Warnings, V1PreflightIssue{Code: "profile_default_applied", Field: "keepalive", Message: "keepalive defaulted from profile behavior"})
+					}
+				}
+			}
+		}
+	}
+	plan.Keepalive = keepalive
+	plan.TTLMinutes = nil
+	if ttlMinutes > 0 {
+		value := ttlMinutes
+		plan.TTLMinutes = &value
+	}
+
+	if profile.Name != "" {
+		if api.jobOrchestrator == nil {
+			resp.Errors = append(resp.Errors, V1PreflightIssue{Code: "precondition_missing", Field: "job_orchestrator", Message: "job orchestrator unavailable"})
+		} else {
+			if api.jobOrchestrator.backend == nil {
+				resp.Errors = append(resp.Errors, V1PreflightIssue{Code: "precondition_missing", Field: "backend", Message: "proxmox backend unavailable"})
+			}
+			if api.jobOrchestrator.sandboxManager == nil {
+				resp.Errors = append(resp.Errors, V1PreflightIssue{Code: "precondition_missing", Field: "sandbox_manager", Message: "sandbox manager unavailable"})
+			}
+			if api.jobOrchestrator.snippetStore == nil {
+				resp.Errors = append(resp.Errors, V1PreflightIssue{Code: "precondition_missing", Field: "snippet_store", Message: "snippet store unavailable"})
+			}
+			if strings.TrimSpace(api.jobOrchestrator.sshPublicKey) == "" {
+				resp.Errors = append(resp.Errors, V1PreflightIssue{Code: "precondition_missing", Field: "ssh_public_key", Message: "ssh public key unavailable"})
+			}
+			if strings.TrimSpace(api.jobOrchestrator.controllerURL) == "" {
+				resp.Errors = append(resp.Errors, V1PreflightIssue{Code: "precondition_missing", Field: "controller_url", Message: "controller URL unavailable"})
+			}
+			if len(resp.Errors) == 0 {
+				if err := api.jobOrchestrator.backend.ValidateTemplate(ctx, proxmox.VMID(profile.TemplateVM)); err != nil {
+					resp.Errors = append(resp.Errors, V1PreflightIssue{Code: "template_validation_failed", Field: "profile", Message: fmt.Sprintf("template validation failed: %s", err.Error())})
+				}
+			}
+		}
+	}
+
+	if req.WorkspaceCreate != nil {
+		if req.WorkspaceCreate.Name == "" {
+			resp.Errors = append(resp.Errors, V1PreflightIssue{Code: "missing_required_field", Field: "workspace_create.name", Message: "workspace_create.name is required"})
+		}
+		if req.WorkspaceCreate.SizeGB <= 0 {
+			resp.Errors = append(resp.Errors, V1PreflightIssue{Code: "invalid_field_value", Field: "workspace_create.size_gb", Message: "workspace_create.size_gb must be positive"})
+		}
+		if req.WorkspaceCreate.Storage == "" {
+			plan.WorkspaceCreate.Storage = defaultWorkspaceStorage
+		}
+		if api.workspaceMgr == nil {
+			resp.Errors = append(resp.Errors, V1PreflightIssue{Code: "dependency_unavailable", Field: "workspace", Message: "workspace manager unavailable"})
+		} else {
+			if _, err := api.workspaceMgr.Resolve(ctx, req.WorkspaceCreate.Name); err == nil {
+				resp.Errors = append(resp.Errors, V1PreflightIssue{Code: "resource_conflict", Field: "workspace_create.name", Message: "workspace already exists"})
+			} else if !errors.Is(err, ErrWorkspaceNotFound) {
+				resp.Errors = append(resp.Errors, V1PreflightIssue{Code: "workspace_lookup_error", Field: "workspace_create.name", Message: err.Error()})
+			}
+		}
+	}
+
+	if req.WorkspaceID != nil {
+		if api.workspaceMgr == nil {
+			resp.Errors = append(resp.Errors, V1PreflightIssue{Code: "dependency_unavailable", Field: "workspace_id", Message: "workspace manager unavailable"})
+		} else {
+			workspace, err := api.workspaceMgr.Resolve(ctx, *req.WorkspaceID)
+			if err != nil {
+				if errors.Is(err, ErrWorkspaceNotFound) {
+					resp.Errors = append(resp.Errors, V1PreflightIssue{Code: "not_found", Field: "workspace_id", Message: "workspace not found"})
+				} else {
+					resp.Errors = append(resp.Errors, V1PreflightIssue{Code: "workspace_lookup_error", Field: "workspace_id", Message: err.Error()})
+				}
+			} else if workspace.AttachedVM != nil {
+				resp.Errors = append(resp.Errors, V1PreflightIssue{Code: "resource_conflict", Field: "workspace_id", Message: "workspace already attached"})
+			} else if req.WorkspaceWaitSeconds != nil && *req.WorkspaceWaitSeconds > 0 {
+				leaseExpired := workspace.LeaseExpires.IsZero() || !workspace.LeaseExpires.After(api.now().UTC())
+				if !leaseExpired && workspace.LeaseOwner != "" {
+					resp.Warnings = append(resp.Warnings, V1PreflightIssue{Code: "workspace_lease_held", Field: "workspace_id", Message: workspaceConflictDetails(workspace, derefInt(req.WorkspaceWaitSeconds)).Error()})
+				}
+			}
+		}
+	}
+
+	if len(resp.Errors) == 0 {
+		resp.OK = true
+		resp.Plan = &plan
+	}
+	writeJSON(w, http.StatusOK, resp)
+}
+
+func (api *ControlAPI) handleSandboxValidatePlan(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		writeMethodNotAllowed(w, []string{http.MethodPost})
+		return
+	}
+
+	var req V1SandboxValidatePlanRequest
+	if err := decodeJSON(w, r, &req); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+
+	req.Name = strings.TrimSpace(req.Name)
+	req.Profile = strings.TrimSpace(req.Profile)
+	req.JobID = strings.TrimSpace(req.JobID)
+	req.Workspace = stringPtrTrim(req.Workspace)
+
+	plan := V1SandboxValidatePlan{
+		Name:    req.Name,
+		Profile: req.Profile,
+		VMID:    req.VMID,
+		JobID:   req.JobID,
+	}
+	if req.Workspace != nil {
+		workspaceID := *req.Workspace
+		plan.Workspace = &workspaceID
+	}
+
+	resp := V1SandboxValidatePlanResponse{
+		Errors:   make([]V1PreflightIssue, 0),
+		Warnings: make([]V1PreflightIssue, 0),
+	}
+	ctx := r.Context()
+	provisionSandbox := req.JobID == ""
+
+	if req.VMID != nil {
+		if *req.VMID <= 0 {
+			resp.Errors = append(resp.Errors, V1PreflightIssue{Code: "invalid_field_value", Field: "vmid", Message: "vmid must be positive"})
+		}
+	}
+
+	if req.Profile == "" {
+		resp.Errors = append(resp.Errors, V1PreflightIssue{Code: "missing_required_field", Field: "profile", Message: "profile is required"})
+	}
+
+	keepalive := false
+	if req.Keepalive != nil {
+		keepalive = *req.Keepalive
+	}
+	ttlMinutes := derefInt(req.TTLMinutes)
+	if req.TTLMinutes != nil && ttlMinutes <= 0 {
+		resp.Errors = append(resp.Errors, V1PreflightIssue{Code: "invalid_field_value", Field: "ttl_minutes", Message: "ttl_minutes must be positive"})
+	}
+
+	var profile models.Profile
+	if req.Profile != "" {
+		if !api.profileExists(req.Profile) {
+			resp.Errors = append(resp.Errors, V1PreflightIssue{Code: "unknown_profile", Field: "profile", Message: "unknown profile"})
+		} else {
+			p, ok := api.profile(req.Profile)
+			if !ok {
+				resp.Errors = append(resp.Errors, V1PreflightIssue{Code: "unknown_profile", Field: "profile", Message: "unknown profile"})
+			} else {
+				profile = p
+			}
+		}
+	}
+
+	if profile.Name != "" {
+		if err := validateProfileForProvisioning(profile); err != nil {
+			resp.Errors = append(resp.Errors, V1PreflightIssue{Code: "invalid_profile", Field: "profile", Message: err.Error()})
+		} else {
+			defaults, defaultsErr := parseProfileBehaviorDefaults(profile.RawYAML)
+			if defaultsErr != nil {
+				resp.Errors = append(resp.Errors, V1PreflightIssue{Code: "invalid_profile_default", Field: "ttl_minutes", Message: "invalid profile behavior defaults"})
+			} else {
+				appliedTTL, appliedKeepalive, err := applyProfileBehaviorDefaults(profile, req.TTLMinutes, req.Keepalive)
+				if err != nil {
+					resp.Errors = append(resp.Errors, V1PreflightIssue{Code: "invalid_profile_default", Field: "ttl_minutes", Message: "invalid profile behavior defaults"})
+				} else {
+					ttlMinutes = appliedTTL
+					keepalive = appliedKeepalive
+					if req.TTLMinutes == nil && defaults.TTLMinutes != nil {
+						resp.Warnings = append(resp.Warnings, V1PreflightIssue{Code: "profile_default_applied", Field: "ttl_minutes", Message: "ttl_minutes defaulted from profile behavior"})
+					}
+					if req.Keepalive == nil && defaults.Keepalive != nil {
+						resp.Warnings = append(resp.Warnings, V1PreflightIssue{Code: "profile_default_applied", Field: "keepalive", Message: "keepalive defaulted from profile behavior"})
+					}
+				}
+			}
+		}
+	}
+	plan.Keepalive = keepalive
+	if ttlMinutes > 0 {
+		value := ttlMinutes
+		plan.TTLMinutes = &value
+	}
+
+	if req.Workspace != nil {
+		if api.workspaceMgr == nil {
+			resp.Errors = append(resp.Errors, V1PreflightIssue{Code: "dependency_unavailable", Field: "workspace", Message: "workspace manager unavailable"})
+		} else {
+			workspace, err := api.workspaceMgr.Resolve(ctx, *req.Workspace)
+			if err != nil {
+				if errors.Is(err, ErrWorkspaceNotFound) {
+					resp.Errors = append(resp.Errors, V1PreflightIssue{Code: "not_found", Field: "workspace_id", Message: "workspace not found"})
+				} else {
+					resp.Errors = append(resp.Errors, V1PreflightIssue{Code: "workspace_lookup_error", Field: "workspace_id", Message: err.Error()})
+				}
+			} else if workspace.AttachedVM != nil {
+				if req.VMID == nil || *req.VMID != *workspace.AttachedVM {
+					resp.Errors = append(resp.Errors, V1PreflightIssue{Code: "resource_conflict", Field: "workspace_id", Message: "workspace already attached"})
+				}
+			}
+		}
+	}
+
+	if req.VMID != nil && *req.VMID > 0 {
+		if api.store == nil {
+			resp.Errors = append(resp.Errors, V1PreflightIssue{Code: "dependency_unavailable", Field: "vmid", Message: "sandbox store unavailable"})
+		} else {
+			existing, err := api.store.GetSandbox(ctx, *req.VMID)
+			if err != nil {
+				if !errors.Is(err, sql.ErrNoRows) {
+					resp.Errors = append(resp.Errors, V1PreflightIssue{Code: "dependency_error", Field: "vmid", Message: err.Error()})
+				}
+			} else if existing.VMID != 0 {
+				resp.Errors = append(resp.Errors, V1PreflightIssue{Code: "resource_conflict", Field: "vmid", Message: "sandbox vmid already exists"})
+			}
+		}
+	}
+
+	if req.JobID != "" {
+		if api.store == nil {
+			resp.Errors = append(resp.Errors, V1PreflightIssue{Code: "dependency_unavailable", Field: "job_id", Message: "job store unavailable"})
+		} else if _, err := api.store.GetJob(ctx, req.JobID); err != nil {
+			if errors.Is(err, sql.ErrNoRows) {
+				resp.Errors = append(resp.Errors, V1PreflightIssue{Code: "not_found", Field: "job_id", Message: "job not found"})
+			} else {
+				resp.Errors = append(resp.Errors, V1PreflightIssue{Code: "dependency_error", Field: "job_id", Message: err.Error()})
+			}
+		}
+	}
+
+	if req.VMID == nil {
+		resp.Warnings = append(resp.Warnings, V1PreflightIssue{Code: "allocation_pending", Field: "vmid", Message: "vmid will be auto-allocated if omitted"})
+	}
+	if req.VMID != nil && req.Name == "" {
+		plan.Name = fmt.Sprintf("sandbox-%d", *req.VMID)
+	}
+
+	if provisionSandbox && profile.Name != "" {
+		if api.jobOrchestrator == nil {
+			resp.Errors = append(resp.Errors, V1PreflightIssue{Code: "precondition_missing", Field: "job_orchestrator", Message: "job orchestrator unavailable"})
+		} else {
+			if api.jobOrchestrator.backend == nil {
+				resp.Errors = append(resp.Errors, V1PreflightIssue{Code: "precondition_missing", Field: "backend", Message: "proxmox backend unavailable"})
+			}
+			if api.jobOrchestrator.sandboxManager == nil {
+				resp.Errors = append(resp.Errors, V1PreflightIssue{Code: "precondition_missing", Field: "sandbox_manager", Message: "sandbox manager unavailable"})
+			}
+			if api.jobOrchestrator.snippetStore == nil {
+				resp.Errors = append(resp.Errors, V1PreflightIssue{Code: "precondition_missing", Field: "snippet_store", Message: "snippet store unavailable"})
+			}
+			if strings.TrimSpace(api.jobOrchestrator.sshPublicKey) == "" {
+				resp.Errors = append(resp.Errors, V1PreflightIssue{Code: "precondition_missing", Field: "ssh_public_key", Message: "ssh public key unavailable"})
+			}
+			if strings.TrimSpace(api.jobOrchestrator.controllerURL) == "" {
+				resp.Errors = append(resp.Errors, V1PreflightIssue{Code: "precondition_missing", Field: "controller_url", Message: "controller URL unavailable"})
+			}
+			if len(resp.Errors) == 0 {
+				if err := api.jobOrchestrator.backend.ValidateTemplate(ctx, proxmox.VMID(profile.TemplateVM)); err != nil {
+					resp.Errors = append(resp.Errors, V1PreflightIssue{Code: "template_validation_failed", Field: "profile", Message: fmt.Sprintf("template validation failed: %s", err.Error())})
+				}
+			}
+		}
+	}
+
+	if len(resp.Errors) == 0 {
+		resp.OK = true
+		resp.Plan = &plan
+	}
+	writeJSON(w, http.StatusOK, resp)
+}
+
+func stringPtrTrim(v *string) *string {
+	if v == nil {
+		return nil
+	}
+	trimmed := strings.TrimSpace(*v)
+	if trimmed == "" {
+		return nil
+	}
+	return &trimmed
 }
 
 func (api *ControlAPI) handleJobByID(w http.ResponseWriter, r *http.Request) {
@@ -1357,7 +1819,7 @@ func (api *ControlAPI) handleSandboxCreate(w http.ResponseWriter, r *http.Reques
 		if req.VMID != nil {
 			vmid = *req.VMID
 		}
-		_ = api.store.RecordEvent(ctx, "sandbox.provision_failed", &vmid, nil, "job orchestrator not initialized", "")
+		_ = emitEvent(ctx, NewStoreEventRecorder(api.store), EventKindSandboxProvisionFailed, &vmid, nil, "job orchestrator not initialized", nil)
 		writeError(w, http.StatusServiceUnavailable, "sandbox provisioning unavailable: job orchestrator not initialized (ssh_public_key required)")
 		return
 	}
@@ -1480,10 +1942,9 @@ func (api *ControlAPI) handleSandboxCreate(w http.ResponseWriter, r *http.Reques
 				if api.redactor != nil {
 					errMsg = api.redactor.Redact(errMsg)
 				}
-				writeJSON(w, http.StatusInternalServerError, V1ErrorResponse{
-					Error:   "failed to provision sandbox",
-					Details: errMsg,
-				})
+				resp := daemonErrorResponse(http.StatusInternalServerError, "failed to provision sandbox")
+				resp.Details = errMsg
+				writeJSON(w, http.StatusInternalServerError, resp)
 				return
 			}
 			writeError(w, http.StatusInternalServerError, "failed to provision sandbox", err)
@@ -2465,7 +2926,15 @@ func (api *ControlAPI) handleExposureCreate(w http.ResponseWriter, r *http.Reque
 		"force":     req.Force,
 	})
 	vmid := exposure.VMID
-	_ = api.store.RecordEvent(ctx, "exposure.create", &vmid, nil, fmt.Sprintf("exposure %s created", exposure.Name), string(payload))
+	_ = emitEvent(ctx, NewStoreEventRecorder(api.store), EventKindExposureCreate, &vmid, nil, fmt.Sprintf("exposure %s created", exposure.Name), map[string]any{
+		"name":      exposure.Name,
+		"vmid":      exposure.VMID,
+		"port":      exposure.Port,
+		"target_ip": exposure.TargetIP,
+		"url":       exposure.URL,
+		"state":     exposure.State,
+		"force":     req.Force,
+	})
 
 	writeJSON(w, http.StatusCreated, exposureToV1(exposure))
 }
@@ -2526,7 +2995,14 @@ func (api *ControlAPI) handleExposureDelete(w http.ResponseWriter, r *http.Reque
 		"state":     exposure.State,
 	})
 	vmid := exposure.VMID
-	_ = api.store.RecordEvent(r.Context(), "exposure.delete", &vmid, nil, fmt.Sprintf("exposure %s deleted", exposure.Name), string(payload))
+	_ = emitEvent(r.Context(), NewStoreEventRecorder(api.store), EventKindExposureDelete, &vmid, nil, fmt.Sprintf("exposure %s deleted", exposure.Name), map[string]any{
+		"name":      exposure.Name,
+		"vmid":      exposure.VMID,
+		"port":      exposure.Port,
+		"target_ip": exposure.TargetIP,
+		"url":       exposure.URL,
+		"state":     exposure.State,
+	})
 
 	writeJSON(w, http.StatusOK, exposureToV1(exposure))
 }
@@ -2781,20 +3257,22 @@ func (api *ControlAPI) handleSandboxStopAll(w http.ResponseWriter, r *http.Reque
 		if result.Error != "" {
 			msg = fmt.Sprintf("%s: %s", msg, result.Error)
 		}
-		_ = api.store.RecordEvent(ctx, "sandbox.stop_all.result", &sb.VMID, nil, msg, string(payload))
+		_ = emitEvent(ctx, NewStoreEventRecorder(api.store), EventKindSandboxStopAllResult, &sb.VMID, nil, msg, map[string]any{
+			"result":         result.Result,
+			"state":          result.State,
+			"previous_state": string(sb.State),
+			"error":          result.Error,
+		})
 	}
 
-	summaryPayload, _ := json.Marshal(map[string]any{
+	summaryPayload := map[string]any{
 		"total":   resp.Total,
 		"stopped": resp.Stopped,
 		"skipped": resp.Skipped,
 		"failed":  resp.Failed,
 		"force":   forceUsed,
-	})
-	_ = api.store.RecordEvent(ctx, "sandbox.stop_all", nil, nil,
-		fmt.Sprintf("stop_all completed: stopped=%d skipped=%d failed=%d", resp.Stopped, resp.Skipped, resp.Failed),
-		string(summaryPayload),
-	)
+	}
+	_ = emitEvent(ctx, NewStoreEventRecorder(api.store), EventKindSandboxStopAll, nil, nil, fmt.Sprintf("stop_all completed: stopped=%d skipped=%d failed=%d", resp.Stopped, resp.Skipped, resp.Failed), summaryPayload)
 
 	writeJSON(w, http.StatusOK, resp)
 }
@@ -3600,10 +4078,18 @@ func writeJSON(w http.ResponseWriter, status int, payload any) {
 	_ = json.NewEncoder(w).Encode(payload)
 }
 
+func daemonErrorResponse(status int, msg string) V1ErrorResponse {
+	return V1ErrorResponse{
+		Error:   msg,
+		Code:    daemonErrorCode(status, msg),
+		Message: msg,
+	}
+}
+
 func writeError(w http.ResponseWriter, status int, msg string, err ...error) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
-	resp := V1ErrorResponse{Error: msg}
+	resp := daemonErrorResponse(status, msg)
 	if len(err) > 0 && status < http.StatusInternalServerError {
 		details := err[0].Error()
 		if defaultErrorRedactor != nil {

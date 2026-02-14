@@ -16,10 +16,11 @@ curl --unix-socket /run/agentlab/agentlabd.sock http://localhost/healthz
 ## Error shape
 
 ```json
-{ "error": "message", "details": "redacted details if enabled" }
+{ "error": "message", "code": "v1/...", "message": "machine-readable canonical message", "details": "redacted details if enabled" }
 ```
 
-By default, server errors (`5xx`) return only `error`.
+`code` and `message` are stable, machine-readable fields. `error` remains populated for compatibility.
+By default, server errors (`5xx`) return only `error` and `message`/`code`.
 For debugging, include `X-AgentLab-Debug: true` to request redacted `details` on `5xx` responses.
 
 ## Versioned types

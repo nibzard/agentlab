@@ -4,6 +4,8 @@ import "encoding/json"
 
 type V1ErrorResponse struct {
 	Error   string `json:"error"`
+	Code    string `json:"code,omitempty"`
+	Message string `json:"message,omitempty"`
 	Details string `json:"details,omitempty"`
 }
 
@@ -78,6 +80,12 @@ type V1BootstrapFetchResponse struct {
 	Policy             *V1BootstrapPolicy   `json:"policy,omitempty"`
 }
 
+type V1PreflightIssue struct {
+	Code    string `json:"code"`
+	Field   string `json:"field"`
+	Message string `json:"message"`
+}
+
 type V1JobCreateRequest struct {
 	RepoURL              string                    `json:"repo_url"`
 	Ref                  string                    `json:"ref"`
@@ -90,6 +98,41 @@ type V1JobCreateRequest struct {
 	WorkspaceCreate      *V1WorkspaceCreateRequest `json:"workspace_create,omitempty"`
 	WorkspaceWaitSeconds *int                      `json:"workspace_wait_seconds,omitempty"`
 	SessionID            *string                   `json:"session_id,omitempty"`
+}
+
+type V1JobValidatePlanRequest struct {
+	RepoURL              string                    `json:"repo_url"`
+	Ref                  string                    `json:"ref"`
+	Profile              string                    `json:"profile"`
+	Task                 string                    `json:"task"`
+	Mode                 string                    `json:"mode"`
+	TTLMinutes           *int                      `json:"ttl_minutes,omitempty"`
+	Keepalive            *bool                     `json:"keepalive,omitempty"`
+	WorkspaceID          *string                   `json:"workspace_id,omitempty"`
+	WorkspaceCreate      *V1WorkspaceCreateRequest `json:"workspace_create,omitempty"`
+	WorkspaceWaitSeconds *int                      `json:"workspace_wait_seconds,omitempty"`
+	SessionID            *string                   `json:"session_id,omitempty"`
+}
+
+type V1JobValidatePlan struct {
+	RepoURL              string                    `json:"repo_url"`
+	Ref                  string                    `json:"ref"`
+	Profile              string                    `json:"profile"`
+	Task                 string                    `json:"task"`
+	Mode                 string                    `json:"mode"`
+	TTLMinutes           *int                      `json:"ttl_minutes,omitempty"`
+	Keepalive            bool                      `json:"keepalive"`
+	WorkspaceID          *string                   `json:"workspace_id,omitempty"`
+	WorkspaceCreate      *V1WorkspaceCreateRequest `json:"workspace_create,omitempty"`
+	WorkspaceWaitSeconds *int                      `json:"workspace_wait_seconds,omitempty"`
+	SessionID            *string                   `json:"session_id,omitempty"`
+}
+
+type V1JobValidatePlanResponse struct {
+	OK       bool                `json:"ok"`
+	Errors   []V1PreflightIssue  `json:"errors"`
+	Warnings []V1PreflightIssue  `json:"warnings"`
+	Plan     *V1JobValidatePlan  `json:"plan,omitempty"`
 }
 
 type V1JobResponse struct {
@@ -119,6 +162,33 @@ type V1SandboxCreateRequest struct {
 	Workspace  *string `json:"workspace_id,omitempty"`
 	VMID       *int    `json:"vmid,omitempty"`
 	JobID      string  `json:"job_id,omitempty"`
+}
+
+type V1SandboxValidatePlanRequest struct {
+	Name       string  `json:"name"`
+	Profile    string  `json:"profile"`
+	Keepalive  *bool   `json:"keepalive,omitempty"`
+	TTLMinutes *int    `json:"ttl_minutes,omitempty"`
+	Workspace  *string `json:"workspace_id,omitempty"`
+	VMID       *int    `json:"vmid,omitempty"`
+	JobID      string  `json:"job_id,omitempty"`
+}
+
+type V1SandboxValidatePlan struct {
+	Name       string  `json:"name"`
+	Profile    string  `json:"profile"`
+	Keepalive  bool    `json:"keepalive"`
+	TTLMinutes *int    `json:"ttl_minutes,omitempty"`
+	Workspace  *string `json:"workspace_id,omitempty"`
+	VMID       *int    `json:"vmid,omitempty"`
+	JobID      string  `json:"job_id,omitempty"`
+}
+
+type V1SandboxValidatePlanResponse struct {
+	OK       bool                    `json:"ok"`
+	Errors   []V1PreflightIssue      `json:"errors"`
+	Warnings []V1PreflightIssue      `json:"warnings"`
+	Plan     *V1SandboxValidatePlan  `json:"plan,omitempty"`
 }
 
 type V1SandboxDestroyRequest struct {

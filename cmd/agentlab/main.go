@@ -113,7 +113,7 @@ Global Flags:
   --timeout       Request timeout (e.g. 30s, 2m)
 
 Errors:
-  When --json is set, errors are emitted as: {"error":"message"}
+  When --json is set, errors are emitted as: {"error":"message","code":"...","message":"...","details":"..."}
 
 Exit codes:
   0: Success or help displayed
@@ -140,7 +140,7 @@ func main() {
 		}
 		msg, next, hints := describeError(err)
 		if opts.jsonOutput {
-			writeJSONError(os.Stdout, msg)
+			writeJSONError(os.Stdout, err)
 		} else {
 			printError(os.Stderr, msg, next, hints)
 		}
@@ -184,7 +184,7 @@ func main() {
 		}
 		msg, next, hints := describeError(err)
 		if opts.jsonOutput {
-			writeJSONError(os.Stdout, msg)
+			writeJSONError(os.Stdout, err)
 		} else {
 			printError(os.Stderr, msg, next, hints)
 		}
@@ -303,8 +303,34 @@ func showUsageOnError(err error) bool {
 	return false
 }
 
-func writeJSONError(w io.Writer, message string) {
-	payload := map[string]string{"error": message}
+func writeJSONError(w io.Writer, err error) {
+	payload := map[string]string{
+		"error":   "internal error",
+		"message": "internal error",
+	}
+	if err != nil {
+		msg := strings.TrimSpace(err.Error())
+		if msg == "" {
+			msg = "unknown error"
+		}
+		payload["error"] = msg
+		payload["message"] = msg
+		var apiErr apiResponseError
+		if errors.As(err, &apiErr) {
+			code := strings.TrimSpace(apiErr.Code)
+			if code != "" {
+				payload["code"] = code
+			}
+			msg = strings.TrimSpace(apiErr.Message)
+			if msg == "" {
+				msg = strings.TrimSpace(payload["error"])
+			}
+			payload["message"] = msg
+			if details := strings.TrimSpace(apiErr.Details); details != "" {
+				payload["details"] = details
+			}
+		}
+	}
 	data, err := json.Marshal(payload)
 	if err != nil {
 		fmt.Fprintln(w, `{"error":"internal error"}`)

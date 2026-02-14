@@ -355,10 +355,32 @@ func TestParseAPIErrorFallback(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), "status 500") {
 		t.Fatalf("expected fallback error, got %v", err)
 	}
+	if apiErr, ok := err.(apiResponseError); ok {
+		if apiErr.Code != apiErrorCode(http.StatusInternalServerError, "") {
+			t.Fatalf("unexpected code = %q, want %q", apiErr.Code, apiErrorCode(http.StatusInternalServerError, ""))
+		}
+	}
 
 	err = parseAPIError(http.StatusBadRequest, []byte(`{"error":"boom"}`))
 	if err == nil || err.Error() != "boom" {
 		t.Fatalf("expected parsed error, got %v", err)
+	}
+	if apiErr, ok := err.(apiResponseError); !ok {
+		t.Fatalf("expected apiResponseError, got %T", err)
+	} else if apiErr.Code != apiErrorCode(http.StatusBadRequest, "boom") {
+		t.Fatalf("unexpected code = %q, want %q", apiErr.Code, apiErrorCode(http.StatusBadRequest, "boom"))
+	}
+
+	err = parseAPIError(http.StatusBadRequest, []byte(`{"message":"message from server"}`))
+	if err == nil || err.Error() != "message from server" {
+		t.Fatalf("expected parsed message error, got %v", err)
+	}
+	apiErr, ok := err.(apiResponseError)
+	if !ok {
+		t.Fatalf("expected apiResponseError, got %T", err)
+	}
+	if apiErr.Message != "message from server" {
+		t.Fatalf("unexpected parsed message = %q", apiErr.Message)
 	}
 }
 
