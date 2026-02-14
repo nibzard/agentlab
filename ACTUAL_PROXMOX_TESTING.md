@@ -2,7 +2,7 @@
 
 **Date**: 2026-01-30 (full Proxmox testing)
 **Environment**: Proxmox VE 8.4.16 host (pve, <internal-ip>/24)
-**Test Status**: Partial success - infrastructure works, sandbox provisioning fails
+**Test Status**: Partial success - infrastructure works, sandbox provisioning cannot be revalidated in this environment
 
 ---
 
@@ -139,7 +139,17 @@ $ agentlab --json sandbox new --profile yolo-ephemeral --name test-sandbox
 {"error":"failed to provision sandbox"}
 ```
 
-**No detailed error message** - only "failed to provision sandbox". No logs written to `/var/log/agentlab/agentlabd.log` after daemon startup.
+**No detailed error message** - only "failed to provision sandbox" unless debug is enabled in the request.
+
+Use a local debug header to return redacted failure details on 500 responses:
+
+```bash
+curl --unix-socket /run/agentlab/agentlabd.sock \
+  -H "X-AgentLab-Debug: true" \
+  -H "Content-Type: application/json" \
+  http://localhost/v1/sandboxes \
+  -d '{"name":"debug-sandbox","profile":"yolo-ephemeral"}'
+```
 
 ### Database Analysis
 
@@ -192,7 +202,7 @@ $ qm list
 
 2. **Template lacks agent-runner**: Used `--skip-customize` to speed up testing, so the template doesn't have `agent-runner` service. This shouldn't prevent VM provisioning, but may affect later stages.
 
-3. **No detailed error logs**: The daemon logs nothing about the failure. The only error message is from the API handler (`failed to provision sandbox`), which wraps the underlying error without logging it.
+3. **No detailed error logs**: This environment did not capture daemon stack-level logs beyond generic API behavior. The API can now return redacted underlying errors in `details` when the request includes `X-AgentLab-Debug: true`.
 
 4. **Provision timeout**: Sandboxes stay in `PROVISIONING` state for ~10 minutes, then timeout/cleanup occurs. This suggests the workflow gets stuck or fails silently.
 
@@ -326,9 +336,9 @@ template_vmid: 9000
 
 **AgentLab v0.1.0 infrastructure is excellent** - network, daemon, CLI, template creation all work perfectly.
 
-**However, sandbox provisioning is broken** in the current build. The workflow fails silently with no useful error messages, making debugging impossible without code changes.
+**However, sandbox provisioning is still blocked** in this environment. The workflow currently fails on real Proxmox re-runs, and debug details now require a host to reproduce with a failing request.
 
-**Root cause**: Unknown - likely in the ProvisionSandbox workflow (snippet creation or VM boot), but logs don't show the actual failure point.
+**Root cause**: Unknown - likely in the ProvisionSandbox workflow (snippet creation or VM boot); repro remains blocked pending real host capture.
 
 **Recommendation**: This is a **critical blocker** for alpha testing. Needs investigation and fixes before v0.2.0. The infrastructure is ready, but the core feature (sandbox provisioning) doesn't work.
 
