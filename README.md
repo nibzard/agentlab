@@ -46,7 +46,7 @@ Ensure the firewall groups exist in Proxmox before using non-default modes.
 make build
 ```
 
-2) Install binaries + systemd unit:
+2) Install binaries + systemd unit, plus AgentLab Claude skill bundle:
 
 ```bash
 sudo scripts/install_host.sh
@@ -89,6 +89,7 @@ sudo systemctl restart agentlabd.service
 ```bash
 agentlab status
 ```
+`agentlab status` includes installed skill bundle metadata under `Skill Bundle`.
 
 8) Run a job from the host:
 

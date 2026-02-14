@@ -52,6 +52,11 @@ type initState struct {
 	TemplateIDs []int
 }
 
+type skillBundleManifest struct {
+	Name    string `json:"name"`
+	Version string `json:"version"`
+}
+
 func runInitCommand(ctx context.Context, args []string, base commonFlags) error {
 	fs := newFlagSet("init")
 	opts := base
@@ -187,14 +192,15 @@ func collectInitReport(ctx context.Context, configPath string, fallbackPort int)
 	report.Checks = append(report.Checks, checkIPForward())
 	report.Checks = append(report.Checks, checkNFTables(ctx))
 	report.Checks = append(report.Checks, checkSnippetsDir(state.Config.SnippetsDir, state.Config.SnippetStorage))
+	report.Checks = append(report.Checks, checkSkillBundle(state))
 	report.Checks = append(report.Checks, checkProfiles(state))
 	report.Checks = append(report.Checks, checkTemplates(ctx, state.TemplateIDs))
 
 	if controlListen != "" && controlToken != "" {
 		endpoint := fmt.Sprintf("http://%s", controlListen)
-		if dnsName != "" {
-			endpoint = fmt.Sprintf("http://%s:%d", dnsName, port)
-		}
+	if dnsName != "" {
+		endpoint = fmt.Sprintf("http://%s:%d", dnsName, port)
+	}
 		report.ConnectCommand = fmt.Sprintf("agentlab connect --endpoint %s --token %s", endpoint, controlToken)
 	}
 	return report, state, nil
@@ -294,6 +300,7 @@ func applyInit(ctx context.Context, state initState, report initReport, assetsRo
 	setupScript := filepath.Join(assetsRoot, "scripts", "net", "setup_vmbr1.sh")
 	nftScript := filepath.Join(assetsRoot, "scripts", "net", "apply.sh")
 	templateScript := filepath.Join(assetsRoot, "scripts", "create_template.sh")
+	installSkillScript := filepath.Join(assetsRoot, "scripts", "install_host.sh")
 
 	bridgeStatus := findCheckStatus(report.Checks, "bridge_"+defaultAgentBridge)
 	ipForwardStatus := findCheckStatus(report.Checks, "ip_forward")
@@ -361,6 +368,20 @@ func applyInit(ctx context.Context, state initState, report initReport, assetsRo
 	}
 	steps = append(steps, templateStep)
 
+	skillBundleStatus := findCheckStatus(report.Checks, "skill_bundle")
+	if skillBundleStatus == "ok" && !opts.force {
+		steps = append(steps, initCheck{Name: "install_skills", Status: "skipped", Detail: "skill bundle already up-to-date"})
+	} else {
+		if err := installSkillBundle(ctx, installSkillScript, opts.force, opts.jsonOutput); err != nil {
+			return steps, fmt.Errorf("install skill bundle failed: %w", err)
+		}
+		detail := "installed/updated skill bundle"
+		if manifest, _, err := readSkillBundleManifestFromRoot(assetsRoot); err == nil {
+			detail = fmt.Sprintf("installed/updated %s@%s", manifest.Name, manifest.Version)
+		}
+		steps = append(steps, initCheck{Name: "install_skills", Status: "ok", Detail: detail})
+	}
+
 	if err := applyRemoteControl(ctx, defaultConfigPath, opts.controlPort, opts.controlToken, opts.rotateToken, opts.tailscaleMode); err != nil {
 		return steps, err
 	}
@@ -394,6 +415,127 @@ func runSmokeTest(ctx context.Context, assetsRoot string, state initState, jsonO
 		}
 	}
 	return initCheck{Name: "smoke_test", Status: "ok", Detail: fmt.Sprintf("profile=%s", profile)}, nil
+}
+
+func checkSkillBundle(state initState) initCheck {
+	check := initCheck{Name: "skill_bundle"}
+	installedName := strings.TrimSpace(state.Config.ClaudeSkillBundleName)
+	installedVersion := strings.TrimSpace(state.Config.ClaudeSkillBundleVersion)
+
+	manifest, ok, err := readSkillBundleManifest()
+	if err != nil || !ok {
+		if installedName == "" && installedVersion == "" {
+			check.Status = "missing"
+			check.Detail = "skill bundle is not installed"
+			return check
+		}
+		check.Status = "ok"
+		if installedVersion == "" {
+			check.Detail = fmt.Sprintf("installed name=%s (version unknown)", installedName)
+			return check
+		}
+		check.Detail = fmt.Sprintf("installed=%s@%s (source manifest not available)", installedName, installedVersion)
+		return check
+	}
+
+	if installedName == "" || installedVersion == "" {
+		check.Status = "missing"
+		check.Detail = fmt.Sprintf("installed none, expected %s@%s", manifest.Name, manifest.Version)
+		return check
+	}
+	if installedName == manifest.Name && installedVersion == manifest.Version {
+		check.Status = "ok"
+		check.Detail = fmt.Sprintf("installed %s@%s", installedName, installedVersion)
+		return check
+	}
+	check.Status = "upgrade"
+	check.Detail = fmt.Sprintf("installed %s@%s, expected %s@%s", installedName, installedVersion, manifest.Name, manifest.Version)
+	return check
+}
+
+func readSkillBundleManifest() (skillBundleManifest, bool, error) {
+	root, err := resolveInitAssetsRoot()
+	if err != nil {
+		return skillBundleManifest{}, false, err
+	}
+	if root == "" {
+		return skillBundleManifest{}, false, nil
+	}
+	return readSkillBundleManifestFromRoot(root)
+}
+
+func readSkillBundleManifestFromRoot(root string) (skillBundleManifest, bool, error) {
+	manifestPath := filepath.Join(root, "skills", "agentlab", "bundle", "manifest.json")
+	data, err := os.ReadFile(manifestPath)
+	if err != nil {
+		return skillBundleManifest{}, false, err
+	}
+	var manifest skillBundleManifest
+	if err := json.Unmarshal(data, &manifest); err != nil {
+		return skillBundleManifest{}, false, err
+	}
+	manifest.Name = strings.TrimSpace(manifest.Name)
+	manifest.Version = strings.TrimSpace(manifest.Version)
+	if manifest.Name == "" {
+		return skillBundleManifest{}, false, fmt.Errorf("manifest missing name in %s", manifestPath)
+	}
+	if manifest.Version == "" {
+		return skillBundleManifest{}, false, fmt.Errorf("manifest missing version in %s", manifestPath)
+	}
+	return manifest, true, nil
+}
+
+func installSkillBundle(ctx context.Context, installScript string, force bool, jsonOutput bool) error {
+	cmd := exec.CommandContext(ctx, installScript, "--install-skills-only")
+	cmd.Env = os.Environ()
+	if force {
+		cmd.Env = setEnv(cmd.Env, "CLAUDE_SKILL_FORCE", "1")
+	}
+	if jsonOutput {
+		output, err := cmd.CombinedOutput()
+		if err != nil {
+			return formatCommandError("skill bundle install failed", output, err)
+		}
+		return nil
+	}
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	if err := cmd.Run(); err != nil {
+		return err
+	}
+	return nil
+}
+
+func setEnv(env []string, key string, value string) []string {
+	prefix := key + "="
+	var out []string
+	replaced := false
+	for _, entry := range env {
+		if strings.HasPrefix(entry, prefix) {
+			out = append(out, prefix+value)
+			replaced = true
+			continue
+		}
+		out = append(out, entry)
+	}
+	if !replaced {
+		out = append(out, prefix+value)
+	}
+	return out
+}
+
+func resolveInitAssetsRoot() (string, error) {
+	if cwd, err := os.Getwd(); err == nil {
+		if root := findInitAssetsUpward(cwd); root != "" {
+			return root, nil
+		}
+	}
+	if exe, err := os.Executable(); err == nil {
+		if root := findInitAssetsUpward(filepath.Dir(exe)); root != "" {
+			return root, nil
+		}
+	}
+	return "", fmt.Errorf("assets root not found")
 }
 
 func pickSmokeProfile(state initState) string {

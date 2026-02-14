@@ -1,0 +1,35 @@
+{
+  "name": "agentlab",
+  "version": "1.0.0",
+  "supported_agent_versions": [
+    ">=0.2.0",
+    "<0.4.0"
+  ],
+  "included_skills": [
+    {
+      "id": "job-execution",
+      "name": "Job Execution",
+      "file": "job-execution.md"
+    },
+    {
+      "id": "workspace-recovery",
+      "name": "Workspace Recovery",
+      "file": "workspace-recovery.md"
+    },
+    {
+      "id": "networking",
+      "name": "Networking",
+      "file": "networking.md"
+    },
+    {
+      "id": "artifact-triage",
+      "name": "Artifact Triage",
+      "file": "artifact-triage.md"
+    },
+    {
+      "id": "troubleshooting",
+      "name": "Troubleshooting",
+      "file": "troubleshooting.md"
+    }
+  ]
+}

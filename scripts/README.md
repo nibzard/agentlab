@@ -1,6 +1,6 @@
 # Scripts
 
-- `install_host.sh`: install agentlab binaries, directories, and systemd unit on the host.
+- `install_host.sh`: install agentlab binaries, directories, systemd unit, and AgentLab Claude skill bundle (versioned via `skills/agentlab/bundle/manifest.json`) on the host.
 - `create_template.sh`: build the Ubuntu cloud-init template VM on Proxmox (supports `--image-sha256` or `--image-sha256-url` verification).
 - `guest/agentlab-agent`: wrapper script baked into the guest template to dispatch agent CLIs.
 - `guest/agent-runner`: guest bootstrap + execution script invoked by systemd.
@@ -24,5 +24,6 @@
 ## Claude Code skills
 
 - Source: `skills/agentlab/SKILL.md`.
-- `install_host.sh` installs the skill to `~/.claude/skills/agentlab/SKILL.md` for the invoking user.
+- `install_host.sh` installs the full bundle to `~/.claude/skills/agentlab/` for the invoking user.
 - Override the install target with `CLAUDE_SKILLS_DIR=/path/to/skills` (set `INSTALL_SKILLS=0` to skip).
+- Use `--install-skills-only` to update only the Claude bundle.

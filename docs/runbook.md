@@ -133,7 +133,7 @@ sudo systemctl restart agentlabd.service
 
 `agentlab init` runs a read-only checklist for the most common host prerequisites:
 `vmbr1` bridge, IP forwarding, nftables rules, snippets directory, profiles, templates,
-and the optional remote control plane.
+the AgentLab skill bundle, and the optional remote control plane.
 
 ```bash
 agentlab init
@@ -148,10 +148,14 @@ sudo agentlab init --apply
 
 Notes:
 - `agentlab init --apply` reuses `scripts/net/setup_vmbr1.sh`,
-  `scripts/net/apply.sh`, and `scripts/create_template.sh`. Run it from the repo
-  root, or pass `--assets /path/to/agentlab` if the scripts are elsewhere.
+  `scripts/net/apply.sh`, `scripts/create_template.sh`, and
+  `scripts/install_host.sh --install-skills-only` for skill-bundle updates.
+  Run it from the repo root, or pass `--assets /path/to/agentlab` if the
+  scripts are elsewhere.
 - Use `--force` to overwrite managed network config files if you previously edited them.
 - The default template VMID is taken from your profiles (or 9000 if none are found).
+- `agentlab init` check status includes `skill_bundle` with `missing`/`upgrade`/`ok`
+  states to make bundle drift visible.
 
 To validate end-to-end provisioning (bootstrap + artifacts), run the smoke test:
 
@@ -162,6 +166,36 @@ agentlab init --smoke-test
 The smoke test uses `scripts/tests/golden_path.sh`, which starts a temporary
 local git repo server and runs a job that uploads a golden artifact.
 It requires `python3` (or `git daemon`) on the host.
+
+### AgentLab skill bundle upgrades and rollback
+
+Skill bundles are manifest-driven. A running version is tracked in
+`/etc/agentlab/config.yaml` as:
+
+```yaml
+claude_skill_bundle_name: agentlab
+claude_skill_bundle_version: "1.0.0"
+```
+
+Upgrade behavior:
+
+- `scripts/install_host.sh --install-skills-only` upgrades only when the source bundle
+  name/version differs and files differ, then writes updated metadata.
+- `agentlab init --apply` runs that same install step automatically and reports a skipped
+  step when the bundle is already current.
+
+Rollback options:
+
+- Pin a version during host script execution with `CLAUDE_SKILL_VERSION=<version>` to
+  prevent accidental cross-release installs.
+- Switch back to the previous checkout (or bundle source directory), then rerun:
+
+```bash
+sudo scripts/install_host.sh --install-skills-only
+```
+
+If needed, remove `/home/<user>/.claude/skills/agentlab` (or the value of
+`CLAUDE_SKILLS_DIR`) and reinstall from the desired commit.
 
 ## Remote CLI (tailnet)
 

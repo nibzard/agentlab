@@ -15,6 +15,7 @@ usage() {
 Usage: scripts/install_host.sh [--prefix /usr/local] [--skip-socket-check]
                               [--enable-remote-control] [--control-port 8845]
                               [--control-token <token>] [--rotate-control-token]
+                              [--install-skills-only]
                               [--tailscale-serve|--no-tailscale-serve]
 
 Environment overrides:
@@ -26,7 +27,10 @@ Environment overrides:
   SYSTEMD_DIR         Override systemd unit dir (default /etc/systemd/system)
   SKIP_SOCKET_CHECK   Set to 1 to skip socket permission verification
   INSTALL_SKILLS      Set to 0 to skip Claude Code skill installation
+  CLAUDE_SKILL_FORCE  Set to 1 to force reinstall even when current version is already installed
   CLAUDE_SKILLS_DIR   Override Claude Code skills directory
+  SKILL_INSTALL_ONLY  Set to 1 to install skills only
+  CLAUDE_SKILL_VERSION  If set, require installed skills for this exact agentlab release
   ENABLE_REMOTE_CONTROL  Set to 1 to enable remote control config
   CONTROL_PORT           Control plane port (default 8845)
   CONTROL_TOKEN          Control plane bearer token (optional)
@@ -43,7 +47,10 @@ fi
 PREFIX="${PREFIX:-/usr/local}"
 SKIP_SOCKET_CHECK="${SKIP_SOCKET_CHECK:-0}"
 INSTALL_SKILLS="${INSTALL_SKILLS:-1}"
+SKILL_INSTALL_ONLY="${SKILL_INSTALL_ONLY:-0}"
 CLAUDE_SKILLS_DIR="${CLAUDE_SKILLS_DIR:-}"
+CLAUDE_SKILL_FORCE="${CLAUDE_SKILL_FORCE:-0}"
+CLAUDE_SKILL_VERSION="${CLAUDE_SKILL_VERSION:-}"
 ENABLE_REMOTE_CONTROL="${ENABLE_REMOTE_CONTROL:-0}"
 CONTROL_PORT="${CONTROL_PORT:-8845}"
 CONTROL_TOKEN="${CONTROL_TOKEN:-}"
@@ -83,6 +90,10 @@ while [[ $# -gt 0 ]]; do
       REMOTE_CONTROL_REQUESTED=1
       shift
       ;;
+    --install-skills-only)
+      SKILL_INSTALL_ONLY=1
+      shift
+      ;;
     --tailscale-serve)
       TAILSCALE_SERVE="on"
       REMOTE_CONTROL_REQUESTED=1
@@ -111,7 +122,7 @@ if [[ $EUID -ne 0 ]]; then
   die "This script must be run as root"
 fi
 
-if ! command -v systemctl >/dev/null 2>&1; then
+if [[ "$SKILL_INSTALL_ONLY" != "1" ]] && ! command -v systemctl >/dev/null 2>&1; then
   die "systemctl not found; systemd is required"
 fi
 
@@ -122,11 +133,13 @@ BIN_DIR="${BIN_DIR:-${PREFIX}/bin}"
 SYSTEMD_DIR="${SYSTEMD_DIR:-/etc/systemd/system}"
 UNIT_SRC="${UNIT_SRC:-${ROOT_DIR}/scripts/systemd/agentlabd.service}"
 SKILL_SRC_DIR="${ROOT_DIR}/skills/agentlab"
+SKILL_INSTALL_DIR_NAME="agentlab"
+SKILL_MANIFEST_PATH="${SKILL_SRC_DIR}/bundle/manifest.json"
 
 AGENTLABD_SRC="${AGENTLABD_SRC:-}"
 AGENTLAB_SRC="${AGENTLAB_SRC:-}"
 
-if [[ -z "$AGENTLABD_SRC" ]]; then
+if [[ -z "$AGENTLABD_SRC" ]] && [[ "$SKILL_INSTALL_ONLY" != "1" ]]; then
   for candidate in "${ROOT_DIR}/dist/agentlabd_linux_amd64" "${ROOT_DIR}/bin/agentlabd"; do
     if [[ -x "$candidate" ]]; then
       AGENTLABD_SRC="$candidate"
@@ -135,7 +148,7 @@ if [[ -z "$AGENTLABD_SRC" ]]; then
   done
 fi
 
-if [[ -z "$AGENTLAB_SRC" ]]; then
+if [[ -z "$AGENTLAB_SRC" ]] && [[ "$SKILL_INSTALL_ONLY" != "1" ]]; then
   for candidate in "${ROOT_DIR}/dist/agentlab_linux_amd64" "${ROOT_DIR}/bin/agentlab"; do
     if [[ -x "$candidate" ]]; then
       AGENTLAB_SRC="$candidate"
@@ -144,23 +157,70 @@ if [[ -z "$AGENTLAB_SRC" ]]; then
   done
 fi
 
-[[ -n "$AGENTLABD_SRC" ]] || die "agentlabd binary not found; run 'make build' or set AGENTLABD_SRC"
-[[ -n "$AGENTLAB_SRC" ]] || die "agentlab binary not found; run 'make build' or set AGENTLAB_SRC"
-[[ -f "$UNIT_SRC" ]] || die "agentlabd.service not found at $UNIT_SRC"
+if [[ "$SKILL_INSTALL_ONLY" != "1" ]]; then
+  [[ -n "$AGENTLABD_SRC" ]] || die "agentlabd binary not found; run 'make build' or set AGENTLABD_SRC"
+  [[ -n "$AGENTLAB_SRC" ]] || die "agentlab binary not found; run 'make build' or set AGENTLAB_SRC"
+  [[ -f "$UNIT_SRC" ]] || die "agentlabd.service not found at $UNIT_SRC"
+fi
+
+json_field() {
+  local file="$1"
+  local key="$2"
+  if [[ ! -f "$file" ]]; then
+    return 0
+  fi
+  sed -n "s/^[[:space:]]*\\\"${key}\\\"[[:space:]]*:[[:space:]]*\\\"\\([^\"]*\\)\\\".*/\\1/p" "$file" | head -n 1
+}
+
+skill_bundle_name() {
+  json_field "${SKILL_MANIFEST_PATH}" "name"
+}
+
+skill_bundle_version() {
+  local manifest="$1"
+  json_field "$manifest" "version"
+}
+
+skill_bundle_matches_local() {
+  local target_dir="$1"
+  local installed_manifest="${target_dir}/bundle/manifest.json"
+  local target_version=""
+  local target_name=""
+
+  if [[ ! -f "$installed_manifest" ]]; then
+    return 1
+  fi
+  target_version="$(skill_bundle_version "$installed_manifest")"
+  target_name="$(json_field "$installed_manifest" "name")"
+  if [[ "$(skill_bundle_name)" != "$target_name" ]]; then
+    return 1
+  fi
+  if [[ "$(skill_bundle_version "${SKILL_MANIFEST_PATH}") != "$target_version" ]]; then
+    return 1
+  fi
+  if [[ "$CLAUDE_SKILL_FORCE" == "1" ]]; then
+    return 1
+  fi
+
+  local source_file
+  while IFS= read -r -d '' source_file; do
+    local relative_file target_file
+    relative_file="${source_file#${SKILL_SRC_DIR}/}"
+    target_file="${target_dir}/$relative_file"
+    if [[ ! -f "$target_file" ]]; then
+      return 1
+    fi
+    if ! cmp -s "$source_file" "$target_file"; then
+      return 1
+    fi
+  done < <(find "${SKILL_SRC_DIR}" -type f \( -name '*.md' -o -name 'manifest.json' \) -print0 | sort -z)
+  return 0
+}
 
 install_claude_skill() {
   if [[ "$INSTALL_SKILLS" != "1" ]]; then
     log "Skipping Claude Code skill install (INSTALL_SKILLS=$INSTALL_SKILLS)"
     return
-  fi
-
-  local skill_src=""
-  if [[ -f "${SKILL_SRC_DIR}/SKILL.md" ]]; then
-    skill_src="${SKILL_SRC_DIR}/SKILL.md"
-  elif [[ -f "${SKILL_SRC_DIR}/skill.md" ]]; then
-    skill_src="${SKILL_SRC_DIR}/skill.md"
-  else
-    die "Claude Code skill not found in ${SKILL_SRC_DIR}"
   fi
 
   local target_dir="${CLAUDE_SKILLS_DIR}"
@@ -181,11 +241,49 @@ install_claude_skill() {
     fi
   fi
 
-  log "Installing Claude Code skill to ${target_dir}/agentlab"
-  install -d -m 0755 "${target_dir}/agentlab"
-  install -m 0644 "$skill_src" "${target_dir}/agentlab/SKILL.md"
+  target_dir="${target_dir}/${SKILL_INSTALL_DIR_NAME}"
+  local manifest_version
+  local manifest_name
+  local installed_version
+  local installed_name
+  manifest_name="$(skill_bundle_name)"
+  manifest_version="$(skill_bundle_version "${SKILL_MANIFEST_PATH}")"
+  if [[ -z "$manifest_version" ]]; then
+    die "Could not read skill bundle version from ${SKILL_MANIFEST_PATH}"
+  fi
+  if [[ -z "$manifest_name" ]]; then
+    manifest_name="agentlab"
+  fi
+  if [[ -n "$CLAUDE_SKILL_VERSION" && "$manifest_version" != "$CLAUDE_SKILL_VERSION" ]]; then
+    die "incompatible installed bundle version: manifest=${manifest_version}, required=${CLAUDE_SKILL_VERSION}"
+  fi
+
+  if skill_bundle_matches_local "$target_dir"; then
+    installed_version="$(skill_bundle_version "${target_dir}/bundle/manifest.json")"
+    installed_name="$(json_field "${target_dir}/bundle/manifest.json" "name")"
+    log "AgentLab Claude skill bundle already up-to-date (name=${installed_name}, version=${installed_version})"
+    return
+  fi
+
+  install -d -m 0755 "$target_dir"
+  install -d -m 0755 "$target_dir/bundle"
+  rm -rf "$target_dir/bundle"
+  while IFS= read -r -d '' source_file; do
+    local relative_file target_file target_parent
+    relative_file="${source_file#${SKILL_SRC_DIR}/}"
+    target_file="${target_dir}/$relative_file"
+    target_parent="$(dirname "$target_file")"
+    install -d -m 0755 "$target_parent"
+    install -m 0644 "$source_file" "$target_file"
+  done < <(find "${SKILL_SRC_DIR}" -type f \( -name '*.md' -o -name 'manifest.json' \) -print0 | sort -z)
+
+  if [[ -n "$manifest_name" ]]; then
+    config_upsert "claude_skill_bundle_name" "$manifest_name"
+  fi
+  config_upsert "claude_skill_bundle_version" "$manifest_version"
+  log "Installed AgentLab skill bundle ${manifest_name}@${manifest_version}"
   if [[ -n "$owner" && -n "$group" ]]; then
-    chown -R "$owner":"$group" "${target_dir}/agentlab"
+    chown -R "$owner":"$group" "$target_dir"
   fi
 }
 
@@ -376,18 +474,24 @@ install -d -o root -g root -m 0700 \
   /etc/agentlab/secrets \
   /etc/agentlab/keys
 
-configure_remote_control
+if [[ "$SKILL_INSTALL_ONLY" != "1" ]]; then
+  configure_remote_control
+fi
 
 log "Installing binaries to $BIN_DIR"
-install -d -m 0755 "$BIN_DIR"
-install -m 0755 "$AGENTLABD_SRC" "$BIN_DIR/agentlabd"
-install -m 0755 "$AGENTLAB_SRC" "$BIN_DIR/agentlab"
+if [[ "$SKILL_INSTALL_ONLY" != "1" ]]; then
+  install -d -m 0755 "$BIN_DIR"
+  install -m 0755 "$AGENTLABD_SRC" "$BIN_DIR/agentlabd"
+  install -m 0755 "$AGENTLAB_SRC" "$BIN_DIR/agentlab"
+fi
 
 install_claude_skill
 
-log "Installing systemd unit"
-install -d -m 0755 "$SYSTEMD_DIR"
-install -m 0644 "$UNIT_SRC" "$SYSTEMD_DIR/agentlabd.service"
+if [[ "$SKILL_INSTALL_ONLY" != "1" ]]; then
+  log "Installing systemd unit"
+  install -d -m 0755 "$SYSTEMD_DIR"
+  install -m 0644 "$UNIT_SRC" "$SYSTEMD_DIR/agentlabd.service"
+fi
 
 if [[ ! -f /var/log/agentlab/agentlabd.log ]]; then
   install -m 0640 -o root -g agentlab /dev/null /var/log/agentlab/agentlabd.log
@@ -396,40 +500,49 @@ else
   chmod 0640 /var/log/agentlab/agentlabd.log
 fi
 
-log "Reloading systemd and enabling agentlabd"
-systemctl daemon-reload
-systemctl enable --now agentlabd.service
+if [[ "$SKILL_INSTALL_ONLY" != "1" ]]; then
+  log "Reloading systemd and enabling agentlabd"
+  systemctl daemon-reload
+  systemctl enable --now agentlabd.service
+fi
 
-if [[ "$CONFIG_UPDATED" == "1" ]]; then
+if [[ "$SKILL_INSTALL_ONLY" != "1" && "$CONFIG_UPDATED" == "1" ]]; then
   log "Restarting agentlabd to apply config changes"
   systemctl restart agentlabd.service
 fi
 
-if ! systemctl is-active --quiet agentlabd.service; then
-  systemctl --no-pager --full status agentlabd.service || true
-  die "agentlabd.service failed to start"
+if [[ "$SKILL_INSTALL_ONLY" != "1" ]]; then
+  if ! systemctl is-active --quiet agentlabd.service; then
+    systemctl --no-pager --full status agentlabd.service || true
+    die "agentlabd.service failed to start"
+  fi
 fi
 
 if [[ "$SKIP_SOCKET_CHECK" != "1" ]]; then
-  SOCKET_PATH="/run/agentlab/agentlabd.sock"
-  if [[ ! -S "$SOCKET_PATH" ]]; then
-    die "Socket $SOCKET_PATH not found; set SKIP_SOCKET_CHECK=1 to bypass"
+  if [[ "$SKILL_INSTALL_ONLY" != "1" ]]; then
+    SOCKET_PATH="/run/agentlab/agentlabd.sock"
+    if [[ ! -S "$SOCKET_PATH" ]]; then
+      die "Socket $SOCKET_PATH not found; set SKIP_SOCKET_CHECK=1 to bypass"
+    fi
+
+    socket_owner="$(stat -c '%U' "$SOCKET_PATH")"
+    socket_group="$(stat -c '%G' "$SOCKET_PATH")"
+    socket_mode="$(stat -c '%a' "$SOCKET_PATH")"
+    socket_mode_oct=$((8#$socket_mode))
+
+    if [[ "$socket_group" != "agentlab" ]]; then
+      die "Socket group is $socket_group (expected agentlab)"
+    fi
+
+    if (( (socket_mode_oct & 0o020) == 0 )); then
+      die "Socket $SOCKET_PATH is not group-writable (mode $socket_mode)"
+    fi
+
+    log "Socket permissions OK (owner=$socket_owner group=$socket_group mode=$socket_mode)"
+  else
+    log "Skipping socket permission check (skill install-only)"
   fi
 
-  socket_owner="$(stat -c '%U' "$SOCKET_PATH")"
-  socket_group="$(stat -c '%G' "$SOCKET_PATH")"
-  socket_mode="$(stat -c '%a' "$SOCKET_PATH")"
-  socket_mode_oct=$((8#$socket_mode))
-
-  if [[ "$socket_group" != "agentlab" ]]; then
-    die "Socket group is $socket_group (expected agentlab)"
-  fi
-
-  if (( (socket_mode_oct & 0o020) == 0 )); then
-    die "Socket $SOCKET_PATH is not group-writable (mode $socket_mode)"
-  fi
-
-  log "Socket permissions OK (owner=$socket_owner group=$socket_group mode=$socket_mode)"
 else
   log "Skipping socket permission check"
 fi

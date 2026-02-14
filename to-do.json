@@ -3934,7 +3934,7 @@
         "T022"
       ],
       "created_at": "2026-02-14T19:27:23Z",
-      "updated_at": "2026-02-14T20:16:37Z"
+      "updated_at": "2026-02-14T20:17:32Z"
     },
     {
       "id": "T145",
@@ -3982,7 +3982,7 @@
       "id": "T146",
       "title": "Multi-skill bundle: package and version AgentLab skills for install/upgrade",
       "priority": 2,
-      "status": "todo",
+      "status": "done",
       "details": "Replace single-file skill delivery with a versioned multi-skill bundle and explicit install/upgrade flow so agents can discover and use consistent capabilities.",
       "steps": [
         "Define a bundle manifest (name, version, supported agent versions, included skills).",
@@ -4001,6 +4001,7 @@
         "README.md",
         "cmd/agentlab/init.go",
         "docs/runbook.md",
+        "scripts/README.md",
         "scripts/install_host.sh",
         "skills/agentlab/SKILL.md",
         "skills/agentlab/bundle/manifest.json",
@@ -4011,7 +4012,8 @@
         "T031",
         "T101"
       ],
-      "created_at": "2026-02-14T19:27:23Z"
+      "created_at": "2026-02-14T19:27:23Z",
+      "updated_at": "2026-02-14T20:25:23Z"
     },
     {
       "id": "T147",
