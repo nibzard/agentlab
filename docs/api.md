@@ -362,7 +362,62 @@ Canonical kinds are grouped by domain in `internal/daemon/event_types.go`:
 
 Clients should rely on `kind`, `schema_version`, and `stage` as the stable contract boundary.
 
+## Schema discovery
+
+`agentlab` can fetch machine-readable API metadata at `GET /v1/schema` (or run `agentlab schema` from the CLI). Use this endpoint for contract discovery and offline client validation.
+
+Response fields:
+
+- `generated_at`: RFC3339Nano timestamp for the schema snapshot.
+- `api_schema_version`: active API schema version.
+- `event_schema_version`: active event schema version.
+- `resources`: array of endpoint contracts:
+  - `path`: URL path template.
+  - `methods`: allowed methods.
+  - `request_type`/`response_type`: JSON type names where applicable.
+  - `notes`: optional compatibility or behavior notes.
+- `event_kinds`: canonical event kinds with required/optional payload field metadata.
+- `compatibility`: versioning policy used for additive/breaking changes.
+
+Example output:
+
+```json
+{
+  "generated_at": "2026-02-14T12:00:00Z",
+  "api_schema_version": 1,
+  "event_schema_version": 1,
+  "resources": [
+    {
+      "path": "/v1/status",
+      "methods": ["GET"],
+      "summary": "Fetch control-plane status",
+      "response_type": "V1StatusResponse"
+    }
+  ],
+  "compatibility": {
+    "api": "Additive endpoint, path, and optional field changes are preferred. Breaking changes bump the API schema version.",
+    "events": "Event kinds, required payload fields, and required version values are managed as an additive contract.",
+    "errors": "Unknown event kinds or fields should be ignored by clients."
+  }
+}
+```
+
+### Compatibility policy
+
+- `api`: Additive endpoint/path/optional-field changes are preferred; breaking API changes bump `api_schema_version`.
+- `events`: Event kind and payload evolution is additive with required schema version checks.
+- `errors`: Unknown event kinds or fields should be ignored by clients.
+
 ## Endpoints
+
+### GET /v1/schema
+Fetch the machine-readable API and event contract catalog.
+
+### GET /v1/status
+Fetch control-plane status and schema versions:
+
+- `api_schema_version`
+- `event_schema_version`
 
 ### POST /v1/jobs
 Create a job record.

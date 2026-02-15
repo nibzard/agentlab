@@ -113,6 +113,11 @@ The implementation is faithful to the spec, security posture is pragmatic, and c
 ❌ No error logs written to `/var/log/agentlab/agentlabd.log`
 ❌ Generic error message wraps actual failure by default; optional debug header now exposes redacted `details` for 500 responses.
 
+### Revalidation Attempt 2026-02-14T20:35:30Z
+
+- Revalidation of sandbox provisioning could not be completed because the current environment has no real Proxmox host connectivity.
+- No additional run artifacts were captured during this iteration.
+
 ## What I Could Not Test (Due to Provisioning Failure)
 
 ❌ Guest bootstrap (no VM boots)

@@ -8,6 +8,12 @@
 
 ## What Was Tested
 
+## Revalidation Attempt — 2026-02-14T20:35:30Z
+
+- Re-attempted sandbox provisioning workflow in the same environment to capture backend and API diagnostics.
+- Blocker remains: no real Proxmox host is reachable from this execution context, so new provisioning runs cannot be executed.
+- No additional logs, VM evidence, or root-cause output was captured in this iteration.
+
 ### ✅ Phase 1: Infrastructure Setup
 - ✅ Proxmox tools available (`qm`, `pvesh`, `pvesm`)
 - ✅ Storage pools ready: `local` (987 GB), `local-zfs` (987 GB)

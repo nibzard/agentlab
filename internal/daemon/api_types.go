@@ -21,12 +21,20 @@ type V1StatusMetrics struct {
 	Enabled bool `json:"enabled"`
 }
 
+type V1SkillBundle struct {
+	Name    string `json:"name,omitempty"`
+	Version string `json:"version,omitempty"`
+}
+
 type V1StatusResponse struct {
+	APISchemaVersion    int                               `json:"api_schema_version"`
+	EventSchemaVersion  int                               `json:"event_schema_version"`
 	Sandboxes           map[string]int                    `json:"sandboxes"`
 	Jobs                map[string]int                    `json:"jobs"`
 	NetworkModes        map[string]int                    `json:"network_modes,omitempty"`
 	Artifacts           V1StatusArtifacts                 `json:"artifacts"`
 	Metrics             V1StatusMetrics                   `json:"metrics"`
+	SkillBundle         V1SkillBundle                     `json:"skill_bundle"`
 	RecentFailures      []V1Event                         `json:"recent_failures"`
 	SandboxHealth       map[int]V1SandboxLifecycleSummary `json:"sandbox_health"`
 	JobTimelines        map[string]V1JobTimelineSummary   `json:"job_timelines"`

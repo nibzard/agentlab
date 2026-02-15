@@ -232,7 +232,7 @@ func (o *JobOrchestrator) RebindWorkspace(ctx context.Context, workspaceID, prof
 		if !errors.Is(err, proxmox.ErrGuestIPNotFound) {
 			return result, err
 		}
-		_ = o.store.RecordEvent(ctx, "sandbox.ip_pending", &created.VMID, nil, "sandbox started but IP not yet discovered", "")
+		_ = emitEvent(ctx, NewStoreEventRecorder(o.store), EventKindSandboxIPPending, &created.VMID, nil, "sandbox started but IP not yet discovered", nil)
 	}
 	if ipAddress != "" {
 		ipAddress, err = o.persistDiscoveredSandboxIP(ctx, created.VMID, ipAddress, nil)

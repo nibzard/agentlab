@@ -72,7 +72,7 @@ type apiError struct {
 
 type apiResponseError struct {
 	Status  int
-	Error   string
+	ErrorID string
 	Code    string
 	Message string
 	Details string
@@ -82,8 +82,8 @@ func (e apiResponseError) Error() string {
 	if strings.TrimSpace(e.Message) != "" {
 		return strings.TrimSpace(e.Message)
 	}
-	if strings.TrimSpace(e.Error) != "" {
-		return strings.TrimSpace(e.Error)
+	if strings.TrimSpace(e.ErrorID) != "" {
+		return strings.TrimSpace(e.ErrorID)
 	}
 	if e.Status > 0 {
 		return fmt.Sprintf("request failed with status %d", e.Status)
@@ -285,14 +285,22 @@ type statusMetricsResponse struct {
 	Enabled bool `json:"enabled"`
 }
 
+type statusSkillBundleResponse struct {
+	Name    string `json:"name,omitempty"`
+	Version string `json:"version,omitempty"`
+}
+
 // statusResponse represents the control plane status summary.
 type statusResponse struct {
-	Sandboxes      map[string]int          `json:"sandboxes"`
-	Jobs           map[string]int          `json:"jobs"`
-	NetworkModes   map[string]int          `json:"network_modes,omitempty"`
-	Artifacts      statusArtifactsResponse `json:"artifacts"`
-	Metrics        statusMetricsResponse   `json:"metrics"`
-	RecentFailures []eventResponse         `json:"recent_failures"`
+	APISchemaVersion   int                      `json:"api_schema_version"`
+	EventSchemaVersion int                      `json:"event_schema_version"`
+	Sandboxes         map[string]int           `json:"sandboxes"`
+	Jobs              map[string]int           `json:"jobs"`
+	NetworkModes      map[string]int           `json:"network_modes,omitempty"`
+	Artifacts         statusArtifactsResponse  `json:"artifacts"`
+	Metrics           statusMetricsResponse    `json:"metrics"`
+	SkillBundle       statusSkillBundleResponse `json:"skill_bundle"`
+	RecentFailures    []eventResponse          `json:"recent_failures"`
 }
 
 type hostResponse struct {
@@ -708,7 +716,7 @@ func (c *apiClient) doJSON(ctx context.Context, method, path string, payload any
 	}
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
-		return nil, fmt.Errorf("request %s %s via %s: %w", method, path, c.target(), err)
+		return nil, fmt.Errorf("failed to request %s %s via %s: %w", method, path, c.target(), err)
 	}
 	defer resp.Body.Close()
 	data, err := io.ReadAll(io.LimitReader(resp.Body, maxJSONOutputBytes))
@@ -738,7 +746,7 @@ func (c *apiClient) doRequest(ctx context.Context, method, path string, body io.
 	}
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
-		return nil, fmt.Errorf("request %s %s via %s: %w", method, path, c.target(), err)
+		return nil, fmt.Errorf("failed to request %s %s via %s: %w", method, path, c.target(), err)
 	}
 	if resp.StatusCode >= 400 {
 		data, readErr := io.ReadAll(io.LimitReader(resp.Body, maxJSONOutputBytes))
@@ -766,20 +774,20 @@ func parseAPIError(status int, data []byte) error {
 				if code == "" {
 					code = apiErrorCode(status, msg)
 				}
-				return apiResponseError{
-					Status:  status,
-					Error:   strings.TrimSpace(apiErr.Error),
-					Code:    code,
-					Message: msg,
-					Details: strings.TrimSpace(apiErr.Details),
-				}
-			}
+		return apiResponseError{
+			Status:  status,
+			ErrorID: strings.TrimSpace(apiErr.Error),
+			Code:    code,
+			Message: msg,
+			Details: strings.TrimSpace(apiErr.Details),
 		}
+	}
+}
 	}
 	msg := fmt.Sprintf("request failed with status %d", status)
 	return apiResponseError{
 		Status:  status,
-		Error:   msg,
+		ErrorID: msg,
 		Code:    apiErrorCode(status, ""),
 		Message: msg,
 	}

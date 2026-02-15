@@ -255,6 +255,12 @@ func TestDispatch(t *testing.T) {
 			wantErr: false,
 		},
 		{
+			name:        "schema command",
+			args:        []string{"schema"},
+			wantErr:     true,
+			errContains: "failed to request /v1/schema",
+		},
+		{
 			name:        "unknown command",
 			args:        []string{"unknown"},
 			wantErr:     true,
@@ -301,6 +307,7 @@ func TestDispatchHelpTokens(t *testing.T) {
 		args []string
 	}{
 		{"job help", []string{"job", "--help"}},
+		{"schema help", []string{"schema", "--help"}},
 		{"sandbox help", []string{"sandbox", "-h"}},
 		{"workspace help", []string{"workspace", "help"}},
 		{"profile help", []string{"profile", "help"}},
@@ -692,6 +699,11 @@ func TestUsagePrints(t *testing.T) {
 	t.Run("printDisconnectUsage outputs disconnect usage", func(t *testing.T) {
 		output := CaptureOutput(printDisconnectUsage)
 		assert.Contains(t, output, "agentlab disconnect")
+	})
+
+	t.Run("printSchemaUsage outputs schema usage", func(t *testing.T) {
+		output := CaptureOutput(printSchemaUsage)
+		assert.Contains(t, output, "agentlab schema")
 	})
 }
 

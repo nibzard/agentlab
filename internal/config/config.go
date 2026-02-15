@@ -81,6 +81,8 @@ type Config struct {
 	ProxmoxTLSInsecure      bool   // Skip TLS verification for Proxmox API
 	ProxmoxTLSCAPath        string // Optional CA bundle path for Proxmox API TLS verification
 	ProxmoxAPIShellFallback bool   // Allow shell fallback for API backend volume ops
+	ClaudeSkillBundleName    string
+	ClaudeSkillBundleVersion string
 }
 
 // FileConfig represents supported YAML config overrides.
@@ -137,6 +139,8 @@ type FileConfig struct {
 	ProxmoxTLSInsecure      *bool    `yaml:"proxmox_tls_insecure"`
 	ProxmoxTLSCAPath        string   `yaml:"proxmox_tls_ca_path"`
 	ProxmoxAPIShellFallback *bool    `yaml:"proxmox_api_shell_fallback"`
+	ClaudeSkillBundleName    string   `yaml:"claude_skill_bundle_name"`
+	ClaudeSkillBundleVersion string   `yaml:"claude_skill_bundle_version"`
 }
 
 // DefaultConfig returns a Config struct with all default values set.
@@ -419,6 +423,12 @@ func applyFileConfig(cfg *Config, fileCfg FileConfig) error {
 	}
 	if fileCfg.ProxmoxAPIShellFallback != nil {
 		cfg.ProxmoxAPIShellFallback = *fileCfg.ProxmoxAPIShellFallback
+	}
+	if fileCfg.ClaudeSkillBundleName != "" {
+		cfg.ClaudeSkillBundleName = fileCfg.ClaudeSkillBundleName
+	}
+	if fileCfg.ClaudeSkillBundleVersion != "" {
+		cfg.ClaudeSkillBundleVersion = fileCfg.ClaudeSkillBundleVersion
 	}
 	return nil
 }

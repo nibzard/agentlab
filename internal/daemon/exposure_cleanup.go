@@ -3,7 +3,6 @@ package daemon
 import (
 	"context"
 	"database/sql"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"log"
@@ -39,20 +38,19 @@ func (c *ExposureCleaner) CleanupByVMID(ctx context.Context, vmid int) error {
 		if c.publisher != nil {
 			if err := c.publisher.Unpublish(ctx, exposure.Name, exposure.Port); err != nil && !errors.Is(err, ErrServeRuleNotFound) {
 				c.logger.Printf("exposure cleanup: failed to unpublish %s (vmid=%d): %v", exposure.Name, exposure.VMID, err)
-				payload, _ := json.Marshal(map[string]any{
+				_ = emitEvent(ctx, NewStoreEventRecorder(c.store), EventKindExposureCleanupFailed, &exposure.VMID, nil, fmt.Sprintf("exposure %s cleanup failed", exposure.Name), map[string]any{
 					"name":  exposure.Name,
 					"vmid":  exposure.VMID,
 					"port":  exposure.Port,
 					"error": err.Error(),
 				})
-				_ = c.store.RecordEvent(ctx, "exposure.cleanup.failed", &exposure.VMID, nil, fmt.Sprintf("exposure %s cleanup failed", exposure.Name), string(payload))
 			}
 		}
 		if err := c.store.DeleteExposure(ctx, exposure.Name); err != nil && !errors.Is(err, sql.ErrNoRows) {
 			c.logger.Printf("exposure cleanup: failed to delete %s (vmid=%d): %v", exposure.Name, exposure.VMID, err)
 			continue
 		}
-		payload, _ := json.Marshal(map[string]any{
+		_ = emitEvent(ctx, NewStoreEventRecorder(c.store), EventKindExposureDelete, &exposure.VMID, nil, fmt.Sprintf("exposure %s deleted (cleanup)", exposure.Name), map[string]any{
 			"name":      exposure.Name,
 			"vmid":      exposure.VMID,
 			"port":      exposure.Port,
@@ -60,7 +58,6 @@ func (c *ExposureCleaner) CleanupByVMID(ctx context.Context, vmid int) error {
 			"url":       exposure.URL,
 			"state":     exposure.State,
 		})
-		_ = c.store.RecordEvent(ctx, "exposure.delete", &exposure.VMID, nil, fmt.Sprintf("exposure %s deleted (cleanup)", exposure.Name), string(payload))
 	}
 	return nil
 }

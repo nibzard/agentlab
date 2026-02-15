@@ -3,7 +3,6 @@ package daemon
 import (
 	"bytes"
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -305,9 +304,16 @@ func recordWorkspaceFSCKEvent(ctx context.Context, store *db.Store, kind string,
 		payload.Error = errMsg
 		msg = fmt.Sprintf("workspace_id=%s mode=%s error=%s", result.Workspace.ID, result.Mode, errMsg)
 	}
-	jsonPayload, jsonErr := json.Marshal(payload)
-	if jsonErr != nil {
-		jsonPayload = nil
+	eventKind := EventKindWorkspaceFSCKStarted
+	switch strings.TrimSpace(kind) {
+	case string(EventKindWorkspaceFSCKStarted):
+		eventKind = EventKindWorkspaceFSCKStarted
+	case string(EventKindWorkspaceFSCKFailed):
+		eventKind = EventKindWorkspaceFSCKFailed
+	case string(EventKindWorkspaceFSCKDone):
+		eventKind = EventKindWorkspaceFSCKDone
+	default:
+		return
 	}
-	_ = store.RecordEvent(ctx, kind, nil, nil, msg, string(jsonPayload))
+	_ = emitEvent(ctx, NewStoreEventRecorder(store), eventKind, nil, nil, msg, payload)
 }

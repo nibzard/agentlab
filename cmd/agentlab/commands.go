@@ -226,15 +226,55 @@ func runStatusCommand(ctx context.Context, args []string, base commonFlags) erro
 	if err != nil {
 		return err
 	}
-	if opts.jsonOutput {
-		return prettyPrintJSON(os.Stdout, payload)
-	}
 	var resp statusResponse
 	if err := json.Unmarshal(payload, &resp); err != nil {
 		return err
 	}
+	if resp.APISchemaVersion == 0 {
+		resp.APISchemaVersion = 1
+	}
+	if resp.EventSchemaVersion == 0 {
+		resp.EventSchemaVersion = 1
+	}
+	if opts.jsonOutput {
+		normalized, err := json.Marshal(resp)
+		if err != nil {
+			return err
+		}
+		return prettyPrintJSON(os.Stdout, normalized)
+	}
 	printStatus(resp)
 	return nil
+}
+
+func runSchemaCommand(ctx context.Context, args []string, base commonFlags) error {
+	_ = ctx
+	fs := newFlagSet("schema")
+	opts := base
+	opts.bind(fs)
+	help := bindHelpFlag(fs)
+	if err := parseFlags(fs, args, printSchemaUsage, help, opts.jsonOutput); err != nil {
+		return err
+	}
+	if isHelpToken(fs.Arg(0)) {
+		printSchemaUsage()
+		return errHelp
+	}
+	if fs.NArg() != 0 {
+		if !opts.jsonOutput {
+			printSchemaUsage()
+		}
+		return fmt.Errorf("unexpected extra arguments")
+	}
+	client, err := apiClientFromFlags(opts)
+	if err != nil {
+		return err
+	}
+	payload, err := client.doJSON(ctx, http.MethodGet, "/v1/schema", nil)
+	if err != nil {
+		return err
+	}
+	return prettyPrintJSON(os.Stdout, payload)
 }
 
 type connectOutput struct {
@@ -1418,24 +1458,16 @@ func runSandboxValidate(ctx context.Context, args []string, base commonFlags) er
 	if err != nil {
 		return err
 	}
-	if profile != "" || len(modifiers) > 0 {
+	if len(modifiers) > 0 {
 		profiles, err := fetchProfiles(ctx, client)
 		if err != nil {
 			return err
 		}
-		if len(modifiers) > 0 {
-			resolvedProfile, resolveErr := resolveProfileFromModifiers(modifiers, profiles)
-			if resolveErr != nil {
-				return resolveErr
-			}
-			profile = resolvedProfile
-		} else {
-			resolvedProfile, resolveErr := validateProfileName(profile, profiles)
-			if resolveErr != nil {
-				return resolveErr
-			}
-			profile = resolvedProfile
+		resolvedProfile, resolveErr := resolveProfileFromModifiers(modifiers, profiles)
+		if resolveErr != nil {
+			return resolveErr
 		}
+		profile = resolvedProfile
 	}
 	req := sandboxValidatePlanRequest{
 		Name:       name,
@@ -3635,6 +3667,10 @@ func printSandbox(sb sandboxResponse) {
 }
 
 func printStatus(resp statusResponse) {
+	fmt.Println("Schema Versions:")
+	fmt.Printf("  API: %d\n", resp.APISchemaVersion)
+	fmt.Printf("  Events: %d\n", resp.EventSchemaVersion)
+
 	fmt.Println("Sandboxes:")
 	printCountTable("STATE", resp.Sandboxes, statusSandboxOrder)
 	if len(resp.NetworkModes) > 0 {
@@ -3649,6 +3685,11 @@ func printStatus(resp statusResponse) {
 	fmt.Printf("Free Bytes: %d\n", resp.Artifacts.FreeBytes)
 	fmt.Printf("Used Bytes: %d\n", resp.Artifacts.UsedBytes)
 	fmt.Printf("Error: %s\n", orDash(resp.Artifacts.Error))
+	if resp.SkillBundle.Name != "" || resp.SkillBundle.Version != "" {
+		fmt.Println("Skill Bundle:")
+		fmt.Printf("Name: %s\n", orDash(resp.SkillBundle.Name))
+		fmt.Printf("Version: %s\n", orDash(resp.SkillBundle.Version))
+	}
 	fmt.Println("Metrics:")
 	fmt.Printf("Enabled: %t\n", resp.Metrics.Enabled)
 	fmt.Println("Recent Failures:")
@@ -3759,7 +3800,7 @@ func printSandboxValidatePlan(plan *sandboxValidatePlan) {
 	fmt.Printf("Keepalive: %t\n", plan.Keepalive)
 	fmt.Printf("TTL Minutes: %s\n", ttlMinutesString(plan.TTLMinutes))
 	fmt.Printf("Workspace ID: %s\n", orDashPtr(plan.Workspace))
-	fmt.Printf("VMID: %s\n", intOrDash(plan.VMID))
+	fmt.Printf("VMID: %s\n", vmidString(plan.VMID))
 	fmt.Printf("Job ID: %s\n", orDash(plan.JobID))
 }
 

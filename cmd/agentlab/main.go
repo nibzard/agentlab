@@ -52,6 +52,7 @@ const usageText = `agentlab is the CLI for agentlabd.
 Usage:
   agentlab --version
   agentlab [--endpoint URL] [--token TOKEN] [--socket PATH] [--json] [--timeout DURATION] status
+  agentlab [--endpoint URL] [--token TOKEN] [--socket PATH] [--json] [--timeout DURATION] schema
   agentlab [--endpoint URL] [--token TOKEN] [--socket PATH] [--json] [--timeout DURATION] init [--apply] [--smoke-test] [--assets <path>] [--force] [--control-port <port>] [--control-token <token>] [--rotate-control-token] [--tailscale-serve|--no-tailscale-serve]
   agentlab [--json] bootstrap --host <ssh_host> [--ssh-user <user>] [--ssh-port <port>] [--identity <path>] [--assets <path>] [--control-port <port>] [--control-token <token>] [--rotate-control-token] [--tailscale-serve|--no-tailscale-serve] [--tailscale-authkey <key>] [--tailscale-hostname <name>] [--tailscale-tailnet <name>] [--tailscale-api-key <key>] [--tailscale-oauth-client-id <id>] [--tailscale-oauth-client-secret <secret>] [--tailscale-oauth-scopes <scopes>] [--release-url <url>] [--agentlab-bin <path>] [--agentlabd-bin <path>] [--agentlab-url <url>] [--agentlabd-url <url>] [--force] [--keep-temp] [--verbose]
   agentlab [--endpoint URL] [--token TOKEN] [--socket PATH] [--json] [--timeout DURATION] job run --repo <url> --task <task> --profile <profile> [--ref <ref>] [--branch <branch>] [--mode <mode>] [--ttl <ttl>] [--keepalive] [--workspace <id|name|new:name>] [--workspace-create <name>] [--workspace-size <size>] [--workspace-storage <storage>] [--workspace-wait <duration>] [--stateful]
@@ -251,6 +252,8 @@ func dispatch(ctx context.Context, args []string, base commonFlags) error {
 	switch args[0] {
 	case "status":
 		return withDefaultNext(runStatusCommand(ctx, args[1:], base), "agentlab status --help")
+	case "schema":
+		return withDefaultNext(runSchemaCommand(ctx, args[1:], base), "agentlab schema --help")
 	case "init":
 		return withDefaultNext(runInitCommand(ctx, args[1:], base), "agentlab init --help")
 	case "bootstrap":
@@ -274,12 +277,12 @@ func dispatch(ctx context.Context, args []string, base commonFlags) error {
 	case "connect":
 		return withDefaultNext(runConnectCommand(ctx, args[1:], base), "agentlab connect --help")
 	case "disconnect":
-		return withDefaultNext(runDisconnectCommand(ctx, args[1:], base), "agentlab disconnect --help")
+	return withDefaultNext(runDisconnectCommand(ctx, args[1:], base), "agentlab disconnect --help")
 	default:
 		if !base.jsonOutput {
 			printUsage()
 		}
-		return unknownCommandError(args[0], []string{"status", "init", "bootstrap", "job", "sandbox", "workspace", "session", "profile", "msg", "ssh", "logs", "connect", "disconnect"})
+		return unknownCommandError(args[0], []string{"status", "schema", "init", "bootstrap", "job", "sandbox", "workspace", "session", "profile", "msg", "ssh", "logs", "connect", "disconnect"})
 	}
 }
 
@@ -351,6 +354,10 @@ func printJobUsage() {
 
 func printStatusUsage() {
 	fmt.Fprintln(os.Stdout, "Usage: agentlab status")
+}
+
+func printSchemaUsage() {
+	fmt.Fprintln(os.Stdout, "Usage: agentlab schema")
 }
 
 func printInitUsage() {

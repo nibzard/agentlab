@@ -96,8 +96,26 @@ func recordWorkspaceLeaseEvent(ctx context.Context, store *db.Store, kind string
 		return
 	}
 	msg := fmt.Sprintf("workspace_id=%s owner=%s", workspaceID, owner)
+	eventKind := EventKindWorkspaceLeaseReleased
+	switch strings.TrimSpace(kind) {
+	case string(EventKindWorkspaceLeaseAcquired):
+		eventKind = EventKindWorkspaceLeaseAcquired
+	case string(EventKindWorkspaceLeaseRenewed):
+		eventKind = EventKindWorkspaceLeaseRenewed
+	case string(EventKindWorkspaceLeaseReleased):
+		eventKind = EventKindWorkspaceLeaseReleased
+	default:
+		return
+	}
 	if !expiresAt.IsZero() {
 		msg = fmt.Sprintf("workspace_id=%s owner=%s expires_at=%s", workspaceID, owner, expiresAt.UTC().Format(time.RFC3339Nano))
 	}
-	_ = store.RecordEvent(ctx, kind, vmid, jobID, msg, "")
+	payload := map[string]any{
+		"workspace_id": workspaceID,
+		"owner":        owner,
+	}
+	if !expiresAt.IsZero() {
+		payload["expires_at"] = expiresAt.UTC().Format(time.RFC3339Nano)
+	}
+	_ = emitEvent(ctx, NewStoreEventRecorder(store), eventKind, vmid, jobID, msg, payload)
 }

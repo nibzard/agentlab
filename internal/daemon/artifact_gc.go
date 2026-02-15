@@ -193,7 +193,12 @@ func (g *ArtifactGC) recordDeletionEvent(ctx context.Context, record db.Artifact
 	if jobID != "" {
 		jobIDPtr = &jobID
 	}
-	_ = g.store.RecordEvent(ctx, "artifact.gc", record.SandboxVMID, jobIDPtr, message, "")
+	payload := map[string]any{
+		"name":  name,
+		"vmid": record.SandboxVMID,
+		"path": record.Artifact.Path,
+	}
+	_ = emitEvent(ctx, NewStoreEventRecorder(g.store), EventKindArtifactGC, record.SandboxVMID, jobIDPtr, message, payload)
 }
 
 func (g *ArtifactGC) logf(format string, args ...any) {

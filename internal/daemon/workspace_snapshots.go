@@ -3,7 +3,6 @@ package daemon
 import (
 	"context"
 	"database/sql"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
@@ -183,9 +182,18 @@ func recordWorkspaceSnapshotEvent(ctx context.Context, store *db.Store, kind str
 		msg = fmt.Sprintf("workspace_id=%s snapshot=%s error=%s", snapshot.WorkspaceID, snapshot.Name, errMsg)
 		payload.Error = errMsg
 	}
-	jsonPayload, jsonErr := json.Marshal(payload)
-	if jsonErr != nil {
-		jsonPayload = nil
+	var eventKind EventKind
+	switch strings.TrimSpace(kind) {
+	case string(EventKindWorkspaceSnapshotCreated):
+		eventKind = EventKindWorkspaceSnapshotCreated
+	case string(EventKindWorkspaceSnapshotFailed):
+		eventKind = EventKindWorkspaceSnapshotFailed
+	case string(EventKindWorkspaceSnapshotRestored):
+		eventKind = EventKindWorkspaceSnapshotRestored
+	case string(EventKindWorkspaceSnapshotRestoreFailed):
+		eventKind = EventKindWorkspaceSnapshotRestoreFailed
+	default:
+		return
 	}
-	_ = store.RecordEvent(ctx, kind, nil, nil, msg, string(jsonPayload))
+	_ = emitEvent(ctx, NewStoreEventRecorder(store), eventKind, nil, nil, msg, payload)
 }

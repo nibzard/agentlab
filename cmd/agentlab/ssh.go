@@ -198,14 +198,21 @@ func runSSHCommand(ctx context.Context, args []string, base commonFlags) error {
 	}
 	target := fmt.Sprintf("%s@%s", user, ip)
 	address := net.JoinHostPort(ip, strconv.Itoa(port))
-	reachable, err := probeSSH(waitCtx, address)
-	if err != nil {
-		return err
+	canJump := false
+	jumpCfg.Host = strings.TrimSpace(jumpCfg.Host)
+	jumpCfg.User = strings.TrimSpace(jumpCfg.User)
+	if jumpCfg.Host != "" {
+		canJump = true
 	}
-	useJump := !reachable
+	useJump := false
+	if canJump {
+		reachable, err := probeSSH(waitCtx, address)
+		if err != nil {
+			return err
+		}
+		useJump = !reachable
+	}
 	if useJump {
-		jumpCfg.Host = strings.TrimSpace(jumpCfg.Host)
-		jumpCfg.User = strings.TrimSpace(jumpCfg.User)
 		if jumpCfg.Host == "" {
 			return newCLIError(
 				fmt.Sprintf("cannot reach sandbox %d at %s", vmid, address),
@@ -327,11 +334,11 @@ func waitForSandboxIP(ctx context.Context, client *apiClient, vmid int) (sandbox
 			}
 		}
 		if err := ctx.Err(); err != nil {
-			return sandboxResponse{}, waitError(err, fmt.Sprintf("sandbox %d IP", vmid))
+			return sandboxResponse{}, waitError(err, fmt.Sprintf("sandbox %d no IP yet", vmid))
 		}
 		select {
 		case <-ctx.Done():
-			return sandboxResponse{}, waitError(ctx.Err(), fmt.Sprintf("sandbox %d IP", vmid))
+			return sandboxResponse{}, waitError(ctx.Err(), fmt.Sprintf("sandbox %d no IP yet", vmid))
 		case <-ticker.C:
 		}
 	}
@@ -436,15 +443,36 @@ func splitDoubleDash(args []string) (before []string, after []string, ok bool) {
 }
 
 func extractVMIDArg(args []string) (vmid string, rest []string) {
-	for i, v := range args {
-		trimmed := strings.TrimSpace(v)
-		if trimmed == "" {
+	for i := 0; i < len(args); i++ {
+		value := strings.TrimSpace(args[i])
+		if value == "" {
 			continue
 		}
-		if strings.HasPrefix(trimmed, "-") {
+		if strings.HasPrefix(value, "--") {
+			switch {
+			case value == "--user", value == "--jump-host", value == "--jump-user", value == "--identity", value == "--port":
+				i++
+			case strings.HasPrefix(value, "--user="), strings.HasPrefix(value, "--jump-host="), strings.HasPrefix(value, "--jump-user="), strings.HasPrefix(value, "--identity="), strings.HasPrefix(value, "--port="):
+				continue
+			default:
+				// Bool or unknown flags do not consume a value by position.
+			}
 			continue
 		}
-		vmid = trimmed
+		if strings.HasPrefix(value, "-") {
+			switch {
+			case value == "-u" || value == "-i" || value == "-p":
+				i++
+			case strings.HasPrefix(value, "-u="), strings.HasPrefix(value, "-i="), strings.HasPrefix(value, "-p="):
+				continue
+			case value == "-h" || value == "-e":
+				// Bool short flags do not consume value.
+			default:
+				// Unknown flags are left for flag.Parse to validate.
+			}
+			continue
+		}
+		vmid = value
 		rest = append([]string{}, args[:i]...)
 		rest = append(rest, args[i+1:]...)
 		return vmid, rest

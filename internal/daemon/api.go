@@ -145,6 +145,8 @@ type ControlAPI struct {
 	tailscaleStatus   func(context.Context) (string, error)
 	logger            *log.Logger
 	redactor          *Redactor
+	skillBundleName    string
+	skillBundleVersion string
 	now               func() time.Time
 }
 
@@ -203,6 +205,16 @@ func (api *ControlAPI) WithMetrics(metrics *Metrics) *ControlAPI {
 	return api
 }
 
+// WithSkillBundle metadata annotates status output with installed Claude skill bundle info.
+func (api *ControlAPI) WithSkillBundle(name string, version string) *ControlAPI {
+	if api == nil {
+		return api
+	}
+	api.skillBundleName = strings.TrimSpace(name)
+	api.skillBundleVersion = strings.TrimSpace(version)
+	return api
+}
+
 // WithAgentSubnet annotates host info responses with the configured agent subnet.
 func (api *ControlAPI) WithAgentSubnet(subnet string) *ControlAPI {
 	if api == nil {
@@ -255,6 +267,7 @@ func (api *ControlAPI) Register(mux *http.ServeMux) {
 	mux.HandleFunc("/v1/jobs", api.handleJobs)
 	mux.HandleFunc("/v1/jobs/", api.handleJobByID)
 	mux.HandleFunc("/v1/profiles", api.handleProfiles)
+	mux.HandleFunc("/v1/schema", api.handleSchema)
 	mux.HandleFunc("/v1/status", api.handleStatus)
 	mux.HandleFunc("/v1/host", api.handleHost)
 	mux.HandleFunc("/v1/messages", api.handleMessages)
@@ -474,9 +487,6 @@ func (api *ControlAPI) handleJobValidatePlan(w http.ResponseWriter, r *http.Requ
 			}
 			if api.jobOrchestrator.sandboxManager == nil {
 				resp.Errors = append(resp.Errors, V1PreflightIssue{Code: "precondition_missing", Field: "sandbox_manager", Message: "sandbox manager unavailable"})
-			}
-			if api.jobOrchestrator.snippetStore == nil {
-				resp.Errors = append(resp.Errors, V1PreflightIssue{Code: "precondition_missing", Field: "snippet_store", Message: "snippet store unavailable"})
 			}
 			if strings.TrimSpace(api.jobOrchestrator.sshPublicKey) == "" {
 				resp.Errors = append(resp.Errors, V1PreflightIssue{Code: "precondition_missing", Field: "ssh_public_key", Message: "ssh public key unavailable"})
@@ -702,9 +712,6 @@ func (api *ControlAPI) handleSandboxValidatePlan(w http.ResponseWriter, r *http.
 			}
 			if api.jobOrchestrator.sandboxManager == nil {
 				resp.Errors = append(resp.Errors, V1PreflightIssue{Code: "precondition_missing", Field: "sandbox_manager", Message: "sandbox manager unavailable"})
-			}
-			if api.jobOrchestrator.snippetStore == nil {
-				resp.Errors = append(resp.Errors, V1PreflightIssue{Code: "precondition_missing", Field: "snippet_store", Message: "snippet store unavailable"})
 			}
 			if strings.TrimSpace(api.jobOrchestrator.sshPublicKey) == "" {
 				resp.Errors = append(resp.Errors, V1PreflightIssue{Code: "precondition_missing", Field: "ssh_public_key", Message: "ssh public key unavailable"})
@@ -1290,11 +1297,17 @@ func (api *ControlAPI) handleStatus(w http.ResponseWriter, r *http.Request) {
 	projection.Replay(allEvents)
 
 	resp := V1StatusResponse{
+		APISchemaVersion:   controlAPISchemaVersion,
+		EventSchemaVersion: eventContractSchemaVersion,
 		Sandboxes:           formatSandboxCounts(sandboxCounts),
 		Jobs:                formatJobCounts(jobCounts),
 		NetworkModes:        formatNetworkModeCounts(networkModes),
 		Artifacts:           buildArtifactStatus(api.artifactRoot),
 		Metrics:             V1StatusMetrics{Enabled: api.metricsEnabled},
+		SkillBundle: V1SkillBundle{
+			Name:    strings.TrimSpace(api.skillBundleName),
+			Version: strings.TrimSpace(api.skillBundleVersion),
+		},
 		RecentFailures:      make([]V1Event, 0, len(failureEvents)),
 		SandboxHealth:       projection.SandboxHealth,
 		JobTimelines:        projection.JobTimelines,
@@ -2947,15 +2960,6 @@ func (api *ControlAPI) handleExposureCreate(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
-	payload, _ := json.Marshal(map[string]any{
-		"name":      exposure.Name,
-		"vmid":      exposure.VMID,
-		"port":      exposure.Port,
-		"target_ip": exposure.TargetIP,
-		"url":       exposure.URL,
-		"state":     exposure.State,
-		"force":     req.Force,
-	})
 	vmid := exposure.VMID
 	_ = emitEvent(ctx, NewStoreEventRecorder(api.store), EventKindExposureCreate, &vmid, nil, fmt.Sprintf("exposure %s created", exposure.Name), map[string]any{
 		"name":      exposure.Name,
@@ -3017,14 +3021,6 @@ func (api *ControlAPI) handleExposureDelete(w http.ResponseWriter, r *http.Reque
 		writeError(w, http.StatusInternalServerError, "failed to delete exposure")
 		return
 	}
-	payload, _ := json.Marshal(map[string]any{
-		"name":      exposure.Name,
-		"vmid":      exposure.VMID,
-		"port":      exposure.Port,
-		"target_ip": exposure.TargetIP,
-		"url":       exposure.URL,
-		"state":     exposure.State,
-	})
 	vmid := exposure.VMID
 	_ = emitEvent(r.Context(), NewStoreEventRecorder(api.store), EventKindExposureDelete, &vmid, nil, fmt.Sprintf("exposure %s deleted", exposure.Name), map[string]any{
 		"name":      exposure.Name,
@@ -3278,12 +3274,6 @@ func (api *ControlAPI) handleSandboxStopAll(w http.ResponseWriter, r *http.Reque
 		resp.Total++
 		resp.Results = append(resp.Results, result)
 
-		payload, _ := json.Marshal(map[string]any{
-			"result":         result.Result,
-			"state":          result.State,
-			"previous_state": string(sb.State),
-			"error":          result.Error,
-		})
 		msg := fmt.Sprintf("stop_all %s", result.Result)
 		if result.Error != "" {
 			msg = fmt.Sprintf("%s: %s", msg, result.Error)

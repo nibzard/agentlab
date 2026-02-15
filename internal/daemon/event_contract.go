@@ -41,6 +41,25 @@ func NewEventPayloadForKind(kind EventKind, payload any) (string, error) {
 	return string(out), nil
 }
 
+type EventRecorder interface {
+	RecordEvent(ctx context.Context, kind EventKind, sandboxVMID *int, jobID *string, message string, payloadJSON string) error
+}
+
+type storeEventRecorder struct {
+	store *db.Store
+}
+
+func NewStoreEventRecorder(store *db.Store) EventRecorder {
+	return &storeEventRecorder{store: store}
+}
+
+func (r *storeEventRecorder) RecordEvent(ctx context.Context, kind EventKind, sandboxVMID *int, jobID *string, message string, payloadJSON string) error {
+	if r == nil || r.store == nil {
+		return nil
+	}
+	return r.store.RecordEvent(ctx, string(kind), sandboxVMID, jobID, strings.TrimSpace(message), payloadJSON)
+}
+
 func mustJSONPayload(data []byte) any {
 	trimmed := strings.TrimSpace(string(data))
 	if trimmed == "" {
@@ -94,15 +113,15 @@ func parseLegacyEventPayload(raw string) (version int, stage EventStage, data js
 	return version, stage, data, true
 }
 
-func emitEvent(ctx context.Context, store *db.Store, kind EventKind, sandboxVMID *int, jobID *string, message string, payload any) error {
-	if store == nil {
+func emitEvent(ctx context.Context, recorder EventRecorder, kind EventKind, sandboxVMID *int, jobID *string, message string, payload any) error {
+	if recorder == nil {
 		return nil
 	}
 	payloadJSON, err := NewEventPayloadForKind(kind, payload)
 	if err != nil {
 		return err
 	}
-	return store.RecordEvent(ctx, string(kind), sandboxVMID, jobID, strings.TrimSpace(message), payloadJSON)
+	return recorder.RecordEvent(ctx, kind, sandboxVMID, jobID, message, payloadJSON)
 }
 
 func validatePayload(schema EventPayloadSchema, payload any) error {

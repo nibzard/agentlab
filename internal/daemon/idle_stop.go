@@ -3,7 +3,6 @@ package daemon
 import (
 	"context"
 	"database/sql"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"log"
@@ -294,19 +293,13 @@ func (s *IdleStopper) recordIdleStopEvent(ctx context.Context, vmid int, payload
 	if stopErr != nil {
 		msg = fmt.Sprintf("idle stop failed: %s", stopErr.Error())
 	}
-	data, err := json.Marshal(payload)
-	if err != nil {
-		if s.logger != nil {
-			s.logger.Printf("idle stop: vmid=%d payload json error: %v", vmid, err)
-		}
-	}
 	eventCtx := ctx
 	if eventCtx == nil || eventCtx.Err() != nil {
 		var cancel context.CancelFunc
 		eventCtx, cancel = context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
 	}
-	_ = s.store.RecordEvent(eventCtx, "sandbox.idle_stop", &vmid, nil, msg, string(data))
+	_ = emitEvent(eventCtx, NewStoreEventRecorder(s.store), EventKindSandboxIdleStop, &vmid, nil, msg, payload)
 }
 
 func (s *IdleStopper) enabled() bool {

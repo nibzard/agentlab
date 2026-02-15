@@ -60,6 +60,8 @@ func TestStatusHandler(t *testing.T) {
 	assert.Equal(t, 1, resp.Jobs[string(models.JobRunning)])
 	assert.Equal(t, 1, resp.Jobs[string(models.JobFailed)])
 	assert.True(t, resp.Metrics.Enabled)
+	assert.Equal(t, controlAPISchemaVersion, resp.APISchemaVersion)
+	assert.Equal(t, eventContractSchemaVersion, resp.EventSchemaVersion)
 	assert.Equal(t, artifactRoot, resp.Artifacts.Root)
 	assert.Empty(t, resp.Artifacts.Error)
 	assert.NotZero(t, resp.Artifacts.TotalBytes)
@@ -82,6 +84,12 @@ func TestStatusHandler(t *testing.T) {
 		t.Fatalf("expected metrics object in payload")
 	} else if _, ok := metrics["enabled"].(bool); !ok {
 		t.Fatalf("expected metrics.enabled bool in payload")
+	}
+	if got, ok := raw["api_schema_version"].(float64); !ok || int(got) != controlAPISchemaVersion {
+		t.Fatalf("expected api_schema_version=%d, got %#v", controlAPISchemaVersion, raw["api_schema_version"])
+	}
+	if got, ok := raw["event_schema_version"].(float64); !ok || int(got) != eventContractSchemaVersion {
+		t.Fatalf("expected event_schema_version=%d, got %#v", eventContractSchemaVersion, raw["event_schema_version"])
 	}
 	if _, ok := raw["artifacts"].(map[string]any); !ok {
 		t.Fatalf("expected artifacts object in payload")

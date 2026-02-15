@@ -280,6 +280,7 @@ func newService(cfg config.Config, profiles map[string]models.Profile, store *db
 		WithMetricsEnabled(metrics != nil).
 		WithExposurePublisher(exposurePublisher).
 		WithRedactor(redactor).
+		WithSkillBundle(cfg.ClaudeSkillBundleName, cfg.ClaudeSkillBundleVersion).
 		WithAgentSubnet(agentCIDR).
 		WithTailscaleStatus(defaultTailscaleDNSName)
 	controlAPI.Register(localMux)

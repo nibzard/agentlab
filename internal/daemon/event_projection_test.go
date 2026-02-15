@@ -58,7 +58,7 @@ func TestEventProjectionBuildsSandboxAndJobSummaries(t *testing.T) {
 	events := []db.Event{
 		eventForProjection(t, 10, now.Add(10*time.Second), EventKindSandboxState, &vmid, nil, "", map[string]any{
 			"from_state": "REQUESTED",
-			"to_state":   stringPtr("PROVISIONING"),
+			"to_state":   stringPtrProjection("PROVISIONING"),
 		}),
 		eventForProjection(t, 11, now.Add(20*time.Second), EventKindSandboxState, &vmid, nil, "", map[string]any{
 			"from_state": "PROVISIONING",
@@ -108,10 +108,10 @@ func TestEventProjectionFiltersLatestFailures(t *testing.T) {
 	vmid := 3003
 	now := time.Date(2026, 02, 14, 12, 0, 0, 0, time.UTC)
 	events := []db.Event{
-		eventForProjection(t, 1, now.Add(1*time.Second), EventKindJobCreated, nil, stringPtr("job-a"), "created", map[string]any{
+			eventForProjection(t, 1, now.Add(1*time.Second), EventKindJobCreated, nil, stringPtrProjection("job-a"), "created", map[string]any{
 			"status": "QUEUED",
 		}),
-		eventForProjection(t, 2, now.Add(2*time.Second), EventKindJobFailed, nil, stringPtr("job-a"), "failed", map[string]any{
+		eventForProjection(t, 2, now.Add(2*time.Second), EventKindJobFailed, nil, stringPtrProjection("job-a"), "failed", map[string]any{
 			"status": "FAILED",
 			"error":  "bad",
 		}),
@@ -154,6 +154,6 @@ func eventForProjection(t *testing.T, id int64, ts time.Time, kind EventKind, vm
 	}
 }
 
-func stringPtr(value string) *string {
+func stringPtrProjection(value string) *string {
 	return &value
 }
