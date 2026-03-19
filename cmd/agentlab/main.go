@@ -101,6 +101,7 @@ Usage:
   agentlab [--endpoint URL] [--token TOKEN] [--socket PATH] [--json] [--timeout DURATION] session branch <branch> --profile <profile> [--workspace <id|name|new:name>] [--workspace-create <name>] [--workspace-size <size>] [--workspace-storage <storage>]
   agentlab [--endpoint URL] [--token TOKEN] [--socket PATH] [--json] [--timeout DURATION] session doctor <session> [--out <path>]
   agentlab [--endpoint URL] [--token TOKEN] [--socket PATH] [--json] [--timeout DURATION] profile list
+  agentlab [--json] secrets <show|validate|add-ssh-key|remove-ssh-key|set-tailscale|clear-tailscale> [...]
   agentlab [--endpoint URL] [--token TOKEN] [--socket PATH] [--json] [--timeout DURATION] ssh <vmid> [--user <user>] [--port <port>] [--identity <path>] [--jump-host <host>] [--jump-user <user>] [--exec] [--no-start] [--wait] [-- <remote command>...]
   agentlab [--endpoint URL] [--token TOKEN] [--socket PATH] [--json] [--timeout DURATION] msg post (--job <id> | --workspace <id> | --session <id>) [--author <name>] [--kind <kind>] [--text <text>] [--payload <json>] [message...]
   agentlab [--endpoint URL] [--token TOKEN] [--socket PATH] [--json] [--timeout DURATION] msg tail (--job <id> | --workspace <id> | --session <id>) [--follow] [--tail <n>]
@@ -268,6 +269,8 @@ func dispatch(ctx context.Context, args []string, base commonFlags) error {
 		return withDefaultNext(runSessionCommand(ctx, args[1:], base), "agentlab session --help")
 	case "profile":
 		return withDefaultNext(runProfileCommand(ctx, args[1:], base), "agentlab profile --help")
+	case "secrets":
+		return withDefaultNext(runSecretsCommand(ctx, args[1:], base), "agentlab secrets --help")
 	case "msg":
 		return withDefaultNext(runMsgCommand(ctx, args[1:], base), "agentlab msg --help")
 	case "ssh":
@@ -277,12 +280,12 @@ func dispatch(ctx context.Context, args []string, base commonFlags) error {
 	case "connect":
 		return withDefaultNext(runConnectCommand(ctx, args[1:], base), "agentlab connect --help")
 	case "disconnect":
-	return withDefaultNext(runDisconnectCommand(ctx, args[1:], base), "agentlab disconnect --help")
+		return withDefaultNext(runDisconnectCommand(ctx, args[1:], base), "agentlab disconnect --help")
 	default:
 		if !base.jsonOutput {
 			printUsage()
 		}
-		return unknownCommandError(args[0], []string{"status", "schema", "init", "bootstrap", "job", "sandbox", "workspace", "session", "profile", "msg", "ssh", "logs", "connect", "disconnect"})
+		return unknownCommandError(args[0], []string{"status", "schema", "init", "bootstrap", "job", "sandbox", "workspace", "session", "profile", "secrets", "msg", "ssh", "logs", "connect", "disconnect"})
 	}
 }
 

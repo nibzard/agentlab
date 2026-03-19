@@ -164,6 +164,71 @@ func TestSopsPathRejectsUnlisted(t *testing.T) {
 	}
 }
 
+func TestBundleRedacted(t *testing.T) {
+	t.Parallel()
+	bundle := Bundle{
+		Version: 1,
+		Git: GitBundle{
+			Token:         "ghp_test_123456",
+			SSHPrivateKey: "PRIVATE-KEY",
+			SSHPublicKey:  "ssh-ed25519 AAAA public@test",
+		},
+		Env: map[string]string{
+			"OPENAI_API_KEY": "sk-test-123456",
+		},
+		Artifact: ArtifactBundle{Token: "artifact-token"},
+		Tailscale: &TailscaleBundle{
+			AuthKey: "tskey-auth-123456",
+		},
+	}
+	redacted := bundle.Redacted()
+	if redacted.Git.Token != "[REDACTED]" {
+		t.Fatalf("git token = %q", redacted.Git.Token)
+	}
+	if redacted.Git.SSHPrivateKey != "[REDACTED]" {
+		t.Fatalf("git ssh private key = %q", redacted.Git.SSHPrivateKey)
+	}
+	if redacted.Env["OPENAI_API_KEY"] != "[REDACTED]" {
+		t.Fatalf("env redaction failed")
+	}
+	if redacted.Tailscale == nil || redacted.Tailscale.AuthKey != "[REDACTED]" {
+		t.Fatalf("tailscale authkey redaction failed: %#v", redacted.Tailscale)
+	}
+	if redacted.Git.SSHPublicKey == "" {
+		t.Fatalf("expected public key to remain present")
+	}
+}
+
+func TestEncryptAgeRoundTrip(t *testing.T) {
+	t.Parallel()
+	tmp := t.TempDir()
+	identity, err := age.GenerateX25519Identity()
+	if err != nil {
+		t.Fatalf("generate age identity: %v", err)
+	}
+	keyPath := filepath.Join(tmp, "age.key")
+	if err := osWriteFile(keyPath, []byte(identity.String()+"\n")); err != nil {
+		t.Fatalf("write age key: %v", err)
+	}
+	plaintext := []byte("version: 1\nmetadata:\n  owner: test\n")
+	encrypted, err := EncryptAge(plaintext, keyPath)
+	if err != nil {
+		t.Fatalf("encrypt age payload: %v", err)
+	}
+	bundlePath := filepath.Join(tmp, "bundle.age")
+	if err := osWriteFile(bundlePath, encrypted); err != nil {
+		t.Fatalf("write encrypted bundle: %v", err)
+	}
+	store := Store{Dir: tmp, AgeKeyPath: keyPath}
+	loaded, err := store.Load(context.Background(), "bundle")
+	if err != nil {
+		t.Fatalf("load age bundle: %v", err)
+	}
+	if loaded.Metadata["owner"] != "test" {
+		t.Fatalf("owner = %q", loaded.Metadata["owner"])
+	}
+}
+
 func osWriteFile(path string, data []byte) error {
 	return os.WriteFile(path, data, 0o600)
 }

@@ -43,17 +43,19 @@ var defaultSopsAllowlist = []string{
 	"/snap/bin/sops",
 }
 
-// Bundle describes decrypted secrets content.
+// Bundle describes decrypted secrets content with extended fields.
 //
 // Bundles are delivered to guest VMs during bootstrap and contain
 // credentials and configuration needed for job execution.
 type Bundle struct {
-	Version  int               `json:"version" yaml:"version"`
-	Git      GitBundle         `json:"git,omitempty" yaml:"git,omitempty"`
-	Env      map[string]string `json:"env,omitempty" yaml:"env,omitempty"`
-	Claude   ClaudeBundle      `json:"claude,omitempty" yaml:"claude,omitempty"`
-	Artifact ArtifactBundle    `json:"artifact,omitempty" yaml:"artifact,omitempty"`
-	Metadata map[string]string `json:"metadata,omitempty" yaml:"metadata,omitempty"`
+	Version   int               `json:"version" yaml:"version"`
+	Git       GitBundle         `json:"git,omitempty" yaml:"git,omitempty"`
+	Env       map[string]string `json:"env,omitempty" yaml:"env,omitempty"`
+	Claude    ClaudeBundle      `json:"claude,omitempty" yaml:"claude,omitempty"`
+	Artifact  ArtifactBundle    `json:"artifact,omitempty" yaml:"artifact,omitempty"`
+	Metadata  map[string]string `json:"metadata,omitempty" yaml:"metadata,omitempty"`
+	SSH       *SSHKeysBundle    `json:"ssh,omitempty" yaml:"ssh,omitempty"`
+	Tailscale *TailscaleBundle  `json:"tailscale,omitempty" yaml:"tailscale,omitempty"`
 }
 
 // GitBundle stores git-related credentials.
@@ -83,6 +85,30 @@ type ArtifactBundle struct {
 	Token    string `json:"token,omitempty" yaml:"token,omitempty"`
 }
 
+// SSHKeysBundle stores SSH public keys for delivery to the guest.
+//
+// These keys can be added to ~/.ssh/authorized_keys for additional access.
+type SSHKeysBundle struct {
+	Keys map[string]SSHPublicKey `json:"keys,omitempty" yaml:"keys,omitempty"`
+}
+
+// SSHPublicKey represents an SSH public key with metadata.
+type SSHPublicKey struct {
+	Key     string `json:"key" yaml:"key"`
+	Type    string `json:"type,omitempty" yaml:"type,omitempty"`
+	Comment string `json:"comment,omitempty" yaml:"comment,omitempty"`
+}
+
+// TailscaleBundle stores Tailscale configuration for guest VM setup.
+//
+// This enables automated Tailscale enrollment in sandboxes.
+type TailscaleBundle struct {
+	AuthKey          string   `json:"authkey,omitempty" yaml:"authkey,omitempty"`
+	Tags             []string `json:"tags,omitempty" yaml:"tags,omitempty"`
+	HostnameTemplate string   `json:"hostname_template,omitempty" yaml:"hostname_template,omitempty"`
+	ExtraArgs        []string `json:"extra_args,omitempty" yaml:"extra_args,omitempty"`
+}
+
 // ClaudeSettingsJSON returns the settings fragment as JSON.
 //
 // If SettingsJSON is set, it's returned directly. Otherwise, Settings
@@ -99,6 +125,69 @@ func (b Bundle) ClaudeSettingsJSON() (string, error) {
 		return "", fmt.Errorf("marshal claude settings: %w", err)
 	}
 	return string(data), nil
+}
+
+// GetSSHKeys returns all SSH public keys as a slice of raw key strings.
+// Returns nil if no SSH keys are configured.
+func (b Bundle) GetSSHKeys() []string {
+	if b.SSH == nil || len(b.SSH.Keys) == 0 {
+		return nil
+	}
+	keys := make([]string, 0, len(b.SSH.Keys))
+	for _, v := range b.SSH.Keys {
+		key := strings.TrimSpace(v.Key)
+		if key != "" {
+			keys = append(keys, key)
+		}
+	}
+	return keys
+}
+
+// GetTailscaleAuthKey returns the Tailscale auth key if configured.
+// Returns empty string if not configured.
+func (b Bundle) GetTailscaleAuthKey() string {
+	if b.Tailscale == nil {
+		return ""
+	}
+	return strings.TrimSpace(b.Tailscale.AuthKey)
+}
+
+// GetTailscaleHostname generates a hostname for a VM based on the template.
+// Supports {vmid} and {name} placeholders in the template.
+// Returns "agentlab-{vmid}" if no template is set.
+func (b Bundle) GetTailscaleHostname(vmid int) string {
+	if b.Tailscale == nil || strings.TrimSpace(b.Tailscale.HostnameTemplate) == "" {
+		return fmt.Sprintf("agentlab-%d", vmid)
+	}
+	hostname := b.Tailscale.HostnameTemplate
+	hostname = strings.ReplaceAll(hostname, "{vmid}", fmt.Sprintf("%d", vmid))
+	hostname = strings.ReplaceAll(hostname, "{name}", "agentlab")
+	return strings.TrimSpace(hostname)
+}
+
+// GetTailscaleTags returns a copy of the configured Tailscale tags.
+func (b Bundle) GetTailscaleTags() []string {
+	if b.Tailscale == nil || len(b.Tailscale.Tags) == 0 {
+		return nil
+	}
+	return append([]string(nil), b.Tailscale.Tags...)
+}
+
+// GetTailscaleExtraArgs returns a copy of the configured tailscale up args.
+func (b Bundle) GetTailscaleExtraArgs() []string {
+	if b.Tailscale == nil || len(b.Tailscale.ExtraArgs) == 0 {
+		return nil
+	}
+	return append([]string(nil), b.Tailscale.ExtraArgs...)
+}
+
+// ResolvePath returns the on-disk path for a bundle name or path.
+func (s Store) ResolvePath(name string) (string, error) {
+	name = strings.TrimSpace(name)
+	if name == "" {
+		return "", errors.New("bundle name is required")
+	}
+	return s.resolvePath(name)
 }
 
 // Store locates and decrypts secrets bundles.

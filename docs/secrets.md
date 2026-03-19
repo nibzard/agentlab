@@ -40,7 +40,59 @@ claude:
 
 artifact:
   endpoint: "http://10.77.0.1:8846/upload" # optional override when embedded service is disabled
+
+ssh:
+  keys:
+    laptop:
+      key: "ssh-ed25519 AAAA..."
+      type: "ssh-ed25519"   # optional
+      comment: "laptop"     # optional
+
+tailscale:
+  authkey: "tskey-auth-..."
+  hostname_template: "agentlab-{vmid}"
+  tags:
+    - "tag:agentlab"
+  extra_args:
+    - "--ssh"
 ```
+
+## CLI helpers
+
+Inspect the configured bundle without printing raw secrets:
+
+```bash
+agentlab secrets show
+agentlab secrets show --reveal
+agentlab secrets validate
+```
+
+Add or remove guest SSH keys:
+
+```bash
+agentlab secrets add-ssh-key --name laptop --key-file ~/.ssh/id_ed25519.pub
+agentlab secrets remove-ssh-key --name laptop
+```
+
+Manage guest Tailscale bootstrap settings:
+
+```bash
+agentlab secrets set-tailscale \
+  --authkey tskey-auth-XXXXXXXX \
+  --hostname-template 'agentlab-{vmid}' \
+  --tag tag:agentlab \
+  --extra-arg --ssh
+
+agentlab secrets clear-tailscale
+```
+
+Notes:
+- The CLI uses `/etc/agentlab/config.yaml` by default to resolve `secrets_dir`,
+  `secrets_bundle`, and `secrets_age_key_path`.
+- Pass `--bundle`, `--dir`, or `--age-key` to override those defaults.
+- Plaintext bundle reads/writes require `--allow-plaintext`.
+- Writes support `.age`, `.yaml`, `.yml`, and `.json` bundles. Existing `.sops.*`
+  bundles can be read and validated, but in-place writes are not supported yet.
 
 ## Encrypt with age
 
