@@ -88,6 +88,7 @@ Usage:
   agentlab [--endpoint URL] [--token TOKEN] [--socket PATH] [--json] [--timeout DURATION] workspace fsck <workspace> [--repair]
   agentlab [--endpoint URL] [--token TOKEN] [--socket PATH] [--json] [--timeout DURATION] workspace attach <workspace> <vmid>
   agentlab [--endpoint URL] [--token TOKEN] [--socket PATH] [--json] [--timeout DURATION] workspace detach <workspace>
+  agentlab [--endpoint URL] [--token TOKEN] [--socket PATH] [--json] [--timeout DURATION] workspace lease clear <workspace>
   agentlab [--endpoint URL] [--token TOKEN] [--socket PATH] [--json] [--timeout DURATION] workspace rebind <workspace> --profile <profile> [--ttl <ttl>] [--keep-old]
   agentlab [--endpoint URL] [--token TOKEN] [--socket PATH] [--json] [--timeout DURATION] workspace fork <workspace> --name <name> [--from-snapshot <name>]
   agentlab [--endpoint URL] [--token TOKEN] [--socket PATH] [--json] [--timeout DURATION] workspace snapshot create <workspace> <name>
@@ -507,7 +508,7 @@ func printSandboxDoctorUsage() {
 }
 
 func printWorkspaceUsage() {
-	fmt.Fprintln(os.Stdout, "Usage: agentlab workspace <create|list|check|fsck|attach|detach|rebind|fork|snapshot>")
+	fmt.Fprintln(os.Stdout, "Usage: agentlab workspace <create|list|check|fsck|attach|detach|lease|rebind|fork|snapshot>")
 }
 
 func printWorkspaceCreateUsage() {
@@ -533,6 +534,14 @@ func printWorkspaceAttachUsage() {
 
 func printWorkspaceDetachUsage() {
 	fmt.Fprintln(os.Stdout, "Usage: agentlab workspace detach <workspace>")
+}
+
+func printWorkspaceLeaseUsage() {
+	fmt.Fprintln(os.Stdout, "Usage: agentlab workspace lease clear <workspace>")
+}
+
+func printWorkspaceLeaseClearUsage() {
+	printWorkspaceLeaseUsage()
 }
 
 func printWorkspaceRebindUsage() {

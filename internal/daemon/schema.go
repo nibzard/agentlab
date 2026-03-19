@@ -90,6 +90,7 @@ func schemaResources() []schemaResource {
 		resourceSchema("/v1/workspaces/{id}/detach", methods("POST"), "Detach workspace", "", "V1WorkspaceResponse", ""),
 		resourceSchema("/v1/workspaces/{id}/fsck", methods("POST"), "Run workspace fsck", "V1WorkspaceFSCKRequest", "V1WorkspaceFSCKResponse", ""),
 		resourceSchema("/v1/workspaces/{id}/fork", methods("POST"), "Fork workspace", "V1WorkspaceForkRequest", "V1WorkspaceResponse", ""),
+		resourceSchema("/v1/workspaces/{id}/lease/clear", methods("POST"), "Force-clear workspace lease metadata", "", "V1WorkspaceLeaseClearResponse", ""),
 		resourceSchema("/v1/workspaces/{id}/rebind", methods("POST"), "Rebind workspace", "V1WorkspaceRebindRequest", "V1WorkspaceRebindResponse", ""),
 		resourceSchema("/v1/workspaces/{id}/snapshots", methods("GET"), "List workspace snapshots", "", "V1WorkspaceSnapshotsResponse", ""),
 		resourceSchema("/v1/workspaces/{id}/snapshots", methods("POST"), "Create workspace snapshot", "V1WorkspaceSnapshotCreateRequest", "V1WorkspaceSnapshotResponse", ""),

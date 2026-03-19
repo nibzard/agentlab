@@ -347,3 +347,26 @@ func (s *Store) ReleaseWorkspaceLease(ctx context.Context, id, owner, nonce stri
 	}
 	return affected > 0, nil
 }
+
+// ClearWorkspaceLease forcibly clears any lease metadata for a workspace.
+func (s *Store) ClearWorkspaceLease(ctx context.Context, id string) (bool, error) {
+	if s == nil || s.DB == nil {
+		return false, errors.New("db store is nil")
+	}
+	id = strings.TrimSpace(id)
+	if id == "" {
+		return false, errors.New("workspace id is required")
+	}
+	updatedAt := formatTime(time.Now().UTC())
+	res, err := s.DB.ExecContext(ctx, `UPDATE workspaces
+		SET lease_owner = NULL, lease_nonce = NULL, lease_expires_at = NULL, updated_at = ?
+		WHERE id = ? AND (lease_owner IS NOT NULL OR lease_nonce IS NOT NULL OR lease_expires_at IS NOT NULL)`, updatedAt, id)
+	if err != nil {
+		return false, fmt.Errorf("clear workspace lease %s: %w", id, err)
+	}
+	affected, err := res.RowsAffected()
+	if err != nil {
+		return false, fmt.Errorf("rows affected clear workspace lease %s: %w", id, err)
+	}
+	return affected > 0, nil
+}

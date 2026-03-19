@@ -725,6 +725,19 @@ Body:
 ### POST /v1/workspaces/{id}/detach
 Detach a workspace volume from its attached VM.
 
+### POST /v1/workspaces/{id}/lease/clear
+Force-clear workspace lease metadata when a stale lease blocks automation.
+
+Response:
+
+```json
+{
+  "workspace": { "id": "workspace-0123abcd", "name": "workspace-alpha" },
+  "cleared": true,
+  "previous_owner": "session:branch-main"
+}
+```
+
 ### POST /v1/workspaces/{id}/rebind
 Create a new sandbox from a profile and attach the workspace.
 

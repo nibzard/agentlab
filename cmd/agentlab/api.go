@@ -421,6 +421,12 @@ type workspaceResponse struct {
 	UpdatedAt    string `json:"updated_at"`
 }
 
+type workspaceLeaseClearResponse struct {
+	Workspace     workspaceResponse `json:"workspace"`
+	Cleared       bool              `json:"cleared"`
+	PreviousOwner string            `json:"previous_owner,omitempty"`
+}
+
 // workspacesResponse contains a list of workspaces.
 type workspacesResponse struct {
 	Workspaces []workspaceResponse `json:"workspaces"`

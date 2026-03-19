@@ -1156,6 +1156,8 @@ func runWorkspaceCommand(ctx context.Context, args []string, base commonFlags) e
 		return runWorkspaceAttach(ctx, args[1:], base)
 	case "detach":
 		return runWorkspaceDetach(ctx, args[1:], base)
+	case "lease":
+		return runWorkspaceLeaseCommand(ctx, args[1:], base)
 	case "rebind":
 		return runWorkspaceRebind(ctx, args[1:], base)
 	case "fork":
@@ -1166,7 +1168,7 @@ func runWorkspaceCommand(ctx context.Context, args []string, base commonFlags) e
 		if !base.jsonOutput {
 			printWorkspaceUsage()
 		}
-		return unknownSubcommandError("workspace", args[0], []string{"create", "list", "check", "fsck", "attach", "detach", "rebind", "fork", "snapshot"})
+		return unknownSubcommandError("workspace", args[0], []string{"create", "list", "check", "fsck", "attach", "detach", "lease", "rebind", "fork", "snapshot"})
 	}
 }
 
@@ -2679,6 +2681,79 @@ func runWorkspaceDetach(ctx context.Context, args []string, base commonFlags) er
 		return err
 	}
 	printWorkspace(resp)
+	return nil
+}
+
+func runWorkspaceLeaseCommand(ctx context.Context, args []string, base commonFlags) error {
+	if len(args) == 0 {
+		if !base.jsonOutput {
+			printWorkspaceLeaseUsage()
+			return nil
+		}
+		return newUsageError(fmt.Errorf("workspace lease command is required"), false)
+	}
+	if isHelpToken(args[0]) {
+		printWorkspaceLeaseUsage()
+		return errHelp
+	}
+	switch args[0] {
+	case "clear":
+		return runWorkspaceLeaseClear(ctx, args[1:], base)
+	default:
+		if !base.jsonOutput {
+			printWorkspaceLeaseUsage()
+		}
+		return unknownSubcommandError("workspace lease", args[0], []string{"clear"})
+	}
+}
+
+func runWorkspaceLeaseClear(ctx context.Context, args []string, base commonFlags) error {
+	fs := newFlagSet("workspace lease clear")
+	opts := base
+	opts.bind(fs)
+	help := bindHelpFlag(fs)
+	if err := parseFlags(fs, args, printWorkspaceLeaseClearUsage, help, opts.jsonOutput); err != nil {
+		return err
+	}
+	if fs.NArg() < 1 {
+		if !opts.jsonOutput {
+			printWorkspaceLeaseClearUsage()
+		}
+		return fmt.Errorf("workspace is required")
+	}
+	workspace := strings.TrimSpace(fs.Arg(0))
+	if workspace == "" {
+		return fmt.Errorf("workspace is required")
+	}
+	client, err := apiClientFromFlags(opts)
+	if err != nil {
+		return err
+	}
+	path, err := endpointPath("/v1/workspaces", workspace, "lease", "clear")
+	if err != nil {
+		return err
+	}
+	payload, err := client.doJSON(ctx, http.MethodPost, path, nil)
+	if err != nil {
+		return wrapWorkspaceNotFound(workspace, err)
+	}
+	if opts.jsonOutput {
+		return prettyPrintJSON(os.Stdout, payload)
+	}
+	var resp workspaceLeaseClearResponse
+	if err := json.Unmarshal(payload, &resp); err != nil {
+		return err
+	}
+	ref := workspaceReferenceForCLI(resp.Workspace)
+	if resp.Cleared {
+		if owner := strings.TrimSpace(resp.PreviousOwner); owner != "" {
+			fmt.Printf("workspace %s lease cleared (previous owner=%s)\n", ref, owner)
+			return nil
+		}
+		fmt.Printf("workspace %s lease cleared\n", ref)
+		return nil
+	}
+	fmt.Printf("workspace %s lease already clear\n", ref)
 	return nil
 }
 

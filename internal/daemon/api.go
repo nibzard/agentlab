@@ -116,6 +116,7 @@ var (
 //   - POST   /v1/workspaces/{id}/fsck   - Run filesystem check on workspace volume
 //   - POST   /v1/workspaces/{id}/attach  - Attach workspace to VM
 //   - POST   /v1/workspaces/{id}/detach  - Detach workspace from VM
+//   - POST   /v1/workspaces/{id}/lease/clear - Force-clear workspace lease metadata
 //   - POST   /v1/workspaces/{id}/rebind   - Rebind workspace to new VM
 //   - POST   /v1/workspaces/{id}/fork     - Fork workspace to a new volume
 //   - GET    /v1/workspaces/{id}/snapshots - List workspace snapshots
@@ -1680,6 +1681,15 @@ func (api *ControlAPI) handleWorkspaceByID(w http.ResponseWriter, r *http.Reques
 			api.handleWorkspaceFork(w, r, id)
 			return
 		}
+	case 3:
+		if parts[1] == "lease" && parts[2] == "clear" {
+			if r.Method != http.MethodPost {
+				writeMethodNotAllowed(w, []string{http.MethodPost})
+				return
+			}
+			api.handleWorkspaceLeaseClear(w, r, id)
+			return
+		}
 	case 4:
 		if parts[1] == "snapshots" && parts[3] == "restore" {
 			if r.Method != http.MethodPost {
@@ -2175,6 +2185,46 @@ func (api *ControlAPI) handleWorkspaceDetach(w http.ResponseWriter, r *http.Requ
 		return
 	}
 	writeJSON(w, http.StatusOK, workspaceToV1(workspace))
+}
+
+func (api *ControlAPI) handleWorkspaceLeaseClear(w http.ResponseWriter, r *http.Request, id string) {
+	if api.workspaceMgr == nil {
+		writeError(w, http.StatusInternalServerError, "workspace manager unavailable")
+		return
+	}
+	if api.store == nil {
+		writeError(w, http.StatusInternalServerError, "workspace store unavailable")
+		return
+	}
+	ctx := r.Context()
+	workspace, err := api.workspaceMgr.Resolve(ctx, id)
+	if err != nil {
+		if errors.Is(err, ErrWorkspaceNotFound) {
+			writeError(w, http.StatusNotFound, "workspace not found")
+			return
+		}
+		writeError(w, http.StatusInternalServerError, "failed to load workspace")
+		return
+	}
+	previousOwner := strings.TrimSpace(workspace.LeaseOwner)
+	cleared, err := api.store.ClearWorkspaceLease(ctx, workspace.ID)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to clear workspace lease")
+		return
+	}
+	updated, err := api.store.GetWorkspace(ctx, workspace.ID)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to load workspace")
+		return
+	}
+	if cleared && previousOwner != "" {
+		recordWorkspaceLeaseEvent(ctx, api.store, "workspace.lease.released", nil, nil, workspace.ID, previousOwner, time.Time{})
+	}
+	writeJSON(w, http.StatusOK, V1WorkspaceLeaseClearResponse{
+		Workspace:     workspaceToV1(updated),
+		Cleared:       cleared,
+		PreviousOwner: previousOwner,
+	})
 }
 
 func (api *ControlAPI) handleWorkspaceRebind(w http.ResponseWriter, r *http.Request, id string) {

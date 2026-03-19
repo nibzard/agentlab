@@ -591,6 +591,86 @@ func TestWorkspaceLeaseExpiryAllowsAcquire(t *testing.T) {
 	assert.WithinDuration(t, newExpires, updated.LeaseExpires, time.Second)
 }
 
+func TestClearWorkspaceLease(t *testing.T) {
+	ctx := context.Background()
+
+	t.Run("clears active lease metadata", func(t *testing.T) {
+		store := openTestStore(t)
+		expires := time.Now().UTC().Add(30 * time.Minute)
+		ws := models.Workspace{
+			ID:           "ws-clear",
+			Name:         "clear-workspace",
+			Storage:      "local-zfs",
+			VolumeID:     "local-zfs:vm-400-disk-1",
+			SizeGB:       20,
+			LeaseOwner:   "job:one",
+			LeaseNonce:   "nonce-1",
+			LeaseExpires: expires,
+			CreatedAt:    time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC),
+			LastUpdated:  time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC),
+		}
+		require.NoError(t, store.CreateWorkspace(ctx, ws))
+
+		cleared, err := store.ClearWorkspaceLease(ctx, ws.ID)
+		require.NoError(t, err)
+		assert.True(t, cleared)
+
+		updated, err := store.GetWorkspace(ctx, ws.ID)
+		require.NoError(t, err)
+		assert.Empty(t, updated.LeaseOwner)
+		assert.Empty(t, updated.LeaseNonce)
+		assert.True(t, updated.LeaseExpires.IsZero())
+	})
+
+	t.Run("clears partial lease metadata", func(t *testing.T) {
+		store := openTestStore(t)
+		ws := models.Workspace{
+			ID:          "ws-partial",
+			Name:        "partial-workspace",
+			Storage:     "local-zfs",
+			VolumeID:    "local-zfs:vm-401-disk-1",
+			SizeGB:      20,
+			CreatedAt:   time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC),
+			LastUpdated: time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC),
+		}
+		require.NoError(t, store.CreateWorkspace(ctx, ws))
+		_, err := store.DB.ExecContext(ctx, `UPDATE workspaces SET lease_owner = ?, updated_at = ? WHERE id = ?`,
+			"job:partial",
+			formatTime(time.Now().UTC()),
+			ws.ID,
+		)
+		require.NoError(t, err)
+
+		cleared, err := store.ClearWorkspaceLease(ctx, ws.ID)
+		require.NoError(t, err)
+		assert.True(t, cleared)
+
+		updated, err := store.GetWorkspace(ctx, ws.ID)
+		require.NoError(t, err)
+		assert.Empty(t, updated.LeaseOwner)
+		assert.Empty(t, updated.LeaseNonce)
+		assert.True(t, updated.LeaseExpires.IsZero())
+	})
+
+	t.Run("returns false when lease already clear", func(t *testing.T) {
+		store := openTestStore(t)
+		ws := models.Workspace{
+			ID:          "ws-empty",
+			Name:        "empty-workspace",
+			Storage:     "local-zfs",
+			VolumeID:    "local-zfs:vm-402-disk-1",
+			SizeGB:      20,
+			CreatedAt:   time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC),
+			LastUpdated: time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC),
+		}
+		require.NoError(t, store.CreateWorkspace(ctx, ws))
+
+		cleared, err := store.ClearWorkspaceLease(ctx, ws.ID)
+		require.NoError(t, err)
+		assert.False(t, cleared)
+	})
+}
+
 func TestDetachWorkspace(t *testing.T) {
 	ctx := context.Background()
 
