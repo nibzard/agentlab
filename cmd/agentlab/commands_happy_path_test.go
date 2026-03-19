@@ -264,6 +264,58 @@ func TestCLISandboxStartStopHappyPath(t *testing.T) {
 	}
 }
 
+func TestCLISandboxUpdateHappyPath(t *testing.T) {
+	createdAt := "2026-01-30T12:00:00Z"
+	updatedAt := "2026-01-30T12:02:00Z"
+
+	var gotReq sandboxUpdateRequest
+	mux := http.NewServeMux()
+	mux.HandleFunc("/v1/sandboxes/9001/update", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			t.Errorf("/v1/sandboxes/9001/update method = %s", r.Method)
+			w.WriteHeader(http.StatusMethodNotAllowed)
+			return
+		}
+		if err := json.NewDecoder(r.Body).Decode(&gotReq); err != nil {
+			t.Errorf("decode update request: %v", err)
+			w.WriteHeader(http.StatusBadRequest)
+			return
+		}
+		resp := sandboxResponse{
+			VMID:    9001,
+			Name:    "sandbox-9001",
+			Profile: "yolo",
+			State:   "RUNNING",
+			Resources: &sandboxResourcesResponse{
+				Cores:    4,
+				MemoryMB: 8192,
+			},
+			CreatedAt:     createdAt,
+			LastUpdatedAt: updatedAt,
+		}
+		writeJSON(t, w, http.StatusOK, resp)
+	})
+
+	socketPath := startUnixHTTPServer(t, mux)
+	base := commonFlags{socketPath: socketPath, jsonOutput: false, timeout: time.Second}
+
+	out := captureStdout(t, func() {
+		err := runSandboxUpdate(context.Background(), []string{"--cores", "4", "--memory", "8GiB", "9001"}, base)
+		if err != nil {
+			t.Fatalf("runSandboxUpdate() error = %v", err)
+		}
+	})
+	if gotReq.Cores == nil || *gotReq.Cores != 4 {
+		t.Fatalf("cores request = %#v", gotReq.Cores)
+	}
+	if gotReq.MemoryMB == nil || *gotReq.MemoryMB != 8192 {
+		t.Fatalf("memory request = %#v", gotReq.MemoryMB)
+	}
+	if !strings.Contains(out, "CPU Cores: 4") || !strings.Contains(out, "Memory: 8192 MiB") {
+		t.Fatalf("expected resources in output, got %q", out)
+	}
+}
+
 func TestCLISandboxStopAllHappyPath(t *testing.T) {
 	mux := http.NewServeMux()
 	var gotStopAll sandboxStopAllRequest
@@ -439,8 +491,8 @@ func TestCLISchemaHappyPath(t *testing.T) {
 			return
 		}
 		resp := map[string]any{
-			"generated_at":        "2026-02-14T00:00:00Z",
-			"api_schema_version":  1,
+			"generated_at":         "2026-02-14T00:00:00Z",
+			"api_schema_version":   1,
 			"event_schema_version": 1,
 			"resources": []map[string]any{
 				{"path": "/v1/status", "methods": []string{"GET"}, "summary": "Fetch control-plane status", "response_type": "V1StatusResponse"},

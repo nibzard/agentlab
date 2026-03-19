@@ -65,6 +65,7 @@ Usage:
   agentlab [--endpoint URL] [--token TOKEN] [--socket PATH] [--json] [--timeout DURATION] sandbox validate [--name <name>] [--ttl <ttl>] [--keepalive] [--workspace <id>] [--vmid <vmid>] [--job <id>] (+mod [+mod...] | --profile <profile>)
   agentlab [--endpoint URL] [--token TOKEN] [--socket PATH] [--json] [--timeout DURATION] sandbox list
   agentlab [--endpoint URL] [--token TOKEN] [--socket PATH] [--json] [--timeout DURATION] sandbox show <vmid>
+  agentlab [--endpoint URL] [--token TOKEN] [--socket PATH] [--json] [--timeout DURATION] sandbox update [--cores <n>] [--memory <size>] <vmid>
   agentlab [--endpoint URL] [--token TOKEN] [--socket PATH] [--json] [--timeout DURATION] sandbox start <vmid>
   agentlab [--endpoint URL] [--token TOKEN] [--socket PATH] [--json] [--timeout DURATION] sandbox stop <vmid>
   agentlab [--endpoint URL] [--token TOKEN] [--socket PATH] [--json] [--timeout DURATION] sandbox stop --all [--force]
@@ -400,7 +401,7 @@ func printJobDoctorUsage() {
 }
 
 func printSandboxUsage() {
-	fmt.Fprintln(os.Stdout, "Usage: agentlab sandbox <new|validate|list|show|start|stop|pause|resume|revert|snapshot|destroy|lease|prune|expose|exposed|unexpose|doctor>")
+	fmt.Fprintln(os.Stdout, "Usage: agentlab sandbox <new|validate|list|show|update|start|stop|pause|resume|revert|snapshot|destroy|lease|prune|expose|exposed|unexpose|doctor>")
 }
 
 func printSandboxNewUsage() {
@@ -419,6 +420,11 @@ func printSandboxListUsage() {
 
 func printSandboxShowUsage() {
 	fmt.Fprintln(os.Stdout, "Usage: agentlab sandbox show <vmid>")
+}
+
+func printSandboxUpdateUsage() {
+	fmt.Fprintln(os.Stdout, "Usage: agentlab sandbox update [--cores <n>] [--memory <size>] <vmid>")
+	fmt.Fprintln(os.Stdout, "Note: Memory accepts MiB or GiB suffixes (for example 8192, 8192MiB, 8GiB).")
 }
 
 func printSandboxStartUsage() {

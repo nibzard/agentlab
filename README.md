@@ -80,6 +80,19 @@ pveum user token add root@pam agentlab-api --privsep=0
 6) Create secrets and minimal config/profile, then build the template:
 
 ```bash
+# Create or rotate the encrypted host bundle with the CLI
+agentlab secrets add-ssh-key --name laptop --key-file ~/.ssh/id_ed25519.pub
+agentlab secrets set-tailscale \
+  --authkey tskey-auth-XXXXXXXX \
+  --hostname-template 'agentlab-{vmid}' \
+  --tag tag:agentlab \
+  --extra-arg --ssh
+
+# Inspect or validate the bundle
+agentlab secrets show
+agentlab --json secrets validate
+
+# Then build the template and restart the daemon
 sudo scripts/create_template.sh
 sudo systemctl restart agentlabd.service
 ```
@@ -283,6 +296,43 @@ To remove the saved config:
 agentlab disconnect
 ```
 
+### Secrets Management
+
+AgentLab stores host-side credentials in encrypted bundles under `secrets_dir`
+(default: `/etc/agentlab/secrets`). Use the CLI to inspect and update them instead
+of editing bundle files manually:
+
+```bash
+# Show the default bundle with sensitive values redacted
+agentlab secrets show
+
+# Show raw values when you explicitly need them
+agentlab secrets show --reveal --format json
+
+# Validate the configured bundle
+agentlab --json secrets validate
+
+# Add or remove guest SSH keys
+agentlab secrets add-ssh-key --name laptop --key-file ~/.ssh/id_ed25519.pub
+agentlab secrets remove-ssh-key --name laptop
+
+# Configure or clear guest Tailscale bootstrap settings
+agentlab secrets set-tailscale \
+  --authkey tskey-auth-XXXXXXXX \
+  --hostname-template 'agentlab-{vmid}' \
+  --tag tag:agentlab \
+  --extra-arg --ssh
+agentlab secrets clear-tailscale
+```
+
+Notes:
+- The CLI resolves `secrets_dir`, `secrets_bundle`, and `secrets_age_key_path`
+  from `/etc/agentlab/config.yaml` by default.
+- Pass `--bundle`, `--dir`, `--age-key`, or `--config` to target a different bundle.
+- Plaintext bundle reads and writes require `--allow-plaintext`.
+- Existing `.sops.*` bundles can be read and validated, but in-place writes are not
+  supported yet.
+
 ### Sandbox Management
 
 #### List Sandboxes
@@ -369,6 +419,32 @@ agentlab sandbox show 1020
 # JSON output
 agentlab sandbox show 1020 --json
 ```
+
+When the control plane can read live VM config from Proxmox, `sandbox show`
+includes current CPU core and memory settings under `resources` / `CPU Cores`
+and `Memory`.
+
+#### Update Sandbox Resources
+
+```bash
+# Set a sandbox to 4 vCPU cores and 8 GiB RAM
+agentlab sandbox update --cores 4 --memory 8GiB 1020
+
+# Update only memory
+agentlab sandbox update --memory 12288 1020
+
+# JSON output for automation
+agentlab sandbox update --memory 12GiB 1020 --json
+```
+
+**Flags:**
+- `--cores <n>` (optional): Set the VM CPU core count
+- `--memory <size>` (optional): Set VM memory in MiB or GiB, for example `8192`, `8192MiB`, or `8GiB`
+- VMID (required): Target sandbox ID
+
+At least one of `--cores` or `--memory` is required. This updates the existing
+sandbox in place and records an audited sandbox configuration event in the
+control plane.
 
 #### Destroy Sandbox
 

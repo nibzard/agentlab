@@ -199,6 +199,41 @@ func TestParseSizeGB(t *testing.T) {
 	}
 }
 
+func TestParseMemoryMB(t *testing.T) {
+	tests := []struct {
+		name    string
+		value   string
+		want    int
+		wantErr bool
+	}{
+		{"plain mb", "8192", 8192, false},
+		{"suffix mib", "8192MiB", 8192, false},
+		{"suffix gb", "8GB", 8192, false},
+		{"suffix gib", "8GiB", 8192, false},
+		{"suffix g", "8g", 8192, false},
+		{"zero", "0", 0, true},
+		{"negative", "-1", 0, true},
+		{"bad", "abc", 0, true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := parseMemoryMB(tt.value)
+			if tt.wantErr {
+				if err == nil {
+					t.Fatalf("expected error")
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("parseMemoryMB() error = %v", err)
+			}
+			if got != tt.want {
+				t.Fatalf("parseMemoryMB() = %d, want %d", got, tt.want)
+			}
+		})
+	}
+}
+
 func TestParseWorkspaceWaitSeconds(t *testing.T) {
 	tests := []struct {
 		name    string

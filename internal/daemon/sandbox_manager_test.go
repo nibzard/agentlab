@@ -16,6 +16,7 @@ import (
 )
 
 type stubBackend struct {
+	configureErr          error
 	startErr              error
 	stopErr               error
 	suspendErr            error
@@ -37,6 +38,9 @@ type stubBackend struct {
 	volumeCloneSnapErr    error
 	volumeCloneCalls      []volumeCloneCall
 	volumeCloneSnapCalls  []volumeCloneSnapshotCall
+	configureCalls        int
+	lastConfigureVMID     proxmox.VMID
+	lastConfigureConfig   proxmox.VMConfig
 	startCalls            int
 	stopCalls             int
 	suspendCalls          int
@@ -63,8 +67,11 @@ func (s *stubBackend) Clone(context.Context, proxmox.VMID, proxmox.VMID, string)
 	return nil
 }
 
-func (s *stubBackend) Configure(context.Context, proxmox.VMID, proxmox.VMConfig) error {
-	return nil
+func (s *stubBackend) Configure(_ context.Context, vmid proxmox.VMID, cfg proxmox.VMConfig) error {
+	s.configureCalls++
+	s.lastConfigureVMID = vmid
+	s.lastConfigureConfig = cfg
+	return s.configureErr
 }
 
 func (s *stubBackend) Start(context.Context, proxmox.VMID) error {

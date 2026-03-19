@@ -33,26 +33,27 @@ const (
 
 const (
 	// Sandbox lifecycle.
-	EventKindSandboxState          EventKind = "sandbox.state"
-	EventKindSandboxLease          EventKind = "sandbox.lease"
-	EventKindSandboxIPPending      EventKind = "sandbox.ip_pending"
-	EventKindSandboxIPConflict     EventKind = "sandbox.ip_conflict"
-	EventKindSandboxSLOReady       EventKind = "sandbox.slo.ready"
-	EventKindSandboxSLOSSHReady    EventKind = "sandbox.slo.ssh_ready"
-	EventKindSandboxSLOSSHFailed   EventKind = "sandbox.slo.ssh_failed"
-	EventKindSandboxSnapshotCreated EventKind = "sandbox.snapshot.created"
-	EventKindSandboxSnapshotFailed  EventKind = "sandbox.snapshot.failed"
-	EventKindSandboxRevertStarted  EventKind = "sandbox.revert.started"
-	EventKindSandboxRevertFailed   EventKind = "sandbox.revert.failed"
-	EventKindSandboxRevertFinished EventKind = "sandbox.revert.completed"
-	EventKindSandboxStartCompleted  EventKind = "sandbox.start.completed"
-	EventKindSandboxStartFailed     EventKind = "sandbox.start.failed"
-	EventKindSandboxStopCompleted   EventKind = "sandbox.stop.completed"
-	EventKindSandboxStopFailed      EventKind = "sandbox.stop.failed"
-	EventKindSandboxPauseCompleted  EventKind = "sandbox.pause.completed"
-	EventKindSandboxPauseFailed     EventKind = "sandbox.pause.failed"
-	EventKindSandboxResumeCompleted EventKind = "sandbox.resume.completed"
-	EventKindSandboxResumeFailed    EventKind = "sandbox.resume.failed"
+	EventKindSandboxState            EventKind = "sandbox.state"
+	EventKindSandboxLease            EventKind = "sandbox.lease"
+	EventKindSandboxIPPending        EventKind = "sandbox.ip_pending"
+	EventKindSandboxIPConflict       EventKind = "sandbox.ip_conflict"
+	EventKindSandboxSLOReady         EventKind = "sandbox.slo.ready"
+	EventKindSandboxSLOSSHReady      EventKind = "sandbox.slo.ssh_ready"
+	EventKindSandboxSLOSSHFailed     EventKind = "sandbox.slo.ssh_failed"
+	EventKindSandboxSnapshotCreated  EventKind = "sandbox.snapshot.created"
+	EventKindSandboxSnapshotFailed   EventKind = "sandbox.snapshot.failed"
+	EventKindSandboxRevertStarted    EventKind = "sandbox.revert.started"
+	EventKindSandboxRevertFailed     EventKind = "sandbox.revert.failed"
+	EventKindSandboxRevertFinished   EventKind = "sandbox.revert.completed"
+	EventKindSandboxStartCompleted   EventKind = "sandbox.start.completed"
+	EventKindSandboxStartFailed      EventKind = "sandbox.start.failed"
+	EventKindSandboxStopCompleted    EventKind = "sandbox.stop.completed"
+	EventKindSandboxStopFailed       EventKind = "sandbox.stop.failed"
+	EventKindSandboxPauseCompleted   EventKind = "sandbox.pause.completed"
+	EventKindSandboxPauseFailed      EventKind = "sandbox.pause.failed"
+	EventKindSandboxResumeCompleted  EventKind = "sandbox.resume.completed"
+	EventKindSandboxResumeFailed     EventKind = "sandbox.resume.failed"
+	EventKindSandboxConfigured       EventKind = "sandbox.configured"
 	EventKindSandboxDestroyCompleted EventKind = "sandbox.destroy.completed"
 	EventKindSandboxDestroyFailed    EventKind = "sandbox.destroy.failed"
 	EventKindSandboxProvisionFailed  EventKind = "sandbox.provision_failed"
@@ -61,40 +62,40 @@ const (
 	EventKindSandboxIdleStop         EventKind = "sandbox.idle_stop"
 
 	// Job lifecycle.
-	EventKindJobCreated   EventKind = "job.created"
-	EventKindJobRunning   EventKind = "job.running"
-	EventKindJobFailed    EventKind = "job.failed"
-	EventKindJobReport    EventKind = "job.report"
-	EventKindJobSLOStart  EventKind = "job.slo.start"
+	EventKindJobCreated  EventKind = "job.created"
+	EventKindJobRunning  EventKind = "job.running"
+	EventKindJobFailed   EventKind = "job.failed"
+	EventKindJobReport   EventKind = "job.report"
+	EventKindJobSLOStart EventKind = "job.slo.start"
 
 	// Workspace lifecycle and lease flow.
-	EventKindWorkspaceLeaseAcquired EventKind = "workspace.lease.acquired"
-	EventKindWorkspaceLeaseReleased EventKind = "workspace.lease.released"
-	EventKindWorkspaceLeaseRenewed  EventKind = "workspace.lease.renewed"
-	EventKindWorkspaceSnapshotCreated EventKind = "workspace.snapshot.created"
-	EventKindWorkspaceSnapshotFailed  EventKind = "workspace.snapshot.create_failed"
-	EventKindWorkspaceSnapshotRestored EventKind = "workspace.snapshot.restored"
+	EventKindWorkspaceLeaseAcquired         EventKind = "workspace.lease.acquired"
+	EventKindWorkspaceLeaseReleased         EventKind = "workspace.lease.released"
+	EventKindWorkspaceLeaseRenewed          EventKind = "workspace.lease.renewed"
+	EventKindWorkspaceSnapshotCreated       EventKind = "workspace.snapshot.created"
+	EventKindWorkspaceSnapshotFailed        EventKind = "workspace.snapshot.create_failed"
+	EventKindWorkspaceSnapshotRestored      EventKind = "workspace.snapshot.restored"
 	EventKindWorkspaceSnapshotRestoreFailed EventKind = "workspace.snapshot.restore_failed"
-	EventKindWorkspaceFSCKStarted EventKind = "workspace.fsck.started"
-	EventKindWorkspaceFSCKFailed  EventKind = "workspace.fsck.failed"
-	EventKindWorkspaceFSCKDone    EventKind = "workspace.fsck.completed"
+	EventKindWorkspaceFSCKStarted           EventKind = "workspace.fsck.started"
+	EventKindWorkspaceFSCKFailed            EventKind = "workspace.fsck.failed"
+	EventKindWorkspaceFSCKDone              EventKind = "workspace.fsck.completed"
 
 	// Artifact and exposure lifecycle for operations that affect observability.
-	EventKindArtifactUpload EventKind = "artifact.upload"
-	EventKindArtifactGC     EventKind = "artifact.gc"
-	EventKindExposureCreate EventKind = "exposure.create"
-	EventKindExposureDelete EventKind = "exposure.delete"
+	EventKindArtifactUpload        EventKind = "artifact.upload"
+	EventKindArtifactGC            EventKind = "artifact.gc"
+	EventKindExposureCreate        EventKind = "exposure.create"
+	EventKindExposureDelete        EventKind = "exposure.delete"
 	EventKindExposureCleanupFailed EventKind = "exposure.cleanup.failed"
 )
 
 type EventPayloadSchema struct {
-	Kind         EventKind   `json:"kind"`
-	Domain       EventDomain `json:"domain"`
-	Stage        EventStage  `json:"stage"`
-	Schema       int         `json:"schema"`
-	Required     []string    `json:"required"`
-	Optional     []string    `json:"optional"`
-	Description  string      `json:"description"`
+	Kind        EventKind   `json:"kind"`
+	Domain      EventDomain `json:"domain"`
+	Stage       EventStage  `json:"stage"`
+	Schema      int         `json:"schema"`
+	Required    []string    `json:"required"`
+	Optional    []string    `json:"optional"`
+	Description string      `json:"description"`
 }
 
 var EventCatalog = map[EventKind]EventPayloadSchema{
@@ -178,6 +179,10 @@ var EventCatalog = map[EventKind]EventPayloadSchema{
 	EventKindSandboxResumeFailed: {
 		Kind: EventKindSandboxResumeFailed, Domain: eventDomainSandbox, Stage: EventStageLifecycle, Schema: eventContractSchemaVersion,
 		Required: []string{"duration_ms", "error"}, Description: "Sandbox resume failed.",
+	},
+	EventKindSandboxConfigured: {
+		Kind: EventKindSandboxConfigured, Domain: eventDomainSandbox, Stage: EventStageLifecycle, Schema: eventContractSchemaVersion,
+		Optional: []string{"cores", "memory_mb"}, Description: "Sandbox resource configuration was updated.",
 	},
 	EventKindSandboxDestroyCompleted: {
 		Kind: EventKindSandboxDestroyCompleted, Domain: eventDomainSandbox, Stage: EventStageLifecycle, Schema: eventContractSchemaVersion,
@@ -287,4 +292,3 @@ var EventCatalog = map[EventKind]EventPayloadSchema{
 		Required: []string{"name", "vmid", "port", "error"}, Description: "Exposure cleanup encountered an error.",
 	},
 }
-

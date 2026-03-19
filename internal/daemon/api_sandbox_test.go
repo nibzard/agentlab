@@ -69,6 +69,58 @@ func TestSandboxStartStopHandlers(t *testing.T) {
 	}
 }
 
+func TestSandboxUpdateHandler(t *testing.T) {
+	store := newTestStore(t)
+	backend := &stubBackend{
+		vmConfig: map[string]string{
+			"cores":  "4",
+			"memory": "8192",
+		},
+	}
+	manager := NewSandboxManager(store, backend, log.New(io.Discard, "", 0))
+	api := NewControlAPI(store, map[string]models.Profile{}, manager, nil, nil, "", log.New(io.Discard, "", 0)).WithBackend(backend)
+
+	now := time.Now().UTC()
+	sandbox := models.Sandbox{
+		VMID:          110,
+		Name:          "handler-sb",
+		Profile:       "default",
+		State:         models.SandboxRunning,
+		Keepalive:     false,
+		CreatedAt:     now,
+		LastUpdatedAt: now,
+	}
+	if err := store.CreateSandbox(context.Background(), sandbox); err != nil {
+		t.Fatalf("create sandbox: %v", err)
+	}
+
+	req := httptest.NewRequest(http.MethodPost, "/v1/sandboxes/110/update", bytes.NewBufferString(`{"cores":4,"memory_mb":8192}`))
+	rec := httptest.NewRecorder()
+	api.handleSandboxByID(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("update status = %d, want %d", rec.Code, http.StatusOK)
+	}
+	if backend.configureCalls != 1 {
+		t.Fatalf("expected configure to be called once, got %d", backend.configureCalls)
+	}
+	if backend.lastConfigureVMID != 110 {
+		t.Fatalf("configure vmid = %d, want 110", backend.lastConfigureVMID)
+	}
+	if backend.lastConfigureConfig.Cores != 4 || backend.lastConfigureConfig.MemoryMB != 8192 {
+		t.Fatalf("configure config = %#v", backend.lastConfigureConfig)
+	}
+	var resp V1SandboxResponse
+	if err := json.NewDecoder(rec.Body).Decode(&resp); err != nil {
+		t.Fatalf("decode update response: %v", err)
+	}
+	if resp.Resources == nil {
+		t.Fatalf("expected resources in response")
+	}
+	if resp.Resources.Cores != 4 || resp.Resources.MemoryMB != 8192 {
+		t.Fatalf("resources = %#v", resp.Resources)
+	}
+}
+
 func TestSandboxStopAllHandlerMixedStates(t *testing.T) {
 	store := newTestStore(t)
 	backend := &stubBackend{}

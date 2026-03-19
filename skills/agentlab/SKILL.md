@@ -1,6 +1,6 @@
 ---
 name: agentlab
-version: 1.0.0
+version: 1.1.0
 agentlab: "1+"
 description: Task-focused command bundles for AgentLab operations in Claude workflows.
 allowed-tools:
@@ -19,7 +19,7 @@ Use the following focused guides for AgentLab workflows.
 
 The bundle manifest is `bundle/manifest.json`.
 
-The top-level bundle version is `1.0.0`; install/upgrade scripts apply
+The top-level bundle version is `1.1.0`; install/upgrade scripts apply
 compatibility checks against the host manifest and skip work when already current.
 
 ## Compatibility

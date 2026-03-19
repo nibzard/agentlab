@@ -45,11 +45,11 @@ const (
 	apiErrorCodeAuthUnauthorized        = "v1/auth/unauthorized"
 	apiErrorCodeAuthForbidden           = "v1/auth/forbidden"
 	apiErrorCodeResourceNotFound        = "v1/resource/not_found"
-	apiErrorCodeConflict               = "v1/resource/conflict"
-	apiErrorCodeValidationConflict     = "v1/validation/conflict"
-	apiErrorCodeServerError            = "v1/internal/server_error"
-	apiErrorCodeServiceUnavailable     = "v1/internal/unavailable"
-	apiErrorCodeInternalError          = "v1/internal/error"
+	apiErrorCodeConflict                = "v1/resource/conflict"
+	apiErrorCodeValidationConflict      = "v1/validation/conflict"
+	apiErrorCodeServerError             = "v1/internal/server_error"
+	apiErrorCodeServiceUnavailable      = "v1/internal/unavailable"
+	apiErrorCodeInternalError           = "v1/internal/error"
 )
 
 // apiClient is an HTTP client for communicating with agentlabd.
@@ -113,31 +113,31 @@ type preflightIssue struct {
 }
 
 type jobValidatePlanRequest struct {
-	RepoURL              string             `json:"repo_url"`
-	Ref                  string             `json:"ref,omitempty"`
-	Profile              string             `json:"profile"`
-	Task                 string             `json:"task"`
-	Mode                 string             `json:"mode"`
-	TTLMinutes           *int               `json:"ttl_minutes,omitempty"`
-	Keepalive            *bool              `json:"keepalive,omitempty"`
-	WorkspaceID          *string            `json:"workspace_id,omitempty"`
+	RepoURL              string                  `json:"repo_url"`
+	Ref                  string                  `json:"ref,omitempty"`
+	Profile              string                  `json:"profile"`
+	Task                 string                  `json:"task"`
+	Mode                 string                  `json:"mode"`
+	TTLMinutes           *int                    `json:"ttl_minutes,omitempty"`
+	Keepalive            *bool                   `json:"keepalive,omitempty"`
+	WorkspaceID          *string                 `json:"workspace_id,omitempty"`
 	WorkspaceCreate      *workspaceCreateRequest `json:"workspace_create,omitempty"`
-	WorkspaceWaitSeconds *int               `json:"workspace_wait_seconds,omitempty"`
-	SessionID            *string            `json:"session_id,omitempty"`
+	WorkspaceWaitSeconds *int                    `json:"workspace_wait_seconds,omitempty"`
+	SessionID            *string                 `json:"session_id,omitempty"`
 }
 
 type jobValidatePlan struct {
-	RepoURL              string                 `json:"repo_url"`
-	Ref                  string                 `json:"ref"`
-	Profile              string                 `json:"profile"`
-	Task                 string                 `json:"task"`
-	Mode                 string                 `json:"mode"`
-	TTLMinutes           *int                   `json:"ttl_minutes,omitempty"`
-	Keepalive            bool                   `json:"keepalive"`
-	WorkspaceID          *string                `json:"workspace_id,omitempty"`
+	RepoURL              string                  `json:"repo_url"`
+	Ref                  string                  `json:"ref"`
+	Profile              string                  `json:"profile"`
+	Task                 string                  `json:"task"`
+	Mode                 string                  `json:"mode"`
+	TTLMinutes           *int                    `json:"ttl_minutes,omitempty"`
+	Keepalive            bool                    `json:"keepalive"`
+	WorkspaceID          *string                 `json:"workspace_id,omitempty"`
 	WorkspaceCreate      *workspaceCreateRequest `json:"workspace_create,omitempty"`
-	WorkspaceWaitSeconds *int                   `json:"workspace_wait_seconds,omitempty"`
-	SessionID            *string                `json:"session_id,omitempty"`
+	WorkspaceWaitSeconds *int                    `json:"workspace_wait_seconds,omitempty"`
+	SessionID            *string                 `json:"session_id,omitempty"`
 }
 
 type jobValidatePlanResponse struct {
@@ -232,20 +232,31 @@ type sandboxRevertRequest struct {
 	Restart *bool `json:"restart,omitempty"`
 }
 
+type sandboxUpdateRequest struct {
+	Cores    *int `json:"cores,omitempty"`
+	MemoryMB *int `json:"memory_mb,omitempty"`
+}
+
+type sandboxResourcesResponse struct {
+	Cores    int `json:"cores,omitempty"`
+	MemoryMB int `json:"memory_mb,omitempty"`
+}
+
 // sandboxResponse represents a sandbox returned from the API.
 type sandboxResponse struct {
-	VMID          int                     `json:"vmid"`
-	Name          string                  `json:"name"`
-	Profile       string                  `json:"profile"`
-	State         string                  `json:"state"`
-	IP            string                  `json:"ip,omitempty"`
-	WorkspaceID   *string                 `json:"workspace_id,omitempty"`
-	Network       *sandboxNetworkResponse `json:"network,omitempty"`
-	Keepalive     bool                    `json:"keepalive"`
-	LeaseExpires  *string                 `json:"lease_expires_at,omitempty"`
-	LastUsedAt    *string                 `json:"last_used_at,omitempty"`
-	CreatedAt     string                  `json:"created_at"`
-	LastUpdatedAt string                  `json:"updated_at"`
+	VMID          int                       `json:"vmid"`
+	Name          string                    `json:"name"`
+	Profile       string                    `json:"profile"`
+	State         string                    `json:"state"`
+	IP            string                    `json:"ip,omitempty"`
+	WorkspaceID   *string                   `json:"workspace_id,omitempty"`
+	Network       *sandboxNetworkResponse   `json:"network,omitempty"`
+	Keepalive     bool                      `json:"keepalive"`
+	LeaseExpires  *string                   `json:"lease_expires_at,omitempty"`
+	LastUsedAt    *string                   `json:"last_used_at,omitempty"`
+	Resources     *sandboxResourcesResponse `json:"resources,omitempty"`
+	CreatedAt     string                    `json:"created_at"`
+	LastUpdatedAt string                    `json:"updated_at"`
 }
 
 type sandboxNetworkResponse struct {
@@ -292,15 +303,15 @@ type statusSkillBundleResponse struct {
 
 // statusResponse represents the control plane status summary.
 type statusResponse struct {
-	APISchemaVersion   int                      `json:"api_schema_version"`
-	EventSchemaVersion int                      `json:"event_schema_version"`
-	Sandboxes         map[string]int           `json:"sandboxes"`
-	Jobs              map[string]int           `json:"jobs"`
-	NetworkModes      map[string]int           `json:"network_modes,omitempty"`
-	Artifacts         statusArtifactsResponse  `json:"artifacts"`
-	Metrics           statusMetricsResponse    `json:"metrics"`
-	SkillBundle       statusSkillBundleResponse `json:"skill_bundle"`
-	RecentFailures    []eventResponse          `json:"recent_failures"`
+	APISchemaVersion   int                       `json:"api_schema_version"`
+	EventSchemaVersion int                       `json:"event_schema_version"`
+	Sandboxes          map[string]int            `json:"sandboxes"`
+	Jobs               map[string]int            `json:"jobs"`
+	NetworkModes       map[string]int            `json:"network_modes,omitempty"`
+	Artifacts          statusArtifactsResponse   `json:"artifacts"`
+	Metrics            statusMetricsResponse     `json:"metrics"`
+	SkillBundle        statusSkillBundleResponse `json:"skill_bundle"`
+	RecentFailures     []eventResponse           `json:"recent_failures"`
 }
 
 type hostResponse struct {
@@ -774,15 +785,15 @@ func parseAPIError(status int, data []byte) error {
 				if code == "" {
 					code = apiErrorCode(status, msg)
 				}
-		return apiResponseError{
-			Status:  status,
-			ErrorID: strings.TrimSpace(apiErr.Error),
-			Code:    code,
-			Message: msg,
-			Details: strings.TrimSpace(apiErr.Details),
+				return apiResponseError{
+					Status:  status,
+					ErrorID: strings.TrimSpace(apiErr.Error),
+					Code:    code,
+					Message: msg,
+					Details: strings.TrimSpace(apiErr.Details),
+				}
+			}
 		}
-	}
-}
 	}
 	msg := fmt.Sprintf("request failed with status %d", status)
 	return apiResponseError{

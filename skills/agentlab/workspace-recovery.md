@@ -20,6 +20,20 @@ agentlab sandbox revert --no-restart <vmid>
 agentlab sandbox revert --force <vmid>
 ```
 
+## /sandbox-update
+Resize an existing sandbox when recovery work needs more CPU or memory.
+
+```bash
+agentlab sandbox update --cores 4 --memory 8GiB <vmid>
+agentlab sandbox update --memory 12288 <vmid>
+agentlab sandbox show <vmid>
+```
+
+Use this when:
+- a recovery/debug session is constrained by RAM or CPU
+- you want an audited control-plane change instead of `qm set`
+- you need to verify the new resource shape from the CLI after the update
+
 ## /workspace-fsck
 Validate workspace integrity before reuse.
 

@@ -69,6 +69,7 @@ func schemaResources() []schemaResource {
 		resourceSchema("/v1/sandboxes/{vmid}/start", methods("POST"), "Start sandbox", "", "V1SandboxResponse", ""),
 		resourceSchema("/v1/sandboxes/{vmid}/stop", methods("POST"), "Stop sandbox", "", "V1SandboxResponse", ""),
 		resourceSchema("/v1/sandboxes/{vmid}/touch", methods("POST"), "Touch sandbox usage timestamp", "", "V1SandboxResponse", ""),
+		resourceSchema("/v1/sandboxes/{vmid}/update", methods("POST"), "Update sandbox resources", "V1SandboxUpdateRequest", "V1SandboxResponse", ""),
 		resourceSchema("/v1/sandboxes/prune", methods("POST"), "Prune orphaned sandbox entries", "", "map[string]int", ""),
 		resourceSchema("/v1/sandboxes/stop_all", methods("POST"), "Stop all sandboxes", "V1SandboxStopAllRequest", "V1SandboxStopAllResponse", ""),
 		resourceSchema("/v1/sandboxes/validate-plan", methods("POST"), "Validate sandbox plan", "V1SandboxValidatePlanRequest", "V1SandboxValidatePlanResponse", ""),

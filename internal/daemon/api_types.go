@@ -252,6 +252,11 @@ type V1SandboxRevertRequest struct {
 	Restart *bool `json:"restart,omitempty"`
 }
 
+type V1SandboxUpdateRequest struct {
+	Cores    *int `json:"cores,omitempty"`
+	MemoryMB *int `json:"memory_mb,omitempty"`
+}
+
 type V1SandboxSnapshotCreateRequest struct {
 	Name  string `json:"name"`
 	Force bool   `json:"force,omitempty"`
@@ -259,6 +264,11 @@ type V1SandboxSnapshotCreateRequest struct {
 
 type V1SandboxSnapshotRestoreRequest struct {
 	Force bool `json:"force,omitempty"`
+}
+
+type V1SandboxResources struct {
+	Cores    int `json:"cores,omitempty"`
+	MemoryMB int `json:"memory_mb,omitempty"`
 }
 
 type V1SandboxResponse struct {
@@ -272,6 +282,7 @@ type V1SandboxResponse struct {
 	Keepalive     bool                       `json:"keepalive"`
 	LeaseExpires  *string                    `json:"lease_expires_at,omitempty"`
 	LastUsedAt    *string                    `json:"last_used_at,omitempty"`
+	Resources     *V1SandboxResources        `json:"resources,omitempty"`
 	Health        *V1SandboxLifecycleSummary `json:"health,omitempty"`
 	CreatedAt     string                     `json:"created_at"`
 	LastUpdatedAt string                     `json:"updated_at"`

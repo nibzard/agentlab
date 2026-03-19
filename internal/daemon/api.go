@@ -94,6 +94,7 @@ var (
 //   - POST   /v1/sandboxes/{vmid}/stop      - Stop a running sandbox
 //   - POST   /v1/sandboxes/{vmid}/pause     - Pause a running sandbox
 //   - POST   /v1/sandboxes/{vmid}/resume    - Resume a paused sandbox
+//   - POST   /v1/sandboxes/{vmid}/update    - Update sandbox resource settings
 //   - POST   /v1/sandboxes/stop_all         - Stop all running sandboxes
 //   - POST   /v1/sandboxes/validate-plan   - Validate a sandbox plan without creating resources
 //   - POST   /v1/sandboxes/{vmid}/touch     - Update sandbox last_used_at
@@ -131,23 +132,23 @@ var (
 //   - GET    /v1/exposures            - List exposures
 //   - DELETE /v1/exposures/{name}     - Delete exposure
 type ControlAPI struct {
-	store             *db.Store
-	profiles          map[string]models.Profile
-	backend           proxmox.Backend
-	sandboxManager    *SandboxManager
-	workspaceMgr      *WorkspaceManager
-	jobOrchestrator   *JobOrchestrator
-	exposurePublisher ExposurePublisher
-	artifactRoot      string
-	metrics           *Metrics
-	metricsEnabled    bool
-	agentSubnet       string
-	tailscaleStatus   func(context.Context) (string, error)
-	logger            *log.Logger
-	redactor          *Redactor
+	store              *db.Store
+	profiles           map[string]models.Profile
+	backend            proxmox.Backend
+	sandboxManager     *SandboxManager
+	workspaceMgr       *WorkspaceManager
+	jobOrchestrator    *JobOrchestrator
+	exposurePublisher  ExposurePublisher
+	artifactRoot       string
+	metrics            *Metrics
+	metricsEnabled     bool
+	agentSubnet        string
+	tailscaleStatus    func(context.Context) (string, error)
+	logger             *log.Logger
+	redactor           *Redactor
 	skillBundleName    string
 	skillBundleVersion string
-	now               func() time.Time
+	now                func() time.Time
 }
 
 // NewControlAPI creates a new control API instance.
@@ -1299,11 +1300,11 @@ func (api *ControlAPI) handleStatus(w http.ResponseWriter, r *http.Request) {
 	resp := V1StatusResponse{
 		APISchemaVersion:   controlAPISchemaVersion,
 		EventSchemaVersion: eventContractSchemaVersion,
-		Sandboxes:           formatSandboxCounts(sandboxCounts),
-		Jobs:                formatJobCounts(jobCounts),
-		NetworkModes:        formatNetworkModeCounts(networkModes),
-		Artifacts:           buildArtifactStatus(api.artifactRoot),
-		Metrics:             V1StatusMetrics{Enabled: api.metricsEnabled},
+		Sandboxes:          formatSandboxCounts(sandboxCounts),
+		Jobs:               formatJobCounts(jobCounts),
+		NetworkModes:       formatNetworkModeCounts(networkModes),
+		Artifacts:          buildArtifactStatus(api.artifactRoot),
+		Metrics:            V1StatusMetrics{Enabled: api.metricsEnabled},
 		SkillBundle: V1SkillBundle{
 			Name:    strings.TrimSpace(api.skillBundleName),
 			Version: strings.TrimSpace(api.skillBundleVersion),
@@ -1509,6 +1510,14 @@ func (api *ControlAPI) handleSandboxByID(w http.ResponseWriter, r *http.Request)
 				return
 			}
 			api.handleSandboxResume(w, r, vmid)
+			return
+		}
+		if parts[1] == "update" {
+			if r.Method != http.MethodPost {
+				writeMethodNotAllowed(w, []string{http.MethodPost})
+				return
+			}
+			api.handleSandboxUpdate(w, r, vmid)
 			return
 		}
 		if parts[1] == "touch" {
@@ -1795,6 +1804,7 @@ func (api *ControlAPI) handleSandboxGet(w http.ResponseWriter, r *http.Request, 
 		return
 	}
 	resp := api.sandboxToV1(sandbox)
+	resp.Resources = api.loadSandboxResources(r.Context(), vmid)
 	projection := NewEventProjection()
 	sandboxEvents, err := api.store.ListEventsBySandboxAll(r.Context(), vmid)
 	if err != nil {
@@ -3212,6 +3222,86 @@ func (api *ControlAPI) handleSandboxResume(w http.ResponseWriter, r *http.Reques
 	writeJSON(w, http.StatusOK, api.sandboxToV1(sandbox))
 }
 
+func (api *ControlAPI) handleSandboxUpdate(w http.ResponseWriter, r *http.Request, vmid int) {
+	if api.backend == nil {
+		writeError(w, http.StatusInternalServerError, "sandbox backend unavailable")
+		return
+	}
+	var req V1SandboxUpdateRequest
+	if err := decodeJSON(w, r, &req); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	if req.Cores == nil && req.MemoryMB == nil {
+		writeError(w, http.StatusBadRequest, "at least one of cores or memory_mb is required")
+		return
+	}
+	if req.Cores != nil && *req.Cores <= 0 {
+		writeError(w, http.StatusBadRequest, "cores must be positive")
+		return
+	}
+	if req.MemoryMB != nil && *req.MemoryMB <= 0 {
+		writeError(w, http.StatusBadRequest, "memory_mb must be positive")
+		return
+	}
+	if _, err := api.store.GetSandbox(r.Context(), vmid); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			writeError(w, http.StatusNotFound, "sandbox not found")
+			return
+		}
+		writeError(w, http.StatusInternalServerError, "failed to load sandbox")
+		return
+	}
+	cfg := proxmox.VMConfig{}
+	payload := map[string]any{}
+	if req.Cores != nil {
+		cfg.Cores = *req.Cores
+		payload["cores"] = *req.Cores
+	}
+	if req.MemoryMB != nil {
+		cfg.MemoryMB = *req.MemoryMB
+		payload["memory_mb"] = *req.MemoryMB
+	}
+	if err := api.backend.Configure(r.Context(), proxmox.VMID(vmid), cfg); err != nil {
+		switch {
+		case errors.Is(err, proxmox.ErrVMNotFound):
+			writeError(w, http.StatusNotFound, "sandbox VM not found")
+		default:
+			writeError(w, http.StatusInternalServerError, fmt.Sprintf("failed to update sandbox resources: %v", err))
+		}
+		return
+	}
+	if err := api.store.TouchSandbox(r.Context(), vmid); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			writeError(w, http.StatusNotFound, "sandbox not found")
+			return
+		}
+		writeError(w, http.StatusInternalServerError, "failed to update sandbox metadata")
+		return
+	}
+	sandbox, err := api.store.GetSandbox(r.Context(), vmid)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to load sandbox")
+		return
+	}
+	resp := api.sandboxToV1(sandbox)
+	resp.Resources = api.loadSandboxResources(r.Context(), vmid)
+	if resp.Resources == nil {
+		resp.Resources = &V1SandboxResources{}
+		if req.Cores != nil {
+			resp.Resources.Cores = *req.Cores
+		}
+		if req.MemoryMB != nil {
+			resp.Resources.MemoryMB = *req.MemoryMB
+		}
+		if resp.Resources.Cores == 0 && resp.Resources.MemoryMB == 0 {
+			resp.Resources = nil
+		}
+	}
+	_ = emitEvent(r.Context(), NewStoreEventRecorder(api.store), EventKindSandboxConfigured, &vmid, nil, "sandbox resources updated", payload)
+	writeJSON(w, http.StatusOK, resp)
+}
+
 func (api *ControlAPI) handleSandboxStopAll(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		writeMethodNotAllowed(w, []string{http.MethodPost})
@@ -3787,6 +3877,46 @@ func (api *ControlAPI) sandboxToV1(sb models.Sandbox) V1SandboxResponse {
 		resp.Network = profileNetworkToV1(profile)
 	}
 	return resp
+}
+
+func (api *ControlAPI) loadSandboxResources(ctx context.Context, vmid int) *V1SandboxResources {
+	if api == nil || api.backend == nil {
+		return nil
+	}
+	config, err := api.backend.VMConfig(ctx, proxmox.VMID(vmid))
+	if err != nil {
+		if api.logger != nil {
+			api.logger.Printf("sandbox %d: failed to load VM config for API response: %v", vmid, err)
+		}
+		return nil
+	}
+	return sandboxResourcesFromConfig(config)
+}
+
+func sandboxResourcesFromConfig(config map[string]string) *V1SandboxResources {
+	if len(config) == 0 {
+		return nil
+	}
+	resources := &V1SandboxResources{
+		Cores:    parseConfigInt(config, "cores"),
+		MemoryMB: parseConfigInt(config, "memory"),
+	}
+	if resources.Cores == 0 && resources.MemoryMB == 0 {
+		return nil
+	}
+	return resources
+}
+
+func parseConfigInt(config map[string]string, key string) int {
+	value := strings.TrimSpace(config[key])
+	if value == "" {
+		return 0
+	}
+	n, err := strconv.Atoi(value)
+	if err != nil || n <= 0 {
+		return 0
+	}
+	return n
 }
 
 func profileNetworkToV1(profile models.Profile) *V1SandboxNetwork {

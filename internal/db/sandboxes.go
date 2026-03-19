@@ -311,6 +311,29 @@ func (s *Store) UpdateSandboxWorkspace(ctx context.Context, vmid int, workspaceI
 	return nil
 }
 
+// TouchSandbox updates only the updated_at timestamp for a sandbox.
+func (s *Store) TouchSandbox(ctx context.Context, vmid int) error {
+	if s == nil || s.DB == nil {
+		return errors.New("db store is nil")
+	}
+	if vmid <= 0 {
+		return errors.New("vmid must be positive")
+	}
+	updatedAt := formatTime(time.Now().UTC())
+	res, err := s.DB.ExecContext(ctx, `UPDATE sandboxes SET updated_at = ? WHERE vmid = ?`, updatedAt, vmid)
+	if err != nil {
+		return fmt.Errorf("touch sandbox %d: %w", vmid, err)
+	}
+	affected, err := res.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("rows affected sandbox %d touch: %w", vmid, err)
+	}
+	if affected == 0 {
+		return sql.ErrNoRows
+	}
+	return nil
+}
+
 // RecordEvent inserts an event row.
 func (s *Store) RecordEvent(ctx context.Context, kind string, sandboxVMID *int, jobID *string, msg string, jsonPayload string) error {
 	if s == nil || s.DB == nil {

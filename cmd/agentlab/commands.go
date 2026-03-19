@@ -1094,6 +1094,8 @@ func runSandboxCommand(ctx context.Context, args []string, base commonFlags) err
 		return runSandboxList(ctx, args[1:], base)
 	case "show":
 		return runSandboxShow(ctx, args[1:], base)
+	case "update":
+		return runSandboxUpdate(ctx, args[1:], base)
 	case "start":
 		return runSandboxStart(ctx, args[1:], base)
 	case "stop":
@@ -1124,7 +1126,7 @@ func runSandboxCommand(ctx context.Context, args []string, base commonFlags) err
 		if !base.jsonOutput {
 			printSandboxUsage()
 		}
-		return unknownSubcommandError("sandbox", args[0], []string{"new", "validate", "list", "show", "start", "stop", "pause", "resume", "revert", "snapshot", "destroy", "lease", "prune", "expose", "exposed", "unexpose", "doctor"})
+		return unknownSubcommandError("sandbox", args[0], []string{"new", "validate", "list", "show", "update", "start", "stop", "pause", "resume", "revert", "snapshot", "destroy", "lease", "prune", "expose", "exposed", "unexpose", "doctor"})
 	}
 }
 
@@ -1567,6 +1569,82 @@ func runSandboxShow(ctx context.Context, args []string, base commonFlags) error 
 		return err
 	}
 	payload, err := client.doJSON(ctx, http.MethodGet, path, nil)
+	if err != nil {
+		return wrapSandboxNotFound(ctx, client, vmid, err)
+	}
+	if opts.jsonOutput {
+		return prettyPrintJSON(os.Stdout, payload)
+	}
+	var resp sandboxResponse
+	if err := json.Unmarshal(payload, &resp); err != nil {
+		return err
+	}
+	printSandbox(resp)
+	return nil
+}
+
+func runSandboxUpdate(ctx context.Context, args []string, base commonFlags) error {
+	fs := newFlagSet("sandbox update")
+	opts := base
+	opts.bind(fs)
+	var cores int
+	var memory string
+	help := bindHelpFlag(fs)
+	fs.IntVar(&cores, "cores", 0, "number of CPU cores")
+	fs.StringVar(&memory, "memory", "", "memory size in MiB or GiB (for example 8192 or 8GiB)")
+	if err := parseFlags(fs, args, printSandboxUpdateUsage, help, opts.jsonOutput); err != nil {
+		return err
+	}
+	if fs.NArg() < 1 {
+		if !opts.jsonOutput {
+			printSandboxUpdateUsage()
+		}
+		return fmt.Errorf("vmid is required")
+	}
+	vmid, err := parseVMID(fs.Arg(0))
+	if err != nil {
+		return err
+	}
+	if fs.NArg() > 1 {
+		if !opts.jsonOutput {
+			printSandboxUpdateUsage()
+		}
+		return fmt.Errorf("unexpected arguments: %s", strings.Join(fs.Args()[1:], " "))
+	}
+	if cores < 0 {
+		return fmt.Errorf("cores must be positive")
+	}
+	var coresPtr *int
+	if cores > 0 {
+		value := cores
+		coresPtr = &value
+	}
+	memory = strings.TrimSpace(memory)
+	var memoryPtr *int
+	if memory != "" {
+		value, err := parseMemoryMB(memory)
+		if err != nil {
+			return err
+		}
+		memoryPtr = &value
+	}
+	if coresPtr == nil && memoryPtr == nil {
+		if !opts.jsonOutput {
+			printSandboxUpdateUsage()
+		}
+		return fmt.Errorf("at least one of --cores or --memory is required")
+	}
+
+	client, err := apiClientFromFlags(opts)
+	if err != nil {
+		return err
+	}
+	path, err := endpointPath("/v1/sandboxes", strconv.Itoa(vmid), "update")
+	if err != nil {
+		return err
+	}
+	req := sandboxUpdateRequest{Cores: coresPtr, MemoryMB: memoryPtr}
+	payload, err := client.doJSON(ctx, http.MethodPost, path, req)
 	if err != nil {
 		return wrapSandboxNotFound(ctx, client, vmid, err)
 	}
@@ -3659,6 +3737,18 @@ func printSandbox(sb sandboxResponse) {
 	fmt.Printf("Network Mode: %s\n", mode)
 	fmt.Printf("Firewall: %s\n", firewall)
 	fmt.Printf("Firewall Group: %s\n", firewallGroup)
+	resourceCores := "-"
+	resourceMemory := "-"
+	if sb.Resources != nil {
+		if sb.Resources.Cores > 0 {
+			resourceCores = strconv.Itoa(sb.Resources.Cores)
+		}
+		if sb.Resources.MemoryMB > 0 {
+			resourceMemory = fmt.Sprintf("%d MiB", sb.Resources.MemoryMB)
+		}
+	}
+	fmt.Printf("CPU Cores: %s\n", resourceCores)
+	fmt.Printf("Memory: %s\n", resourceMemory)
 	fmt.Printf("Keepalive: %t\n", sb.Keepalive)
 	fmt.Printf("Lease Expires: %s\n", orDashPtr(sb.LeaseExpires))
 	fmt.Printf("Last Used At: %s\n", orDashPtr(sb.LastUsedAt))
@@ -4386,6 +4476,38 @@ func parseSizeGB(value string) (int, error) {
 		return 0, fmt.Errorf("invalid size %q", value)
 	}
 	return size, nil
+}
+
+func parseMemoryMB(value string) (int, error) {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return 0, fmt.Errorf("memory is required")
+	}
+	lower := strings.ToLower(value)
+	multiplier := 1
+	switch {
+	case strings.HasSuffix(lower, "gib"):
+		lower = strings.TrimSuffix(lower, "gib")
+		multiplier = 1024
+	case strings.HasSuffix(lower, "gb"):
+		lower = strings.TrimSuffix(lower, "gb")
+		multiplier = 1024
+	case strings.HasSuffix(lower, "g"):
+		lower = strings.TrimSuffix(lower, "g")
+		multiplier = 1024
+	case strings.HasSuffix(lower, "mib"):
+		lower = strings.TrimSuffix(lower, "mib")
+	case strings.HasSuffix(lower, "mb"):
+		lower = strings.TrimSuffix(lower, "mb")
+	case strings.HasSuffix(lower, "m"):
+		lower = strings.TrimSuffix(lower, "m")
+	}
+	lower = strings.TrimSpace(lower)
+	size, err := strconv.Atoi(lower)
+	if err != nil || size <= 0 {
+		return 0, fmt.Errorf("invalid memory %q", value)
+	}
+	return size * multiplier, nil
 }
 
 // parseWorkspaceWaitSeconds parses a wait duration or seconds into seconds.
