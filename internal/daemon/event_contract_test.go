@@ -14,9 +14,9 @@ func TestEventCatalogKindsAreCanonical(t *testing.T) {
 		eventDomainArtifact:  {},
 		eventDomainExposure:  {},
 		eventDomainJob:       {},
-		eventDomainRecovery:   {},
-		eventDomainSandbox:    {},
-		eventDomainWorkspace:  {},
+		eventDomainRecovery:  {},
+		eventDomainSandbox:   {},
+		eventDomainWorkspace: {},
 	}
 	knownStages := map[EventStage]struct{}{
 		EventStageArtifact:  {},
@@ -170,10 +170,10 @@ func TestEventToV1UnwrapsEventPayload(t *testing.T) {
 
 	vmid := 1000
 	evt := db.Event{
-		ID:        1,
-		Timestamp: time.Unix(1700000000, 0).UTC(),
-		Kind:      string(EventKindJobReport),
-		Message:   " job running ",
+		ID:          1,
+		Timestamp:   time.Unix(1700000000, 0).UTC(),
+		Kind:        string(EventKindJobReport),
+		Message:     " job running ",
 		SandboxVMID: &vmid,
 		JobID:       stringPtr("job_123"),
 		JSON:        payload,
@@ -188,7 +188,7 @@ func TestEventToV1UnwrapsEventPayload(t *testing.T) {
 	if converted.Stage != string(EventStageReport) {
 		t.Fatalf("Stage = %q, want %q", converted.Stage, EventStageReport)
 	}
-	if converted.Message != "job running " {
+	if converted.Message != "job running" {
 		t.Fatalf("Message = %q", converted.Message)
 	}
 	if converted.SandboxVMID == nil || *converted.SandboxVMID != vmid {

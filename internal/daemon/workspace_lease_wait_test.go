@@ -31,7 +31,7 @@ func TestAcquireWorkspaceLeaseDeadline(t *testing.T) {
 	store := newTestStore(t)
 	api := NewControlAPI(store, nil, nil, nil, nil, "", nil)
 
-	base := time.Date(2026, 2, 10, 12, 0, 0, 0, time.UTC)
+	base := time.Now().UTC()
 	clock := &seqClock{times: []time.Time{
 		base,                      // start
 		base,                      // expiresAt
@@ -63,7 +63,7 @@ func TestAcquireWorkspaceLeaseNoWait(t *testing.T) {
 	store := newTestStore(t)
 	api := NewControlAPI(store, nil, nil, nil, nil, "", nil)
 
-	base := time.Date(2026, 2, 10, 12, 30, 0, 0, time.UTC)
+	base := time.Now().UTC()
 	workspace := models.Workspace{
 		ID:           "ws-nowait",
 		Name:         "ws-nowait",

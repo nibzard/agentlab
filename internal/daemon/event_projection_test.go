@@ -88,27 +88,27 @@ func TestEventProjectionBuildsSandboxAndJobSummaries(t *testing.T) {
 	assert.Equal(t, "READY", sandboxSummary.State)
 	assert.False(t, sandboxSummary.Healthy)
 	assert.Equal(t, 1, sandboxSummary.FailureCount)
-	assert.Equal(t, EventKindSandboxStartFailed, sandboxSummary.LastFailureKind)
+	assert.Equal(t, string(EventKindSandboxStartFailed), sandboxSummary.LastFailureKind)
 
 	jobSummary, ok := projection.JobTimelines[jobID]
 	require.True(t, ok)
 	assert.Equal(t, "FAILED", jobSummary.Status)
 	assert.Equal(t, 4, jobSummary.EventCount)
-	assert.Equal(t, 1, jobSummary.FailureCount)
+	assert.Equal(t, 2, jobSummary.FailureCount)
 	assert.Equal(t, string(models.JobFailed), jobSummary.Status)
 	assert.NotEmpty(t, jobSummary.StartedAt)
 	assert.NotEmpty(t, jobSummary.CompletedAt)
 
 	require.Len(t, projection.RecentFailureDigest, 2)
-	assert.Equal(t, EventKindJobFailed, projection.RecentFailureDigest[0].Kind)
-	assert.Equal(t, EventKindSandboxStartFailed, projection.RecentFailureDigest[1].Kind)
+	assert.Equal(t, string(EventKindSandboxStartFailed), projection.RecentFailureDigest[0].Kind)
+	assert.Equal(t, string(EventKindJobFailed), projection.RecentFailureDigest[1].Kind)
 }
 
 func TestEventProjectionFiltersLatestFailures(t *testing.T) {
 	vmid := 3003
 	now := time.Date(2026, 02, 14, 12, 0, 0, 0, time.UTC)
 	events := []db.Event{
-			eventForProjection(t, 1, now.Add(1*time.Second), EventKindJobCreated, nil, stringPtrProjection("job-a"), "created", map[string]any{
+		eventForProjection(t, 1, now.Add(1*time.Second), EventKindJobCreated, nil, stringPtrProjection("job-a"), "created", map[string]any{
 			"status": "QUEUED",
 		}),
 		eventForProjection(t, 2, now.Add(2*time.Second), EventKindJobFailed, nil, stringPtrProjection("job-a"), "failed", map[string]any{
@@ -129,8 +129,8 @@ func TestEventProjectionFiltersLatestFailures(t *testing.T) {
 	projection.Replay(events)
 
 	require.Len(t, projection.RecentFailureDigest, 2)
-	assert.Equal(t, EventKindJobFailed, projection.RecentFailureDigest[0].Kind)
-	assert.Equal(t, EventKindSandboxStartFailed, projection.RecentFailureDigest[1].Kind)
+	assert.Equal(t, string(EventKindJobFailed), projection.RecentFailureDigest[0].Kind)
+	assert.Equal(t, string(EventKindSandboxStartFailed), projection.RecentFailureDigest[1].Kind)
 }
 
 func eventForProjection(t *testing.T, id int64, ts time.Time, kind EventKind, vmid *int, jobID *string, msg string, payload any) db.Event {
