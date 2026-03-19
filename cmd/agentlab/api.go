@@ -270,6 +270,35 @@ type sandboxesResponse struct {
 	Sandboxes []sandboxResponse `json:"sandboxes"`
 }
 
+type sandboxInventoryEntry struct {
+	VMID          int      `json:"vmid"`
+	Name          string   `json:"name,omitempty"`
+	Managed       bool     `json:"managed"`
+	Profile       string   `json:"profile,omitempty"`
+	AgentlabState string   `json:"agentlab_state,omitempty"`
+	ProxmoxStatus string   `json:"proxmox_status,omitempty"`
+	AgentlabIP    string   `json:"agentlab_ip,omitempty"`
+	TailscaleDNS  string   `json:"tailscale_dns,omitempty"`
+	TailscaleIPs  []string `json:"tailscale_ips,omitempty"`
+	Drift         []string `json:"drift,omitempty"`
+}
+
+type sandboxInventoryResponse struct {
+	Sandboxes []sandboxInventoryEntry `json:"sandboxes"`
+}
+
+type sandboxReconcileRequest struct {
+	Apply bool `json:"apply,omitempty"`
+}
+
+type sandboxReconcileResponse struct {
+	DryRun     bool                    `json:"dry_run"`
+	Checked    int                     `json:"checked"`
+	Drifted    int                     `json:"drifted"`
+	Reconciled int                     `json:"reconciled"`
+	Results    []sandboxInventoryEntry `json:"results"`
+}
+
 // profileResponse represents a profile returned from the API.
 type profileResponse struct {
 	Name         string `json:"name"`

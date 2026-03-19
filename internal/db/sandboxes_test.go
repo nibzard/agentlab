@@ -454,6 +454,45 @@ func TestUpdateSandboxState(t *testing.T) {
 	})
 }
 
+func TestForceSetSandboxState(t *testing.T) {
+	ctx := context.Background()
+
+	t.Run("success", func(t *testing.T) {
+		store := openTestStore(t)
+		sb := testutil.NewTestSandbox(testutil.SandboxOpts{
+			VMID:  testutil.TestVMID,
+			State: models.SandboxDestroyed,
+		})
+		err := store.CreateSandbox(ctx, sb)
+		require.NoError(t, err)
+
+		err = store.ForceSetSandboxState(ctx, testutil.TestVMID, models.SandboxRunning)
+		require.NoError(t, err)
+
+		got, err := store.GetSandbox(ctx, testutil.TestVMID)
+		require.NoError(t, err)
+		assert.Equal(t, models.SandboxRunning, got.State)
+	})
+
+	t.Run("sandbox not found", func(t *testing.T) {
+		store := openTestStore(t)
+		err := store.ForceSetSandboxState(ctx, 999, models.SandboxRunning)
+		assert.Equal(t, sql.ErrNoRows, err)
+	})
+
+	t.Run("invalid vmid", func(t *testing.T) {
+		store := openTestStore(t)
+		err := store.ForceSetSandboxState(ctx, 0, models.SandboxRunning)
+		assert.EqualError(t, err, "vmid must be positive")
+	})
+
+	t.Run("missing state", func(t *testing.T) {
+		store := openTestStore(t)
+		err := store.ForceSetSandboxState(ctx, 1, "")
+		assert.EqualError(t, err, "sandbox state is required")
+	})
+}
+
 func TestUpdateSandboxLease(t *testing.T) {
 	ctx := context.Background()
 

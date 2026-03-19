@@ -1092,6 +1092,10 @@ func runSandboxCommand(ctx context.Context, args []string, base commonFlags) err
 		return runSandboxValidate(ctx, args[1:], base)
 	case "list":
 		return runSandboxList(ctx, args[1:], base)
+	case "inventory":
+		return runSandboxInventory(ctx, args[1:], base)
+	case "reconcile":
+		return runSandboxReconcile(ctx, args[1:], base)
 	case "show":
 		return runSandboxShow(ctx, args[1:], base)
 	case "update":
@@ -1126,7 +1130,7 @@ func runSandboxCommand(ctx context.Context, args []string, base commonFlags) err
 		if !base.jsonOutput {
 			printSandboxUsage()
 		}
-		return unknownSubcommandError("sandbox", args[0], []string{"new", "validate", "list", "show", "update", "start", "stop", "pause", "resume", "revert", "snapshot", "destroy", "lease", "prune", "expose", "exposed", "unexpose", "doctor"})
+		return unknownSubcommandError("sandbox", args[0], []string{"new", "validate", "list", "inventory", "reconcile", "show", "update", "start", "stop", "pause", "resume", "revert", "snapshot", "destroy", "lease", "prune", "expose", "exposed", "unexpose", "doctor"})
 	}
 }
 
@@ -1539,6 +1543,64 @@ func runSandboxList(ctx context.Context, args []string, base commonFlags) error 
 		return err
 	}
 	printSandboxList(resp.Sandboxes)
+	return nil
+}
+
+func runSandboxInventory(ctx context.Context, args []string, base commonFlags) error {
+	fs := newFlagSet("sandbox inventory")
+	opts := base
+	opts.bind(fs)
+	help := bindHelpFlag(fs)
+	if err := parseFlags(fs, args, printSandboxInventoryUsage, help, opts.jsonOutput); err != nil {
+		return err
+	}
+
+	client, err := apiClientFromFlags(opts)
+	if err != nil {
+		return err
+	}
+	payload, err := client.doJSON(ctx, http.MethodGet, "/v1/sandboxes/inventory", nil)
+	if err != nil {
+		return err
+	}
+	if opts.jsonOutput {
+		return prettyPrintJSON(os.Stdout, payload)
+	}
+	var resp sandboxInventoryResponse
+	if err := json.Unmarshal(payload, &resp); err != nil {
+		return err
+	}
+	printSandboxInventory(resp.Sandboxes)
+	return nil
+}
+
+func runSandboxReconcile(ctx context.Context, args []string, base commonFlags) error {
+	fs := newFlagSet("sandbox reconcile")
+	opts := base
+	opts.bind(fs)
+	var apply bool
+	help := bindHelpFlag(fs)
+	fs.BoolVar(&apply, "apply", false, "apply supported reconciliation fixes")
+	if err := parseFlags(fs, args, printSandboxReconcileUsage, help, opts.jsonOutput); err != nil {
+		return err
+	}
+
+	client, err := apiClientFromFlags(opts)
+	if err != nil {
+		return err
+	}
+	payload, err := client.doJSON(ctx, http.MethodPost, "/v1/sandboxes/reconcile", sandboxReconcileRequest{Apply: apply})
+	if err != nil {
+		return err
+	}
+	if opts.jsonOutput {
+		return prettyPrintJSON(os.Stdout, payload)
+	}
+	var resp sandboxReconcileResponse
+	if err := json.Unmarshal(payload, &resp); err != nil {
+		return err
+	}
+	printSandboxReconcile(resp)
 	return nil
 }
 
@@ -3899,6 +3961,52 @@ func printSandboxList(sandboxes []sandboxResponse) {
 		fmt.Fprintf(w, "%d\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n", sb.VMID, sb.Name, sb.Profile, sb.State, orDash(sb.IP), mode, firewallGroup, lease, lastUsed)
 	}
 	_ = w.Flush()
+}
+
+func printSandboxInventory(sandboxes []sandboxInventoryEntry) {
+	w := tabwriter.NewWriter(os.Stdout, 2, 8, 2, ' ', 0)
+	fmt.Fprintln(w, "VMID\tNAME\tMANAGED\tPROXMOX\tAGENTLAB\tPROFILE\tAGENTLAB IP\tTS IPS\tTS DNS\tDRIFT")
+	for _, sb := range sandboxes {
+		fmt.Fprintf(
+			w,
+			"%d\t%s\t%t\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n",
+			sb.VMID,
+			orDash(sb.Name),
+			sb.Managed,
+			orDash(sb.ProxmoxStatus),
+			orDash(sb.AgentlabState),
+			orDash(sb.Profile),
+			orDash(sb.AgentlabIP),
+			orDash(strings.Join(sb.TailscaleIPs, ",")),
+			orDash(sb.TailscaleDNS),
+			orDash(strings.Join(sb.Drift, ",")),
+		)
+	}
+	_ = w.Flush()
+}
+
+func printSandboxReconcile(resp sandboxReconcileResponse) {
+	mode := "dry-run"
+	if !resp.DryRun {
+		mode = "applied"
+	}
+	fmt.Printf("Reconcile: %s\n", mode)
+	fmt.Printf("Checked: %d\n", resp.Checked)
+	fmt.Printf("Drifted: %d\n", resp.Drifted)
+	if !resp.DryRun {
+		fmt.Printf("Reconciled: %d\n", resp.Reconciled)
+	}
+	drifted := make([]sandboxInventoryEntry, 0, len(resp.Results))
+	for _, result := range resp.Results {
+		if len(result.Drift) > 0 {
+			drifted = append(drifted, result)
+		}
+	}
+	if len(drifted) == 0 {
+		return
+	}
+	fmt.Println()
+	printSandboxInventory(drifted)
 }
 
 func printPreflightIssues(label string, issues []preflightIssue) {

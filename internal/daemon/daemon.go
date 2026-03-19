@@ -282,7 +282,8 @@ func newService(cfg config.Config, profiles map[string]models.Profile, store *db
 		WithRedactor(redactor).
 		WithSkillBundle(cfg.ClaudeSkillBundleName, cfg.ClaudeSkillBundleVersion).
 		WithAgentSubnet(agentCIDR).
-		WithTailscaleStatus(defaultTailscaleDNSName)
+		WithTailscaleStatus(defaultTailscaleDNSName).
+		WithTailscalePeerInventory(defaultTailscalePeerInventory)
 	controlAPI.Register(localMux)
 
 	bootstrapMux := http.NewServeMux()

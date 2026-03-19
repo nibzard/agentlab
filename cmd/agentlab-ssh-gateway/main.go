@@ -165,7 +165,7 @@ func handleSession(newChannel ssh.NewChannel, username string, cfg gatewayConfig
 	var (
 		remoteClient  *ssh.Client
 		remoteSession *ssh.Session
-		ptyRequest    *ptyRequest
+		ptyReq        *ptyRequest
 		envRequests   []envRequest
 		once          sync.Once
 		closed        bool
@@ -174,7 +174,7 @@ func handleSession(newChannel ssh.NewChannel, username string, cfg gatewayConfig
 	closeSession := func(status uint32) {
 		once.Do(func() {
 			if !closed {
-				_ = channel.SendRequest("exit-status", false, ssh.Marshal(struct{ Status uint32 }{Status: status}))
+				_, _ = channel.SendRequest("exit-status", false, ssh.Marshal(struct{ Status uint32 }{Status: status}))
 				closed = true
 			}
 			_ = channel.Close()
@@ -206,8 +206,8 @@ func handleSession(newChannel ssh.NewChannel, username string, cfg gatewayConfig
 		remoteSession.Stdout = channel
 		remoteSession.Stderr = channel.Stderr()
 		remoteSession.Stdin = channel
-		if ptyRequest != nil {
-			_ = remoteSession.RequestPty(ptyRequest.Term, int(ptyRequest.Rows), int(ptyRequest.Cols), int(ptyRequest.Height), int(ptyRequest.Width), ssh.TerminalModes{})
+		if ptyReq != nil {
+			_ = remoteSession.RequestPty(ptyReq.Term, int(ptyReq.Rows), int(ptyReq.Cols), ssh.TerminalModes{})
 		}
 		for _, env := range envRequests {
 			_ = remoteSession.Setenv(env.Name, env.Value)
@@ -235,7 +235,7 @@ func handleSession(newChannel ssh.NewChannel, username string, cfg gatewayConfig
 				_ = req.Reply(false, nil)
 				continue
 			}
-			ptyRequest = &pty
+			ptyReq = &pty
 			_ = req.Reply(true, nil)
 		case "env":
 			var env envRequest

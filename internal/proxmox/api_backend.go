@@ -381,15 +381,43 @@ func (b *APIBackend) Status(ctx context.Context, vmid VMID) (Status, error) {
 	if err := json.Unmarshal(data, &result); err != nil {
 		return StatusUnknown, fmt.Errorf("parse status: %w", err)
 	}
+	return normalizeVMStatus(result.Status), nil
+}
 
-	switch strings.ToLower(result.Status) {
-	case "running":
-		return StatusRunning, nil
-	case "stopped":
-		return StatusStopped, nil
-	default:
-		return StatusUnknown, nil
+func (b *APIBackend) ListVMs(ctx context.Context) ([]VMSummary, error) {
+	node, err := b.ensureNode(ctx)
+	if err != nil {
+		return nil, err
 	}
+
+	endpoint := fmt.Sprintf("/nodes/%s/qemu", node)
+	data, err := b.doGet(ctx, endpoint)
+	if err != nil {
+		return nil, err
+	}
+
+	var entries []struct {
+		VMID   int    `json:"vmid"`
+		Name   string `json:"name"`
+		Status string `json:"status"`
+	}
+	if err := json.Unmarshal(data, &entries); err != nil {
+		return nil, fmt.Errorf("parse vm list: %w", err)
+	}
+
+	out := make([]VMSummary, 0, len(entries))
+	for _, entry := range entries {
+		if entry.VMID <= 0 {
+			continue
+		}
+		out = append(out, VMSummary{
+			VMID:   VMID(entry.VMID),
+			Name:   strings.TrimSpace(entry.Name),
+			Status: normalizeVMStatus(entry.Status),
+		})
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].VMID < out[j].VMID })
+	return out, nil
 }
 
 // CurrentStats retrieves VM runtime statistics.
@@ -1144,6 +1172,17 @@ func parseTaskUPID(data []byte) string {
 		return upid
 	}
 	return ""
+}
+
+func normalizeVMStatus(value string) Status {
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case "running":
+		return StatusRunning
+	case "stopped":
+		return StatusStopped
+	default:
+		return StatusUnknown
+	}
 }
 
 func (b *APIBackend) waitForTask(ctx context.Context, node, upid string) error {

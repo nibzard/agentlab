@@ -212,6 +212,36 @@ func (s *Store) UpdateSandboxState(ctx context.Context, vmid int, from, to model
 	return affected > 0, nil
 }
 
+// ForceSetSandboxState overwrites the stored sandbox state without a compare-and-swap check.
+func (s *Store) ForceSetSandboxState(ctx context.Context, vmid int, state models.SandboxState) error {
+	if s == nil || s.DB == nil {
+		return errors.New("db store is nil")
+	}
+	if vmid <= 0 {
+		return errors.New("vmid must be positive")
+	}
+	if state == "" {
+		return errors.New("sandbox state is required")
+	}
+	updatedAt := formatTime(time.Now().UTC())
+	res, err := s.DB.ExecContext(ctx, `UPDATE sandboxes SET state = ?, updated_at = ? WHERE vmid = ?`,
+		state,
+		updatedAt,
+		vmid,
+	)
+	if err != nil {
+		return fmt.Errorf("force update sandbox %d state: %w", vmid, err)
+	}
+	affected, err := res.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("rows affected sandbox %d force state: %w", vmid, err)
+	}
+	if affected == 0 {
+		return sql.ErrNoRows
+	}
+	return nil
+}
+
 // UpdateSandboxLease updates the lease expiration timestamp.
 func (s *Store) UpdateSandboxLease(ctx context.Context, vmid int, leaseExpiresAt time.Time) error {
 	if s == nil || s.DB == nil {

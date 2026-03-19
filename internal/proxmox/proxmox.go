@@ -37,6 +37,13 @@ type VMStats struct {
 	CPUUsage float64 // Fractional CPU usage from status/current (0.0-1.0+).
 }
 
+// VMSummary contains basic inventory metadata for a VM.
+type VMSummary struct {
+	VMID   VMID
+	Name   string
+	Status Status
+}
+
 // Snapshot represents a VM snapshot returned by Proxmox.
 // ABOUTME: CreatedAt is zero when the backend cannot provide a timestamp.
 type Snapshot struct {
@@ -54,11 +61,11 @@ type VolumeInfo struct {
 
 // VMConfig contains configuration parameters for a VM.
 type VMConfig struct {
-	Name       string // VM name
-	Cores      int    // Number of CPU cores
-	MemoryMB   int    // Memory in megabytes
-	Bridge     string // Network bridge (e.g., "vmbr1")
-	NetModel   string // Network device model (e.g., "virtio")
+	Name     string // VM name
+	Cores    int    // Number of CPU cores
+	MemoryMB int    // Memory in megabytes
+	Bridge   string // Network bridge (e.g., "vmbr1")
+	NetModel string // Network device model (e.g., "virtio")
 	// Firewall applies only to net0, matching Proxmox's NIC-level firewall behavior.
 	Firewall *bool // Whether to enable Proxmox firewall for the NIC (nil = leave unchanged)
 	// FirewallGroup applies only to net0.
@@ -125,6 +132,10 @@ type Backend interface {
 	// Status retrieves the current runtime status of a VM.
 	// ABOUTME: Returns StatusRunning, StatusStopped, or StatusUnknown.
 	Status(ctx context.Context, vmid VMID) (Status, error)
+
+	// ListVMs returns the node's current VM inventory.
+	// ABOUTME: This is used for live inventory and drift reconciliation against AgentLab's database.
+	ListVMs(ctx context.Context) ([]VMSummary, error)
 
 	// CurrentStats retrieves runtime stats for a VM.
 	// ABOUTME: CPUUsage is a fractional value from Proxmox status/current.

@@ -64,6 +64,8 @@ Usage:
   agentlab [--endpoint URL] [--token TOKEN] [--socket PATH] [--json] [--timeout DURATION] sandbox new [--name <name>] [--ttl <ttl>] [--keepalive] [--workspace <id>] [--vmid <vmid>] [--job <id>] [--and-ssh] (--profile <profile> | +mod [+mod...])
   agentlab [--endpoint URL] [--token TOKEN] [--socket PATH] [--json] [--timeout DURATION] sandbox validate [--name <name>] [--ttl <ttl>] [--keepalive] [--workspace <id>] [--vmid <vmid>] [--job <id>] (+mod [+mod...] | --profile <profile>)
   agentlab [--endpoint URL] [--token TOKEN] [--socket PATH] [--json] [--timeout DURATION] sandbox list
+  agentlab [--endpoint URL] [--token TOKEN] [--socket PATH] [--json] [--timeout DURATION] sandbox inventory
+  agentlab [--endpoint URL] [--token TOKEN] [--socket PATH] [--json] [--timeout DURATION] sandbox reconcile [--apply]
   agentlab [--endpoint URL] [--token TOKEN] [--socket PATH] [--json] [--timeout DURATION] sandbox show <vmid>
   agentlab [--endpoint URL] [--token TOKEN] [--socket PATH] [--json] [--timeout DURATION] sandbox update [--cores <n>] [--memory <size>] <vmid>
   agentlab [--endpoint URL] [--token TOKEN] [--socket PATH] [--json] [--timeout DURATION] sandbox start <vmid>
@@ -402,7 +404,7 @@ func printJobDoctorUsage() {
 }
 
 func printSandboxUsage() {
-	fmt.Fprintln(os.Stdout, "Usage: agentlab sandbox <new|validate|list|show|update|start|stop|pause|resume|revert|snapshot|destroy|lease|prune|expose|exposed|unexpose|doctor>")
+	fmt.Fprintln(os.Stdout, "Usage: agentlab sandbox <new|validate|list|inventory|reconcile|show|update|start|stop|pause|resume|revert|snapshot|destroy|lease|prune|expose|exposed|unexpose|doctor>")
 }
 
 func printSandboxNewUsage() {
@@ -417,6 +419,17 @@ func printSandboxValidateUsage() {
 
 func printSandboxListUsage() {
 	fmt.Fprintln(os.Stdout, "Usage: agentlab sandbox list")
+	fmt.Fprintln(os.Stdout, "Note: Lists AgentLab database records only. Use sandbox inventory for live Proxmox/Tailscale state.")
+}
+
+func printSandboxInventoryUsage() {
+	fmt.Fprintln(os.Stdout, "Usage: agentlab sandbox inventory")
+	fmt.Fprintln(os.Stdout, "Note: Lists live Proxmox VMs and annotates them with AgentLab state and Tailscale metadata when available.")
+}
+
+func printSandboxReconcileUsage() {
+	fmt.Fprintln(os.Stdout, "Usage: agentlab sandbox reconcile [--apply]")
+	fmt.Fprintln(os.Stdout, "Note: Without --apply this reports drift only. --apply fixes supported AgentLab/Proxmox mismatches, including restored VMs.")
 }
 
 func printSandboxShowUsage() {

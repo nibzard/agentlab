@@ -298,6 +298,35 @@ type V1SandboxesResponse struct {
 	Sandboxes []V1SandboxResponse `json:"sandboxes"`
 }
 
+type V1SandboxInventoryEntry struct {
+	VMID          int      `json:"vmid"`
+	Name          string   `json:"name,omitempty"`
+	Managed       bool     `json:"managed"`
+	Profile       string   `json:"profile,omitempty"`
+	AgentlabState string   `json:"agentlab_state,omitempty"`
+	ProxmoxStatus string   `json:"proxmox_status,omitempty"`
+	AgentlabIP    string   `json:"agentlab_ip,omitempty"`
+	TailscaleDNS  string   `json:"tailscale_dns,omitempty"`
+	TailscaleIPs  []string `json:"tailscale_ips,omitempty"`
+	Drift         []string `json:"drift,omitempty"`
+}
+
+type V1SandboxInventoryResponse struct {
+	Sandboxes []V1SandboxInventoryEntry `json:"sandboxes"`
+}
+
+type V1SandboxReconcileRequest struct {
+	Apply bool `json:"apply,omitempty"`
+}
+
+type V1SandboxReconcileResponse struct {
+	DryRun     bool                      `json:"dry_run"`
+	Checked    int                       `json:"checked"`
+	Drifted    int                       `json:"drifted"`
+	Reconciled int                       `json:"reconciled"`
+	Results    []V1SandboxInventoryEntry `json:"results"`
+}
+
 type V1Profile struct {
 	Name         string `json:"name"`
 	TemplateVMID int    `json:"template_vmid"`

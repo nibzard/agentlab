@@ -6,6 +6,7 @@ import (
 	"context"
 	"fmt"
 	"path/filepath"
+	"sort"
 	"strings"
 	"sync"
 )
@@ -231,6 +232,21 @@ func (b *FakeBackend) Status(_ context.Context, vmid VMID) (Status, error) {
 		return StatusUnknown, ErrVMNotFound
 	}
 	return vm.status, nil
+}
+
+func (b *FakeBackend) ListVMs(_ context.Context) ([]VMSummary, error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	out := make([]VMSummary, 0, len(b.vms))
+	for vmid, vm := range b.vms {
+		out = append(out, VMSummary{
+			VMID:   vmid,
+			Name:   strings.TrimSpace(vm.name),
+			Status: vm.status,
+		})
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].VMID < out[j].VMID })
+	return out, nil
 }
 
 func (b *FakeBackend) CurrentStats(_ context.Context, vmid VMID) (VMStats, error) {

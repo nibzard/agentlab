@@ -606,7 +606,29 @@ Example response:
 ```
 
 ### GET /v1/sandboxes
-List sandboxes.
+List sandbox records from AgentLab's database. This is not a live Proxmox inventory view.
+
+### GET /v1/sandboxes/inventory
+List live Proxmox VMs and annotate each entry with AgentLab state and Tailscale metadata when available.
+
+Notes:
+- Includes unmanaged Proxmox VMs with `managed=false`.
+- Includes AgentLab sandboxes missing from Proxmox when they are drifted.
+- Tailscale addresses are exposed separately from AgentLab's stored sandbox IP.
+
+### POST /v1/sandboxes/reconcile
+Detect or apply sandbox drift reconciliation against live Proxmox inventory.
+
+Body:
+
+```json
+{ "apply": true }
+```
+
+Notes:
+- `apply=false` or an empty body performs a dry run.
+- `apply=true` runs the standard sandbox reconciler and also adopts restored VMs that were previously marked `DESTROYED`.
+- Restored VM adoption clears any stale lease expiry so the sandbox is not immediately garbage-collected again.
 
 ### GET /v1/sandboxes/{vmid}
 Fetch a sandbox by VMID.

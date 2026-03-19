@@ -54,6 +54,8 @@ func schemaResources() []schemaResource {
 		resourceSchema("/v1/profiles", methods("GET"), "List configured profiles", "", "V1ProfilesResponse", ""),
 		resourceSchema("/v1/sandboxes", methods("GET"), "List sandbox records", "", "V1SandboxesResponse", ""),
 		resourceSchema("/v1/sandboxes", methods("POST"), "Create sandbox record", "V1SandboxCreateRequest", "V1SandboxResponse", ""),
+		resourceSchema("/v1/sandboxes/inventory", methods("GET"), "List live Proxmox VM inventory annotated with AgentLab state and Tailscale metadata", "", "V1SandboxInventoryResponse", ""),
+		resourceSchema("/v1/sandboxes/reconcile", methods("POST"), "Detect or apply sandbox state reconciliation against live Proxmox inventory", "V1SandboxReconcileRequest", "V1SandboxReconcileResponse", ""),
 		resourceSchema("/v1/sandboxes/{vmid}", methods("GET"), "Fetch sandbox details", "", "V1SandboxResponse", ""),
 		resourceSchema("/v1/sandboxes/{vmid}/destroy", methods("POST"), "Destroy sandbox", "", "V1SandboxResponse", ""),
 		resourceSchema("/v1/sandboxes/{vmid}/doctor", methods("POST"), "Create sandbox doctor bundle", "", "V1ArtifactUploadResponse", ""),

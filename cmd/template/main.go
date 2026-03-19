@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"os"
 	"strings"
 	"time"
 )
@@ -302,4 +303,20 @@ func generateTags(description string) []string {
 	}
 
 	return tags
+}
+
+func main() {
+	cmd := &TemplateCreateCommand{}
+	args := os.Args[1:]
+	if len(args) == 0 {
+		fmt.Fprintln(os.Stderr, cmd.Usage())
+		os.Exit(2)
+	}
+	if args[0] == "create" {
+		args = args[1:]
+	}
+	if err := cmd.Execute(args); err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(1)
+	}
 }

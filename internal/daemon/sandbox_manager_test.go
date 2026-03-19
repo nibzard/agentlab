@@ -28,8 +28,10 @@ type stubBackend struct {
 	snapshotListErr       error
 	statusErr             error
 	status                proxmox.Status
+	listVMs               []proxmox.VMSummary
 	statsErr              error
 	cpuUsage              float64
+	guestIP               string
 	vmConfig              map[string]string
 	vmConfigErr           error
 	volumeInfo            proxmox.VolumeInfo
@@ -135,6 +137,12 @@ func (s *stubBackend) Status(context.Context, proxmox.VMID) (proxmox.Status, err
 	return proxmox.StatusUnknown, nil
 }
 
+func (s *stubBackend) ListVMs(context.Context) ([]proxmox.VMSummary, error) {
+	out := make([]proxmox.VMSummary, len(s.listVMs))
+	copy(out, s.listVMs)
+	return out, nil
+}
+
 func (s *stubBackend) CurrentStats(context.Context, proxmox.VMID) (proxmox.VMStats, error) {
 	if s.statsErr != nil {
 		return proxmox.VMStats{}, s.statsErr
@@ -143,7 +151,7 @@ func (s *stubBackend) CurrentStats(context.Context, proxmox.VMID) (proxmox.VMSta
 }
 
 func (s *stubBackend) GuestIP(context.Context, proxmox.VMID) (string, error) {
-	return "", nil
+	return s.guestIP, nil
 }
 
 func (s *stubBackend) VMConfig(context.Context, proxmox.VMID) (map[string]string, error) {

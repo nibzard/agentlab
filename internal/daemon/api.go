@@ -89,6 +89,8 @@ var (
 //   - GET    /v1/status               - Control plane status summary
 //   - POST   /v1/sandboxes            - Create a new sandbox
 //   - GET    /v1/sandboxes            - List all sandboxes
+//   - GET    /v1/sandboxes/inventory  - List live Proxmox VM inventory annotated with AgentLab state
+//   - POST   /v1/sandboxes/reconcile  - Detect or apply sandbox state reconciliation
 //   - GET    /v1/sandboxes/{vmid}     - Get sandbox details
 //   - POST   /v1/sandboxes/{vmid}/start     - Start a stopped sandbox
 //   - POST   /v1/sandboxes/{vmid}/stop      - Stop a running sandbox
@@ -145,6 +147,7 @@ type ControlAPI struct {
 	metricsEnabled     bool
 	agentSubnet        string
 	tailscaleStatus    func(context.Context) (string, error)
+	tailscalePeers     func(context.Context) (map[string]tailnetPeer, error)
 	logger             *log.Logger
 	redactor           *Redactor
 	skillBundleName    string
@@ -235,6 +238,15 @@ func (api *ControlAPI) WithTailscaleStatus(fn func(context.Context) (string, err
 	return api
 }
 
+// WithTailscalePeerInventory provides a lookup hook for Tailscale peer discovery.
+func (api *ControlAPI) WithTailscalePeerInventory(fn func(context.Context) (map[string]tailnetPeer, error)) *ControlAPI {
+	if api == nil {
+		return api
+	}
+	api.tailscalePeers = fn
+	return api
+}
+
 // WithRedactor sets the redactor used for doctor bundles.
 func (api *ControlAPI) WithRedactor(redactor *Redactor) *ControlAPI {
 	if api == nil {
@@ -273,6 +285,8 @@ func (api *ControlAPI) Register(mux *http.ServeMux) {
 	mux.HandleFunc("/v1/status", api.handleStatus)
 	mux.HandleFunc("/v1/host", api.handleHost)
 	mux.HandleFunc("/v1/messages", api.handleMessages)
+	mux.HandleFunc("/v1/sandboxes/inventory", api.handleSandboxInventory)
+	mux.HandleFunc("/v1/sandboxes/reconcile", api.handleSandboxReconcile)
 	mux.HandleFunc("/v1/sandboxes/validate-plan", api.handleSandboxValidatePlan)
 	mux.HandleFunc("/v1/sandboxes", api.handleSandboxes)
 	mux.HandleFunc("/v1/sandboxes/", api.handleSandboxByID)

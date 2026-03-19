@@ -336,6 +336,39 @@ func (b *ShellBackend) Status(ctx context.Context, vmid VMID) (Status, error) {
 	return status, nil
 }
 
+func (b *ShellBackend) ListVMs(ctx context.Context) ([]VMSummary, error) {
+	node, err := b.ensureNode(ctx)
+	if err != nil {
+		return nil, err
+	}
+	path := fmt.Sprintf("/nodes/%s/qemu", node)
+	out, err := b.run(ctx, b.pveshPath(), "get", path, "--output-format", "json")
+	if err != nil {
+		return nil, err
+	}
+	var entries []struct {
+		VMID   int    `json:"vmid"`
+		Name   string `json:"name"`
+		Status string `json:"status"`
+	}
+	if err := json.Unmarshal([]byte(out), &entries); err != nil {
+		return nil, fmt.Errorf("parse vm list: %w", err)
+	}
+	summaries := make([]VMSummary, 0, len(entries))
+	for _, entry := range entries {
+		if entry.VMID <= 0 {
+			continue
+		}
+		summaries = append(summaries, VMSummary{
+			VMID:   VMID(entry.VMID),
+			Name:   strings.TrimSpace(entry.Name),
+			Status: normalizeVMStatus(entry.Status),
+		})
+	}
+	sort.Slice(summaries, func(i, j int) bool { return summaries[i].VMID < summaries[j].VMID })
+	return summaries, nil
+}
+
 // CurrentStats retrieves VM runtime statistics via pvesh.
 // ABOUTME: CPUUsage is reported by Proxmox status/current.
 func (b *ShellBackend) CurrentStats(ctx context.Context, vmid VMID) (VMStats, error) {
