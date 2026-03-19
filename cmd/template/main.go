@@ -252,10 +252,6 @@ func generateDisplayName(description string) string {
 	return strings.Join(words, " ")
 }
 
-func generateDescription(description string) string {
-	return description
-}
-
 func generatePackages(description string) []string {
 	packages := []string{
 		"openssh-server",

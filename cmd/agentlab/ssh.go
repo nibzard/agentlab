@@ -130,7 +130,7 @@ func runSSHCommand(ctx context.Context, args []string, base commonFlags) error {
 		return err
 	}
 
-	remoteCmd := []string{}
+	var remoteCmd []string
 	if hasExplicitRemoteCmd {
 		remoteCmd = explicitRemoteCmd
 	} else {
@@ -452,7 +452,7 @@ func extractVMIDArg(args []string) (vmid string, rest []string) {
 			switch {
 			case value == "--user", value == "--jump-host", value == "--jump-user", value == "--identity", value == "--port":
 				i++
-			case strings.HasPrefix(value, "--user="), strings.HasPrefix(value, "--jump-host="), strings.HasPrefix(value, "--jump-user="), strings.HasPrefix(value, "--identity="), strings.HasPrefix(value, "--port="):
+			case hasSSHFlagWithValue(value):
 				continue
 			default:
 				// Bool or unknown flags do not consume a value by position.
@@ -478,6 +478,15 @@ func extractVMIDArg(args []string) (vmid string, rest []string) {
 		return vmid, rest
 	}
 	return "", args
+}
+
+func hasSSHFlagWithValue(value string) bool {
+	for _, prefix := range []string{"--user=", "--jump-host=", "--jump-user=", "--identity=", "--port="} {
+		if strings.HasPrefix(value, prefix) {
+			return true
+		}
+	}
+	return false
 }
 
 func isReadableFile(path string) bool {

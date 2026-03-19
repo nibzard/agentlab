@@ -216,12 +216,12 @@ func (api *ArtifactAPI) handleUpload(w http.ResponseWriter, r *http.Request) {
 
 	if record.VMID != nil {
 		_ = emitEvent(r.Context(), NewStoreEventRecorder(api.store), EventKindArtifactUpload, record.VMID, &jobID, fmt.Sprintf("artifact uploaded: %s", relPath), map[string]any{
-			"name":      filepath.Base(relPath),
-			"path":      relPath,
-			"vmid":      record.VMID,
+			"name":       filepath.Base(relPath),
+			"path":       relPath,
+			"vmid":       record.VMID,
 			"size_bytes": artifact.SizeBytes,
-			"sha256":    artifact.Sha256,
-			"mime":      artifact.MIME,
+			"sha256":     artifact.Sha256,
+			"mime":       artifact.MIME,
 		})
 	}
 	_ = api.store.TouchArtifactToken(r.Context(), record.TokenHash, now)

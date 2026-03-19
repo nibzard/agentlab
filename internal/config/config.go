@@ -73,14 +73,14 @@ type Config struct {
 	IdleStopMinutesDefault  int
 	IdleStopCPUThreshold    float64
 	// Proxmox backend configuration
-	ProxmoxBackend          string // "shell" or "api"
-	ProxmoxCloneMode        string // "linked" or "full"
-	ProxmoxAPIURL           string // e.g., "https://localhost:8006/api2/json"
-	ProxmoxAPIToken         string // e.g., "root@pam!token=uuid"
-	ProxmoxNode             string // Proxmox node name (optional, auto-detected if empty)
-	ProxmoxTLSInsecure      bool   // Skip TLS verification for Proxmox API
-	ProxmoxTLSCAPath        string // Optional CA bundle path for Proxmox API TLS verification
-	ProxmoxAPIShellFallback bool   // Allow shell fallback for API backend volume ops
+	ProxmoxBackend           string // "shell" or "api"
+	ProxmoxCloneMode         string // "linked" or "full"
+	ProxmoxAPIURL            string // e.g., "https://localhost:8006/api2/json"
+	ProxmoxAPIToken          string // e.g., "root@pam!token=uuid"
+	ProxmoxNode              string // Proxmox node name (optional, auto-detected if empty)
+	ProxmoxTLSInsecure       bool   // Skip TLS verification for Proxmox API
+	ProxmoxTLSCAPath         string // Optional CA bundle path for Proxmox API TLS verification
+	ProxmoxAPIShellFallback  bool   // Allow shell fallback for API backend volume ops
 	ClaudeSkillBundleName    string
 	ClaudeSkillBundleVersion string
 }
@@ -95,50 +95,50 @@ type Config struct {
 // configuration overrides. Duration fields accept Go duration format
 // strings (e.g., "30s", "5m", "1h").
 type FileConfig struct {
-	ProfilesDir             string   `yaml:"profiles_dir"`
-	DataDir                 string   `yaml:"data_dir"`
-	LogDir                  string   `yaml:"log_dir"`
-	RunDir                  string   `yaml:"run_dir"`
-	SocketPath              string   `yaml:"socket_path"`
-	ControlListen           string   `yaml:"control_listen"`
-	ControlAuthToken        string   `yaml:"control_auth_token"`
-	ControlAllowCIDRs       []string `yaml:"control_allow_cidrs"`
-	DBPath                  string   `yaml:"db_path"`
-	BootstrapListen         string   `yaml:"bootstrap_listen"`
-	ArtifactListen          string   `yaml:"artifact_listen"`
-	MetricsListen           string   `yaml:"metrics_listen"`
-	AgentSubnet             string   `yaml:"agent_subnet"`
-	ControllerURL           string   `yaml:"controller_url"`
-	ArtifactUploadURL       string   `yaml:"artifact_upload_url"`
-	ArtifactDir             string   `yaml:"artifact_dir"`
-	ArtifactMaxBytes        int64    `yaml:"artifact_max_bytes"`
-	ArtifactTokenTTLMinutes int      `yaml:"artifact_token_ttl_minutes"`
-	BootstrapRateLimitQPS   *float64 `yaml:"bootstrap_rate_limit_qps"`
-	BootstrapRateLimitBurst *int     `yaml:"bootstrap_rate_limit_burst"`
-	ArtifactRateLimitQPS    *float64 `yaml:"artifact_rate_limit_qps"`
-	ArtifactRateLimitBurst  *int     `yaml:"artifact_rate_limit_burst"`
-	SecretsDir              string   `yaml:"secrets_dir"`
-	SecretsBundle           string   `yaml:"secrets_bundle"`
-	SecretsAgeKeyPath       string   `yaml:"secrets_age_key_path"`
-	SecretsSopsPath         string   `yaml:"secrets_sops_path"`
-	SnippetsDir             string   `yaml:"snippets_dir"`
-	SnippetStorage          string   `yaml:"snippet_storage"`
-	SSHPublicKey            string   `yaml:"ssh_public_key"`
-	SSHPublicKeyPath        string   `yaml:"ssh_public_key_path"`
-	ProxmoxCommandTimeout   string   `yaml:"proxmox_command_timeout"`
-	ProvisioningTimeout     string   `yaml:"provisioning_timeout"`
-	IdleStopEnabled         *bool    `yaml:"idle_stop_enabled"`
-	IdleStopInterval        string   `yaml:"idle_stop_interval"`
-	IdleStopMinutesDefault  *int     `yaml:"idle_stop_minutes_default"`
-	IdleStopCPUThreshold    *float64 `yaml:"idle_stop_cpu_threshold"`
-	ProxmoxBackend          string   `yaml:"proxmox_backend"`
-	ProxmoxCloneMode        string   `yaml:"proxmox_clone_mode"`
-	ProxmoxAPIURL           string   `yaml:"proxmox_api_url"`
-	ProxmoxAPIToken         string   `yaml:"proxmox_api_token"`
-	ProxmoxNode             string   `yaml:"proxmox_node"`
-	ProxmoxTLSInsecure      *bool    `yaml:"proxmox_tls_insecure"`
-	ProxmoxTLSCAPath        string   `yaml:"proxmox_tls_ca_path"`
-	ProxmoxAPIShellFallback *bool    `yaml:"proxmox_api_shell_fallback"`
+	ProfilesDir              string   `yaml:"profiles_dir"`
+	DataDir                  string   `yaml:"data_dir"`
+	LogDir                   string   `yaml:"log_dir"`
+	RunDir                   string   `yaml:"run_dir"`
+	SocketPath               string   `yaml:"socket_path"`
+	ControlListen            string   `yaml:"control_listen"`
+	ControlAuthToken         string   `yaml:"control_auth_token"`
+	ControlAllowCIDRs        []string `yaml:"control_allow_cidrs"`
+	DBPath                   string   `yaml:"db_path"`
+	BootstrapListen          string   `yaml:"bootstrap_listen"`
+	ArtifactListen           string   `yaml:"artifact_listen"`
+	MetricsListen            string   `yaml:"metrics_listen"`
+	AgentSubnet              string   `yaml:"agent_subnet"`
+	ControllerURL            string   `yaml:"controller_url"`
+	ArtifactUploadURL        string   `yaml:"artifact_upload_url"`
+	ArtifactDir              string   `yaml:"artifact_dir"`
+	ArtifactMaxBytes         int64    `yaml:"artifact_max_bytes"`
+	ArtifactTokenTTLMinutes  int      `yaml:"artifact_token_ttl_minutes"`
+	BootstrapRateLimitQPS    *float64 `yaml:"bootstrap_rate_limit_qps"`
+	BootstrapRateLimitBurst  *int     `yaml:"bootstrap_rate_limit_burst"`
+	ArtifactRateLimitQPS     *float64 `yaml:"artifact_rate_limit_qps"`
+	ArtifactRateLimitBurst   *int     `yaml:"artifact_rate_limit_burst"`
+	SecretsDir               string   `yaml:"secrets_dir"`
+	SecretsBundle            string   `yaml:"secrets_bundle"`
+	SecretsAgeKeyPath        string   `yaml:"secrets_age_key_path"`
+	SecretsSopsPath          string   `yaml:"secrets_sops_path"`
+	SnippetsDir              string   `yaml:"snippets_dir"`
+	SnippetStorage           string   `yaml:"snippet_storage"`
+	SSHPublicKey             string   `yaml:"ssh_public_key"`
+	SSHPublicKeyPath         string   `yaml:"ssh_public_key_path"`
+	ProxmoxCommandTimeout    string   `yaml:"proxmox_command_timeout"`
+	ProvisioningTimeout      string   `yaml:"provisioning_timeout"`
+	IdleStopEnabled          *bool    `yaml:"idle_stop_enabled"`
+	IdleStopInterval         string   `yaml:"idle_stop_interval"`
+	IdleStopMinutesDefault   *int     `yaml:"idle_stop_minutes_default"`
+	IdleStopCPUThreshold     *float64 `yaml:"idle_stop_cpu_threshold"`
+	ProxmoxBackend           string   `yaml:"proxmox_backend"`
+	ProxmoxCloneMode         string   `yaml:"proxmox_clone_mode"`
+	ProxmoxAPIURL            string   `yaml:"proxmox_api_url"`
+	ProxmoxAPIToken          string   `yaml:"proxmox_api_token"`
+	ProxmoxNode              string   `yaml:"proxmox_node"`
+	ProxmoxTLSInsecure       *bool    `yaml:"proxmox_tls_insecure"`
+	ProxmoxTLSCAPath         string   `yaml:"proxmox_tls_ca_path"`
+	ProxmoxAPIShellFallback  *bool    `yaml:"proxmox_api_shell_fallback"`
 	ClaudeSkillBundleName    string   `yaml:"claude_skill_bundle_name"`
 	ClaudeSkillBundleVersion string   `yaml:"claude_skill_bundle_version"`
 }

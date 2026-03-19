@@ -535,39 +535,6 @@ func NewShellBackendWithBashRunner(node string, agentCIDR string, qmPath string,
 	}
 }
 
-func (b *ShellBackend) pollGuestAgentIP(ctx context.Context, node string, vmid VMID) (string, error) {
-	attempts := 0
-	if _, ok := ctx.Deadline(); !ok {
-		// Avoid infinite polling with a background context.
-		attempts = b.guestIPAttempts()
-	}
-	wait := b.guestIPInitialWait()
-	maxWait := b.guestIPMaxWait()
-	var lastErr error
-	for i := 0; ; i++ {
-		ip, err := b.guestAgentIP(ctx, node, vmid)
-		if err == nil && ip != "" {
-			return ip, nil
-		}
-		if err != nil {
-			lastErr = err
-		} else {
-			lastErr = ErrGuestIPNotFound
-		}
-		if attempts > 0 && i >= attempts-1 {
-			break
-		}
-		if err := b.sleep(ctx, wait); err != nil {
-			return "", err
-		}
-		wait = nextBackoff(wait, maxWait)
-	}
-	if lastErr == nil {
-		lastErr = ErrGuestIPNotFound
-	}
-	return "", lastErr
-}
-
 func (b *ShellBackend) guestAgentIP(ctx context.Context, node string, vmid VMID) (string, error) {
 	path := fmt.Sprintf("/nodes/%s/qemu/%d/agent/network-get-interfaces", node, vmid)
 	out, err := b.run(ctx, b.pveshPath(), "get", path, "--output-format", "json")
@@ -603,47 +570,6 @@ func (b *ShellBackend) selectIP(ips []net.IP) (string, error) {
 		}
 	}
 	return ips[0].String(), nil
-}
-
-func (b *ShellBackend) dhcpLeaseIP(ctx context.Context, vmid VMID) (string, error) {
-	var netblock *net.IPNet
-	if b.AgentCIDR != "" {
-		_, parsed, err := net.ParseCIDR(b.AgentCIDR)
-		if err != nil {
-			return "", fmt.Errorf("invalid agent CIDR %q: %w", b.AgentCIDR, err)
-		}
-		netblock = parsed
-	}
-	out, err := b.run(ctx, b.qmPath(), "config", strconv.Itoa(int(vmid)))
-	if err != nil {
-		return "", err
-	}
-	macs := parseNetMACs(out)
-	if len(macs) == 0 {
-		return "", fmt.Errorf("%w: no MAC addresses found", ErrGuestIPNotFound)
-	}
-	leaseFiles := b.leasePaths()
-	if len(leaseFiles) == 0 {
-		return "", fmt.Errorf("%w: no DHCP lease files configured", ErrGuestIPNotFound)
-	}
-	var readErr error
-	for _, path := range leaseFiles {
-		content, err := os.ReadFile(path)
-		if err != nil {
-			if os.IsNotExist(err) {
-				continue
-			}
-			readErr = err
-			continue
-		}
-		if ip := findLeaseIP(content, macs, netblock); ip != "" {
-			return ip, nil
-		}
-	}
-	if readErr != nil {
-		return "", readErr
-	}
-	return "", ErrGuestIPNotFound
 }
 
 func (b *ShellBackend) CreateVolume(ctx context.Context, storage, name string, sizeGB int) (string, error) {

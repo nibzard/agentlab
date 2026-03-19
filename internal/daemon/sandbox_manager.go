@@ -385,7 +385,7 @@ func (m *SandboxManager) Start(ctx context.Context, vmid int) (err error) {
 	defer func() {
 		duration := m.now().UTC().Sub(startedAt)
 		if err != nil {
-		m.recordLifecycleEvent(ctx, vmid, EventKindSandboxStartFailed, fmt.Sprintf("start failed: %s", err.Error()), lifecycleEventPayload{
+			m.recordLifecycleEvent(ctx, vmid, EventKindSandboxStartFailed, fmt.Sprintf("start failed: %s", err.Error()), lifecycleEventPayload{
 				DurationMS: duration.Milliseconds(),
 				Error:      err.Error(),
 			})

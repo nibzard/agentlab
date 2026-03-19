@@ -507,7 +507,7 @@ func (b *APIBackend) GuestIP(ctx context.Context, vmid VMID) (string, error) {
 	wait := 250 * time.Millisecond
 	maxWait := 2 * time.Second
 
-	qgaErr := ErrGuestIPNotFound
+	var qgaErr error
 	for i := 0; ; i++ {
 		if len(macs) > 0 && len(leaseFiles) > 0 {
 			var readErr error
@@ -550,6 +550,9 @@ func (b *APIBackend) GuestIP(ctx context.Context, vmid VMID) (string, error) {
 		wait = nextBackoff(wait, maxWait)
 	}
 
+	if qgaErr == nil {
+		qgaErr = ErrGuestIPNotFound
+	}
 	if ctx.Err() != nil {
 		return "", ctx.Err()
 	}
@@ -1223,41 +1226,6 @@ func (b *APIBackend) waitForTask(ctx context.Context, node, upid string) error {
 	}
 }
 
-func (b *APIBackend) pollGuestAgentIP(ctx context.Context, node string, vmid VMID) (string, error) {
-	attempts := 0
-	if _, ok := ctx.Deadline(); !ok {
-		// Avoid infinite polling with a background context.
-		attempts = 30
-	}
-	wait := 500 * time.Millisecond
-	maxWait := 10 * time.Second
-
-	var lastErr error
-	for i := 0; ; i++ {
-		ip, err := b.guestAgentIP(ctx, node, vmid)
-		if err == nil && ip != "" {
-			return ip, nil
-		}
-		if err != nil {
-			lastErr = err
-		} else {
-			lastErr = ErrGuestIPNotFound
-		}
-		if attempts > 0 && i >= attempts-1 {
-			break
-		}
-		if err := b.sleep(ctx, wait); err != nil {
-			return "", err
-		}
-		wait = nextBackoff(wait, maxWait)
-	}
-
-	if lastErr == nil {
-		lastErr = ErrGuestIPNotFound
-	}
-	return "", lastErr
-}
-
 func (b *APIBackend) guestAgentIP(ctx context.Context, node string, vmid VMID) (string, error) {
 	endpoint := fmt.Sprintf("/nodes/%s/qemu/%d/agent/network-get-interfaces", node, vmid)
 	data, err := b.doGet(ctx, endpoint)
@@ -1310,77 +1278,6 @@ func isGuestAgentNotRunningError(err error) bool {
 	// Treat this as "not found" so callers can fall back to other IP discovery mechanisms.
 	msg := strings.ToLower(err.Error())
 	return strings.Contains(msg, "qemu guest agent is not running") || strings.Contains(msg, "guest agent is not running")
-}
-
-func (b *APIBackend) dhcpLeaseIP(ctx context.Context, vmid VMID) (string, error) {
-	var netblock *net.IPNet
-	if b.AgentCIDR != "" {
-		_, parsed, err := net.ParseCIDR(b.AgentCIDR)
-		if err != nil {
-			return "", fmt.Errorf("invalid agent CIDR %q: %w", b.AgentCIDR, err)
-		}
-		netblock = parsed
-	}
-
-	node, err := b.ensureNode(ctx)
-	if err != nil {
-		return "", err
-	}
-
-	// Get VM config to find MAC addresses
-	endpoint := fmt.Sprintf("/nodes/%s/qemu/%d/config", node, vmid)
-	data, err := b.doGet(ctx, endpoint)
-	if err != nil {
-		return "", err
-	}
-
-	// Proxmox config values can be strings, numbers, etc. We only care about "net*" keys.
-	var config map[string]interface{}
-	if err := json.Unmarshal(data, &config); err != nil {
-		return "", fmt.Errorf("parse vm config: %w", err)
-	}
-
-	macs := []string{}
-	for k, v := range config {
-		if strings.HasPrefix(k, "net") {
-			s, ok := v.(string)
-			if !ok {
-				continue
-			}
-			if mac := extractMAC(s); mac != "" {
-				macs = append(macs, normalizeMAC(mac))
-			}
-		}
-	}
-
-	if len(macs) == 0 {
-		return "", fmt.Errorf("%w: no MAC addresses found", ErrGuestIPNotFound)
-	}
-
-	leaseFiles := b.leasePaths()
-	if len(leaseFiles) == 0 {
-		return "", fmt.Errorf("%w: no DHCP lease files configured", ErrGuestIPNotFound)
-	}
-
-	var readErr error
-	for _, path := range leaseFiles {
-		content, err := os.ReadFile(path)
-		if err != nil {
-			if os.IsNotExist(err) {
-				continue
-			}
-			readErr = err
-			continue
-		}
-		if ip := findLeaseIP(content, macs, netblock); ip != "" {
-			return ip, nil
-		}
-	}
-
-	if readErr != nil {
-		return "", readErr
-	}
-	return "", ErrGuestIPNotFound
 }
 
 func (b *APIBackend) ensureRootDiskSize(ctx context.Context, node string, vmid VMID, disk string, targetGB int) error {

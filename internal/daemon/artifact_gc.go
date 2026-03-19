@@ -194,7 +194,7 @@ func (g *ArtifactGC) recordDeletionEvent(ctx context.Context, record db.Artifact
 		jobIDPtr = &jobID
 	}
 	payload := map[string]any{
-		"name":  name,
+		"name": name,
 		"vmid": record.SandboxVMID,
 		"path": record.Artifact.Path,
 	}

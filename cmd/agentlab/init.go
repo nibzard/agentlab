@@ -198,9 +198,9 @@ func collectInitReport(ctx context.Context, configPath string, fallbackPort int)
 
 	if controlListen != "" && controlToken != "" {
 		endpoint := fmt.Sprintf("http://%s", controlListen)
-	if dnsName != "" {
-		endpoint = fmt.Sprintf("http://%s:%d", dnsName, port)
-	}
+		if dnsName != "" {
+			endpoint = fmt.Sprintf("http://%s:%d", dnsName, port)
+		}
 		report.ConnectCommand = fmt.Sprintf("agentlab connect --endpoint %s --token %s", endpoint, controlToken)
 	}
 	return report, state, nil

@@ -351,12 +351,10 @@ func approveTailscaleSubnetRoute(ctx context.Context, cfg *tailscaleAdminConfig,
 		return tailscaleRouteApproval{}, errors.New("route is required")
 	}
 	enabled := uniqueRoutes(device.EnabledRoutes)
-	advertised := device.AdvertisedRoutes
-	if len(enabled) == 0 && len(advertised) == 0 {
+	if len(enabled) == 0 && len(device.AdvertisedRoutes) == 0 {
 		routesResp, err := client.getDeviceRoutes(ctx, deviceID)
 		if err == nil {
 			enabled = uniqueRoutes(routesResp.EnabledRoutes)
-			advertised = routesResp.AdvertisedRoutes
 		}
 	}
 	if containsRoute(enabled, route) {

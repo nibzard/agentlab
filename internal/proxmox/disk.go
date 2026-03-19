@@ -102,9 +102,7 @@ func parseSizeGB(size string) (float64, error) {
 	}
 	numStr := upper[:i]
 	unit := strings.TrimSpace(upper[i:])
-	if strings.HasSuffix(unit, "B") {
-		unit = strings.TrimSuffix(unit, "B")
-	}
+	unit = strings.TrimSuffix(unit, "B")
 	if unit == "" {
 		// Proxmox should always include a unit, but default to bytes if missing.
 		unit = ""

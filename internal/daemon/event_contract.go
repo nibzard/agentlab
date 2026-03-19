@@ -24,15 +24,15 @@ func NewEventPayloadForKind(kind EventKind, payload any) (string, error) {
 		return "", fmt.Errorf("marshal event payload for %s: %w", kind, err)
 	}
 	envelope := struct {
-		Kind           EventKind  `json:"kind"`
-		SchemaVersion  int        `json:"schema_version"`
-		Stage          EventStage `json:"stage"`
-		Payload        any        `json:"payload"`
+		Kind          EventKind  `json:"kind"`
+		SchemaVersion int        `json:"schema_version"`
+		Stage         EventStage `json:"stage"`
+		Payload       any        `json:"payload"`
 	}{
-		Kind:           kind,
-		SchemaVersion:  schema.Schema,
-		Stage:          schema.Stage,
-		Payload:        mustJSONPayload(encodedPayload),
+		Kind:          kind,
+		SchemaVersion: schema.Schema,
+		Stage:         schema.Stage,
+		Payload:       mustJSONPayload(encodedPayload),
 	}
 	out, err := json.Marshal(envelope)
 	if err != nil {
@@ -77,8 +77,8 @@ func parseEventPayload(raw string) (version int, stage EventStage, data json.Raw
 		return 0, "", nil, false
 	}
 	var payload struct {
-		SchemaVersion int            `json:"schema_version"`
-		Stage         EventStage     `json:"stage"`
+		SchemaVersion int             `json:"schema_version"`
+		Stage         EventStage      `json:"stage"`
 		Payload       json.RawMessage `json:"payload"`
 	}
 	if err := json.Unmarshal([]byte(raw), &payload); err == nil &&

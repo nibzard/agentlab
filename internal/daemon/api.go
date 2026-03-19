@@ -3605,7 +3605,7 @@ func (api *ControlAPI) handleSandboxSnapshotRestore(w http.ResponseWriter, r *ht
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	snapshot, err := api.sandboxManager.SnapshotRestore(r.Context(), vmid, name, SandboxSnapshotOptions{Force: req.Force})
+	snapshot, err := api.sandboxManager.SnapshotRestore(r.Context(), vmid, name, SandboxSnapshotOptions(req))
 	if err != nil {
 		var missing SnapshotMissingError
 		switch {

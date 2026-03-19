@@ -4897,13 +4897,6 @@ func ttlSecondsString(value *int) string {
 	return strconv.Itoa(*value)
 }
 
-func intOrDash(value int) string {
-	if value <= 0 {
-		return "-"
-	}
-	return strconv.Itoa(value)
-}
-
 func vmidString(value *int) string {
 	if value == nil || *value <= 0 {
 		return "-"

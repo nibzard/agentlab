@@ -11,22 +11,22 @@ const (
 	// Auth domain
 	daemonErrorCodeAuthMissingBearerToken = daemonErrorCodeVersion + "/auth/missing_bearer_token"
 	daemonErrorCodeAuthInvalidBearerToken = daemonErrorCodeVersion + "/auth/invalid_bearer_token"
-	daemonErrorCodeAuthRemoteAddress     = daemonErrorCodeVersion + "/auth/remote_address_denied"
-	daemonErrorCodeAuthUnauthorized      = daemonErrorCodeVersion + "/auth/unauthorized"
-	daemonErrorCodeAuthForbidden         = daemonErrorCodeVersion + "/auth/forbidden"
+	daemonErrorCodeAuthRemoteAddress      = daemonErrorCodeVersion + "/auth/remote_address_denied"
+	daemonErrorCodeAuthUnauthorized       = daemonErrorCodeVersion + "/auth/unauthorized"
+	daemonErrorCodeAuthForbidden          = daemonErrorCodeVersion + "/auth/forbidden"
 
 	// Validation domain
-	daemonErrorCodeValidationBadRequest      = daemonErrorCodeVersion + "/validation/bad_request"
-	daemonErrorCodeValidationMalformedJSON    = daemonErrorCodeVersion + "/validation/malformed_json"
-	daemonErrorCodeValidationMissingField    = daemonErrorCodeVersion + "/validation/missing_required_field"
-	daemonErrorCodeValidationInvalidValue    = daemonErrorCodeVersion + "/validation/invalid_value"
-	daemonErrorCodeValidationConflict        = daemonErrorCodeVersion + "/validation/conflict"
-	daemonErrorCodeValidationUnknownProfile  = daemonErrorCodeVersion + "/validation/unknown_profile"
+	daemonErrorCodeValidationBadRequest     = daemonErrorCodeVersion + "/validation/bad_request"
+	daemonErrorCodeValidationMalformedJSON  = daemonErrorCodeVersion + "/validation/malformed_json"
+	daemonErrorCodeValidationMissingField   = daemonErrorCodeVersion + "/validation/missing_required_field"
+	daemonErrorCodeValidationInvalidValue   = daemonErrorCodeVersion + "/validation/invalid_value"
+	daemonErrorCodeValidationConflict       = daemonErrorCodeVersion + "/validation/conflict"
+	daemonErrorCodeValidationUnknownProfile = daemonErrorCodeVersion + "/validation/unknown_profile"
 
 	// Provisioning domain
-	daemonErrorCodeProvisioningFailed       = daemonErrorCodeVersion + "/provisioning/failed"
-	daemonErrorCodeProvisioningLeaseHeld    = daemonErrorCodeVersion + "/provisioning/lease_held"
-	daemonErrorCodeProvisioningUnavailable  = daemonErrorCodeVersion + "/provisioning/unavailable"
+	daemonErrorCodeProvisioningFailed        = daemonErrorCodeVersion + "/provisioning/failed"
+	daemonErrorCodeProvisioningLeaseHeld     = daemonErrorCodeVersion + "/provisioning/lease_held"
+	daemonErrorCodeProvisioningUnavailable   = daemonErrorCodeVersion + "/provisioning/unavailable"
 	daemonErrorCodeProvisioningStateConflict = daemonErrorCodeVersion + "/provisioning/state_conflict"
 
 	// Workspace domain
@@ -42,12 +42,12 @@ const (
 	daemonErrorCodeNetworkInvalidIP     = daemonErrorCodeVersion + "/network/invalid_ip"
 
 	// Artifacts domain
-	daemonErrorCodeArtifactsNotFound      = daemonErrorCodeVersion + "/artifacts/not_found"
-	daemonErrorCodeArtifactsPathInvalid   = daemonErrorCodeVersion + "/artifacts/invalid_path"
-	daemonErrorCodeArtifactsUnavailable  = daemonErrorCodeVersion + "/artifacts/unavailable"
+	daemonErrorCodeArtifactsNotFound    = daemonErrorCodeVersion + "/artifacts/not_found"
+	daemonErrorCodeArtifactsPathInvalid = daemonErrorCodeVersion + "/artifacts/invalid_path"
+	daemonErrorCodeArtifactsUnavailable = daemonErrorCodeVersion + "/artifacts/unavailable"
 
 	// Generic fallbacks
-	daemonErrorCodeResourceNotFound  = daemonErrorCodeVersion + "/resource/not_found"
+	daemonErrorCodeResourceNotFound = daemonErrorCodeVersion + "/resource/not_found"
 	daemonErrorCodeConflict         = daemonErrorCodeVersion + "/resource/conflict"
 	daemonErrorCodeInternalError    = daemonErrorCodeVersion + "/internal/error"
 	daemonErrorCodeServerError      = daemonErrorCodeVersion + "/internal/server_error"
