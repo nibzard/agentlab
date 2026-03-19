@@ -258,7 +258,7 @@ func TestDispatch(t *testing.T) {
 			name:        "schema command",
 			args:        []string{"schema"},
 			wantErr:     true,
-			errContains: "failed to request /v1/schema",
+			errContains: "failed to request GET /v1/schema",
 		},
 		{
 			name:        "unknown command",

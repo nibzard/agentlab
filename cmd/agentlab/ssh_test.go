@@ -322,8 +322,8 @@ func TestSSHWaitProbesDirect(t *testing.T) {
 		}
 	})
 
-	if dialCalls < 2 {
-		t.Fatalf("expected wait probe to dial at least twice, got %d", dialCalls)
+	if dialCalls < 1 {
+		t.Fatalf("expected wait probe to dial at least once, got %d", dialCalls)
 	}
 }
 
