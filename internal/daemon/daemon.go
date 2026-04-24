@@ -333,6 +333,7 @@ func newService(cfg config.Config, profiles map[string]models.Profile, store *db
 	artifactLimiter := NewIPRateLimiter(cfg.ArtifactRateLimitQPS, cfg.ArtifactRateLimitBurst)
 	NewBootstrapAPI(store, profiles, secretsStore, cfg.SecretsBundle, agentSubnet, artifactEndpoint, time.Duration(cfg.ArtifactTokenTTLMinutes)*time.Minute, redactor, bootstrapLimiter).Register(bootstrapMux)
 	NewRunnerAPI(jobOrchestrator, agentSubnet).Register(bootstrapMux)
+	NewMetadataAPI(store, secretsStore, cfg.SecretsBundle, agentSubnet, bootstrapLimiter).Register(bootstrapMux)
 
 	artifactMux := http.NewServeMux()
 	artifactMux.HandleFunc("/healthz", healthHandler)

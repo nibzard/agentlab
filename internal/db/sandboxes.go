@@ -101,6 +101,27 @@ func (s *Store) GetSandbox(ctx context.Context, vmid int) (models.Sandbox, error
 	return scanSandboxRow(row)
 }
 
+// GetSandboxByIP loads a sandbox by its IP address.
+//
+// Parameters:
+//   - ctx: Context for cancellation
+//   - ip: The IP address of the sandbox to look up
+//
+// Returns the sandbox and nil on success, or an error if not found
+// (sql.ErrNoRows) or on database error.
+func (s *Store) GetSandboxByIP(ctx context.Context, ip string) (models.Sandbox, error) {
+	if s == nil || s.DB == nil {
+		return models.Sandbox{}, errors.New("db store is nil")
+	}
+	ip = strings.TrimSpace(ip)
+	if ip == "" {
+		return models.Sandbox{}, errors.New("ip is required")
+	}
+	row := s.DB.QueryRowContext(ctx, `SELECT vmid, name, profile, state, ip, workspace_id, keepalive, lease_expires_at, last_used_at, created_at, updated_at
+		FROM sandboxes WHERE ip = ?`, ip)
+	return scanSandboxRow(row)
+}
+
 // ListSandboxes returns all sandboxes ordered by created_at descending.
 func (s *Store) ListSandboxes(ctx context.Context) ([]models.Sandbox, error) {
 	if s == nil || s.DB == nil {

@@ -646,3 +646,42 @@ type V1RunnerReportResponse struct {
 	JobStatus     string `json:"job_status"`
 	SandboxStatus string `json:"sandbox_status,omitempty"`
 }
+
+// Metadata API types
+
+// MetadataIndexResponse describes available metadata endpoints.
+type MetadataIndexResponse struct {
+	Endpoints []MetadataEndpoint `json:"endpoints"`
+}
+
+// MetadataEndpoint describes a single metadata API endpoint.
+type MetadataEndpoint struct {
+	Path        string `json:"path"`
+	Method      string `json:"method"`
+	Description string `json:"description"`
+}
+
+// MetadataIdentityResponse returns sandbox identity information.
+//
+// This endpoint allows a sandbox to discover its own identity
+// by querying the metadata service using its source IP address.
+type MetadataIdentityResponse struct {
+	VMID        int    `json:"vmid"`
+	Name        string `json:"name"`
+	Profile     string `json:"profile"`
+	State       string `json:"state"`
+	IP          string `json:"ip,omitempty"`
+	WorkspaceID string `json:"workspace_id,omitempty"`
+	CreatedAt   string `json:"created_at,omitempty"`
+}
+
+// MetadataMetadataResponse returns sandbox metadata key-value pairs.
+type MetadataMetadataResponse struct {
+	Metadata map[string]string `json:"metadata"`
+}
+
+// MetadataSecretResponse returns a single secret value.
+type MetadataSecretResponse struct {
+	Name  string `json:"name"`
+	Value string `json:"value"`
+}
