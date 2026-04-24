@@ -32,6 +32,7 @@ import (
 	"github.com/agentlab/agentlab/internal/db"
 	"github.com/agentlab/agentlab/internal/models"
 	"github.com/agentlab/agentlab/internal/proxmox"
+	"github.com/agentlab/agentlab/internal/proxy"
 	"github.com/agentlab/agentlab/internal/secrets"
 )
 
@@ -255,7 +256,38 @@ func newService(cfg config.Config, profiles map[string]models.Profile, store *db
 	}
 	workspaceManager := NewWorkspaceManager(store, backend, log.Default())
 	sandboxManager := NewSandboxManager(store, backend, log.Default()).WithWorkspaceManager(workspaceManager).WithMetrics(metrics)
-	exposurePublisher := &TailscaleServePublisher{Runner: proxmox.ExecRunner{}}
+
+	// Build exposure publisher: Tailscale is always available,
+	// Caddy proxy is added when proxy_enabled is true in config.
+	var exposurePublisher ExposurePublisher
+	exposurePublisher = &TailscaleServePublisher{Runner: proxmox.ExecRunner{}}
+
+	if cfg.ProxyEnabled {
+		tlsMode := proxy.TLSMode(strings.TrimSpace(cfg.ProxyTLSMode))
+		if tlsMode == "" {
+			tlsMode = proxy.TLSModeSelfSigned
+		}
+		proxyCfg := proxy.ProxyConfig{
+			Enabled:      true,
+			Domain:       cfg.ProxyDomain,
+			TLSMode:      tlsMode,
+			TLSEmail:     cfg.ProxyTLSEmail,
+			CaddyAPI:     cfg.ProxyCaddyAPI,
+			HostsFile:    cfg.ProxyHostsFile,
+			CADir:        cfg.ProxyCADir,
+			TLSCertDir:   cfg.ProxyTLSCertDir,
+			ProxyIP:      cfg.ProxyIP,
+		}
+		caddyPub, err := proxy.NewCaddyPublisher(proxyCfg, log.Default())
+		if err != nil {
+			log.Printf("warning: caddy proxy init failed, using tailscale only: %v", err)
+		} else {
+			caddyAdapter := NewCaddyProxyPublisher(caddyPub)
+			exposurePublisher = NewMultiPublisher(log.Default(), exposurePublisher, caddyAdapter)
+			log.Printf("using combined tailscale + caddy proxy publisher (domain=%s, tls=%s)", cfg.ProxyDomain, tlsMode)
+		}
+	}
+
 	sandboxManager.WithExposureCleaner(NewExposureCleaner(store, exposurePublisher, log.Default()))
 	redactor := NewRedactor(nil)
 	snippetStore := proxmox.SnippetStore{

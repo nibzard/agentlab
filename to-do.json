@@ -32,12 +32,13 @@
         "Document SSH setup in README (authorized_keys, host config, port)"
       ],
       "files": [
+        "cmd/agentlab-ssh-gateway/README.md",
         "cmd/agentlab-ssh-gateway/main.go",
-        "cmd/agentlab-ssh-gateway/README.md"
+        "to-do.json"
       ],
       "depends_on": [],
       "created_at": "2026-04-24T00:00:00Z",
-      "updated_at": "2026-04-24T23:17:00Z"
+      "updated_at": "2026-04-24T23:18:24Z"
     },
     {
       "id": "IMPL-1a",
@@ -135,7 +136,7 @@
       "id": "IMPL-3",
       "title": "Caddy/Traefik reverse proxy with automatic TLS",
       "priority": 1,
-      "status": "todo",
+      "status": "done",
       "tags": [
         "networking",
         "tls",
@@ -156,13 +157,22 @@
         "Test with multiple sandboxes, verify subdomain routing and TLS"
       ],
       "files": [
-        "internal/sandbox/",
-        "internal/daemon/",
-        "cmd/agentlab/sandbox_expose.go"
+        "internal/proxy/caddy.go",
+        "internal/proxy/ca.go",
+        "internal/proxy/dns.go",
+        "internal/proxy/publisher.go",
+        "internal/proxy/caddy_test.go",
+        "internal/proxy/ca_test.go",
+        "internal/proxy/dns_test.go",
+        "internal/proxy/publisher_test.go",
+        "internal/daemon/proxy_publisher.go",
+        "internal/daemon/proxy_publisher_test.go",
+        "internal/config/config.go",
+        "internal/daemon/daemon.go"
       ],
       "depends_on": [],
       "created_at": "2026-04-24T00:00:00Z",
-      "updated_at": "2026-04-24T00:00:00Z"
+      "updated_at": "2026-04-24T23:31:00Z"
     },
     {
       "id": "IMPL-4",

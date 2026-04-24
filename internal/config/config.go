@@ -83,6 +83,16 @@ type Config struct {
 	ProxmoxAPIShellFallback  bool   // Allow shell fallback for API backend volume ops
 	ClaudeSkillBundleName    string
 	ClaudeSkillBundleVersion string
+	// Reverse proxy configuration
+	ProxyEnabled   bool
+	ProxyDomain    string // Base domain for sandbox subdomains (e.g., "agentlab.local")
+	ProxyTLSMode   string // "off", "self-signed", "letsencrypt"
+	ProxyTLSEmail  string // Email for Let's Encrypt registration
+	ProxyCaddyAPI  string // Caddy admin API endpoint (default "http://localhost:2019")
+	ProxyHostsFile string // Path to hosts file for DNS entries (default "/etc/hosts")
+	ProxyCADir     string // Directory for self-signed CA cert/key
+	ProxyTLSCertDir string // Directory for issued TLS certificates
+	ProxyIP        string // IP address the proxy listens on (for DNS entries)
 }
 
 // FileConfig represents supported YAML config overrides.
@@ -141,6 +151,15 @@ type FileConfig struct {
 	ProxmoxAPIShellFallback  *bool    `yaml:"proxmox_api_shell_fallback"`
 	ClaudeSkillBundleName    string   `yaml:"claude_skill_bundle_name"`
 	ClaudeSkillBundleVersion string   `yaml:"claude_skill_bundle_version"`
+	ProxyEnabled             *bool    `yaml:"proxy_enabled"`
+	ProxyDomain              string   `yaml:"proxy_domain"`
+	ProxyTLSMode             string   `yaml:"proxy_tls_mode"`
+	ProxyTLSEmail            string   `yaml:"proxy_tls_email"`
+	ProxyCaddyAPI            string   `yaml:"proxy_caddy_api"`
+	ProxyHostsFile           string   `yaml:"proxy_hosts_file"`
+	ProxyCADir               string   `yaml:"proxy_ca_dir"`
+	ProxyTLSCertDir          string   `yaml:"proxy_tls_cert_dir"`
+	ProxyIP                  string   `yaml:"proxy_ip"`
 }
 
 // DefaultConfig returns a Config struct with all default values set.
@@ -430,6 +449,33 @@ func applyFileConfig(cfg *Config, fileCfg FileConfig) error {
 	if fileCfg.ClaudeSkillBundleVersion != "" {
 		cfg.ClaudeSkillBundleVersion = fileCfg.ClaudeSkillBundleVersion
 	}
+	if fileCfg.ProxyEnabled != nil {
+		cfg.ProxyEnabled = *fileCfg.ProxyEnabled
+	}
+	if fileCfg.ProxyDomain != "" {
+		cfg.ProxyDomain = fileCfg.ProxyDomain
+	}
+	if fileCfg.ProxyTLSMode != "" {
+		cfg.ProxyTLSMode = fileCfg.ProxyTLSMode
+	}
+	if fileCfg.ProxyTLSEmail != "" {
+		cfg.ProxyTLSEmail = fileCfg.ProxyTLSEmail
+	}
+	if fileCfg.ProxyCaddyAPI != "" {
+		cfg.ProxyCaddyAPI = fileCfg.ProxyCaddyAPI
+	}
+	if fileCfg.ProxyHostsFile != "" {
+		cfg.ProxyHostsFile = fileCfg.ProxyHostsFile
+	}
+	if fileCfg.ProxyCADir != "" {
+		cfg.ProxyCADir = fileCfg.ProxyCADir
+	}
+	if fileCfg.ProxyTLSCertDir != "" {
+		cfg.ProxyTLSCertDir = fileCfg.ProxyTLSCertDir
+	}
+	if fileCfg.ProxyIP != "" {
+		cfg.ProxyIP = fileCfg.ProxyIP
+	}
 	return nil
 }
 
@@ -597,6 +643,18 @@ func (c Config) Validate() error {
 	}
 	if strings.TrimSpace(c.ProxmoxTLSCAPath) != "" && c.ProxmoxTLSInsecure {
 		return fmt.Errorf("proxmox_tls_insecure cannot be true when proxmox_tls_ca_path is set")
+	}
+	if c.ProxyEnabled {
+		if strings.TrimSpace(c.ProxyDomain) == "" {
+			return fmt.Errorf("proxy_domain is required when proxy_enabled is true")
+		}
+		tlsMode := strings.TrimSpace(c.ProxyTLSMode)
+		if tlsMode != "" && tlsMode != "off" && tlsMode != "self-signed" && tlsMode != "letsencrypt" {
+			return fmt.Errorf("proxy_tls_mode must be 'off', 'self-signed', or 'letsencrypt'")
+		}
+		if tlsMode == "letsencrypt" && strings.TrimSpace(c.ProxyTLSEmail) == "" {
+			return fmt.Errorf("proxy_tls_email is required when proxy_tls_mode is 'letsencrypt'")
+		}
 	}
 	return nil
 }
