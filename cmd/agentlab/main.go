@@ -49,6 +49,16 @@ import (
 
 const usageText = `agentlab is the CLI for agentlabd.
 
+Quick commands (aliases for common operations):
+  agentlab new [--name <name>] (--profile <profile> | +mod [+mod...])   Create a sandbox (alias: sandbox new)
+  agentlab ls                                                             List sandboxes (alias: sandbox list)
+  agentlab show <vmid>                                                    Show sandbox details (alias: sandbox show)
+  agentlab ssh <vmid>                                                     SSH into a sandbox
+  agentlab start <vmid>                                                   Start a sandbox (alias: sandbox start)
+  agentlab stop <vmid>                                                    Stop a sandbox (alias: sandbox stop)
+  agentlab rm [--force] <vmid>                                            Destroy a sandbox (alias: sandbox destroy)
+  agentlab logs <vmid> [--follow]                                         View sandbox logs
+
 Usage:
   agentlab --version
   agentlab [--endpoint URL] [--token TOKEN] [--socket PATH] [--json] [--timeout DURATION] status
@@ -255,6 +265,21 @@ func parseGlobal(args []string) (globalOptions, []string, error) {
 
 func dispatch(ctx context.Context, args []string, base commonFlags) error {
 	switch args[0] {
+	// Short aliases for the 80/20 common operations.
+	// Each delegates to the corresponding sandbox subcommand runner.
+	case "new":
+		return withDefaultNext(runSandboxNew(ctx, args[1:], base), "agentlab new --help")
+	case "ls":
+		return withDefaultNext(runSandboxList(ctx, args[1:], base), "agentlab ls --help")
+	case "rm":
+		return withDefaultNext(runSandboxDestroy(ctx, args[1:], base), "agentlab rm --help")
+	case "show":
+		return withDefaultNext(runSandboxShow(ctx, args[1:], base), "agentlab show --help")
+	case "start":
+		return withDefaultNext(runSandboxStart(ctx, args[1:], base), "agentlab start --help")
+	case "stop":
+		return withDefaultNext(runSandboxStop(ctx, args[1:], base), "agentlab stop --help")
+	// Full command tree.
 	case "status":
 		return withDefaultNext(runStatusCommand(ctx, args[1:], base), "agentlab status --help")
 	case "schema":
@@ -289,7 +314,7 @@ func dispatch(ctx context.Context, args []string, base commonFlags) error {
 		if !base.jsonOutput {
 			printUsage()
 		}
-		return unknownCommandError(args[0], []string{"status", "schema", "init", "bootstrap", "job", "sandbox", "workspace", "session", "profile", "secrets", "msg", "ssh", "logs", "connect", "disconnect"})
+		return unknownCommandError(args[0], []string{"new", "ls", "rm", "show", "start", "stop", "status", "schema", "init", "bootstrap", "job", "sandbox", "workspace", "session", "profile", "secrets", "msg", "ssh", "logs", "connect", "disconnect"})
 	}
 }
 
@@ -657,6 +682,30 @@ func printSSHUsage() {
 	fmt.Fprintln(os.Stdout, "Usage: agentlab ssh <vmid> [--user <user>] [--port <port>] [--identity <path>] [--jump-host <host>] [--jump-user <user>] [--exec] [--no-start] [--wait] [-- <remote command>...]")
 	fmt.Fprintln(os.Stdout, "Note: --exec replaces the CLI with ssh when run in a terminal (unless a remote command is provided).")
 	fmt.Fprintln(os.Stdout, "Note: --wait polls for SSH readiness before returning.")
+}
+
+func printAliasNewUsage() {
+	printSandboxNewUsage()
+}
+
+func printAliasLsUsage() {
+	printSandboxListUsage()
+}
+
+func printAliasRmUsage() {
+	printSandboxDestroyUsage()
+}
+
+func printAliasShowUsage() {
+	printSandboxShowUsage()
+}
+
+func printAliasStartUsage() {
+	printSandboxStartUsage()
+}
+
+func printAliasStopUsage() {
+	printSandboxStopUsage()
 }
 
 func isHelpToken(value string) bool {
