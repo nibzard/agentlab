@@ -1,0 +1,160 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>AgentLab Dashboard</title>
+  <link rel="stylesheet" href="/assets/style.css">
+</head>
+<body>
+  <nav>
+    <div class="nav-brand">
+      <h1>AgentLab</h1>
+    </div>
+    <div class="nav-tabs">
+      <a href="#" class="tab active" data-view="sandboxes">Sandboxes</a>
+      <a href="#" class="tab" data-view="jobs">Jobs</a>
+      <a href="#" class="tab" data-view="workspaces">Workspaces</a>
+      <a href="#" class="tab" data-view="exposures">Exposures</a>
+    </div>
+    <div class="nav-actions">
+      <button id="btn-refresh" title="Refresh">&#x21bb;</button>
+    </div>
+  </nav>
+
+  <main>
+    <!-- Status bar -->
+    <section id="status-bar" class="status-bar">
+      <span id="status-sandboxes"></span>
+      <span id="status-jobs"></span>
+      <span id="status-daemon"></span>
+    </section>
+
+    <!-- Sandboxes view -->
+    <section id="view-sandboxes" class="view active">
+      <div class="view-header">
+        <h2>Sandboxes</h2>
+        <button id="btn-new-sandbox" class="btn btn-primary">+ New Sandbox</button>
+      </div>
+      <table class="data-table">
+        <thead>
+          <tr>
+            <th>VMID</th>
+            <th>Name</th>
+            <th>Profile</th>
+            <th>Type</th>
+            <th>State</th>
+            <th>IP</th>
+            <th>Created</th>
+            <th>Actions</th>
+          </tr>
+        </thead>
+        <tbody id="sandbox-list"></tbody>
+      </table>
+      <p id="sandbox-empty" class="empty-state" style="display:none">No sandboxes found.</p>
+    </section>
+
+    <!-- Jobs view -->
+    <section id="view-jobs" class="view">
+      <div class="view-header">
+        <h2>Jobs</h2>
+      </div>
+      <table class="data-table">
+        <thead>
+          <tr>
+            <th>ID</th>
+            <th>Repo</th>
+            <th>Task</th>
+            <th>Profile</th>
+            <th>Status</th>
+            <th>Created</th>
+            <th>Actions</th>
+          </tr>
+        </thead>
+        <tbody id="job-list"></tbody>
+      </table>
+      <p id="job-empty" class="empty-state" style="display:none">No jobs found.</p>
+    </section>
+
+    <!-- Workspaces view -->
+    <section id="view-workspaces" class="view">
+      <div class="view-header">
+        <h2>Workspaces</h2>
+      </div>
+      <table class="data-table">
+        <thead>
+          <tr>
+            <th>ID</th>
+            <th>Name</th>
+            <th>Size</th>
+            <th>Attached VM</th>
+            <th>Created</th>
+          </tr>
+        </thead>
+        <tbody id="workspace-list"></tbody>
+      </table>
+      <p id="workspace-empty" class="empty-state" style="display:none">No workspaces found.</p>
+    </section>
+
+    <!-- Exposures view -->
+    <section id="view-exposures" class="view">
+      <div class="view-header">
+        <h2>Exposures</h2>
+      </div>
+      <table class="data-table">
+        <thead>
+          <tr>
+            <th>Name</th>
+            <th>VMID</th>
+            <th>Port</th>
+            <th>State</th>
+            <th>Created</th>
+          </tr>
+        </thead>
+        <tbody id="exposure-list"></tbody>
+      </table>
+      <p id="exposure-empty" class="empty-state" style="display:none">No exposures found.</p>
+    </section>
+  </main>
+
+  <!-- New Sandbox Modal -->
+  <div id="modal-new-sandbox" class="modal" style="display:none">
+    <div class="modal-backdrop"></div>
+    <div class="modal-content">
+      <h3>New Sandbox</h3>
+      <form id="form-new-sandbox">
+        <label>Name <input type="text" name="name" placeholder="my-sandbox"></label>
+        <label>Profile <input type="text" name="profile" placeholder="default" required></label>
+        <label>Type
+          <select name="type">
+            <option value="">Default</option>
+            <option value="vm">VM</option>
+            <option value="lxc">LXC</option>
+          </select>
+        </label>
+        <label>Image <input type="text" name="image" placeholder="ubuntu:22.04 (LXC only)"></label>
+        <label>TTL (minutes) <input type="number" name="ttl_minutes" placeholder="60"></label>
+        <label><input type="checkbox" name="keepalive"> Keepalive</label>
+        <div class="modal-actions">
+          <button type="submit" class="btn btn-primary">Create</button>
+          <button type="button" class="btn" onclick="closeModal('modal-new-sandbox')">Cancel</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- Sandbox Detail Modal -->
+  <div id="modal-sandbox-detail" class="modal" style="display:none">
+    <div class="modal-backdrop"></div>
+    <div class="modal-content modal-wide">
+      <h3 id="detail-title">Sandbox Details</h3>
+      <pre id="detail-json" class="detail-json"></pre>
+      <div class="modal-actions">
+        <button class="btn" onclick="closeModal('modal-sandbox-detail')">Close</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="/assets/app.js"></script>
+</body>
+</html>
