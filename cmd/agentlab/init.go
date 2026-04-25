@@ -70,6 +70,7 @@ func runInitCommand(ctx context.Context, args []string, base commonFlags) error 
 	var rotateToken bool
 	var tailscaleServe bool
 	var noTailscaleServe bool
+	var backendName string
 	var help bool
 	fs.BoolVar(&apply, "apply", false, "apply recommended host setup changes")
 	fs.BoolVar(&smokeTest, "smoke-test", false, "run end-to-end provisioning smoke test")
@@ -80,6 +81,7 @@ func runInitCommand(ctx context.Context, args []string, base commonFlags) error 
 	fs.BoolVar(&rotateToken, "rotate-control-token", false, "rotate control auth token")
 	fs.BoolVar(&tailscaleServe, "tailscale-serve", false, "force tailscale serve publishing")
 	fs.BoolVar(&noTailscaleServe, "no-tailscale-serve", false, "disable tailscale serve publishing")
+	fs.StringVar(&backendName, "backend", "", "sandbox backend: proxmox, docker, libvirt (default proxmox)")
 	fs.BoolVar(&help, "help", false, "show help")
 	fs.BoolVar(&help, "h", false, "show help")
 	if err := parseFlags(fs, args, printInitUsage, &help, opts.jsonOutput); err != nil {
@@ -124,6 +126,7 @@ func runInitCommand(ctx context.Context, args []string, base commonFlags) error 
 			tailscaleMode: mode,
 			force:         force,
 			jsonOutput:    opts.jsonOutput,
+			backendName:   backendName,
 		})
 		if err != nil {
 			return err
@@ -195,6 +198,7 @@ func collectInitReport(ctx context.Context, configPath string, fallbackPort int)
 	report.Checks = append(report.Checks, checkSkillBundle(state))
 	report.Checks = append(report.Checks, checkProfiles(state))
 	report.Checks = append(report.Checks, checkTemplates(ctx, state.TemplateIDs))
+	report.Checks = append(report.Checks, checkBackend(ctx, state.Config))
 
 	if controlListen != "" && controlToken != "" {
 		endpoint := fmt.Sprintf("http://%s", controlListen)
@@ -293,6 +297,7 @@ type initApplyOptions struct {
 	tailscaleMode string
 	force         bool
 	jsonOutput    bool
+	backendName   string
 }
 
 func applyInit(ctx context.Context, state initState, report initReport, assetsRoot string, opts initApplyOptions) ([]initCheck, error) {
@@ -386,6 +391,19 @@ func applyInit(ctx context.Context, state initState, report initReport, assetsRo
 		return steps, err
 	}
 	steps = append(steps, initCheck{Name: "control_plane", Status: "ok", Detail: fmt.Sprintf("control_listen=127.0.0.1:%d", opts.controlPort)})
+
+	// Write backend selection to config if specified.
+	if opts.backendName != "" {
+		lines, _, err := readConfigLines(defaultConfigPath)
+		if err != nil {
+			return steps, fmt.Errorf("read config for backend setting: %w", err)
+		}
+		lines, _ = upsertConfigLine(lines, "backend", opts.backendName)
+		if err := writeConfigLines(defaultConfigPath, lines); err != nil {
+			return steps, fmt.Errorf("write backend config: %w", err)
+		}
+		steps = append(steps, initCheck{Name: "backend", Status: "ok", Detail: fmt.Sprintf("backend=%s", opts.backendName)})
+	}
 
 	return steps, nil
 }
@@ -926,6 +944,65 @@ func parseIPAddresses(output string) []string {
 		addresses = append(addresses, fields[3])
 	}
 	return addresses
+}
+
+func checkBackend(ctx context.Context, cfg config.Config) initCheck {
+	check := initCheck{Name: "backend"}
+	backendType := strings.ToLower(strings.TrimSpace(cfg.Backend))
+	if backendType == "" {
+		backendType = "proxmox"
+	}
+	switch backendType {
+	case "proxmox":
+		// Proxmox is the default; check for qm tool availability.
+		if _, err := exec.LookPath("qm"); err != nil {
+			check.Status = "error"
+			check.Detail = "proxmox backend selected but 'qm' not found (not running on Proxmox host?)"
+			return check
+		}
+		check.Status = "ok"
+		check.Detail = "backend=proxmox (qm available)"
+	case "docker":
+		if _, err := exec.LookPath("docker"); err != nil {
+			check.Status = "error"
+			check.Detail = "docker backend selected but 'docker' CLI not found"
+			return check
+		}
+		// Check Docker daemon connectivity.
+		cmd := exec.CommandContext(ctx, "docker", "info", "-f", "{{.ServerVersion}}")
+		out, err := cmd.CombinedOutput()
+		if err != nil {
+			check.Status = "error"
+			check.Detail = fmt.Sprintf("docker daemon not reachable: %s", strings.TrimSpace(string(out)))
+			return check
+		}
+		version := strings.TrimSpace(string(out))
+		check.Status = "ok"
+		check.Detail = fmt.Sprintf("backend=docker (daemon v%s)", version)
+	case "libvirt":
+		if _, err := exec.LookPath("virsh"); err != nil {
+			check.Status = "error"
+			check.Detail = "libvirt backend selected but 'virsh' not found (install libvirt-clients)"
+			return check
+		}
+		uri := cfg.LibvirtURI
+		if uri == "" {
+			uri = "qemu:///system"
+		}
+		cmd := exec.CommandContext(ctx, "virsh", "--connect", uri, "uri")
+		out, err := cmd.CombinedOutput()
+		if err != nil {
+			check.Status = "error"
+			check.Detail = fmt.Sprintf("libvirt not reachable at %s: %s", uri, strings.TrimSpace(string(out)))
+			return check
+		}
+		check.Status = "ok"
+		check.Detail = fmt.Sprintf("backend=libvirt (uri=%s)", strings.TrimSpace(string(out)))
+	default:
+		check.Status = "error"
+		check.Detail = fmt.Sprintf("unknown backend: %s (must be proxmox, docker, or libvirt)", backendType)
+	}
+	return check
 }
 
 func runScript(ctx context.Context, path string, args []string, jsonOutput bool) error {

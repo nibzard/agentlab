@@ -83,6 +83,10 @@ type Config struct {
 	ProxmoxAPIShellFallback  bool   // Allow shell fallback for API backend volume ops
 	// LXC container backend configuration
 	LXCEnabled bool // Enable LXC container sandbox support
+	// Pluggable backend configuration
+	Backend     string // Backend provider: "proxmox", "docker", "libvirt" (default "proxmox")
+	DockerHost  string // Docker daemon socket path (default "unix:///var/run/docker.sock")
+	LibvirtURI  string // libvirt connection URI (default "qemu:///system")
 	ClaudeSkillBundleName    string
 	ClaudeSkillBundleVersion string
 	// Reverse proxy configuration
@@ -161,6 +165,9 @@ type FileConfig struct {
 	ProxmoxTLSCAPath         string   `yaml:"proxmox_tls_ca_path"`
 	ProxmoxAPIShellFallback  *bool    `yaml:"proxmox_api_shell_fallback"`
 	LXCEnabled               *bool    `yaml:"lxc_enabled"`
+	Backend                  string   `yaml:"backend"`
+	DockerHost               string   `yaml:"docker_host"`
+	LibvirtURI               string   `yaml:"libvirt_uri"`
 	ClaudeSkillBundleName    string   `yaml:"claude_skill_bundle_name"`
 	ClaudeSkillBundleVersion string   `yaml:"claude_skill_bundle_version"`
 	ProxyEnabled             *bool    `yaml:"proxy_enabled"`
@@ -463,6 +470,15 @@ func applyFileConfig(cfg *Config, fileCfg FileConfig) error {
 	if fileCfg.LXCEnabled != nil {
 		cfg.LXCEnabled = *fileCfg.LXCEnabled
 	}
+	if fileCfg.Backend != "" {
+		cfg.Backend = fileCfg.Backend
+	}
+	if fileCfg.DockerHost != "" {
+		cfg.DockerHost = fileCfg.DockerHost
+	}
+	if fileCfg.LibvirtURI != "" {
+		cfg.LibvirtURI = fileCfg.LibvirtURI
+	}
 	if fileCfg.ClaudeSkillBundleName != "" {
 		cfg.ClaudeSkillBundleName = fileCfg.ClaudeSkillBundleName
 	}
@@ -670,11 +686,18 @@ func (c Config) Validate() error {
 	if c.ProxmoxBackend != "" && c.ProxmoxBackend != "shell" && c.ProxmoxBackend != "api" {
 		return fmt.Errorf("proxmox_backend must be either 'shell' or 'api'")
 	}
+	if c.Backend != "" && c.Backend != "proxmox" && c.Backend != "docker" && c.Backend != "libvirt" {
+		return fmt.Errorf("backend must be one of 'proxmox', 'docker', or 'libvirt'")
+	}
+	// When backend is docker or libvirt, Proxmox-specific fields are not required.
+	// Proxmox validation only applies when backend is proxmox (or empty for backward compat).
+	if c.Backend != "docker" && c.Backend != "libvirt" {
+		if c.ProxmoxBackend == "api" && c.ProxmoxAPIToken == "" {
+			return fmt.Errorf("proxmox_api_token is required when using api backend")
+		}
+	}
 	if c.ProxmoxCloneMode != "" && c.ProxmoxCloneMode != "linked" && c.ProxmoxCloneMode != "full" {
 		return fmt.Errorf("proxmox_clone_mode must be either 'linked' or 'full'")
-	}
-	if c.ProxmoxBackend == "api" && c.ProxmoxAPIToken == "" {
-		return fmt.Errorf("proxmox_api_token is required when using api backend")
 	}
 	if strings.TrimSpace(c.ProxmoxTLSCAPath) != "" && c.ProxmoxTLSInsecure {
 		return fmt.Errorf("proxmox_tls_insecure cannot be true when proxmox_tls_ca_path is set")

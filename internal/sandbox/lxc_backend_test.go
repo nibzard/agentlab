@@ -11,10 +11,13 @@ func TestParseType(t *testing.T) {
 	}{
 		{"", TypeVM},
 		{"vm", TypeVM},
-		{"qemu", TypeVM},
+		{"qemu", TypeLibvirt},
 		{"lxc", TypeLXC},
 		{"container", TypeLXC},
 		{"lxd", TypeLXC},
+		{"docker", TypeDocker},
+		{"libvirt", TypeLibvirt},
+		{"kvm", TypeLibvirt},
 		{"unknown", TypeVM},
 	}
 	for _, tc := range tests {

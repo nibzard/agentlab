@@ -30,6 +30,7 @@ import (
 
 	"github.com/agentlab/agentlab/internal/api"
 	"github.com/agentlab/agentlab/internal/auth"
+	backendpkg "github.com/agentlab/agentlab/internal/backend"
 	"github.com/agentlab/agentlab/internal/config"
 	"github.com/agentlab/agentlab/internal/db"
 	"github.com/agentlab/agentlab/internal/integrations"
@@ -78,6 +79,7 @@ type Service struct {
 	metrics           *Metrics
 	metadataRouting   *MetadataRouting
 	lxcBackend        *sandbox.LXCBackend
+	sandboxBackend    sandbox.Backend
 	integrationStore  *integrations.Store
 }
 
@@ -208,58 +210,112 @@ func newService(cfg config.Config, profiles map[string]models.Profile, store *db
 
 	// Create Proxmox backend based on configuration (unless overridden)
 	var backend proxmox.Backend
-	if backendOverride != nil {
-		backend = backendOverride
-		log.Printf("using provided Proxmox backend override")
-	} else {
-		switch strings.ToLower(strings.TrimSpace(cfg.ProxmoxBackend)) {
-		case "api":
-			// Use API backend
-			if cfg.ProxmoxTLSInsecure {
-				log.Printf("warning: proxmox_tls_insecure is enabled; Proxmox API TLS verification is disabled. This is insecure and should only be used temporarily. See docs/configuration.md for proxmox_tls_ca_path guidance.")
-			}
-			apiBackend, err := proxmox.NewAPIBackend(
-				cfg.ProxmoxAPIURL,
-				cfg.ProxmoxAPIToken,
-				cfg.ProxmoxNode,
-				agentCIDR,
-				cfg.ProxmoxCommandTimeout,
-				cfg.ProxmoxTLSInsecure,
-				cfg.ProxmoxTLSCAPath,
-			)
-			if err != nil {
+	primaryBackend := strings.ToLower(strings.TrimSpace(cfg.Backend))
+	if primaryBackend == "" {
+		primaryBackend = "proxmox" // default for backward compat
+	}
+
+	switch primaryBackend {
+	case "proxmox":
+		if backendOverride != nil {
+			backend = backendOverride
+			log.Printf("using provided Proxmox backend override")
+		} else {
+			switch strings.ToLower(strings.TrimSpace(cfg.ProxmoxBackend)) {
+			case "api":
+				if cfg.ProxmoxTLSInsecure {
+					log.Printf("warning: proxmox_tls_insecure is enabled; Proxmox API TLS verification is disabled. This is insecure and should only be used temporarily. See docs/configuration.md for proxmox_tls_ca_path guidance.")
+				}
+				apiBackend, err := proxmox.NewAPIBackend(
+					cfg.ProxmoxAPIURL,
+					cfg.ProxmoxAPIToken,
+					cfg.ProxmoxNode,
+					agentCIDR,
+					cfg.ProxmoxCommandTimeout,
+					cfg.ProxmoxTLSInsecure,
+					cfg.ProxmoxTLSCAPath,
+				)
+				if err != nil {
+					_ = metricsListener.Close()
+					_ = artifactListener.Close()
+					_ = bootstrapListener.Close()
+					_ = unixListener.Close()
+					return nil, fmt.Errorf("create Proxmox API backend: %w", err)
+				}
+				apiBackend.CloneMode = cloneMode
+				apiBackend.AllowShellFallback = cfg.ProxmoxAPIShellFallback
+				if cfg.ProxmoxAPIShellFallback {
+					apiBackend.ShellFallback = &proxmox.ShellBackend{
+						CommandTimeout: cfg.ProxmoxCommandTimeout,
+						Runner:         &proxmox.BashRunner{},
+					}
+				}
+				backend = apiBackend
+				log.Printf("using Proxmox API backend (url=%s)", cfg.ProxmoxAPIURL)
+			case "shell", "", "default":
+				backend = &proxmox.ShellBackend{
+					CommandTimeout: cfg.ProxmoxCommandTimeout,
+					AgentCIDR:      agentCIDR,
+					Runner:         &proxmox.BashRunner{},
+					CloneMode:      cloneMode,
+				}
+				log.Printf("using Proxmox shell backend")
+			default:
 				_ = metricsListener.Close()
 				_ = artifactListener.Close()
 				_ = bootstrapListener.Close()
 				_ = unixListener.Close()
-				return nil, fmt.Errorf("create Proxmox API backend: %w", err)
+				return nil, fmt.Errorf("unknown proxmox_backend: %s (must be 'api' or 'shell')", cfg.ProxmoxBackend)
 			}
-			apiBackend.CloneMode = cloneMode
-			apiBackend.AllowShellFallback = cfg.ProxmoxAPIShellFallback
-			if cfg.ProxmoxAPIShellFallback {
-				apiBackend.ShellFallback = &proxmox.ShellBackend{
-					CommandTimeout: cfg.ProxmoxCommandTimeout,
-					Runner:         &proxmox.BashRunner{},
-				}
-			}
-			backend = apiBackend
-			log.Printf("using Proxmox API backend (url=%s)", cfg.ProxmoxAPIURL)
-		case "shell", "", "default":
-			// Use shell backend (backward compatible)
-			backend = &proxmox.ShellBackend{
-				CommandTimeout: cfg.ProxmoxCommandTimeout,
-				AgentCIDR:      agentCIDR,
-				Runner:         &proxmox.BashRunner{},
-				CloneMode:      cloneMode,
-			}
-			log.Printf("using Proxmox shell backend")
-		default:
+		}
+	case "docker":
+		dockerCfg := sandbox.DockerConfig{
+			Host:    cfg.DockerHost,
+			Timeout: cfg.ProxmoxCommandTimeout,
+		}
+		dockerBackend, err := sandbox.NewDockerBackend(dockerCfg)
+		if err != nil {
 			_ = metricsListener.Close()
 			_ = artifactListener.Close()
 			_ = bootstrapListener.Close()
 			_ = unixListener.Close()
-			return nil, fmt.Errorf("unknown proxmox_backend: %s (must be 'api' or 'shell')", cfg.ProxmoxBackend)
+			return nil, fmt.Errorf("create Docker backend: %w", err)
 		}
+		// Run health check on startup.
+		if err := backendpkg.CheckHealth(context.Background(), dockerBackend); err != nil {
+			log.Printf("warning: Docker backend health check failed: %v", err)
+		} else {
+			log.Printf("Docker backend health check passed")
+		}
+		log.Printf("using Docker backend (host=%s)", dockerCfg.Host)
+		_ = backend // no proxmox backend needed
+	case "libvirt":
+		libvirtCfg := sandbox.LibvirtConfig{
+			URI:     cfg.LibvirtURI,
+			Timeout: cfg.ProxmoxCommandTimeout,
+		}
+		libvirtBackend, err := sandbox.NewLibvirtBackend(libvirtCfg)
+		if err != nil {
+			_ = metricsListener.Close()
+			_ = artifactListener.Close()
+			_ = bootstrapListener.Close()
+			_ = unixListener.Close()
+			return nil, fmt.Errorf("create libvirt backend: %w", err)
+		}
+		// Run health check on startup.
+		if err := backendpkg.CheckHealth(context.Background(), libvirtBackend); err != nil {
+			log.Printf("warning: libvirt backend health check failed: %v", err)
+		} else {
+			log.Printf("libvirt backend health check passed")
+		}
+		log.Printf("using libvirt backend (uri=%s)", libvirtCfg.URI)
+		_ = backend // no proxmox backend needed
+	default:
+		_ = metricsListener.Close()
+		_ = artifactListener.Close()
+		_ = bootstrapListener.Close()
+		_ = unixListener.Close()
+		return nil, fmt.Errorf("unknown backend: %s (must be 'proxmox', 'docker', or 'libvirt')", primaryBackend)
 	}
 	workspaceManager := NewWorkspaceManager(store, backend, log.Default())
 	sandboxManager := NewSandboxManager(store, backend, log.Default()).WithWorkspaceManager(workspaceManager).WithMetrics(metrics)

@@ -22,6 +22,10 @@ const (
 	TypeVM Type = "vm"
 	// TypeLXC represents an LXC container sandbox.
 	TypeLXC Type = "lxc"
+	// TypeDocker represents a Docker container sandbox.
+	TypeDocker Type = "docker"
+	// TypeLibvirt represents a KVM/QEMU sandbox via libvirt.
+	TypeLibvirt Type = "libvirt"
 )
 
 // ParseType converts a string to a Type, returning TypeVM as default.
@@ -29,7 +33,11 @@ func ParseType(s string) Type {
 	switch s {
 	case "lxc", "container", "lxd":
 		return TypeLXC
-	case "vm", "qemu", "":
+	case "docker", "containerd":
+		return TypeDocker
+	case "libvirt", "kvm", "qemu":
+		return TypeLibvirt
+	case "vm", "":
 		return TypeVM
 	default:
 		return TypeVM
@@ -188,4 +196,11 @@ type ErrNotSupported struct {
 
 func (e ErrNotSupported) Error() string {
 	return "operation not supported: " + e.Op
+}
+
+// HealthChecker is an optional interface that backends can implement to
+// report their connectivity and readiness.
+type HealthChecker interface {
+	// HealthCheck verifies the backend can communicate with its provider.
+	HealthCheck(ctx context.Context) error
 }

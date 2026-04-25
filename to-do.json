@@ -279,7 +279,7 @@
         "IMPL-4"
       ],
       "created_at": "2026-04-24T00:00:00Z",
-      "updated_at": "2026-04-25T02:00:00Z"
+      "updated_at": "2026-04-25T01:27:18Z"
     },
     {
       "id": "IMPL-6",
@@ -465,7 +465,7 @@
       "id": "IMPL-10",
       "title": "Pluggable backend abstraction (Proxmox, libvirt, Docker, cloud)",
       "priority": 2,
-      "status": "todo",
+      "status": "done",
       "tags": [
         "backends",
         "architecture",
@@ -483,14 +483,20 @@
         "Document backend requirements and setup for each provider"
       ],
       "files": [
-        "internal/sandbox/",
-        "internal/proxmox/",
-        "internal/backend/",
-        "cmd/agentlab/init.go"
+        "internal/sandbox/types.go",
+        "internal/sandbox/docker_backend.go",
+        "internal/sandbox/libvirt_backend.go",
+        "internal/sandbox/lxc_backend_test.go",
+        "internal/backend/registry.go",
+        "internal/backend/health.go",
+        "internal/config/config.go",
+        "internal/daemon/daemon.go",
+        "cmd/agentlab/init.go",
+        "to-do.json"
       ],
       "depends_on": [],
       "created_at": "2026-04-24T00:00:00Z",
-      "updated_at": "2026-04-24T00:00:00Z"
+      "updated_at": "2026-04-25T02:15:00Z"
     },
     {
       "id": "IMPL-10a",
