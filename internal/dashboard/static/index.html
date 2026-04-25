@@ -16,8 +16,10 @@
       <a href="#" class="tab" data-view="jobs">Jobs</a>
       <a href="#" class="tab" data-view="workspaces">Workspaces</a>
       <a href="#" class="tab" data-view="exposures">Exposures</a>
+      <a href="#" class="tab" data-view="events">Events</a>
     </div>
     <div class="nav-actions">
+      <span id="pool-badge" class="pool-badge" style="display:none"></span>
       <button id="btn-refresh" title="Refresh">&#x21bb;</button>
     </div>
   </nav>
@@ -28,13 +30,18 @@
       <span id="status-sandboxes"></span>
       <span id="status-jobs"></span>
       <span id="status-daemon"></span>
+      <span id="status-host" class="status-host"></span>
     </section>
 
     <!-- Sandboxes view -->
     <section id="view-sandboxes" class="view active">
       <div class="view-header">
         <h2>Sandboxes</h2>
-        <button id="btn-new-sandbox" class="btn btn-primary">+ New Sandbox</button>
+        <div class="view-header-actions">
+          <button id="btn-stop-all" class="btn btn-sm">Stop All</button>
+          <button id="btn-prune" class="btn btn-sm">Prune Stopped</button>
+          <button id="btn-new-sandbox" class="btn btn-primary">+ New Sandbox</button>
+        </div>
       </div>
       <table class="data-table">
         <thead>
@@ -107,13 +114,24 @@
             <th>Name</th>
             <th>VMID</th>
             <th>Port</th>
+            <th>URL</th>
             <th>State</th>
             <th>Created</th>
+            <th>Actions</th>
           </tr>
         </thead>
         <tbody id="exposure-list"></tbody>
       </table>
       <p id="exposure-empty" class="empty-state" style="display:none">No exposures found.</p>
+    </section>
+
+    <!-- Events view -->
+    <section id="view-events" class="view">
+      <div class="view-header">
+        <h2>Recent Events</h2>
+      </div>
+      <div id="events-list" class="events-list"></div>
+      <p id="event-empty" class="empty-state" style="display:none">No recent events.</p>
     </section>
   </main>
 
@@ -124,7 +142,11 @@
       <h3>New Sandbox</h3>
       <form id="form-new-sandbox">
         <label>Name <input type="text" name="name" placeholder="my-sandbox"></label>
-        <label>Profile <input type="text" name="profile" placeholder="default" required></label>
+        <label>Profile
+          <select name="profile" id="select-profile" required>
+            <option value="">Loading...</option>
+          </select>
+        </label>
         <label>Type
           <select name="type">
             <option value="">Default</option>
@@ -133,6 +155,7 @@
           </select>
         </label>
         <label>Image <input type="text" name="image" placeholder="ubuntu:22.04 (LXC only)"></label>
+        <label>Prompt <input type="text" name="prompt" placeholder="Initial agent prompt (optional)"></label>
         <label>TTL (minutes) <input type="number" name="ttl_minutes" placeholder="60"></label>
         <label><input type="checkbox" name="keepalive"> Keepalive</label>
         <div class="modal-actions">
@@ -148,10 +171,45 @@
     <div class="modal-backdrop"></div>
     <div class="modal-content modal-wide">
       <h3 id="detail-title">Sandbox Details</h3>
-      <pre id="detail-json" class="detail-json"></pre>
+      <div id="detail-summary" class="detail-summary"></div>
+      <details id="detail-raw-toggle">
+        <summary>Raw JSON</summary>
+        <pre id="detail-json" class="detail-json"></pre>
+      </details>
       <div class="modal-actions">
         <button class="btn" onclick="closeModal('modal-sandbox-detail')">Close</button>
       </div>
+    </div>
+  </div>
+
+  <!-- Expose Sandbox Modal -->
+  <div id="modal-expose" class="modal" style="display:none">
+    <div class="modal-backdrop"></div>
+    <div class="modal-content">
+      <h3>Expose Sandbox <span id="expose-vmid"></span></h3>
+      <form id="form-expose">
+        <label>Name <input type="text" name="name" placeholder="auto-generated"></label>
+        <label>Port <input type="number" name="port" value="80" min="1" max="65535" required></label>
+        <div class="modal-actions">
+          <button type="submit" class="btn btn-primary">Expose</button>
+          <button type="button" class="btn" onclick="closeModal('modal-expose')">Cancel</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- Snapshot Modal -->
+  <div id="modal-snapshot" class="modal" style="display:none">
+    <div class="modal-backdrop"></div>
+    <div class="modal-content">
+      <h3>Snapshot Sandbox <span id="snapshot-vmid"></span></h3>
+      <form id="form-snapshot">
+        <label>Name <input type="text" name="name" placeholder="snap-1" required></label>
+        <div class="modal-actions">
+          <button type="submit" class="btn btn-primary">Create Snapshot</button>
+          <button type="button" class="btn" onclick="closeModal('modal-snapshot')">Cancel</button>
+        </div>
+      </form>
     </div>
   </div>
 

@@ -72,6 +72,9 @@ nav {
 
 .nav-actions {
   margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 8px;
 }
 
 #btn-refresh {
@@ -89,6 +92,26 @@ nav {
 #btn-refresh:hover {
   color: var(--text);
   border-color: var(--text-muted);
+}
+
+/* Pool badge */
+.pool-badge {
+  font-size: 11px;
+  padding: 2px 8px;
+  border-radius: 12px;
+  background: rgba(34, 197, 94, 0.15);
+  color: var(--success);
+  white-space: nowrap;
+}
+
+.pool-badge.pool-warn {
+  background: rgba(245, 158, 11, 0.15);
+  color: var(--warning);
+}
+
+.pool-badge.pool-full {
+  background: rgba(239, 68, 68, 0.15);
+  color: var(--danger);
 }
 
 /* Main */
@@ -110,6 +133,10 @@ main {
   color: var(--text-muted);
 }
 
+.status-host {
+  margin-left: auto;
+}
+
 /* Views */
 .view {
   display: none;
@@ -129,6 +156,11 @@ main {
 .view-header h2 {
   font-size: 20px;
   font-weight: 600;
+}
+
+.view-header-actions {
+  display: flex;
+  gap: 8px;
 }
 
 /* Table */
@@ -316,6 +348,33 @@ main {
   margin-top: 16px;
 }
 
+/* Detail summary */
+.detail-summary {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+  gap: 12px;
+  margin-bottom: 16px;
+}
+
+.detail-field {
+  background: var(--bg);
+  border-radius: var(--radius);
+  padding: 8px 12px;
+}
+
+.detail-field .detail-label {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-muted);
+}
+
+.detail-field .detail-value {
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--text);
+}
+
 .detail-json {
   background: var(--bg);
   border: 1px solid var(--border);
@@ -326,4 +385,90 @@ main {
   max-height: 60vh;
   color: var(--text);
   font-family: "SF Mono", "Fira Code", monospace;
+}
+
+/* Events list */
+.events-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.event-row {
+  display: flex;
+  gap: 12px;
+  padding: 8px 16px;
+  background: var(--surface);
+  border-radius: var(--radius);
+  font-size: 13px;
+  align-items: flex-start;
+}
+
+.event-row:hover {
+  background: var(--surface-hover);
+}
+
+.event-time {
+  color: var(--text-muted);
+  font-family: "SF Mono", "Fira Code", monospace;
+  font-size: 12px;
+  white-space: nowrap;
+  min-width: 80px;
+}
+
+.event-kind {
+  font-weight: 500;
+  white-space: nowrap;
+  min-width: 100px;
+}
+
+.event-kind.kind-failed, .event-kind.kind-error {
+  color: var(--danger);
+}
+
+.event-kind.kind-completed, .event-kind.kind-ready {
+  color: var(--success);
+}
+
+.event-kind.kind-provisioning, .event-kind.kind-booting {
+  color: var(--info);
+}
+
+.event-scope {
+  color: var(--text-muted);
+  white-space: nowrap;
+  min-width: 60px;
+}
+
+.event-msg {
+  flex: 1;
+  color: var(--text);
+  word-break: break-word;
+}
+
+/* Details/summary for raw JSON */
+details {
+  margin-top: 8px;
+}
+
+details summary {
+  cursor: pointer;
+  color: var(--text-muted);
+  font-size: 13px;
+  padding: 4px 0;
+}
+
+details summary:hover {
+  color: var(--text);
+}
+
+/* Exposure URL link */
+.exposure-url {
+  color: var(--primary);
+  text-decoration: none;
+  font-size: 13px;
+}
+
+.exposure-url:hover {
+  text-decoration: underline;
 }

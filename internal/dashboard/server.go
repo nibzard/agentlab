@@ -87,6 +87,7 @@ func (s *Server) ListenAndServe(ctx context.Context) error {
 	mux.HandleFunc("/api/v1/exposures/", s.proxyDelete)
 	mux.HandleFunc("/api/v1/messages", s.proxyMessages)
 	mux.HandleFunc("/api/v1/host", s.proxyGet)
+	mux.HandleFunc("/api/v1/pool/status", s.proxyGet)
 
 	srv := &http.Server{
 		Handler:           mux,
