@@ -9,6 +9,7 @@ AgentLab provisions unattended, network-isolated VM sandboxes on Proxmox VE for 
 **Key components:**
 - `agentlabd` daemon on Proxmox host (owns Proxmox access, enforces policy)
 - `agentlab` CLI for local control via a Unix socket
+- `agentlab-dashboard` optional web UI for sandbox/job/workspace visibility
 - Proxmox API backend (recommended) or shell backend (fallback)
 - Guest `agent-runner` service inside VM template for bootstrap + execution
 
@@ -109,6 +110,24 @@ agentlab status
 ```bash
 agentlab job run --repo <git-url> --task "<task>" --profile yolo-ephemeral
 ```
+
+## Web Dashboard (Optional)
+
+AgentLab includes an optional `agentlab-dashboard` binary that serves a browser UI and proxies requests to `agentlabd` over its Unix socket.
+
+Start the dashboard:
+
+```bash
+agentlab-dashboard --listen :8080 --socket /run/agentlab/agentlabd.sock
+```
+
+If daemon auth is enabled, pass a bearer token:
+
+```bash
+agentlab-dashboard --listen :8080 --token <token>
+```
+
+Open `http://localhost:8080` in your browser.
 
 For full operator setup, see the runbook below.
 
