@@ -72,6 +72,7 @@ type Service struct {
 	artifactGC        *ArtifactGC
 	idleStopper       *IdleStopper
 	metrics           *Metrics
+	metadataRouting   *MetadataRouting
 }
 
 // Run loads profiles, binds listeners, and serves until ctx is canceled.
@@ -333,7 +334,7 @@ func newService(cfg config.Config, profiles map[string]models.Profile, store *db
 	artifactLimiter := NewIPRateLimiter(cfg.ArtifactRateLimitQPS, cfg.ArtifactRateLimitBurst)
 	NewBootstrapAPI(store, profiles, secretsStore, cfg.SecretsBundle, agentSubnet, artifactEndpoint, time.Duration(cfg.ArtifactTokenTTLMinutes)*time.Minute, redactor, bootstrapLimiter).Register(bootstrapMux)
 	NewRunnerAPI(jobOrchestrator, agentSubnet).Register(bootstrapMux)
-	NewMetadataAPI(store, secretsStore, cfg.SecretsBundle, agentSubnet, bootstrapLimiter).Register(bootstrapMux)
+	NewMetadataAPI(store, secretsStore, cfg.SecretsBundle, agentSubnet, bootstrapLimiter, log.Default()).Register(bootstrapMux)
 
 	artifactMux := http.NewServeMux()
 	artifactMux.HandleFunc("/healthz", healthHandler)
@@ -393,6 +394,16 @@ func newService(cfg config.Config, profiles map[string]models.Profile, store *db
 		}
 	}
 
+	// Optionally set up metadata routing via iptables DNAT for 169.254.169.254.
+	var metadataRouting *MetadataRouting
+	if cfg.MetadataRoutingEnabled {
+		metadataRouting = NewMetadataRouting(cfg.BootstrapListen)
+		if err := metadataRouting.Setup(); err != nil {
+			log.Printf("warning: metadata routing setup failed (need root?): %v", err)
+			metadataRouting = nil
+		}
+	}
+
 	return &Service{
 		cfg:               cfg,
 		profiles:          profiles,
@@ -412,6 +423,7 @@ func newService(cfg config.Config, profiles map[string]models.Profile, store *db
 		artifactGC:        artifactGC,
 		idleStopper:       idleStopper,
 		metrics:           metrics,
+		metadataRouting:   metadataRouting,
 	}, nil
 }
 
@@ -509,6 +521,9 @@ func (s *Service) shutdown() {
 	_ = s.artifactServer.Shutdown(ctx)
 	if s.metricsServer != nil {
 		_ = s.metricsServer.Shutdown(ctx)
+	}
+	if s.metadataRouting != nil {
+		s.metadataRouting.Cleanup()
 	}
 	if s.store != nil {
 		_ = s.store.Close()

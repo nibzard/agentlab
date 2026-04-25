@@ -17,7 +17,7 @@ import (
 func TestMetadataIndex(t *testing.T) {
 	store := newTestStore(t)
 	agentSubnet := mustParseCIDR(t, "10.77.0.0/16")
-	api := NewMetadataAPI(store, secrets.Store{}, "", agentSubnet, nil)
+	api := NewMetadataAPI(store, secrets.Store{}, "", agentSubnet, nil, nil)
 
 	req := httptest.NewRequest(http.MethodGet, "/metadata/", nil)
 	req.RemoteAddr = "10.77.0.55:1234"
@@ -49,7 +49,7 @@ func TestMetadataIndex(t *testing.T) {
 func TestMetadataIndex_SubnetOnly(t *testing.T) {
 	store := newTestStore(t)
 	agentSubnet := mustParseCIDR(t, "10.77.0.0/16")
-	api := NewMetadataAPI(store, secrets.Store{}, "", agentSubnet, nil)
+	api := NewMetadataAPI(store, secrets.Store{}, "", agentSubnet, nil, nil)
 
 	req := httptest.NewRequest(http.MethodGet, "/metadata/", nil)
 	req.RemoteAddr = "192.168.1.2:1234"
@@ -63,7 +63,7 @@ func TestMetadataIndex_SubnetOnly(t *testing.T) {
 
 func TestMetadataIndex_MethodNotAllowed(t *testing.T) {
 	store := newTestStore(t)
-	api := NewMetadataAPI(store, secrets.Store{}, "", nil, nil)
+	api := NewMetadataAPI(store, secrets.Store{}, "", nil, nil, nil)
 
 	req := httptest.NewRequest(http.MethodPost, "/metadata/", nil)
 	resp := httptest.NewRecorder()
@@ -95,7 +95,7 @@ func TestMetadataIdentity(t *testing.T) {
 	}
 
 	agentSubnet := mustParseCIDR(t, "10.77.0.0/16")
-	api := NewMetadataAPI(store, secrets.Store{}, "", agentSubnet, nil)
+	api := NewMetadataAPI(store, secrets.Store{}, "", agentSubnet, nil, nil)
 
 	req := httptest.NewRequest(http.MethodGet, "/metadata/identity", nil)
 	req.RemoteAddr = "10.77.1.42:4321"
@@ -129,7 +129,7 @@ func TestMetadataIdentity(t *testing.T) {
 func TestMetadataIdentity_NotFound(t *testing.T) {
 	store := newTestStore(t)
 	agentSubnet := mustParseCIDR(t, "10.77.0.0/16")
-	api := NewMetadataAPI(store, secrets.Store{}, "", agentSubnet, nil)
+	api := NewMetadataAPI(store, secrets.Store{}, "", agentSubnet, nil, nil)
 
 	req := httptest.NewRequest(http.MethodGet, "/metadata/identity", nil)
 	req.RemoteAddr = "10.77.9.99:4321"
@@ -163,7 +163,7 @@ func TestMetadataIdentity_WorkspaceID(t *testing.T) {
 		t.Fatalf("update sandbox ip: %v", err)
 	}
 
-	api := NewMetadataAPI(store, secrets.Store{}, "", mustParseCIDR(t, "10.77.0.0/16"), nil)
+	api := NewMetadataAPI(store, secrets.Store{}, "", mustParseCIDR(t, "10.77.0.0/16"), nil, nil)
 
 	req := httptest.NewRequest(http.MethodGet, "/metadata/identity", nil)
 	req.RemoteAddr = "10.77.2.10:4321"
@@ -214,7 +214,7 @@ metadata:
 		t.Fatalf("write bundle: %v", err)
 	}
 
-	api := NewMetadataAPI(store, secrets.Store{Dir: secretsDir, AllowPlaintext: true}, "default", mustParseCIDR(t, "10.77.0.0/16"), nil)
+	api := NewMetadataAPI(store, secrets.Store{Dir: secretsDir, AllowPlaintext: true}, "default", mustParseCIDR(t, "10.77.0.0/16"), nil, nil)
 
 	req := httptest.NewRequest(http.MethodGet, "/metadata/metadata", nil)
 	req.RemoteAddr = "10.77.3.20:4321"
@@ -276,7 +276,7 @@ metadata:
 		t.Fatalf("write bundle: %v", err)
 	}
 
-	api := NewMetadataAPI(store, secrets.Store{Dir: secretsDir, AllowPlaintext: true}, "default", mustParseCIDR(t, "10.77.0.0/16"), nil)
+	api := NewMetadataAPI(store, secrets.Store{Dir: secretsDir, AllowPlaintext: true}, "default", mustParseCIDR(t, "10.77.0.0/16"), nil, nil)
 
 	// Test fetching env secret.
 	req := httptest.NewRequest(http.MethodGet, "/metadata/secrets/API_KEY", nil)
@@ -340,7 +340,7 @@ func TestMetadataSecrets_NotFound(t *testing.T) {
 		t.Fatalf("write bundle: %v", err)
 	}
 
-	api := NewMetadataAPI(store, secrets.Store{Dir: secretsDir, AllowPlaintext: true}, "default", mustParseCIDR(t, "10.77.0.0/16"), nil)
+	api := NewMetadataAPI(store, secrets.Store{Dir: secretsDir, AllowPlaintext: true}, "default", mustParseCIDR(t, "10.77.0.0/16"), nil, nil)
 
 	req := httptest.NewRequest(http.MethodGet, "/metadata/secrets/NONEXISTENT", nil)
 	req.RemoteAddr = "10.77.5.40:4321"
@@ -354,7 +354,7 @@ func TestMetadataSecrets_NotFound(t *testing.T) {
 
 func TestMetadataSecrets_EmptyName(t *testing.T) {
 	store := newTestStore(t)
-	api := NewMetadataAPI(store, secrets.Store{}, "", mustParseCIDR(t, "10.77.0.0/16"), nil)
+	api := NewMetadataAPI(store, secrets.Store{}, "", mustParseCIDR(t, "10.77.0.0/16"), nil, nil)
 
 	req := httptest.NewRequest(http.MethodGet, "/metadata/secrets/", nil)
 	req.RemoteAddr = "10.77.0.1:4321"
@@ -385,7 +385,7 @@ func TestMetadataRateLimiting(t *testing.T) {
 	}
 
 	limiter := NewIPRateLimiter(1, 2)
-	api := NewMetadataAPI(store, secrets.Store{}, "", mustParseCIDR(t, "10.77.0.0/16"), limiter)
+	api := NewMetadataAPI(store, secrets.Store{}, "", mustParseCIDR(t, "10.77.0.0/16"), limiter, nil)
 
 	// First two requests should succeed.
 	for i := 0; i < 2; i++ {
@@ -410,7 +410,7 @@ func TestMetadataRateLimiting(t *testing.T) {
 
 func TestMetadataRegister(t *testing.T) {
 	store := newTestStore(t)
-	api := NewMetadataAPI(store, secrets.Store{}, "", nil, nil)
+	api := NewMetadataAPI(store, secrets.Store{}, "", nil, nil, nil)
 
 	mux := http.NewServeMux()
 	api.Register(mux)
@@ -427,6 +427,6 @@ func TestMetadataRegister(t *testing.T) {
 }
 
 func TestMetadataRegister_NilMux(t *testing.T) {
-	api := NewMetadataAPI(nil, secrets.Store{}, "", nil, nil)
+	api := NewMetadataAPI(nil, secrets.Store{}, "", nil, nil, nil)
 	api.Register(nil) // should not panic
 }

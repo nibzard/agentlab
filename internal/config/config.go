@@ -93,6 +93,8 @@ type Config struct {
 	ProxyCADir     string // Directory for self-signed CA cert/key
 	ProxyTLSCertDir string // Directory for issued TLS certificates
 	ProxyIP        string // IP address the proxy listens on (for DNS entries)
+	// Metadata endpoint configuration
+	MetadataRoutingEnabled bool // Enable iptables DNAT for 169.254.169.254
 }
 
 // FileConfig represents supported YAML config overrides.
@@ -160,6 +162,7 @@ type FileConfig struct {
 	ProxyCADir               string   `yaml:"proxy_ca_dir"`
 	ProxyTLSCertDir          string   `yaml:"proxy_tls_cert_dir"`
 	ProxyIP                  string   `yaml:"proxy_ip"`
+	MetadataRoutingEnabled   *bool    `yaml:"metadata_routing_enabled"`
 }
 
 // DefaultConfig returns a Config struct with all default values set.
@@ -475,6 +478,9 @@ func applyFileConfig(cfg *Config, fileCfg FileConfig) error {
 	}
 	if fileCfg.ProxyIP != "" {
 		cfg.ProxyIP = fileCfg.ProxyIP
+	}
+	if fileCfg.MetadataRoutingEnabled != nil {
+		cfg.MetadataRoutingEnabled = *fileCfg.MetadataRoutingEnabled
 	}
 	return nil
 }

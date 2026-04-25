@@ -2,6 +2,7 @@ package daemon
 
 import (
 	"database/sql"
+	"log"
 	"net"
 	"net/http"
 	"strconv"
@@ -25,18 +26,22 @@ import (
 //   - GET  /metadata/metadata     - Sandbox metadata key-value pairs
 //   - GET  /metadata/secrets/{name} - Access a specific secret value
 type MetadataAPI struct {
-	store        *db.Store
-	secretsStore secrets.Store
+	store         *db.Store
+	secretsStore  secrets.Store
 	secretsBundle string
-	agentSubnet  *net.IPNet
-	rateLimiter  *IPRateLimiter
+	agentSubnet   *net.IPNet
+	rateLimiter   *IPRateLimiter
+	logger        *log.Logger
 }
 
 // NewMetadataAPI creates a new metadata API instance.
-func NewMetadataAPI(store *db.Store, secretsStore secrets.Store, secretsBundle string, agentSubnet *net.IPNet, rateLimiter *IPRateLimiter) *MetadataAPI {
+func NewMetadataAPI(store *db.Store, secretsStore secrets.Store, secretsBundle string, agentSubnet *net.IPNet, rateLimiter *IPRateLimiter, logger *log.Logger) *MetadataAPI {
 	bundle := strings.TrimSpace(secretsBundle)
 	if bundle == "" {
 		bundle = "default"
+	}
+	if logger == nil {
+		logger = log.Default()
 	}
 	return &MetadataAPI{
 		store:         store,
@@ -44,6 +49,7 @@ func NewMetadataAPI(store *db.Store, secretsStore secrets.Store, secretsBundle s
 		secretsBundle: bundle,
 		agentSubnet:   agentSubnet,
 		rateLimiter:   rateLimiter,
+		logger:        logger,
 	}
 }
 
@@ -79,6 +85,7 @@ func (api *MetadataAPI) handleIndex(w http.ResponseWriter, r *http.Request) {
 		},
 	}
 	writeJSON(w, http.StatusOK, resp)
+	api.auditLog(r.RemoteAddr, "/metadata/", r.Method, nil)
 }
 
 func (api *MetadataAPI) handleIdentity(w http.ResponseWriter, r *http.Request) {
@@ -111,6 +118,7 @@ func (api *MetadataAPI) handleIdentity(w http.ResponseWriter, r *http.Request) {
 		resp.WorkspaceID = *sandbox.WorkspaceID
 	}
 	writeJSON(w, http.StatusOK, resp)
+	api.auditLog(r.RemoteAddr, "/metadata/identity", r.Method, sandbox)
 }
 
 func (api *MetadataAPI) handleMetadata(w http.ResponseWriter, r *http.Request) {
@@ -144,6 +152,7 @@ func (api *MetadataAPI) handleMetadata(w http.ResponseWriter, r *http.Request) {
 	resp.Metadata["sandbox_vmid"] = formatVMID(sandbox.VMID)
 	resp.Metadata["sandbox_profile"] = sandbox.Profile
 	writeJSON(w, http.StatusOK, resp)
+	api.auditLog(r.RemoteAddr, "/metadata/metadata", r.Method, sandbox)
 }
 
 func (api *MetadataAPI) handleSecrets(w http.ResponseWriter, r *http.Request) {
@@ -166,7 +175,8 @@ func (api *MetadataAPI) handleSecrets(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "secret name is required")
 		return
 	}
-	if _, err := api.sandboxByRemoteIP(r); err != nil {
+	sandbox, err := api.sandboxByRemoteIP(r)
+	if err != nil {
 		writeError(w, http.StatusNotFound, "sandbox not found for source IP")
 		return
 	}
@@ -179,6 +189,7 @@ func (api *MetadataAPI) handleSecrets(w http.ResponseWriter, r *http.Request) {
 		Name:  name,
 		Value: value,
 	})
+	api.auditLog(r.RemoteAddr, "/metadata/secrets/"+name, r.Method, sandbox)
 }
 
 // remoteAllowed checks if the request originates from the agent subnet.
@@ -255,4 +266,24 @@ func (api *MetadataAPI) loadSecret(r *http.Request, name string) (string, error)
 
 func formatVMID(vmid int) string {
 	return strconv.Itoa(vmid)
+}
+
+// auditLog records a metadata API access event. It logs the sandbox IP,
+// the endpoint accessed, and optionally the sandbox name if identified.
+func (api *MetadataAPI) auditLog(remoteAddr, endpoint, method string, sandbox *models.Sandbox) {
+	if api.logger == nil {
+		return
+	}
+	ip := parseRemoteIP(remoteAddr)
+	ipStr := ""
+	if ip != nil {
+		ipStr = ip.String()
+	}
+	name := ""
+	vmid := ""
+	if sandbox != nil {
+		name = sandbox.Name
+		vmid = formatVMID(sandbox.VMID)
+	}
+	api.logger.Printf("metadata: %s %s sandbox=%s vmid=%s ip=%s", method, endpoint, name, vmid, ipStr)
 }
