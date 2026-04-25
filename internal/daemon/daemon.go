@@ -35,6 +35,7 @@ import (
 	"github.com/agentlab/agentlab/internal/db"
 	"github.com/agentlab/agentlab/internal/integrations"
 	"github.com/agentlab/agentlab/internal/models"
+	"github.com/agentlab/agentlab/internal/pool"
 	"github.com/agentlab/agentlab/internal/proxmox"
 	"github.com/agentlab/agentlab/internal/proxy"
 	"github.com/agentlab/agentlab/internal/sandbox"
@@ -83,6 +84,7 @@ type Service struct {
 	sandboxBackend    sandbox.Backend
 	integrationStore  *integrations.Store
 	userRegistry      *user.Registry
+	resourcePool      *pool.Pool
 }
 
 // Run loads profiles, binds listeners, and serves until ctx is canceled.
@@ -410,6 +412,20 @@ func newService(cfg config.Config, profiles map[string]models.Profile, store *db
 
 	localMux := http.NewServeMux()
 	localMux.HandleFunc("/healthz", healthHandler)
+
+	// Create resource pool for sandbox over-commit tracking.
+	resourcePool := pool.New(pool.Config{
+		TotalCores:     cfg.PoolTotalCores,
+		TotalMemoryMB:  cfg.PoolTotalMemoryMB,
+		CPUOverCommit:  cfg.PoolCPUOverCommit,
+		MemoryOverCommit: cfg.PoolMemOverCommit,
+		BurstDuration:  cfg.PoolBurstDuration,
+	})
+	if resourcePool.IsEnabled() {
+		log.Printf("resource pool enabled: %d cores, %d MB RAM, cpu_over_commit=%.1f, mem_over_commit=%.1f",
+			cfg.PoolTotalCores, cfg.PoolTotalMemoryMB, resourcePool.Status().Config.CPUOverCommit, resourcePool.Status().Config.MemoryOverCommit)
+	}
+
 	controlAPI := NewControlAPI(store, profiles, sandboxManager, workspaceManager, jobOrchestrator, cfg.ArtifactDir, log.Default()).
 		WithBackend(backend).
 		WithMetrics(metrics).
@@ -419,8 +435,12 @@ func newService(cfg config.Config, profiles map[string]models.Profile, store *db
 		WithSkillBundle(cfg.ClaudeSkillBundleName, cfg.ClaudeSkillBundleVersion).
 		WithAgentSubnet(agentCIDR).
 		WithTailscaleStatus(defaultTailscaleDNSName).
-		WithTailscalePeerInventory(defaultTailscalePeerInventory)
+		WithTailscalePeerInventory(defaultTailscalePeerInventory).
+		WithResourcePool(resourcePool)
 	controlAPI.Register(localMux)
+
+	// Register pool status endpoint.
+	NewPoolAPI(resourcePool).Register(localMux)
 
 	// Set up integrations system if enabled.
 	var integrationStore *integrations.Store
@@ -605,6 +625,7 @@ func newService(cfg config.Config, profiles map[string]models.Profile, store *db
 		lxcBackend:        lxcBackend,
 		integrationStore:  integrationStore,
 		userRegistry:      userRegistry,
+		resourcePool:      resourcePool,
 	}, nil
 }
 
@@ -644,6 +665,9 @@ func (s *Service) Serve(ctx context.Context) error {
 	}
 	if s.artifactGC != nil {
 		s.artifactGC.Start(ctx)
+	}
+	if s.resourcePool != nil && s.resourcePool.IsEnabled() {
+		s.startPoolReclaimer(ctx)
 	}
 
 	errCh := make(chan error, serverCount)
@@ -689,6 +713,30 @@ func (s *Service) ControlAddr() string {
 		return ""
 	}
 	return s.controlListener.Addr().String()
+}
+
+// startPoolReclaimer runs periodic reclamation of expired burst allocations.
+func (s *Service) startPoolReclaimer(ctx context.Context) {
+	ticker := time.NewTicker(30 * time.Second)
+	go func() {
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+				reclaimed := s.resourcePool.ReclaimExpired()
+				for _, id := range reclaimed {
+					log.Printf("resource pool: reclaimed burst allocation for sandbox %d (expired)", id)
+					if s.sandboxManager != nil {
+						if err := s.sandboxManager.ForceDestroy(ctx, id); err != nil {
+							log.Printf("resource pool: failed to destroy expired sandbox %d: %v", id, err)
+						}
+					}
+				}
+			}
+		}
+	}()
 }
 
 func (s *Service) shutdown() {

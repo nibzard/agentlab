@@ -24,9 +24,12 @@ type profileNetworkSpec struct {
 }
 
 type profileResourceSpec struct {
-	Cores      int    `yaml:"cores"`
-	MemoryMB   int    `yaml:"memory_mb"`
-	CPUPinning string `yaml:"cpulist"`
+	Cores          int     `yaml:"cores"`
+	MemoryMB       int     `yaml:"memory_mb"`
+	CPUPinning     string  `yaml:"cpulist"`
+	CPUOverCommit  float64 `yaml:"cpu_over_commit"`
+	MemOverCommit  float64 `yaml:"mem_over_commit"`
+	AllowBurst     *bool   `yaml:"allow_burst"`
 }
 
 type profileStorageSpec struct {
@@ -119,4 +122,19 @@ func normalizeFirewallGroup(value string) (string, error) {
 		}
 	}
 	return group, nil
+}
+
+// profileResourceAlloc extracts the CPU and memory allocation from a profile.
+// Returns cores, memoryMB, and whether burst is allowed.
+func profileResourceAlloc(profile models.Profile) (cores, memoryMB int, allowBurst bool) {
+	spec, err := parseProfileProvisionSpec(profile.RawYAML)
+	if err != nil {
+		return 0, 0, false
+	}
+	cores = spec.Resources.Cores
+	memoryMB = spec.Resources.MemoryMB
+	if spec.Resources.AllowBurst != nil {
+		allowBurst = *spec.Resources.AllowBurst
+	}
+	return
 }

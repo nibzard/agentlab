@@ -127,6 +127,7 @@ Usage:
   agentlab defaults list
   agentlab defaults delete <key>
   agentlab version [--json]
+  agentlab [--endpoint URL] [--token TOKEN] [--socket PATH] [--json] pool status
   agentlab completion <bash|zsh|fish>
 
 Global Flags:
@@ -330,11 +331,13 @@ func dispatch(ctx context.Context, args []string, base commonFlags) error {
 		return withDefaultNext(runVersionCommand(args[1:], base), "agentlab version --help")
 	case "completion":
 		return withDefaultNext(runCompletionCommand(args[1:], base), "agentlab completion --help")
+	case "pool":
+		return withDefaultNext(runPoolCommand(ctx, args[1:], base), "agentlab pool --help")
 	default:
 		if !base.jsonOutput {
 			printUsage()
 		}
-		return unknownCommandError(args[0], []string{"new", "ls", "rm", "show", "start", "stop", "status", "schema", "init", "bootstrap", "job", "sandbox", "workspace", "session", "profile", "secrets", "msg", "ssh", "logs", "connect", "disconnect", "token", "integration", "user", "team", "defaults", "version", "completion"})
+		return unknownCommandError(args[0], []string{"new", "ls", "rm", "show", "start", "stop", "status", "schema", "init", "bootstrap", "job", "sandbox", "workspace", "session", "profile", "secrets", "msg", "ssh", "logs", "connect", "disconnect", "token", "integration", "user", "team", "defaults", "version", "completion", "pool"})
 	}
 }
 

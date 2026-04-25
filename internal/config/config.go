@@ -110,6 +110,12 @@ type Config struct {
 	IntegrationEncKey   string // Hex-encoded AES-256 key for encrypting integration secrets at rest
 	// Offline mode for air-gapped deployments
 	Offline bool // When true, block all external network calls (no internet required)
+	// Resource pool configuration for sandbox over-commit
+	PoolTotalCores     int           // Total physical CPU cores available for sandboxes (0 = unlimited)
+	PoolTotalMemoryMB  int           // Total physical RAM in MB available for sandboxes (0 = unlimited)
+	PoolCPUOverCommit  float64       // CPU over-commit ratio (default 1.0, e.g., 4.0 = 4x cores)
+	PoolMemOverCommit  float64       // Memory over-commit ratio (default 1.0, e.g., 2.0 = 2x RAM)
+	PoolBurstDuration  time.Duration // How long burst allocations may exceed commit limit (0 = disabled)
 }
 
 // FileConfig represents supported YAML config overrides.
@@ -187,6 +193,12 @@ type FileConfig struct {
 	IntegrationsEnabled      *bool    `yaml:"integrations_enabled"`
 	IntegrationEncKey        string   `yaml:"integration_enc_key"`
 	Offline                  *bool    `yaml:"offline"`
+	// Resource pool configuration
+	PoolTotalCores    *int     `yaml:"pool_total_cores"`
+	PoolTotalMemoryMB *int     `yaml:"pool_total_memory_mb"`
+	PoolCPUOverCommit *float64 `yaml:"pool_cpu_over_commit"`
+	PoolMemOverCommit *float64 `yaml:"pool_mem_over_commit"`
+	PoolBurstDuration string   `yaml:"pool_burst_duration"`
 }
 
 // DefaultConfig returns a Config struct with all default values set.
@@ -532,6 +544,25 @@ func applyFileConfig(cfg *Config, fileCfg FileConfig) error {
 	}
 	if fileCfg.Offline != nil {
 		cfg.Offline = *fileCfg.Offline
+	}
+	if fileCfg.PoolTotalCores != nil {
+		cfg.PoolTotalCores = *fileCfg.PoolTotalCores
+	}
+	if fileCfg.PoolTotalMemoryMB != nil {
+		cfg.PoolTotalMemoryMB = *fileCfg.PoolTotalMemoryMB
+	}
+	if fileCfg.PoolCPUOverCommit != nil {
+		cfg.PoolCPUOverCommit = *fileCfg.PoolCPUOverCommit
+	}
+	if fileCfg.PoolMemOverCommit != nil {
+		cfg.PoolMemOverCommit = *fileCfg.PoolMemOverCommit
+	}
+	if fileCfg.PoolBurstDuration != "" {
+		dur, err := parseDurationField(fileCfg.PoolBurstDuration, "pool_burst_duration")
+		if err != nil {
+			return err
+		}
+		cfg.PoolBurstDuration = dur
 	}
 	return nil
 }

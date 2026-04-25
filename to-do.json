@@ -124,7 +124,7 @@
       "id": "IMPL-2a",
       "title": "Resource pooling model for sandbox over-commit",
       "priority": 3,
-      "status": "todo",
+      "status": "done",
       "tags": [
         "resource-management",
         "performance"
@@ -139,15 +139,22 @@
         "Implement burst allocation: allow temporary exceedance with auto-reclaim"
       ],
       "files": [
-        "internal/sandbox/",
-        "internal/proxmox/",
-        "internal/daemon/"
+        "internal/pool/pool.go",
+        "internal/pool/pool_test.go",
+        "internal/pool",
+        "internal/config/config.go",
+        "internal/daemon/pool_api.go",
+        "internal/daemon/profile_resources.go",
+        "internal/daemon/daemon.go",
+        "internal/daemon/api.go",
+        "cmd/agentlab/commands.go",
+        "cmd/agentlab/main.go"
       ],
       "depends_on": [
         "IMPL-2"
       ],
       "created_at": "2026-04-24T00:00:00Z",
-      "updated_at": "2026-04-24T00:00:00Z"
+      "updated_at": "2026-04-25T04:30:00Z"
     },
     {
       "id": "IMPL-3",
@@ -552,28 +559,29 @@
         "Document offline setup guide"
       ],
       "files": [
-        "internal/offline/offline.go",
-        "internal/offline/offline_test.go",
+        "cmd/agentlabd/main.go",
+        "cmd/agentlabd/main_test.go",
+        "docs/configuration.md",
+        "docs/offline.md",
         "internal/config/config.go",
         "internal/config/config_test.go",
         "internal/daemon/daemon.go",
         "internal/daemon/exposure_publisher.go",
         "internal/daemon/integration_proxy_api.go",
-        "internal/sandbox/docker_backend.go",
-        "internal/integrations/llm_proxy.go",
-        "internal/integrations/http_proxy.go",
         "internal/integrations/git_proxy.go",
-        "cmd/agentlabd/main.go",
-        "cmd/agentlabd/main_test.go",
-        "docs/configuration.md",
-        "docs/offline.md"
+        "internal/integrations/http_proxy.go",
+        "internal/integrations/llm_proxy.go",
+        "internal/offline/offline.go",
+        "internal/offline/offline_test.go",
+        "internal/sandbox/docker_backend.go",
+        "to-do.json"
       ],
       "depends_on": [
         "IMPL-3",
         "IMPL-10"
       ],
       "created_at": "2026-04-24T00:00:00Z",
-      "updated_at": "2026-04-25T04:30:00Z"
+      "updated_at": "2026-04-25T04:04:27Z"
     },
     {
       "id": "IMPL-11",

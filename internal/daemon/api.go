@@ -24,6 +24,7 @@ import (
 	"github.com/agentlab/agentlab/internal/buildinfo"
 	"github.com/agentlab/agentlab/internal/db"
 	"github.com/agentlab/agentlab/internal/models"
+	"github.com/agentlab/agentlab/internal/pool"
 	"github.com/agentlab/agentlab/internal/proxmox"
 )
 
@@ -153,6 +154,7 @@ type ControlAPI struct {
 	skillBundleName    string
 	skillBundleVersion string
 	now                func() time.Time
+	resourcePool       *pool.Pool
 }
 
 // NewControlAPI creates a new control API instance.
@@ -262,6 +264,15 @@ func (api *ControlAPI) WithExposurePublisher(publisher ExposurePublisher) *Contr
 		return api
 	}
 	api.exposurePublisher = publisher
+	return api
+}
+
+// WithResourcePool sets the resource pool for sandbox over-commit tracking.
+func (api *ControlAPI) WithResourcePool(p *pool.Pool) *ControlAPI {
+	if api == nil {
+		return api
+	}
+	api.resourcePool = p
 	return api
 }
 
@@ -1992,6 +2003,11 @@ func (api *ControlAPI) handleSandboxCreate(w http.ResponseWriter, r *http.Reques
 
 	var createdSandbox models.Sandbox
 	if req.VMID != nil {
+		// Check resource pool before creating with explicit VMID.
+		if err := api.allocateFromPool(ctx, sandbox, req.Profile); err != nil {
+			writeError(w, http.StatusConflict, err.Error())
+			return
+		}
 		if err := api.store.CreateSandbox(ctx, sandbox); err != nil {
 			if isUniqueConstraint(err) {
 				writeError(w, http.StatusConflict, "sandbox vmid already exists")
@@ -2002,9 +2018,16 @@ func (api *ControlAPI) handleSandboxCreate(w http.ResponseWriter, r *http.Reques
 		}
 		createdSandbox = sandbox
 	} else {
+		// Check resource pool before creating with auto-allocated VMID.
+		if err := api.allocateFromPool(ctx, sandbox, req.Profile); err != nil {
+			writeError(w, http.StatusConflict, err.Error())
+			return
+		}
 		var err error
 		createdSandbox, err = createSandboxWithRetry(ctx, api.store, sandbox)
 		if err != nil {
+			// Release pool allocation on store failure.
+			api.resourcePool.Release(sandbox.VMID)
 			writeError(w, http.StatusInternalServerError, "failed to create sandbox")
 			return
 		}
@@ -3159,6 +3182,10 @@ func (api *ControlAPI) handleSandboxDestroy(w http.ResponseWriter, r *http.Reque
 		}
 		return
 	}
+	// Release pool allocation on successful destroy.
+	if api.resourcePool != nil {
+		_ = api.resourcePool.Release(vmid)
+	}
 	sandbox, err := api.store.GetSandbox(r.Context(), vmid)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to load sandbox")
@@ -3931,6 +3958,29 @@ func (api *ControlAPI) acquireWorkspaceLease(ctx context.Context, workspace mode
 			backoff = 2 * time.Second
 		}
 	}
+}
+
+// allocateFromPool reserves resources from the resource pool for a new sandbox.
+// Returns nil if the pool is not enabled (pass-through mode) or if allocation succeeds.
+// Returns an error describing the resource exhaustion if the pool denies the allocation.
+func (api *ControlAPI) allocateFromPool(_ context.Context, sandbox models.Sandbox, profileName string) error {
+	if api.resourcePool == nil || !api.resourcePool.IsEnabled() {
+		return nil
+	}
+	// Extract resource requirements from the profile.
+	var cores, memoryMB int
+	var allowBurst bool
+	if p, ok := api.profile(profileName); ok {
+		cores, memoryMB, allowBurst = profileResourceAlloc(p)
+	}
+	if cores == 0 && memoryMB == 0 {
+		// No resources specified in profile; let it through without pool check.
+		return nil
+	}
+	if err := api.resourcePool.Allocate(sandbox.VMID, sandbox.Name, profileName, cores, memoryMB, allowBurst); err != nil {
+		return fmt.Errorf("resource pool: %w", err)
+	}
+	return nil
 }
 
 func (api *ControlAPI) sandboxToV1(sb models.Sandbox) V1SandboxResponse {

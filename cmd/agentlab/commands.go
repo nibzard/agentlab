@@ -4927,3 +4927,131 @@ func vmidString(value *int) string {
 	}
 	return strconv.Itoa(*value)
 }
+
+// runPoolCommand dispatches pool subcommands.
+func runPoolCommand(ctx context.Context, args []string, base commonFlags) error {
+	if len(args) == 0 {
+		if !base.jsonOutput {
+			printPoolUsage()
+			return nil
+		}
+		return newUsageError(fmt.Errorf("pool command is required"), false)
+	}
+	if isHelpToken(args[0]) {
+		printPoolUsage()
+		return errHelp
+	}
+	switch args[0] {
+	case "status":
+		return runPoolStatus(ctx, args[1:], base)
+	default:
+		if !base.jsonOutput {
+			printPoolUsage()
+		}
+		return unknownSubcommandError("pool", args[0], []string{"status"})
+	}
+}
+
+func printPoolUsage() {
+	_, _ = fmt.Fprint(os.Stderr, `Usage: agentlab pool <command>
+
+Commands:
+  status    Show resource pool utilization
+
+Flags:
+  --json    Output JSON
+`)
+}
+
+func printPoolStatusUsage() {
+	_, _ = fmt.Fprint(os.Stderr, `Usage: agentlab pool status [flags]
+
+Show resource pool utilization across all sandboxes.
+
+Flags:
+  --json    Output JSON
+`)
+}
+
+func runPoolStatus(ctx context.Context, args []string, base commonFlags) error {
+	fs := newFlagSet("pool status")
+	opts := base
+	opts.bind(fs)
+	help := bindHelpFlag(fs)
+	if err := parseFlags(fs, args, printPoolStatusUsage, help, opts.jsonOutput); err != nil {
+		return err
+	}
+	client, err := apiClientFromFlags(opts)
+	if err != nil {
+		return err
+	}
+	payload, err := client.doJSON(ctx, http.MethodGet, "/v1/pool/status", nil)
+	if err != nil {
+		return err
+	}
+	if opts.jsonOutput {
+		return prettyPrintJSON(os.Stdout, payload)
+	}
+	printPoolStatusText(payload)
+	return nil
+}
+
+func printPoolStatusText(payload json.RawMessage) {
+	var status struct {
+		Config struct {
+			TotalCores       int     `json:"total_cores"`
+			TotalMemoryMB    int     `json:"total_memory_mb"`
+			CPUOverCommit    float64 `json:"cpu_over_commit"`
+			MemoryOverCommit float64 `json:"memory_over_commit"`
+		} `json:"config"`
+		AllocatedCores    int     `json:"allocated_cores"`
+		AllocatedMemoryMB int     `json:"allocated_memory_mb"`
+		AvailableCores    float64 `json:"available_cores"`
+		AvailableMemoryMB float64 `json:"available_memory_mb"`
+		UtilizationCPU    float64 `json:"utilization_cpu"`
+		UtilizationMemory float64 `json:"utilization_memory"`
+		ActiveCount       int     `json:"active_count"`
+		BurstCount        int     `json:"burst_count"`
+		Allocations       []struct {
+			SandboxID   int    `json:"sandbox_id"`
+			SandboxName string `json:"sandbox_name"`
+			Cores       int    `json:"cores"`
+			MemoryMB    int    `json:"memory_mb"`
+			Profile     string `json:"profile"`
+			Burst       bool   `json:"burst"`
+		} `json:"allocations"`
+	}
+	if err := json.Unmarshal(payload, &status); err != nil {
+		_, _ = fmt.Fprintf(os.Stderr, "error parsing pool status: %v\n", err)
+		os.Exit(1)
+	}
+	tw := tabwriter.NewWriter(os.Stdout, 0, 2, 2, ' ', 0)
+	_, _ = fmt.Fprintf(tw, "CPU:\t%d / %d cores (%.0f%% utilized)\n",
+		status.AllocatedCores, status.Config.TotalCores, status.UtilizationCPU*100)
+	_, _ = fmt.Fprintf(tw, "Memory:\t%d / %d MB (%.0f%% utilized)\n",
+		status.AllocatedMemoryMB, status.Config.TotalMemoryMB, status.UtilizationMemory*100)
+	_, _ = fmt.Fprintf(tw, "CPU over-commit:\t%.1fx (%.0f max cores)\n",
+		status.Config.CPUOverCommit, float64(status.Config.TotalCores)*status.Config.CPUOverCommit)
+	_, _ = fmt.Fprintf(tw, "Memory over-commit:\t%.1fx (%.0f max MB)\n",
+		status.Config.MemoryOverCommit, float64(status.Config.TotalMemoryMB)*status.Config.MemoryOverCommit)
+	_, _ = fmt.Fprintf(tw, "Available:\t%.0f cores, %.0f MB\n",
+		status.AvailableCores, status.AvailableMemoryMB)
+	_, _ = fmt.Fprintf(tw, "Active sandboxes:\t%d (%d burst)\n",
+		status.ActiveCount, status.BurstCount)
+	_ = tw.Flush()
+	if len(status.Allocations) > 0 {
+		_, _ = fmt.Fprintln(os.Stdout)
+		_, _ = fmt.Fprintln(os.Stdout, "Allocations:")
+		tw2 := tabwriter.NewWriter(os.Stdout, 0, 2, 2, ' ', 0)
+		_, _ = fmt.Fprintln(tw2, "ID\tNAME\tCORES\tMEMORY\tPROFILE\tBURST")
+		for _, a := range status.Allocations {
+			burst := ""
+			if a.Burst {
+				burst = "*"
+			}
+			_, _ = fmt.Fprintf(tw2, "%d\t%s\t%d\t%d MB\t%s\t%s\n",
+				a.SandboxID, a.SandboxName, a.Cores, a.MemoryMB, a.Profile, burst)
+		}
+		_ = tw2.Flush()
+	}
+}
