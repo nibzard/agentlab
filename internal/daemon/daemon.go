@@ -28,6 +28,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/agentlab/agentlab/internal/api"
 	"github.com/agentlab/agentlab/internal/config"
 	"github.com/agentlab/agentlab/internal/db"
 	"github.com/agentlab/agentlab/internal/models"
@@ -318,6 +319,19 @@ func newService(cfg config.Config, profiles map[string]models.Profile, store *db
 		WithTailscaleStatus(defaultTailscaleDNSName).
 		WithTailscalePeerInventory(defaultTailscalePeerInventory)
 	controlAPI.Register(localMux)
+
+	// Register POST /v1/exec and /v1/exec/dry-run endpoints.
+	// These mirror the CLI 1:1 over HTTPS (the "SSH API shoved into a POST body").
+	cliPath := strings.TrimSpace(cfg.CLIPath)
+	if cliPath != "" {
+		execAPI := api.NewExecAPI(cliPath, cfg.SocketPath, log.Default())
+		execAPI.Register(localMux)
+		log.Printf("exec API enabled (cli=%s)", cliPath)
+	} else if cliPath, err := api.ResolveCLIPath(""); err == nil {
+		execAPI := api.NewExecAPI(cliPath, cfg.SocketPath, log.Default())
+		execAPI.Register(localMux)
+		log.Printf("exec API enabled (cli=%s, auto-detected)", cliPath)
+	}
 
 	bootstrapMux := http.NewServeMux()
 	bootstrapMux.HandleFunc("/healthz", healthHandler)

@@ -94,7 +94,9 @@ type Config struct {
 	ProxyTLSCertDir string // Directory for issued TLS certificates
 	ProxyIP        string // IP address the proxy listens on (for DNS entries)
 	// Metadata endpoint configuration
-	MetadataRoutingEnabled bool // Enable iptables DNAT for 169.254.169.254
+	MetadataRoutingEnabled bool   // Enable iptables DNAT for 169.254.169.254
+	// HTTPS exec API configuration
+	CLIPath string // Path to agentlab CLI binary (auto-detected if empty)
 }
 
 // FileConfig represents supported YAML config overrides.
@@ -163,6 +165,7 @@ type FileConfig struct {
 	ProxyTLSCertDir          string   `yaml:"proxy_tls_cert_dir"`
 	ProxyIP                  string   `yaml:"proxy_ip"`
 	MetadataRoutingEnabled   *bool    `yaml:"metadata_routing_enabled"`
+	CLIPath                  string   `yaml:"cli_path"`
 }
 
 // DefaultConfig returns a Config struct with all default values set.
@@ -481,6 +484,9 @@ func applyFileConfig(cfg *Config, fileCfg FileConfig) error {
 	}
 	if fileCfg.MetadataRoutingEnabled != nil {
 		cfg.MetadataRoutingEnabled = *fileCfg.MetadataRoutingEnabled
+	}
+	if fileCfg.CLIPath != "" {
+		cfg.CLIPath = fileCfg.CLIPath
 	}
 	return nil
 }
