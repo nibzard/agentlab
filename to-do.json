@@ -647,16 +647,54 @@
         "cmd/agentlab-dashboard/main.go",
         "internal/dashboard/server.go",
         "internal/dashboard/server_test.go",
-        "internal/dashboard/static/index.html",
+        "internal/dashboard/static/assets/app.js",
         "internal/dashboard/static/assets/style.css",
-        "internal/dashboard/static/assets/app.js"
+        "internal/dashboard/static/index.html"
       ],
       "depends_on": [
         "IMPL-1a",
         "IMPL-4"
       ],
       "created_at": "2026-04-24T00:00:00Z",
-      "updated_at": "2026-04-25T05:30:00Z"
+      "updated_at": "2026-04-25T05:16:02Z"
+    },
+    {
+      "id": "IMPL-14",
+      "title": "Wire Docker/Libvirt backends into daemon sandbox/workspace managers",
+      "priority": 2,
+      "status": "done",
+      "tags": [
+        "backends",
+        "docker",
+        "libvirt",
+        "bug"
+      ],
+      "details": "Critical: When backend=docker or backend=libvirt is configured in daemon.go newService(), the created sandbox.Backend instances (DockerBackend, LibvirtBackend) are discarded with _ = backend (lines 299, 320). The nil proxmox.Backend variable is then passed to NewSandboxManager and NewWorkspaceManager (lines 328-329), which will cause nil pointer dereference on any sandbox operation. The sandbox.Backend instances need to be adapted to work with the existing manager interfaces, or the managers need to accept sandbox.Backend directly. The LXC backend (lxcBackend field) on the Service struct is similarly created but never wired into sandboxManager. Also, the Service.sandboxBackend field (sandbox.Backend type) is defined on the struct but never set in the return literal (lines 605-630).",
+      "files": [
+        "internal/daemon/daemon.go",
+        "internal/sandbox/docker_backend.go",
+        "internal/sandbox/libvirt_backend.go",
+        "internal/sandbox/lxc_backend.go",
+        "internal/sandbox/types.go",
+        "internal/daemon/sandbox_manager.go",
+        "internal/daemon/workspace_manager.go",
+        "internal/daemon/sandbox_backend_adapter.go",
+        "internal/daemon/sandbox_backend_adapter_test.go"
+      ],
+      "steps": [
+        "Design a unified backend adapter: create a wrapper that implements proxmox.Backend by delegating to sandbox.Backend for common operations",
+        "OR refactor SandboxManager and WorkspaceManager to accept sandbox.Backend instead of proxmox.Backend",
+        "Wire DockerBackend into the managers when backend=docker is configured",
+        "Wire LibvirtBackend into the managers when backend=libvirt is configured",
+        "Wire LXCBackend into sandboxManager when LXC is enabled and a sandbox type=lxc is requested",
+        "Set Service.sandboxBackend field in the return literal for all backend types",
+        "Add integration tests for docker and libvirt backend paths through the daemon"
+      ],
+      "depends_on": [
+        "IMPL-10"
+      ],
+      "created_at": "2026-04-25T06:00:00Z",
+      "updated_at": "2026-04-25T06:30:00Z"
     }
   ]
 }

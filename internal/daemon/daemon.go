@@ -217,6 +217,7 @@ func newService(cfg config.Config, profiles map[string]models.Profile, store *db
 
 	// Create Proxmox backend based on configuration (unless overridden)
 	var backend proxmox.Backend
+	var sbBackend sandbox.Backend // tracked for Service.sandboxBackend
 	primaryBackend := strings.ToLower(strings.TrimSpace(cfg.Backend))
 	if primaryBackend == "" {
 		primaryBackend = "proxmox" // default for backward compat
@@ -226,6 +227,7 @@ func newService(cfg config.Config, profiles map[string]models.Profile, store *db
 	case "proxmox":
 		if backendOverride != nil {
 			backend = backendOverride
+			sbBackend = sandbox.NewVMBackend(backendOverride)
 			log.Printf("using provided Proxmox backend override")
 		} else {
 			switch strings.ToLower(strings.TrimSpace(cfg.ProxmoxBackend)) {
@@ -258,6 +260,7 @@ func newService(cfg config.Config, profiles map[string]models.Profile, store *db
 					}
 				}
 				backend = apiBackend
+				sbBackend = sandbox.NewVMBackend(apiBackend)
 				log.Printf("using Proxmox API backend (url=%s)", cfg.ProxmoxAPIURL)
 			case "shell", "", "default":
 				backend = &proxmox.ShellBackend{
@@ -266,6 +269,7 @@ func newService(cfg config.Config, profiles map[string]models.Profile, store *db
 					Runner:         &proxmox.BashRunner{},
 					CloneMode:      cloneMode,
 				}
+				sbBackend = sandbox.NewVMBackend(backend)
 				log.Printf("using Proxmox shell backend")
 			default:
 				_ = metricsListener.Close()
@@ -296,7 +300,8 @@ func newService(cfg config.Config, profiles map[string]models.Profile, store *db
 			log.Printf("Docker backend health check passed")
 		}
 		log.Printf("using Docker backend (host=%s)", dockerCfg.Host)
-		_ = backend // no proxmox backend needed
+		sbBackend = dockerBackend
+		backend = newSandboxBackendAdapter(dockerBackend)
 	case "libvirt":
 		libvirtCfg := sandbox.LibvirtConfig{
 			URI:     cfg.LibvirtURI,
@@ -317,7 +322,8 @@ func newService(cfg config.Config, profiles map[string]models.Profile, store *db
 			log.Printf("libvirt backend health check passed")
 		}
 		log.Printf("using libvirt backend (uri=%s)", libvirtCfg.URI)
-		_ = backend // no proxmox backend needed
+		sbBackend = libvirtBackend
+		backend = newSandboxBackendAdapter(libvirtBackend)
 	default:
 		_ = metricsListener.Close()
 		_ = artifactListener.Close()
@@ -623,6 +629,7 @@ func newService(cfg config.Config, profiles map[string]models.Profile, store *db
 		metrics:           metrics,
 		metadataRouting:   metadataRouting,
 		lxcBackend:        lxcBackend,
+		sandboxBackend:    sbBackend,
 		integrationStore:  integrationStore,
 		userRegistry:      userRegistry,
 		resourcePool:      resourcePool,
