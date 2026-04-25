@@ -118,6 +118,9 @@ func (b *APIBackend) Configure(ctx context.Context, vmid VMID, cfg VMConfig) err
 	if cfg.CPUPinning != "" {
 		params.Set("cpulist", cfg.CPUPinning)
 	}
+	if cfg.CPULimit > 0 {
+		params.Set("cpu", strconv.FormatFloat(cfg.CPULimit, 'f', -1, 64))
+	}
 	if cfg.Bridge != "" || cfg.NetModel != "" || cfg.Firewall != nil || cfg.FirewallGroup != "" {
 		net0 := buildNet0(cfg.NetModel, cfg.Bridge, cfg.Firewall, cfg.FirewallGroup)
 		params.Set("net0", net0)

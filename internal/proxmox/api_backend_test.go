@@ -334,6 +334,50 @@ func TestAPIBackendConfigureRetriesWithoutFWGroup(t *testing.T) {
 	}
 }
 
+func TestAPIBackendConfigureWithCPULimit(t *testing.T) {
+	var calls []apiRequest
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, _ := io.ReadAll(r.Body)
+		_ = r.Body.Close()
+		form, _ := url.ParseQuery(string(body))
+		calls = append(calls, apiRequest{
+			method:   r.Method,
+			path:     r.URL.Path,
+			rawQuery: r.URL.RawQuery,
+			form:     form,
+		})
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"data":{}}`))
+	}))
+	defer srv.Close()
+
+	backend := &APIBackend{
+		BaseURL:    srv.URL + "/api2/json",
+		Node:       "pve",
+		HTTPClient: srv.Client(),
+	}
+
+	cfg := VMConfig{
+		Name:     "sandbox-102",
+		Cores:    4,
+		MemoryMB: 4096,
+		CPULimit: 2.5,
+	}
+
+	if err := backend.Configure(context.Background(), 102, cfg); err != nil {
+		t.Fatalf("Configure() error = %v", err)
+	}
+	if len(calls) != 1 {
+		t.Fatalf("expected 1 API call, got %d", len(calls))
+	}
+	if got := calls[0].form.Get("cpu"); got != "2.5" {
+		t.Fatalf("cpu param = %q, want %q", got, "2.5")
+	}
+	if got := calls[0].form.Get("cores"); got != "4" {
+		t.Fatalf("cores = %q", got)
+	}
+}
+
 func TestAPIBackendVMConfig(t *testing.T) {
 	var call apiRequest
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

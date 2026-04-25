@@ -253,6 +253,37 @@ func TestShellBackendConfigureResizesRootDisk(t *testing.T) {
 	}
 }
 
+func TestShellBackendConfigureWithCPULimit(t *testing.T) {
+	runner := &fakeRunner{responses: []runnerResponse{{}}}
+	backend := &ShellBackend{Runner: runner}
+
+	cfg := VMConfig{
+		Name:     "sandbox-102",
+		Cores:    4,
+		MemoryMB: 4096,
+		CPULimit: 2.0,
+	}
+
+	err := backend.Configure(context.Background(), 102, cfg)
+	if err != nil {
+		t.Fatalf("Configure() error = %v", err)
+	}
+
+	want := []runnerCall{{
+		name: "qm",
+		args: []string{
+			"set", "102",
+			"--name", "sandbox-102",
+			"--cores", "4",
+			"--memory", "4096",
+			"--cpu", "2",
+		},
+	}}
+	if !reflect.DeepEqual(runner.calls, want) {
+		t.Fatalf("Configure() calls = %#v, want %#v", runner.calls, want)
+	}
+}
+
 func TestShellBackendStatus(t *testing.T) {
 	runner := &fakeRunner{responses: []runnerResponse{{stdout: "status: running\n"}}}
 	backend := &ShellBackend{Runner: runner}

@@ -51,6 +51,9 @@ func applyProfileVMConfig(profile models.Profile, cfg proxmox.VMConfig) (proxmox
 	if strings.TrimSpace(spec.Resources.CPUPinning) != "" {
 		cfg.CPUPinning = strings.TrimSpace(spec.Resources.CPUPinning)
 	}
+	if spec.Resources.CPUOverCommit > 0 {
+		cfg.CPULimit = spec.Resources.CPUOverCommit
+	}
 	if strings.TrimSpace(spec.Network.Bridge) != "" {
 		cfg.Bridge = strings.TrimSpace(spec.Network.Bridge)
 	}

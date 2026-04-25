@@ -141,12 +141,14 @@
       "files": [
         "internal/pool/pool.go",
         "internal/pool/pool_test.go",
-        "internal/pool",
         "internal/config/config.go",
         "internal/daemon/pool_api.go",
         "internal/daemon/profile_resources.go",
         "internal/daemon/daemon.go",
         "internal/daemon/api.go",
+        "internal/proxmox/proxmox.go",
+        "internal/proxmox/shell_backend.go",
+        "internal/proxmox/api_backend.go",
         "cmd/agentlab/commands.go",
         "cmd/agentlab/main.go"
       ],
@@ -154,7 +156,7 @@
         "IMPL-2"
       ],
       "created_at": "2026-04-24T00:00:00Z",
-      "updated_at": "2026-04-25T04:30:00Z"
+      "updated_at": "2026-04-25T04:45:00Z"
     },
     {
       "id": "IMPL-3",

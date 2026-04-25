@@ -130,6 +130,9 @@ func (b *ShellBackend) Configure(ctx context.Context, vmid VMID, cfg VMConfig) e
 		if cfg.CPUPinning != "" {
 			args = append(args, "--cpulist", cfg.CPUPinning)
 		}
+		if cfg.CPULimit > 0 {
+			args = append(args, "--cpu", strconv.FormatFloat(cfg.CPULimit, 'f', -1, 64))
+		}
 		if cfg.Bridge != "" || cfg.NetModel != "" || cfg.Firewall != nil || firewallGroup != "" {
 			net0 := buildNet0(cfg.NetModel, cfg.Bridge, cfg.Firewall, firewallGroup)
 			args = append(args, "--net0", net0)

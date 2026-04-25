@@ -72,6 +72,9 @@ type VMConfig struct {
 	FirewallGroup string // Firewall group name to apply (empty = unset)
 	CloudInit     string // Cloud-init snippet path
 	CPUPinning    string // CPU pinning configuration
+	// CPULimit sets the Proxmox CPU time limit (in core units, 0 = unlimited).
+	// This enables per-VM CPU over-commit at the hypervisor level.
+	CPULimit float64
 	// SCSIHW selects the guest disk controller model (e.g., virtio-scsi-pci).
 	SCSIHW string
 	// RootDiskGB is the desired minimum size (in GB) for the VM's root disk.
