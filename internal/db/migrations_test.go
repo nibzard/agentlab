@@ -22,7 +22,7 @@ func TestMigrate(t *testing.T) {
 		var count int
 		err = conn.QueryRow("SELECT COUNT(*) FROM schema_migrations").Scan(&count)
 		require.NoError(t, err)
-		assert.Equal(t, 12, count) // We have 12 migrations
+		assert.Equal(t, 13, count) // We have 13 migrations
 
 		// Verify version numbers
 		rows, err := conn.Query("SELECT version FROM schema_migrations ORDER BY version")
@@ -36,7 +36,7 @@ func TestMigrate(t *testing.T) {
 			require.NoError(t, err)
 			versions = append(versions, v)
 		}
-		assert.Equal(t, []int{1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12}, versions)
+		assert.Equal(t, []int{1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13}, versions)
 	})
 
 	t.Run("idempotent - re-running is safe", func(t *testing.T) {
@@ -57,7 +57,7 @@ func TestMigrate(t *testing.T) {
 		var count int
 		err = conn.QueryRow("SELECT COUNT(*) FROM schema_migrations").Scan(&count)
 		require.NoError(t, err)
-		assert.Equal(t, 12, count)
+		assert.Equal(t, 13, count)
 	})
 
 	t.Run("creates all core tables", func(t *testing.T) {
@@ -507,7 +507,7 @@ func TestPartialMigration(t *testing.T) {
 			}
 		}
 
-		// Run migrations - should apply 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, and 12
+		// Run migrations - should apply 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, and 13
 		err = Migrate(conn)
 		require.NoError(t, err)
 
@@ -515,7 +515,7 @@ func TestPartialMigration(t *testing.T) {
 		var count int
 		err = conn.QueryRow("SELECT COUNT(*) FROM schema_migrations").Scan(&count)
 		require.NoError(t, err)
-		assert.Equal(t, 12, count)
+		assert.Equal(t, 13, count)
 
 		// Verify tables from migration 2 and 3 exist
 		var tables int

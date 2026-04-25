@@ -101,6 +101,9 @@ type Config struct {
 	CLIPath string // Path to agentlab CLI binary (auto-detected if empty)
 	// SSH key-based authentication configuration
 	AuthorizedKeysPath string // Path to SSH authorized_keys for daemon auth (enables SSH key auth)
+	// Integration / secret injection configuration
+	IntegrationsEnabled bool   // Enable the integrations system
+	IntegrationEncKey   string // Hex-encoded AES-256 key for encrypting integration secrets at rest
 }
 
 // FileConfig represents supported YAML config overrides.
@@ -172,6 +175,8 @@ type FileConfig struct {
 	MetadataRoutingEnabled   *bool    `yaml:"metadata_routing_enabled"`
 	CLIPath                  string   `yaml:"cli_path"`
 	AuthorizedKeysPath       string   `yaml:"authorized_keys_path"`
+	IntegrationsEnabled      *bool    `yaml:"integrations_enabled"`
+	IntegrationEncKey        string   `yaml:"integration_enc_key"`
 }
 
 // DefaultConfig returns a Config struct with all default values set.
@@ -499,6 +504,12 @@ func applyFileConfig(cfg *Config, fileCfg FileConfig) error {
 	}
 	if fileCfg.AuthorizedKeysPath != "" {
 		cfg.AuthorizedKeysPath = fileCfg.AuthorizedKeysPath
+	}
+	if fileCfg.IntegrationsEnabled != nil {
+		cfg.IntegrationsEnabled = *fileCfg.IntegrationsEnabled
+	}
+	if fileCfg.IntegrationEncKey != "" {
+		cfg.IntegrationEncKey = fileCfg.IntegrationEncKey
 	}
 	return nil
 }

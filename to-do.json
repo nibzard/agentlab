@@ -216,14 +216,14 @@
         "Update all daemon endpoints to accept both SSH key auth and token auth"
       ],
       "files": [
-        "internal/auth/keys.go",
-        "internal/auth/token.go",
-        "internal/auth/middleware.go",
-        "internal/auth/keys_test.go",
-        "internal/auth/token_test.go",
-        "internal/auth/middleware_test.go",
-        "cmd/agentlab/token_commands.go",
         "cmd/agentlab/main.go",
+        "cmd/agentlab/token_commands.go",
+        "internal/auth/keys.go",
+        "internal/auth/keys_test.go",
+        "internal/auth/middleware.go",
+        "internal/auth/middleware_test.go",
+        "internal/auth/token.go",
+        "internal/auth/token_test.go",
         "internal/config/config.go",
         "internal/daemon/daemon.go",
         "to-do.json"
@@ -232,13 +232,13 @@
         "IMPL-1"
       ],
       "created_at": "2026-04-24T00:00:00Z",
-      "updated_at": "2026-04-25T01:00:00Z"
+      "updated_at": "2026-04-25T01:02:41Z"
     },
     {
       "id": "IMPL-5",
       "title": "Network-level secret injection / integrations system",
       "priority": 2,
-      "status": "todo",
+      "status": "done",
       "tags": [
         "secrets",
         "integrations",
@@ -259,16 +259,27 @@
         "Write end-to-end tests: create integration, attach to sandbox, verify secret injection"
       ],
       "files": [
-        "internal/integrations/",
-        "internal/secrets/",
-        "internal/sandbox/",
-        "cmd/agentlab/"
+        "internal/integrations/types.go",
+        "internal/integrations/errors.go",
+        "internal/integrations/store.go",
+        "internal/integrations/http_proxy.go",
+        "internal/integrations/git_proxy.go",
+        "internal/integrations/types_test.go",
+        "internal/integrations/store_test.go",
+        "internal/integrations/http_proxy_test.go",
+        "internal/daemon/integration_api.go",
+        "internal/daemon/integration_proxy_api.go",
+        "internal/db/migrations.go",
+        "internal/config/config.go",
+        "internal/daemon/daemon.go",
+        "cmd/agentlab/main.go",
+        "cmd/agentlab/integration_commands.go"
       ],
       "depends_on": [
         "IMPL-4"
       ],
       "created_at": "2026-04-24T00:00:00Z",
-      "updated_at": "2026-04-24T00:00:00Z"
+      "updated_at": "2026-04-25T02:00:00Z"
     },
     {
       "id": "IMPL-6",

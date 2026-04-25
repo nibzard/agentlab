@@ -244,6 +244,28 @@ var migrations = []migration{
 			`ALTER TABLE sandboxes ADD COLUMN image TEXT`,
 		},
 	},
+	{
+		version: 13,
+		name:    "add_integrations",
+		statements: []string{
+			`CREATE TABLE IF NOT EXISTS integrations (
+				id INTEGER PRIMARY KEY AUTOINCREMENT,
+				name TEXT NOT NULL UNIQUE,
+				type TEXT NOT NULL,
+				target TEXT NOT NULL DEFAULT '',
+				encrypted_secret TEXT NOT NULL,
+				secret_type TEXT NOT NULL DEFAULT 'bearer',
+				secret_header TEXT NOT NULL DEFAULT '',
+				username TEXT NOT NULL DEFAULT '',
+				attach_mode TEXT NOT NULL,
+				attach_selector TEXT NOT NULL DEFAULT '',
+				created_at TEXT NOT NULL,
+				updated_at TEXT NOT NULL
+			)`,
+			`CREATE UNIQUE INDEX IF NOT EXISTS idx_integrations_name ON integrations(name)`,
+			`ALTER TABLE sandboxes ADD COLUMN tags TEXT NOT NULL DEFAULT ''`,
+		},
+	},
 }
 
 // Migrate runs any pending migrations against the provided database.

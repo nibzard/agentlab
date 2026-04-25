@@ -32,6 +32,7 @@ import (
 	"github.com/agentlab/agentlab/internal/auth"
 	"github.com/agentlab/agentlab/internal/config"
 	"github.com/agentlab/agentlab/internal/db"
+	"github.com/agentlab/agentlab/internal/integrations"
 	"github.com/agentlab/agentlab/internal/models"
 	"github.com/agentlab/agentlab/internal/proxmox"
 	"github.com/agentlab/agentlab/internal/proxy"
@@ -77,6 +78,7 @@ type Service struct {
 	metrics           *Metrics
 	metadataRouting   *MetadataRouting
 	lxcBackend        *sandbox.LXCBackend
+	integrationStore  *integrations.Store
 }
 
 // Run loads profiles, binds listeners, and serves until ctx is canceled.
@@ -345,6 +347,46 @@ func newService(cfg config.Config, profiles map[string]models.Profile, store *db
 		WithTailscalePeerInventory(defaultTailscalePeerInventory)
 	controlAPI.Register(localMux)
 
+	// Set up integrations system if enabled.
+	var integrationStore *integrations.Store
+	if cfg.IntegrationsEnabled {
+		var encKey []byte
+		if cfg.IntegrationEncKey != "" {
+			var keyErr error
+			encKey, keyErr = integrations.ParseEncryptionKeyHex(cfg.IntegrationEncKey)
+			if keyErr != nil {
+				_ = metricsListener.Close()
+				_ = artifactListener.Close()
+				_ = bootstrapListener.Close()
+				_ = unixListener.Close()
+				return nil, fmt.Errorf("parse integration_enc_key: %w", keyErr)
+			}
+		} else {
+			var keyErr error
+			encKey, keyErr = integrations.GenerateEncryptionKey()
+			if keyErr != nil {
+				_ = metricsListener.Close()
+				_ = artifactListener.Close()
+				_ = bootstrapListener.Close()
+				_ = unixListener.Close()
+				return nil, fmt.Errorf("generate integration encryption key: %w", keyErr)
+			}
+			log.Printf("warning: integration_enc_key not set; generated ephemeral key (integrations will not survive restart)")
+		}
+		var storeErr error
+		integrationStore, storeErr = integrations.NewStore(store, encKey)
+		if storeErr != nil {
+			_ = metricsListener.Close()
+			_ = artifactListener.Close()
+			_ = bootstrapListener.Close()
+			_ = unixListener.Close()
+			return nil, fmt.Errorf("create integration store: %w", storeErr)
+		}
+		integrationAPI := NewIntegrationAPI(integrationStore, log.Default())
+		integrationAPI.Register(localMux)
+		log.Printf("integrations system enabled")
+	}
+
 	// Register POST /v1/exec and /v1/exec/dry-run endpoints.
 	// These mirror the CLI 1:1 over HTTPS (the "SSH API shoved into a POST body").
 	cliPath := strings.TrimSpace(cfg.CLIPath)
@@ -374,6 +416,12 @@ func newService(cfg config.Config, profiles map[string]models.Profile, store *db
 	NewBootstrapAPI(store, profiles, secretsStore, cfg.SecretsBundle, agentSubnet, artifactEndpoint, time.Duration(cfg.ArtifactTokenTTLMinutes)*time.Minute, redactor, bootstrapLimiter).Register(bootstrapMux)
 	NewRunnerAPI(jobOrchestrator, agentSubnet).Register(bootstrapMux)
 	NewMetadataAPI(store, secretsStore, cfg.SecretsBundle, agentSubnet, bootstrapLimiter, log.Default()).Register(bootstrapMux)
+
+	// Register integration proxy routes on bootstrap mux so sandboxes can
+	// access integrations through http://169.254.169.254/proxy/{name}/...
+	if integrationStore != nil {
+		NewIntegrationProxyAPI(integrationStore, agentSubnet, bootstrapLimiter, log.Default()).Register(bootstrapMux)
+	}
 
 	artifactMux := http.NewServeMux()
 	artifactMux.HandleFunc("/healthz", healthHandler)
@@ -473,6 +521,7 @@ func newService(cfg config.Config, profiles map[string]models.Profile, store *db
 		metrics:           metrics,
 		metadataRouting:   metadataRouting,
 		lxcBackend:        lxcBackend,
+		integrationStore:  integrationStore,
 	}, nil
 }
 
