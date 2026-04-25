@@ -310,11 +310,13 @@ func dispatch(ctx context.Context, args []string, base commonFlags) error {
 		return withDefaultNext(runConnectCommand(ctx, args[1:], base), "agentlab connect --help")
 	case "disconnect":
 		return withDefaultNext(runDisconnectCommand(ctx, args[1:], base), "agentlab disconnect --help")
+	case "token":
+		return withDefaultNext(runTokenCommand(ctx, args[1:], base), "agentlab token --help")
 	default:
 		if !base.jsonOutput {
 			printUsage()
 		}
-		return unknownCommandError(args[0], []string{"new", "ls", "rm", "show", "start", "stop", "status", "schema", "init", "bootstrap", "job", "sandbox", "workspace", "session", "profile", "secrets", "msg", "ssh", "logs", "connect", "disconnect"})
+		return unknownCommandError(args[0], []string{"new", "ls", "rm", "show", "start", "stop", "status", "schema", "init", "bootstrap", "job", "sandbox", "workspace", "session", "profile", "secrets", "msg", "ssh", "logs", "connect", "disconnect", "token"})
 	}
 }
 

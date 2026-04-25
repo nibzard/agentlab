@@ -29,6 +29,7 @@ import (
 	"time"
 
 	"github.com/agentlab/agentlab/internal/api"
+	"github.com/agentlab/agentlab/internal/auth"
 	"github.com/agentlab/agentlab/internal/config"
 	"github.com/agentlab/agentlab/internal/db"
 	"github.com/agentlab/agentlab/internal/models"
@@ -393,7 +394,13 @@ func newService(cfg config.Config, profiles map[string]models.Profile, store *db
 	}
 	var controlServer *http.Server
 	if controlListener != nil {
-		auth, err := NewControlAuth(cfg.ControlAuthToken, cfg.ControlAllowCIDRs)
+		// Use the new auth middleware that supports SSH key tokens
+		// alongside legacy bearer tokens.
+		authMw, err := auth.NewMiddleware(auth.MiddlewareConfig{
+			AuthorizedKeysPath: cfg.AuthorizedKeysPath,
+			LegacyToken:        cfg.ControlAuthToken,
+			AllowCIDRs:         cfg.ControlAllowCIDRs,
+		})
 		if err != nil {
 			if metricsListener != nil {
 				_ = metricsListener.Close()
@@ -405,9 +412,12 @@ func newService(cfg config.Config, profiles map[string]models.Profile, store *db
 			return nil, fmt.Errorf("control auth setup: %w", err)
 		}
 		controlServer = &http.Server{
-			Handler:           auth.Wrap(localMux),
+			Handler:           authMw.Wrap(localMux),
 			ReadHeaderTimeout: 5 * time.Second,
 			IdleTimeout:       2 * time.Minute,
+		}
+		if authMw.KeyStore() != nil {
+			log.Printf("SSH key authentication enabled (%d keys loaded from %s)", authMw.KeyStore().Count(), cfg.AuthorizedKeysPath)
 		}
 	}
 	bootstrapServer := &http.Server{
