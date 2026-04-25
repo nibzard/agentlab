@@ -17,6 +17,13 @@ func validateProfileForProvisioning(profile models.Profile) error {
 	if len(paths) > 0 {
 		return fmt.Errorf("profile %q requests host mounts at %s; host bind mounts are not allowed (use workspace disks instead)", profile.Name, strings.Join(paths, ", "))
 	}
+	// LXC profiles have different validation requirements
+	if profile.Type == models.SandboxTypeLXC {
+		if profile.Image == "" {
+			return fmt.Errorf("profile %q of type 'lxc' requires an 'image' field", profile.Name)
+		}
+		return nil
+	}
 	if err := validateProfileInnerSandbox(profile); err != nil {
 		return err
 	}

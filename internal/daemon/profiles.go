@@ -17,6 +17,8 @@ import (
 type profileSpec struct {
 	Name       string `yaml:"name"`
 	TemplateVM int    `yaml:"template_vmid"`
+	Type       string `yaml:"type"`  // "vm" (default) or "lxc"
+	Image      string `yaml:"image"` // Container image for LXC (e.g., "ubuntu:22.04")
 }
 
 // LoadProfiles reads profile YAML files from dir.
@@ -63,8 +65,27 @@ func LoadProfiles(dir string) (map[string]models.Profile, error) {
 			if spec.Name == "" {
 				return nil, fmt.Errorf("profile %s (document %d) missing name", path, docIndex)
 			}
-			if spec.TemplateVM <= 0 {
-				return nil, fmt.Errorf("profile %s (document %d) missing template_vmid", path, docIndex)
+			// Validate profile type
+			sandboxType := models.SandboxTypeVM
+			if spec.Type != "" {
+				switch models.SandboxType(spec.Type) {
+				case models.SandboxTypeVM:
+					sandboxType = models.SandboxTypeVM
+				case models.SandboxTypeLXC:
+					sandboxType = models.SandboxTypeLXC
+				default:
+					return nil, fmt.Errorf("profile %s (document %d) invalid type %q (must be 'vm' or 'lxc')", path, docIndex, spec.Type)
+				}
+			}
+			// Validate required fields based on type
+			if sandboxType == models.SandboxTypeLXC {
+				if spec.Image == "" {
+					return nil, fmt.Errorf("profile %s (document %d) of type 'lxc' requires 'image' field", path, docIndex)
+				}
+			} else {
+				if spec.TemplateVM <= 0 {
+					return nil, fmt.Errorf("profile %s (document %d) missing template_vmid", path, docIndex)
+				}
 			}
 			if _, exists := profiles[spec.Name]; exists {
 				return nil, fmt.Errorf("duplicate profile name %q in %s", spec.Name, path)
@@ -80,6 +101,8 @@ func LoadProfiles(dir string) (map[string]models.Profile, error) {
 			profiles[spec.Name] = models.Profile{
 				Name:       spec.Name,
 				TemplateVM: spec.TemplateVM,
+				Type:       sandboxType,
+				Image:      spec.Image,
 				UpdatedAt:  modTime,
 				RawYAML:    rawYAML,
 			}

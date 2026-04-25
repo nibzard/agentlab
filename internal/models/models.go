@@ -49,14 +49,16 @@ const (
 	SandboxDestroyed SandboxState = "DESTROYED"
 )
 
-// Sandbox represents a Proxmox VM managed by AgentLab.
+// Sandbox represents a Proxmox VM or LXC container managed by AgentLab.
 //
 // Fields:
-//   - VMID: The Proxmox VM ID (unique identifier)
+//   - VMID: The Proxmox VM/CT ID (unique identifier)
 //   - Name: Human-readable name for the sandbox
 //   - Profile: Name of the profile used to create the sandbox
+//   - Type: Sandbox type ("vm" for QEMU VM, "lxc" for container)
+//   - Image: Container image for LXC sandboxes (e.g., "ubuntu:22.04")
 //   - State: Current state in the sandbox lifecycle
-//   - IP: IP address of the VM in the agent subnet
+//   - IP: IP address of the VM/container in the agent subnet
 //   - WorkspaceID: ID of attached workspace volume (optional)
 //   - Keepalive: Whether the sandbox lease auto-renews
 //   - LeaseExpires: When the sandbox lease expires (zero if no TTL)
@@ -67,6 +69,8 @@ type Sandbox struct {
 	VMID          int
 	Name          string
 	Profile       string
+	Type          SandboxType // "vm" (default) or "lxc"
+	Image         string      // Container image for LXC (e.g., "ubuntu:22.04")
 	State         SandboxState
 	IP            string
 	WorkspaceID   *string
@@ -76,6 +80,16 @@ type Sandbox struct {
 	CreatedAt     time.Time
 	LastUpdatedAt time.Time
 }
+
+// SandboxType represents whether the sandbox is a VM or LXC container.
+type SandboxType string
+
+const (
+	// SandboxTypeVM represents a full QEMU virtual machine.
+	SandboxTypeVM SandboxType = "vm"
+	// SandboxTypeLXC represents an LXC container.
+	SandboxTypeLXC SandboxType = "lxc"
+)
 
 // JobStatus represents the current status of a job in its lifecycle.
 //
@@ -144,19 +158,24 @@ type Job struct {
 // Profile defines the configuration template for sandbox provisioning.
 //
 // Profiles are loaded from YAML files in /etc/agentlab/profiles/ and define:
-//   - Which VM template to use
+//   - Which VM template to use (for VM sandboxes)
+//   - Which container image to use (for LXC sandboxes)
 //   - Resource allocation (CPU, memory, disk)
 //   - Behavior defaults (TTL, keepalive)
 //   - Inner sandbox configuration
 //
 // Fields:
 //   - Name: Profile identifier (matches filename)
-//   - TemplateVM: Proxmox VM ID of the template to clone
+//   - TemplateVM: Proxmox VM ID of the template to clone (VM sandboxes)
+//   - Type: Sandbox type ("vm" or "lxc", defaults to "vm")
+//   - Image: Container image for LXC sandboxes (e.g., "ubuntu:22.04")
 //   - UpdatedAt: When the profile was last loaded from disk
 //   - RawYAML: The raw YAML configuration for debugging
 type Profile struct {
 	Name       string
 	TemplateVM int
+	Type       SandboxType // "vm" (default) or "lxc"
+	Image      string      // Container image for LXC (e.g., "ubuntu:22.04")
 	UpdatedAt  time.Time
 	RawYAML    string
 }

@@ -1969,6 +1969,21 @@ func (api *ControlAPI) handleSandboxCreate(w http.ResponseWriter, r *http.Reques
 		CreatedAt:     now,
 		LastUpdatedAt: now,
 	}
+	// Resolve sandbox type from profile or explicit request
+	if profile, ok := api.profile(req.Profile); ok {
+		sandbox.Type = profile.Type
+		sandbox.Image = profile.Image
+	}
+	// Explicit CLI flags override profile defaults
+	if req.Type != "" {
+		sandbox.Type = models.SandboxType(req.Type)
+	}
+	if req.Image != "" {
+		sandbox.Image = req.Image
+	}
+	if sandbox.Type == "" {
+		sandbox.Type = models.SandboxTypeVM
+	}
 	if req.Workspace != nil && *req.Workspace != "" {
 		workspace := *req.Workspace
 		sandbox.WorkspaceID = &workspace
@@ -3922,6 +3937,8 @@ func (api *ControlAPI) sandboxToV1(sb models.Sandbox) V1SandboxResponse {
 		VMID:          sb.VMID,
 		Name:          sb.Name,
 		Profile:       sb.Profile,
+		Type:          string(sb.Type),
+		Image:         sb.Image,
 		State:         string(sb.State),
 		IP:            sb.IP,
 		WorkspaceID:   sb.WorkspaceID,
@@ -4016,6 +4033,8 @@ func profileToV1(profile models.Profile) V1Profile {
 	resp := V1Profile{
 		Name:         profile.Name,
 		TemplateVMID: profile.TemplateVM,
+		Type:         string(profile.Type),
+		Image:        profile.Image,
 	}
 	if !profile.UpdatedAt.IsZero() {
 		resp.UpdatedAt = profile.UpdatedAt.UTC().Format(time.RFC3339Nano)

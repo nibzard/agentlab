@@ -236,6 +236,14 @@ var migrations = []migration{
 			`CREATE INDEX IF NOT EXISTS idx_workspace_snapshots_created ON workspace_snapshots(created_at)`,
 		},
 	},
+	{
+		version: 12,
+		name:    "add_sandbox_type_and_image",
+		statements: []string{
+			`ALTER TABLE sandboxes ADD COLUMN type TEXT NOT NULL DEFAULT 'vm'`,
+			`ALTER TABLE sandboxes ADD COLUMN image TEXT`,
+		},
+	},
 }
 
 // Migrate runs any pending migrations against the provided database.

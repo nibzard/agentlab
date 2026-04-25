@@ -192,6 +192,8 @@ type sandboxCreateRequest struct {
 	Workspace  *string `json:"workspace_id,omitempty"`
 	VMID       *int    `json:"vmid,omitempty"`
 	JobID      string  `json:"job_id,omitempty"`
+	Type       string  `json:"type,omitempty"`
+	Image      string  `json:"image,omitempty"`
 }
 
 type sandboxValidatePlanRequest struct {
@@ -247,6 +249,8 @@ type sandboxResponse struct {
 	VMID          int                       `json:"vmid"`
 	Name          string                    `json:"name"`
 	Profile       string                    `json:"profile"`
+	Type          string                    `json:"type,omitempty"`
+	Image         string                    `json:"image,omitempty"`
 	State         string                    `json:"state"`
 	IP            string                    `json:"ip,omitempty"`
 	WorkspaceID   *string                   `json:"workspace_id,omitempty"`

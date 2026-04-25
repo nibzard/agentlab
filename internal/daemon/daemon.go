@@ -34,6 +34,7 @@ import (
 	"github.com/agentlab/agentlab/internal/models"
 	"github.com/agentlab/agentlab/internal/proxmox"
 	"github.com/agentlab/agentlab/internal/proxy"
+	"github.com/agentlab/agentlab/internal/sandbox"
 	"github.com/agentlab/agentlab/internal/secrets"
 )
 
@@ -74,6 +75,7 @@ type Service struct {
 	idleStopper       *IdleStopper
 	metrics           *Metrics
 	metadataRouting   *MetadataRouting
+	lxcBackend        *sandbox.LXCBackend
 }
 
 // Run loads profiles, binds listeners, and serves until ctx is canceled.
@@ -259,6 +261,28 @@ func newService(cfg config.Config, profiles map[string]models.Profile, store *db
 	workspaceManager := NewWorkspaceManager(store, backend, log.Default())
 	sandboxManager := NewSandboxManager(store, backend, log.Default()).WithWorkspaceManager(workspaceManager).WithMetrics(metrics)
 
+	// Set up LXC backend if enabled and using Proxmox API
+	var lxcBackend *sandbox.LXCBackend
+	if cfg.LXCEnabled && strings.ToLower(strings.TrimSpace(cfg.ProxmoxBackend)) == "api" {
+		lxcCfg := sandbox.ProxmoxAPIConfig{
+			URL:         cfg.ProxmoxAPIURL,
+			Token:       cfg.ProxmoxAPIToken,
+			Node:        cfg.ProxmoxNode,
+			Timeout:     cfg.ProxmoxCommandTimeout,
+			TLSInsecure: cfg.ProxmoxTLSInsecure,
+			TLSCAPath:   cfg.ProxmoxTLSCAPath,
+		}
+		var lxcErr error
+		lxcBackend, lxcErr = sandbox.NewLXCBackend(lxcCfg)
+		if lxcErr != nil {
+			log.Printf("warning: LXC backend init failed (LXC sandboxes will not be available): %v", lxcErr)
+		} else {
+			log.Printf("LXC container backend enabled (node=%s)", cfg.ProxmoxNode)
+		}
+	} else if cfg.LXCEnabled {
+		log.Printf("warning: LXC backend requires proxmox_backend=api; LXC sandboxes will not be available")
+	}
+
 	// Build exposure publisher: Tailscale is always available,
 	// Caddy proxy is added when proxy_enabled is true in config.
 	var exposurePublisher ExposurePublisher
@@ -438,6 +462,7 @@ func newService(cfg config.Config, profiles map[string]models.Profile, store *db
 		idleStopper:       idleStopper,
 		metrics:           metrics,
 		metadataRouting:   metadataRouting,
+		lxcBackend:        lxcBackend,
 	}, nil
 }
 

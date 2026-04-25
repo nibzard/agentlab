@@ -1303,6 +1303,8 @@ func runSandboxNew(ctx context.Context, args []string, base commonFlags) error {
 	var jobID string
 	var andSSH bool
 	var keepalive optionalBool
+	var sandboxType string
+	var image string
 	help := bindHelpFlag(fs)
 	fs.StringVar(&name, "name", "", "sandbox name")
 	fs.StringVar(&profile, "profile", "", "profile name")
@@ -1312,6 +1314,8 @@ func runSandboxNew(ctx context.Context, args []string, base commonFlags) error {
 	fs.StringVar(&jobID, "job", "", "attach to existing job id")
 	fs.BoolVar(&andSSH, "and-ssh", false, "create sandbox and immediately ssh into it")
 	fs.Var(&keepalive, "keepalive", "enable keepalive lease for sandbox")
+	fs.StringVar(&sandboxType, "type", "", "sandbox type: vm (default) or lxc")
+	fs.StringVar(&image, "image", "", "container image for LXC sandboxes (e.g., ubuntu:22.04)")
 	if err := parseFlags(fs, args, printSandboxNewUsage, help, opts.jsonOutput); err != nil {
 		return err
 	}
@@ -1386,6 +1390,8 @@ func runSandboxNew(ctx context.Context, args []string, base commonFlags) error {
 		Workspace:  workspaceID,
 		VMID:       vmidPtr,
 		JobID:      jobID,
+		Type:       sandboxType,
+		Image:      image,
 	}
 	payload, err := client.doJSON(ctx, http.MethodPost, "/v1/sandboxes", req)
 	if err != nil {
@@ -3860,6 +3866,14 @@ func printSandbox(sb sandboxResponse) {
 	fmt.Printf("VMID: %d\n", sb.VMID)
 	fmt.Printf("Name: %s\n", sb.Name)
 	fmt.Printf("Profile: %s\n", sb.Profile)
+	sbType := sb.Type
+	if sbType == "" {
+		sbType = "vm"
+	}
+	fmt.Printf("Type: %s\n", sbType)
+	if sb.Image != "" {
+		fmt.Printf("Image: %s\n", sb.Image)
+	}
 	fmt.Printf("State: %s\n", sb.State)
 	fmt.Printf("IP: %s\n", orDash(sb.IP))
 	fmt.Printf("Workspace: %s\n", orDashPtr(sb.WorkspaceID))
@@ -3948,7 +3962,7 @@ func printStatus(resp statusResponse) {
 
 func printSandboxList(sandboxes []sandboxResponse) {
 	w := tabwriter.NewWriter(os.Stdout, 2, 8, 2, ' ', 0)
-	fmt.Fprintln(w, "VMID\tNAME\tPROFILE\tSTATE\tIP\tMODE\tFWGROUP\tLEASE\tLAST USED")
+	fmt.Fprintln(w, "VMID\tNAME\tPROFILE\tTYPE\tSTATE\tIP\tMODE\tFWGROUP\tLEASE\tLAST USED")
 	for _, sb := range sandboxes {
 		lease := orDashPtr(sb.LeaseExpires)
 		lastUsed := orDashPtr(sb.LastUsedAt)
@@ -3958,7 +3972,11 @@ func printSandboxList(sandboxes []sandboxResponse) {
 			mode = orDash(sb.Network.Mode)
 			firewallGroup = orDash(sb.Network.FirewallGroup)
 		}
-		fmt.Fprintf(w, "%d\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n", sb.VMID, sb.Name, sb.Profile, sb.State, orDash(sb.IP), mode, firewallGroup, lease, lastUsed)
+		sbType := sb.Type
+		if sbType == "" {
+			sbType = "vm"
+		}
+		fmt.Fprintf(w, "%d\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n", sb.VMID, sb.Name, sb.Profile, sbType, sb.State, orDash(sb.IP), mode, firewallGroup, lease, lastUsed)
 	}
 	_ = w.Flush()
 }

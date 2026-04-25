@@ -214,6 +214,8 @@ type V1SandboxCreateRequest struct {
 	Workspace  *string `json:"workspace_id,omitempty"`
 	VMID       *int    `json:"vmid,omitempty"`
 	JobID      string  `json:"job_id,omitempty"`
+	Type       string  `json:"type,omitempty"`  // "vm" or "lxc"
+	Image      string  `json:"image,omitempty"` // Container image for LXC (e.g., "ubuntu:22.04")
 }
 
 type V1SandboxValidatePlanRequest struct {
@@ -275,6 +277,8 @@ type V1SandboxResponse struct {
 	VMID          int                        `json:"vmid"`
 	Name          string                     `json:"name"`
 	Profile       string                     `json:"profile"`
+	Type          string                     `json:"type,omitempty"`
+	Image         string                     `json:"image,omitempty"`
 	State         string                     `json:"state"`
 	IP            string                     `json:"ip,omitempty"`
 	WorkspaceID   *string                    `json:"workspace_id,omitempty"`
@@ -330,6 +334,8 @@ type V1SandboxReconcileResponse struct {
 type V1Profile struct {
 	Name         string `json:"name"`
 	TemplateVMID int    `json:"template_vmid"`
+	Type         string `json:"type,omitempty"`
+	Image        string `json:"image,omitempty"`
 	UpdatedAt    string `json:"updated_at"`
 }
 

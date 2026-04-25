@@ -81,6 +81,8 @@ type Config struct {
 	ProxmoxTLSInsecure       bool   // Skip TLS verification for Proxmox API
 	ProxmoxTLSCAPath         string // Optional CA bundle path for Proxmox API TLS verification
 	ProxmoxAPIShellFallback  bool   // Allow shell fallback for API backend volume ops
+	// LXC container backend configuration
+	LXCEnabled bool // Enable LXC container sandbox support
 	ClaudeSkillBundleName    string
 	ClaudeSkillBundleVersion string
 	// Reverse proxy configuration
@@ -153,6 +155,7 @@ type FileConfig struct {
 	ProxmoxTLSInsecure       *bool    `yaml:"proxmox_tls_insecure"`
 	ProxmoxTLSCAPath         string   `yaml:"proxmox_tls_ca_path"`
 	ProxmoxAPIShellFallback  *bool    `yaml:"proxmox_api_shell_fallback"`
+	LXCEnabled               *bool    `yaml:"lxc_enabled"`
 	ClaudeSkillBundleName    string   `yaml:"claude_skill_bundle_name"`
 	ClaudeSkillBundleVersion string   `yaml:"claude_skill_bundle_version"`
 	ProxyEnabled             *bool    `yaml:"proxy_enabled"`
@@ -448,6 +451,9 @@ func applyFileConfig(cfg *Config, fileCfg FileConfig) error {
 	}
 	if fileCfg.ProxmoxAPIShellFallback != nil {
 		cfg.ProxmoxAPIShellFallback = *fileCfg.ProxmoxAPIShellFallback
+	}
+	if fileCfg.LXCEnabled != nil {
+		cfg.LXCEnabled = *fileCfg.LXCEnabled
 	}
 	if fileCfg.ClaudeSkillBundleName != "" {
 		cfg.ClaudeSkillBundleName = fileCfg.ClaudeSkillBundleName
