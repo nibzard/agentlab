@@ -122,6 +122,12 @@ Usage:
   agentlab [--endpoint URL] [--token TOKEN] [--socket PATH] [--json] [--timeout DURATION] logs <vmid> [--follow] [--tail <n>]
   agentlab connect --endpoint <url> --token <token> [--jump-host <host>] [--jump-user <user>]
   agentlab disconnect
+  agentlab defaults write <key> <value>
+  agentlab defaults read <key>
+  agentlab defaults list
+  agentlab defaults delete <key>
+  agentlab version [--json]
+  agentlab completion <bash|zsh|fish>
 
 Global Flags:
   --endpoint URL  Control plane endpoint (http(s)://host:port)
@@ -318,11 +324,17 @@ func dispatch(ctx context.Context, args []string, base commonFlags) error {
 		return withDefaultNext(runUserCommand(ctx, args[1:], base), "agentlab user --help")
 	case "team":
 		return withDefaultNext(runTeamCommand(ctx, args[1:], base), "agentlab team --help")
+	case "defaults":
+		return withDefaultNext(runDefaultsDispatch(args[1:], base), "agentlab defaults --help")
+	case "version":
+		return withDefaultNext(runVersionCommand(args[1:], base), "agentlab version --help")
+	case "completion":
+		return withDefaultNext(runCompletionCommand(args[1:], base), "agentlab completion --help")
 	default:
 		if !base.jsonOutput {
 			printUsage()
 		}
-		return unknownCommandError(args[0], []string{"new", "ls", "rm", "show", "start", "stop", "status", "schema", "init", "bootstrap", "job", "sandbox", "workspace", "session", "profile", "secrets", "msg", "ssh", "logs", "connect", "disconnect", "token", "integration", "user", "team"})
+		return unknownCommandError(args[0], []string{"new", "ls", "rm", "show", "start", "stop", "status", "schema", "init", "bootstrap", "job", "sandbox", "workspace", "session", "profile", "secrets", "msg", "ssh", "logs", "connect", "disconnect", "token", "integration", "user", "team", "defaults", "version", "completion"})
 	}
 }
 

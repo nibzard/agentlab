@@ -1,0 +1,243 @@
+# AgentLab
+
+> AgentLab is the self-hosted sandbox orchestration platform for AI agents.
+> Sandboxes are ephemeral VMs and containers with built-in agent support,
+> credential proxying, and zero-config networking.
+
+## Quick Start
+
+```
+# Create a sandbox
+agentlab new --profile my-profile
+
+# Create with a prompt (agent-ready image)
+agentlab new --profile agent-claude --prompt "build a web server"
+
+# List sandboxes
+agentlab ls
+
+# SSH into a sandbox
+agentlab ssh <vmid>
+
+# Destroy a sandbox
+agentlab rm <vmid>
+```
+
+## Command Reference
+
+### Short Aliases (80/20)
+
+| Alias | Full Command | Description |
+|-------|-------------|-------------|
+| `new` | `sandbox new` | Create a sandbox |
+| `ls` | `sandbox list` | List sandboxes |
+| `show` | `sandbox show` | Show sandbox details |
+| `ssh` | `ssh` | SSH into a sandbox |
+| `start` | `sandbox start` | Start a sandbox |
+| `stop` | `sandbox stop` | Stop a sandbox |
+| `rm` | `sandbox destroy` | Destroy a sandbox |
+| `logs` | `logs` | View sandbox logs |
+
+### Full Command Tree
+
+```
+agentlab status                          # Daemon status
+agentlab schema                          # API schema
+agentlab init                            # Initialize agentlab on host
+agentlab bootstrap                       # Bootstrap a remote host
+
+agentlab job run                         # Run a job (repo + task + profile)
+agentlab job show <id>                   # Show job details
+agentlab job artifacts <id>              # List job artifacts
+agentlab job artifacts download <id>     # Download job artifacts
+
+agentlab sandbox new                     # Create sandbox
+agentlab sandbox list                    # List sandboxes
+agentlab sandbox show <vmid>             # Show sandbox details
+agentlab sandbox start <vmid>            # Start sandbox
+agentlab sandbox stop <vmid>             # Stop sandbox
+agentlab sandbox destroy <vmid>          # Destroy sandbox
+agentlab sandbox snapshot save <vmid>    # Save snapshot
+agentlab sandbox snapshot list <vmid>    # List snapshots
+agentlab sandbox snapshot restore <vmid> # Restore snapshot
+agentlab sandbox expose <vmid> :<port>   # Expose port
+agentlab sandbox lease renew <vmid>      # Renew lease
+
+agentlab workspace create                # Create persistent workspace
+agentlab workspace list                  # List workspaces
+agentlab workspace attach <ws> <vmid>    # Attach workspace to sandbox
+agentlab workspace detach <ws>           # Detach workspace
+
+agentlab session create                  # Create session (sandbox + workspace)
+agentlab session list                    # List sessions
+agentlab session fork <session>          # Fork a session
+
+agentlab token create --key <path>       # Create scoped API token
+agentlab token list                      # List token signing keys
+agentlab token inspect <token>           # Inspect token claims
+
+agentlab integration add                 # Add integration (http-proxy, git-proxy)
+agentlab integration list                # List integrations
+agentlab integration rm <name>           # Remove integration
+
+agentlab user add --key <ssh-key>        # Add user via SSH key
+agentlab user list                       # List users
+agentlab team add                        # Add team
+agentlab team members                    # List team members
+
+agentlab defaults write <key> <value>    # Set CLI preference
+agentlab defaults read <key>             # Read CLI preference
+agentlab defaults list                   # List all preferences
+agentlab version                         # Show version info
+agentlab completion <bash|zsh|fish>      # Generate shell completions
+```
+
+## Global Flags
+
+All commands support:
+
+- `--json` — Output JSON for programmatic use
+- `--endpoint URL` — Control plane endpoint (for remote access)
+- `--token TOKEN` — Auth token
+- `--socket PATH` — Daemon socket path
+- `--timeout DURATION` — Request timeout
+
+## Defaults System
+
+Persistent CLI preferences stored in `~/.config/agentlab/defaults.json`:
+
+```bash
+agentlab defaults write default-profile my-profile
+agentlab defaults write output-format json
+agentlab defaults write default-backend docker
+```
+
+Well-known keys: `default-profile`, `default-image`, `default-backend`,
+`output-format`, `default-timeout`, `default-socket`.
+
+## Sandboxes
+
+Sandbox types:
+- **VM** — Full virtual machine via Proxmox (default)
+- **LXC** — Lightweight container via Proxmox LXC
+- **Docker** — Local Docker container
+
+```bash
+# Create with specific type
+agentlab new --type lxc --image ubuntu:22.04
+
+# Create with prompt for agent
+agentlab new --profile agent-claude --prompt "implement auth module"
+
+# Manage lifecycle
+agentlab start <vmid>
+agentlab stop <vmid>
+agentlab rm <vmid>
+```
+
+## Built-in Guest Services
+
+Every sandbox has access to `http://169.254.169.254/` providing:
+
+- `GET /identity` — Sandbox name, ID, profile, tags, owner
+- `GET /metadata` — Key-value metadata set at creation
+- `/proxy/llm/v1/chat/completions` — LLM proxy (no API key inside sandbox)
+- `/proxy/git/*` — Git proxy with credential injection
+- `/proxy/{name}/*` — Generic HTTP API proxy
+- `GET /secrets/{name}` — On-demand secret access
+- `POST /email` — Email/notification gateway
+
+## Integrations
+
+Network-level secret injection — secrets never exist inside the sandbox:
+
+```bash
+# Add an HTTP API integration
+agentlab integration add --type http-proxy --name myapi \
+  --target https://api.example.com --bearer sk-...
+
+# Add a Git integration
+agentlab integration add --type git-proxy --name github \
+  --token ghp_...
+
+# Attach to sandboxes
+agentlab integration add --type http-proxy --name myapi \
+  --attach tag:production
+```
+
+## Authentication
+
+- **SSH keys** — Primary auth mechanism for self-hosted
+- **Scoped tokens** — Per-sandbox, per-command, time-limited API tokens
+- **RBAC** — admin and user roles for multi-user deployments
+
+```bash
+# Create a scoped token
+agentlab token create --key ~/.ssh/id_ed25519 \
+  --cmds "sandbox" --scope "sandbox:1001" --ttl 8h
+
+# Add a user
+agentlab user add --key "ssh-ed25519 AAAA..." --name alice --role user
+```
+
+## Networking
+
+- Automatic subdomain assignment: `<sandbox-name>.agentlab.local`
+- Automatic TLS via self-signed CA (self-hosted) or Let's Encrypt (public)
+- One-command expose: `agentlab sandbox expose mybox :8080 --public`
+- Built-in reverse proxy (Caddy integration)
+
+## Backends
+
+Pluggable sandbox backends:
+
+| Backend | Use Case |
+|---------|----------|
+| Proxmox | Production VM/LXC on bare metal |
+| Docker | Local development, lightweight |
+| libvirt | KVM/QEMU without Proxmox |
+
+```bash
+agentlab init --backend docker    # Use Docker locally
+agentlab init --backend proxmox   # Use Proxmox (default)
+```
+
+## Configuration Files
+
+- `/etc/agentlab/config.yaml` — Daemon configuration
+- `~/.config/agentlab/client.json` — Client connection config
+- `~/.config/agentlab/defaults.json` — CLI preference defaults
+- `/run/agentlab/agentlabd.sock` — Unix domain socket
+
+## Environment Variables
+
+All config can be overridden with `AGENTLAB_` prefixed env vars:
+
+- `AGENTLAB_ENDPOINT` — Control plane URL
+- `AGENTLAB_TOKEN` — Auth token
+- `AGENTLAB_TAILSCALE_TAILNET` — Tailscale tailnet name
+
+## Shell Completion
+
+```bash
+# Bash
+echo 'eval "$(agentlab completion bash)"' >> ~/.bashrc
+
+# Zsh
+echo 'eval "$(agentlab completion zsh)"' >> ~/.zshrc
+
+# Fish
+echo 'agentlab completion fish | source' >> ~/.config/fish/config.fish
+```
+
+## Agent-Ready Images
+
+Pre-built images with coding agents installed:
+
+- `agent-base` — Ubuntu with dev tools, git, build-essential
+- `agent-claude` — agent-base + Claude Code CLI
+- `agent-codex` — agent-base + OpenAI Codex CLI
+
+```bash
+agentlab new --image agent-claude --prompt "build a REST API"
+```

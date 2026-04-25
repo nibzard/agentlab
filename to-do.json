@@ -478,23 +478,23 @@
         "Add audit logging: who did what, when, on which sandbox"
       ],
       "files": [
-        "internal/user/types.go",
-        "internal/user/store.go",
-        "internal/user/registry.go",
+        "cmd/agentlab/main.go",
+        "cmd/agentlab/user_commands.go",
+        "internal/daemon/daemon.go",
         "internal/daemon/user_api.go",
         "internal/db/migrations.go",
         "internal/db/migrations_test.go",
         "internal/db/sandboxes.go",
         "internal/models/models.go",
-        "internal/daemon/daemon.go",
-        "cmd/agentlab/main.go",
-        "cmd/agentlab/user_commands.go"
+        "internal/user/registry.go",
+        "internal/user/store.go",
+        "internal/user/types.go"
       ],
       "depends_on": [
         "IMPL-4"
       ],
       "created_at": "2026-04-24T00:00:00Z",
-      "updated_at": "2026-04-25T03:15:00Z"
+      "updated_at": "2026-04-25T03:11:16Z"
     },
     {
       "id": "IMPL-10",
@@ -566,7 +566,7 @@
       "id": "IMPL-11",
       "title": "Developer experience: defaults, tab completion, llms.txt, one-liner installer",
       "priority": 3,
-      "status": "todo",
+      "status": "done",
       "tags": [
         "dx",
         "cli",
@@ -584,15 +584,19 @@
         "Write progressive disclosure docs: quickstart → guides → reference"
       ],
       "files": [
-        "cmd/agentlab/",
-        "internal/cli/",
-        "docs/"
+        "cmd/agentlab/main.go",
+        "cmd/agentlab/defaults_commands.go",
+        "cmd/agentlab/completion_commands.go",
+        "cmd/agentlab/version_commands.go",
+        "llms.txt",
+        "scripts/install.sh",
+        "docs/quickstart.md"
       ],
       "depends_on": [
         "IMPL-6"
       ],
       "created_at": "2026-04-24T00:00:00Z",
-      "updated_at": "2026-04-24T00:00:00Z"
+      "updated_at": "2026-04-25T03:30:00Z"
     },
     {
       "id": "IMPL-13",
