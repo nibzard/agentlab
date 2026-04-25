@@ -19,7 +19,7 @@
         "remote-access",
         "high-impact"
       ],
-      "details": "Ref: IMPROVEMENT_PLAN.md §1 – SSH-First API Design. The entire agentlab API should be accessible via SSH, mirroring exe.ssh's design where `ssh exe.dev new` works identically to the local CLI. The HTTPS API should mirror the CLI 1:1 (like exe's `POST /exec` pattern). Local and remote access must be unified: `agentlab sandbox new` locally should behave identically to `ssh agentlab.myserver.com sandbox new` remotely. The `cmd/agentlab-ssh-gateway` scaffold already exists as a starting point.",
+      "details": "Ref: IMPROVEMENT_PLAN.md \u00a71 \u2013 SSH-First API Design. The entire agentlab API should be accessible via SSH, mirroring exe.ssh's design where `ssh exe.dev new` works identically to the local CLI. The HTTPS API should mirror the CLI 1:1 (like exe's `POST /exec` pattern). Local and remote access must be unified: `agentlab sandbox new` locally should behave identically to `ssh agentlab.myserver.com sandbox new` remotely. The `cmd/agentlab-ssh-gateway` scaffold already exists as a starting point.",
       "steps": [
         "Audit existing cmd/agentlab-ssh-gateway scaffold and assess current state",
         "Design SSH command routing: map SSH commands to daemon RPC calls",
@@ -50,11 +50,11 @@
         "api",
         "remote-access"
       ],
-      "details": "Ref: IMPROVEMENT_PLAN.md §1 – Add an HTTPS API that mirrors the CLI 1:1. Like exe.ssh's pattern where the HTTPS API is 'the SSH API shoved into a POST body' — one API to learn, works identically over SSH and HTTP. This is a sub-task of the SSH-first API design effort.",
+      "details": "Ref: IMPROVEMENT_PLAN.md \u00a71 \u2013 Add an HTTPS API that mirrors the CLI 1:1. Like exe.ssh's pattern where the HTTPS API is 'the SSH API shoved into a POST body' \u2014 one API to learn, works identically over SSH and HTTP. This is a sub-task of the SSH-first API design effort.",
       "steps": [
         "Design POST /exec request/response schema (command string + flags as JSON body)",
         "Implement JSON command parser that feeds into the same CLI command registry",
-        "Add authentication middleware (API tokens derived from SSH keys per §4)",
+        "Add authentication middleware (API tokens derived from SSH keys per \u00a74)",
         "Support streaming output for long-running commands (SSE or chunked transfer)",
         "Add /exec/dry-run endpoint for command validation without execution",
         "Ensure --json output is default for API responses"
@@ -83,7 +83,7 @@
         "performance",
         "high-impact"
       ],
-      "details": "Ref: IMPROVEMENT_PLAN.md §2 – Container-Image-Based Sandboxes for Speed. exe.ssh uses container images as VM base images, achieving ~2s VM creation with shared CPU/RAM pooling. AgentLab should support LXC container-based sandboxes alongside full VMs, leveraging Proxmox's native LXC support. Add a 'lightweight' sandbox type using container images (`agentlab sandbox new --image=ubuntu:22.04`). Implement resource pooling to allow over-committing CPU/RAM across sandboxes rather than hard per-VM allocation.",
+      "details": "Ref: IMPROVEMENT_PLAN.md \u00a72 \u2013 Container-Image-Based Sandboxes for Speed. exe.ssh uses container images as VM base images, achieving ~2s VM creation with shared CPU/RAM pooling. AgentLab should support LXC container-based sandboxes alongside full VMs, leveraging Proxmox's native LXC support. Add a 'lightweight' sandbox type using container images (`agentlab sandbox new --image=ubuntu:22.04`). Implement resource pooling to allow over-committing CPU/RAM across sandboxes rather than hard per-VM allocation.",
       "steps": [
         "Research Proxmox LXC API and compare with current VM clone workflow",
         "Design a unified SandboxBackend interface (VMBackend, LXCBackend, future DockerBackend)",
@@ -92,7 +92,7 @@
         "Add --type=lxc|vm flag (default based on profile or image type)",
         "Implement resource pooling: track allocated vs actual CPU/RAM, allow over-commit ratios",
         "Add image pull/cache for common base images (ubuntu:22.04, debian:12, etc.)",
-        "Benchmark LXC vs VM creation time — target <5s for LXC containers",
+        "Benchmark LXC vs VM creation time \u2014 target <5s for LXC containers",
         "Ensure all existing sandbox operations work with LXC (expose, snapshot, workspace mount)"
       ],
       "files": [
@@ -129,7 +129,7 @@
         "resource-management",
         "performance"
       ],
-      "details": "Ref: IMPROVEMENT_PLAN.md §2 – Resource pooling model. Allow over-committing CPU/RAM across sandboxes rather than hard per-VM allocation. exe.ssh achieves this by having VMs share CPU/RAM from a pooled allocation. This is critical for density on self-hosted hardware.",
+      "details": "Ref: IMPROVEMENT_PLAN.md \u00a72 \u2013 Resource pooling model. Allow over-committing CPU/RAM across sandboxes rather than hard per-VM allocation. exe.ssh achieves this by having VMs share CPU/RAM from a pooled allocation. This is critical for density on self-hosted hardware.",
       "steps": [
         "Design resource pool configuration schema (total CPU, RAM, over-commit ratios)",
         "Implement ResourcePool tracker: allocate/release, enforce soft/hard limits",
@@ -169,7 +169,7 @@
         "reverse-proxy",
         "high-impact"
       ],
-      "details": "Ref: IMPROVEMENT_PLAN.md §3 – Zero-Config Networking with Reverse Proxy. exe.ssh gives every VM `vmname.exe.xyz` with automatic TLS termination and no public IPs. AgentLab should integrate Caddy or Traefik as a built-in reverse proxy, with automatic subdomain assignment (`sandbox-name.agentlab.local` or `sandbox-name.yourdomain.com`), automatic TLS via Let's Encrypt or self-signed CA for self-hosted, and one-command sharing: `agentlab sandbox expose mybox --public` handles TLS + DNS + proxy.",
+      "details": "Ref: IMPROVEMENT_PLAN.md \u00a73 \u2013 Zero-Config Networking with Reverse Proxy. exe.ssh gives every VM `vmname.exe.xyz` with automatic TLS termination and no public IPs. AgentLab should integrate Caddy or Traefik as a built-in reverse proxy, with automatic subdomain assignment (`sandbox-name.agentlab.local` or `sandbox-name.yourdomain.com`), automatic TLS via Let's Encrypt or self-signed CA for self-hosted, and one-command sharing: `agentlab sandbox expose mybox --public` handles TLS + DNS + proxy.",
       "steps": [
         "Evaluate Caddy vs Traefik for self-hosted use case (Caddy preferred for simplicity)",
         "Design reverse proxy integration: daemon manages Caddy config via API",
@@ -211,7 +211,7 @@
         "security",
         "high-impact"
       ],
-      "details": "Ref: IMPROVEMENT_PLAN.md §4 – Authentication: SSH Keys as Identity. exe.ssh uses SSH keys as the sole auth mechanism. API tokens are signed with SSH keys locally (no server-side secret storage). Tokens have granular permissions (cmds, exp, nbf) and are scoped to VMs. AgentLab should implement SSH key-based authentication for daemon access (fits self-hosted perfectly — just ~/.ssh/authorized_keys), API tokens with scoped permissions (per-sandbox, per-command, time-limited), and no external auth provider needed — keys ARE the identity.",
+      "details": "Ref: IMPROVEMENT_PLAN.md \u00a74 \u2013 Authentication: SSH Keys as Identity. exe.ssh uses SSH keys as the sole auth mechanism. API tokens are signed with SSH keys locally (no server-side secret storage). Tokens have granular permissions (cmds, exp, nbf) and are scoped to VMs. AgentLab should implement SSH key-based authentication for daemon access (fits self-hosted perfectly \u2014 just ~/.ssh/authorized_keys), API tokens with scoped permissions (per-sandbox, per-command, time-limited), and no external auth provider needed \u2014 keys ARE the identity.",
       "steps": [
         "Design SSH key identity model: authorized_keys file, key fingerprints as user IDs",
         "Implement key-based daemon authentication over Unix socket and SSH gateway",
@@ -254,7 +254,7 @@
         "proxy",
         "high-impact"
       ],
-      "details": "Ref: IMPROVEMENT_PLAN.md §5 – Network-Level Secret Injection (Integrations). exe.ssh injects secrets at the network level (HTTP headers, auth tokens) so secrets never exist inside the VM. Supports HTTP Proxy Integration, GitHub Integration. Attach by VM, tag, or `auto:all`. AgentLab should add a proxy layer that injects secrets into requests, a GitHub integration equivalent that proxies git clone through a gateway injecting credentials, tag-based attachment to apply integrations to all sandboxes with a given label, and commands like `agentlab integration add http-proxy --name=myapi --target=https://api.example.com --bearer=sk-...`.",
+      "details": "Ref: IMPROVEMENT_PLAN.md \u00a75 \u2013 Network-Level Secret Injection (Integrations). exe.ssh injects secrets at the network level (HTTP headers, auth tokens) so secrets never exist inside the VM. Supports HTTP Proxy Integration, GitHub Integration. Attach by VM, tag, or `auto:all`. AgentLab should add a proxy layer that injects secrets into requests, a GitHub integration equivalent that proxies git clone through a gateway injecting credentials, tag-based attachment to apply integrations to all sandboxes with a given label, and commands like `agentlab integration add http-proxy --name=myapi --target=https://api.example.com --bearer=sk-...`.",
       "steps": [
         "Design integration model: types (http-proxy, git-proxy), attachment (sandbox, tag, auto:all)",
         "Implement HTTP proxy integration: intercept requests, inject headers/tokens, forward to target",
@@ -301,10 +301,10 @@
         "simplification",
         "high-impact"
       ],
-      "details": "Ref: IMPROVEMENT_PLAN.md §6 – Simplify the Mental Model. exe.ssh has ~15 commands with core concept 'it's just a computer.' AgentLab has 40+ commands across sandboxes, jobs, workspaces, sessions, snapshots, profiles, secrets, leases, artifacts, messagebox. Should collapse concepts: `sandbox` = computer with disk, `job` = task on a sandbox, `workspace` = persistent disk. Consider merging sessions into sandboxes. Reduce top-level command surface: `agentlab new`, `agentlab ls`, `agentlab ssh`, `agentlab rm` as the 80/20. Keep advanced commands as subcommands for power users.",
+      "details": "Ref: IMPROVEMENT_PLAN.md \u00a76 \u2013 Simplify the Mental Model. exe.ssh has ~15 commands with core concept 'it's just a computer.' AgentLab has 40+ commands across sandboxes, jobs, workspaces, sessions, snapshots, profiles, secrets, leases, artifacts, messagebox. Should collapse concepts: `sandbox` = computer with disk, `job` = task on a sandbox, `workspace` = persistent disk. Consider merging sessions into sandboxes. Reduce top-level command surface: `agentlab new`, `agentlab ls`, `agentlab ssh`, `agentlab rm` as the 80/20. Keep advanced commands as subcommands for power users.",
       "steps": [
         "Audit all 40+ commands and classify: essential (top-level) vs power-user (subcommand)",
-        "Design alias system: `agentlab new` → `agentlab sandbox new`, `agentlab ls` → `agentlab sandbox list`, etc.",
+        "Design alias system: `agentlab new` \u2192 `agentlab sandbox new`, `agentlab ls` \u2192 `agentlab sandbox list`, etc.",
         "Implement `agentlab new` as shorthand for `agentlab sandbox new`",
         "Implement `agentlab ls` as shorthand for `agentlab sandbox list`",
         "Implement `agentlab ssh <name>` as shorthand for `agentlab sandbox ssh <name>`",
@@ -334,7 +334,7 @@
         "networking",
         "high-impact"
       ],
-      "details": "Ref: IMPROVEMENT_PLAN.md §7 – Built-in Guest Services (Metadata Endpoint). exe.ssh provides `http://169.254.169.254/` inside every VM offering LLM Gateway, email sending, identity headers — no API keys needed inside the VM. AgentLab should add a metadata endpoint at 169.254.169.254 (cloud-standard metadata IP) providing: sandbox identity and metadata, a generic credential proxy for all secret types (LLM keys, GitHub tokens, HTTP API tokens, database credentials — not just LLM), email/notification gateway, and on-demand secret access. This makes sandboxes self-aware and reduces per-sandbox configuration. The credential proxy replaces the bootstrap API: secrets are never written to disk inside the sandbox, they are either injected at the network layer or served on-demand through the proxy.",
+      "details": "Ref: IMPROVEMENT_PLAN.md \u00a77 \u2013 Built-in Guest Services (Metadata Endpoint). exe.ssh provides `http://169.254.169.254/` inside every VM offering LLM Gateway, email sending, identity headers \u2014 no API keys needed inside the VM. AgentLab should add a metadata endpoint at 169.254.169.254 (cloud-standard metadata IP) providing: sandbox identity and metadata, a generic credential proxy for all secret types (LLM keys, GitHub tokens, HTTP API tokens, database credentials \u2014 not just LLM), email/notification gateway, and on-demand secret access. This makes sandboxes self-aware and reduces per-sandbox configuration. The credential proxy replaces the bootstrap API: secrets are never written to disk inside the sandbox, they are either injected at the network layer or served on-demand through the proxy.",
       "steps": [
         "Design metadata API schema: /identity, /metadata, /proxy/{integration}, /secrets/{name}, /email endpoints",
         "Implement metadata HTTP server in daemon listening on 169.254.169.254:80",
@@ -343,7 +343,7 @@
         "Design generic credential proxy: any credential type served through the same metadata endpoint",
         "Implement credential proxy for LLM keys: /proxy/llm/v1/chat/completions injects daemon-held API key",
         "Implement credential proxy for Git: /proxy/git/* injects GitHub/GitLab credentials into clone requests",
-        "Implement credential proxy for arbitrary HTTP APIs: /proxy/{name}/* injects headers/tokens per integration config (per §5)",
+        "Implement credential proxy for arbitrary HTTP APIs: /proxy/{name}/* injects headers/tokens per integration config (per \u00a75)",
         "Add raw secret access: GET /secrets/{name} for cases where network injection isn't possible",
         "Add credential management commands: `agentlab credential add --type=llm|git|http --name=... --key=...`",
         "Implement email/notification gateway: POST /email sends via configured SMTP provider",
@@ -377,7 +377,7 @@
         "guest-services",
         "integrations"
       ],
-      "details": "Ref: IMPROVEMENT_PLAN.md §5 + §7 – The metadata endpoint at 169.254.169.254 should proxy ALL credential types, not just LLM keys. The daemon holds credentials (LLM API keys, GitHub tokens, HTTP API tokens, database passwords) and injects them at the network layer when sandboxes make requests. Sandboxes never see raw credentials. This sub-task focuses on the credential proxy backend: multi-provider LLM forwarding (Anthropic, OpenAI, Ollama), Git credential injection, and generic HTTP API proxying. This directly enables agent-ready sandboxes (§8) where Claude Code/Codex need LLM access without exposed keys, and GitHub integration where git clone is proxied with injected credentials.",
+      "details": "Ref: IMPROVEMENT_PLAN.md \u00a75 + \u00a77 \u2013 The metadata endpoint at 169.254.169.254 should proxy ALL credential types, not just LLM keys. The daemon holds credentials (LLM API keys, GitHub tokens, HTTP API tokens, database passwords) and injects them at the network layer when sandboxes make requests. Sandboxes never see raw credentials. This sub-task focuses on the credential proxy backend: multi-provider LLM forwarding (Anthropic, OpenAI, Ollama), Git credential injection, and generic HTTP API proxying. This directly enables agent-ready sandboxes (\u00a78) where Claude Code/Codex need LLM access without exposed keys, and GitHub integration where git clone is proxied with injected credentials.",
       "steps": [
         "Design unified credential proxy interface: CredentialProvider with LLM, Git, HTTP implementations",
         "Implement LLM proxy: accept OpenAI-compatible requests at /proxy/llm/..., forward to provider with daemon-held key",
@@ -422,7 +422,7 @@
         "images",
         "dx"
       ],
-      "details": "Ref: IMPROVEMENT_PLAN.md §8 – Built-in Coding Agent Support. exe.ssh's Shelley is a web-based coding agent built into the default image with pre-installed `claude` and `codex`. `new --prompt=` sends an initial task to the agent. AgentLab should pre-bake agent-ready sandbox images (Claude Code, Codex, etc. pre-installed), support `agentlab sandbox new --prompt='build a web app'` that starts an agent immediately, provide an agent-friendly image with tools, git, and AGENTS.md/CLAUDE.md support, and optionally offer a Shelley-like web UI for agent interaction.",
+      "details": "Ref: IMPROVEMENT_PLAN.md \u00a78 \u2013 Built-in Coding Agent Support. exe.ssh's Shelley is a web-based coding agent built into the default image with pre-installed `claude` and `codex`. `new --prompt=` sends an initial task to the agent. AgentLab should pre-bake agent-ready sandbox images (Claude Code, Codex, etc. pre-installed), support `agentlab sandbox new --prompt='build a web app'` that starts an agent immediately, provide an agent-friendly image with tools, git, and AGENTS.md/CLAUDE.md support, and optionally offer a Shelley-like web UI for agent interaction.",
       "steps": [
         "Create base agent image: Ubuntu/Debian with git, build-essential, common dev tools",
         "Add Claude Code to agent image (install via npm, configure for metadata endpoint LLM access)",
@@ -473,7 +473,7 @@
         "auth",
         "teams"
       ],
-      "details": "Ref: IMPROVEMENT_PLAN.md §9 – Multi-Tenancy for Self-Hosted Teams. exe.ssh has teams with roles (billing_owner, admin, user), shared quotas, SSO (Google, OIDC), admin SSH access to any member's VM. AgentLab should add multi-user support via SSH keys (natural for self-hosted), role-based access: admin (all sandboxes) vs user (own sandboxes), optional OIDC integration for enterprise deployments, shared resource quotas across users, and commands like `agentlab team add` and `agentlab team members`.",
+      "details": "Ref: IMPROVEMENT_PLAN.md \u00a79 \u2013 Multi-Tenancy for Self-Hosted Teams. exe.ssh has teams with roles (billing_owner, admin, user), shared quotas, SSO (Google, OIDC), admin SSH access to any member's VM. AgentLab should add multi-user support via SSH keys (natural for self-hosted), role-based access: admin (all sandboxes) vs user (own sandboxes), optional OIDC integration for enterprise deployments, shared resource quotas across users, and commands like `agentlab team add` and `agentlab team members`.",
       "steps": [
         "Design user model: SSH key fingerprint = user identity, no passwords needed",
         "Implement user registry: `agentlab user add --key='ssh-ed25519 AAAA...' --name=alice`",
@@ -515,7 +515,7 @@
         "architecture",
         "self-hosted"
       ],
-      "details": "Ref: IMPROVEMENT_PLAN.md §10 – Self-Hosted Differentiators. Unlike exe.ssh which is locked to their infrastructure, agentlab should support pluggable backends: Proxmox, libvirt, Docker, cloud APIs. This is a core self-hosted advantage: run anywhere — laptop, homelab, colo, multi-site. Full control over networking, storage, images.",
+      "details": "Ref: IMPROVEMENT_PLAN.md \u00a710 \u2013 Self-Hosted Differentiators. Unlike exe.ssh which is locked to their infrastructure, agentlab should support pluggable backends: Proxmox, libvirt, Docker, cloud APIs. This is a core self-hosted advantage: run anywhere \u2014 laptop, homelab, colo, multi-site. Full control over networking, storage, images.",
       "steps": [
         "Design SandboxBackend interface: Create, Start, Stop, Destroy, List, Status, Exec",
         "Refactor existing Proxmox code into ProxmoxBackend implementation",
@@ -551,7 +551,7 @@
         "offline",
         "self-hosted"
       ],
-      "details": "Ref: IMPROVEMENT_PLAN.md §10 – Self-Hosted Differentiators. Unlike exe.ssh which has no offline mode, agentlab should have full offline capability as a key self-hosted advantage. All features must work without internet access: image cache, local TLS CA, no external DNS dependencies.",
+      "details": "Ref: IMPROVEMENT_PLAN.md \u00a710 \u2013 Self-Hosted Differentiators. Unlike exe.ssh which has no offline mode, agentlab should have full offline capability as a key self-hosted advantage. All features must work without internet access: image cache, local TLS CA, no external DNS dependencies.",
       "steps": [
         "Audit all external network dependencies in current codebase",
         "Implement image cache for sandbox base images (pre-download for offline use)",
@@ -595,7 +595,7 @@
         "cli",
         "docs"
       ],
-      "details": "Ref: IMPROVEMENT_PLAN.md §11 – Developer Experience Patterns. Adopt patterns from exe.ssh's CLI design: `--json` on every command (agentlab already does this), `defaults` system (`agentlab defaults write` for persistent preferences), tab completion (generate shell completion scripts from command tree), progressive discovery docs (provide an `llms.txt` for agents to discover capabilities), and one-liner setup (`curl ... | bash` installer for the self-hosted case).",
+      "details": "Ref: IMPROVEMENT_PLAN.md \u00a711 \u2013 Developer Experience Patterns. Adopt patterns from exe.ssh's CLI design: `--json` on every command (agentlab already does this), `defaults` system (`agentlab defaults write` for persistent preferences), tab completion (generate shell completion scripts from command tree), progressive discovery docs (provide an `llms.txt` for agents to discover capabilities), and one-liner setup (`curl ... | bash` installer for the self-hosted case).",
       "steps": [
         "Implement `agentlab defaults write <key> <value>` and `agentlab defaults read <key>` commands",
         "Add defaults for: default-profile, default-image, output-format, default-backend",
@@ -604,7 +604,7 @@
         "Build one-liner installer: `curl -fsSL https://agentlab.dev/install.sh | bash`",
         "Ensure every command supports `--json` output (audit and fix gaps)",
         "Add `agentlab version --json` with full build info",
-        "Write progressive disclosure docs: quickstart → guides → reference"
+        "Write progressive disclosure docs: quickstart \u2192 guides \u2192 reference"
       ],
       "files": [
         "cmd/agentlab/completion_commands.go",
@@ -632,7 +632,7 @@
         "dashboard",
         "nice-to-have"
       ],
-      "details": "Ref: IMPROVEMENT_PLAN.md – Priority Recommendations, Nice to have #10. A web dashboard for visual sandbox management. Not a core requirement but improves the self-hosted experience significantly. Should be an optional component that can be enabled/disabled. Could leverage the HTTPS API from §1.",
+      "details": "Ref: IMPROVEMENT_PLAN.md \u2013 Priority Recommendations, Nice to have #10. A web dashboard for visual sandbox management. Not a core requirement but improves the self-hosted experience significantly. Should be an optional component that can be enabled/disabled. Could leverage the HTTPS API from \u00a71.",
       "steps": [
         "Choose minimal frontend stack (React with Vite, or Go templates + HTMX for simplicity)",
         "Design dashboard views: sandbox list, sandbox detail, job list, team management",
@@ -672,14 +672,15 @@
       "details": "Critical: When backend=docker or backend=libvirt is configured in daemon.go newService(), the created sandbox.Backend instances (DockerBackend, LibvirtBackend) are discarded with _ = backend (lines 299, 320). The nil proxmox.Backend variable is then passed to NewSandboxManager and NewWorkspaceManager (lines 328-329), which will cause nil pointer dereference on any sandbox operation. The sandbox.Backend instances need to be adapted to work with the existing manager interfaces, or the managers need to accept sandbox.Backend directly. The LXC backend (lxcBackend field) on the Service struct is similarly created but never wired into sandboxManager. Also, the Service.sandboxBackend field (sandbox.Backend type) is defined on the struct but never set in the return literal (lines 605-630).",
       "files": [
         "internal/daemon/daemon.go",
+        "internal/daemon/sandbox_backend_adapter.go",
+        "internal/daemon/sandbox_backend_adapter_test.go",
+        "internal/daemon/sandbox_manager.go",
+        "internal/daemon/workspace_manager.go",
         "internal/sandbox/docker_backend.go",
         "internal/sandbox/libvirt_backend.go",
         "internal/sandbox/lxc_backend.go",
         "internal/sandbox/types.go",
-        "internal/daemon/sandbox_manager.go",
-        "internal/daemon/workspace_manager.go",
-        "internal/daemon/sandbox_backend_adapter.go",
-        "internal/daemon/sandbox_backend_adapter_test.go"
+        "to-do.json"
       ],
       "steps": [
         "Design a unified backend adapter: create a wrapper that implements proxmox.Backend by delegating to sandbox.Backend for common operations",
@@ -694,7 +695,17 @@
         "IMPL-10"
       ],
       "created_at": "2026-04-25T06:00:00Z",
-      "updated_at": "2026-04-25T06:30:00Z"
+      "updated_at": "2026-04-25T05:37:04Z"
+    },
+    {
+      "id": "PROJECT-DONE",
+      "title": "Project done: no new tasks",
+      "status": "done",
+      "priority": 5,
+      "tags": [
+        "project-done"
+      ],
+      "details": "Final review pass completed. All tracked tasks are done. Codebase review of daemon wiring, sandbox backends (Docker, Libvirt, LXC), adapter pattern, dashboard, auth/token system, integrations (LLM proxy, secret encryption), resource pool, Caddy proxy, offline mode, user management, metadata API, exec API, and CLI commands. All tests pass. Minor code smells noted (unused helpers in docker_backend.go, redundant contains() in integrations/store.go) but none warrant new tasks."
     }
   ]
 }

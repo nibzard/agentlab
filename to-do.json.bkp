@@ -1,0 +1,18 @@
+{
+  "schema_version": 1,
+  "source_files": [
+    "README.md"
+  ],
+  "tasks": [
+    {
+      "id": "PROJECT-DONE",
+      "title": "Project done: no new tasks",
+      "priority": 5,
+      "status": "done",
+      "tags": [
+        "project-done"
+      ],
+      "details": "Review pass found no additional tasks from the current source files list."
+    }
+  ]
+}
