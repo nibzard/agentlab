@@ -153,6 +153,9 @@ func (api *MetadataAPI) handleMetadata(w http.ResponseWriter, r *http.Request) {
 	resp.Metadata["sandbox_name"] = sandbox.Name
 	resp.Metadata["sandbox_vmid"] = formatVMID(sandbox.VMID)
 	resp.Metadata["sandbox_profile"] = sandbox.Profile
+	if sandbox.Prompt != "" {
+		resp.Metadata["prompt"] = sandbox.Prompt
+	}
 	writeJSON(w, http.StatusOK, resp)
 	api.auditLog(r.RemoteAddr, "/metadata/metadata", r.Method, sandbox)
 }

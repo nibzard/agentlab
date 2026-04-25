@@ -214,8 +214,9 @@ type V1SandboxCreateRequest struct {
 	Workspace  *string `json:"workspace_id,omitempty"`
 	VMID       *int    `json:"vmid,omitempty"`
 	JobID      string  `json:"job_id,omitempty"`
-	Type       string  `json:"type,omitempty"`  // "vm" or "lxc"
-	Image      string  `json:"image,omitempty"` // Container image for LXC (e.g., "ubuntu:22.04")
+	Type       string  `json:"type,omitempty"`   // "vm" or "lxc"
+	Image      string  `json:"image,omitempty"`  // Container image for LXC (e.g., "ubuntu:22.04")
+	Prompt     string  `json:"prompt,omitempty"` // Initial agent prompt for agent-ready sandboxes
 }
 
 type V1SandboxValidatePlanRequest struct {
@@ -279,6 +280,7 @@ type V1SandboxResponse struct {
 	Profile       string                     `json:"profile"`
 	Type          string                     `json:"type,omitempty"`
 	Image         string                     `json:"image,omitempty"`
+	Prompt        string                     `json:"prompt,omitempty"`
 	State         string                     `json:"state"`
 	IP            string                     `json:"ip,omitempty"`
 	WorkspaceID   *string                    `json:"workspace_id,omitempty"`

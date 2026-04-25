@@ -1981,6 +1981,7 @@ func (api *ControlAPI) handleSandboxCreate(w http.ResponseWriter, r *http.Reques
 	if req.Image != "" {
 		sandbox.Image = req.Image
 	}
+	sandbox.Prompt = strings.TrimSpace(req.Prompt)
 	if sandbox.Type == "" {
 		sandbox.Type = models.SandboxTypeVM
 	}
@@ -3939,6 +3940,7 @@ func (api *ControlAPI) sandboxToV1(sb models.Sandbox) V1SandboxResponse {
 		Profile:       sb.Profile,
 		Type:          string(sb.Type),
 		Image:         sb.Image,
+		Prompt:        sb.Prompt,
 		State:         string(sb.State),
 		IP:            sb.IP,
 		WorkspaceID:   sb.WorkspaceID,

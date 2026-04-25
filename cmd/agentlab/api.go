@@ -194,6 +194,7 @@ type sandboxCreateRequest struct {
 	JobID      string  `json:"job_id,omitempty"`
 	Type       string  `json:"type,omitempty"`
 	Image      string  `json:"image,omitempty"`
+	Prompt     string  `json:"prompt,omitempty"`
 }
 
 type sandboxValidatePlanRequest struct {
@@ -251,6 +252,7 @@ type sandboxResponse struct {
 	Profile       string                    `json:"profile"`
 	Type          string                    `json:"type,omitempty"`
 	Image         string                    `json:"image,omitempty"`
+	Prompt        string                    `json:"prompt,omitempty"`
 	State         string                    `json:"state"`
 	IP            string                    `json:"ip,omitempty"`
 	WorkspaceID   *string                   `json:"workspace_id,omitempty"`

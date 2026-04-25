@@ -57,6 +57,8 @@ const (
 //   - Profile: Name of the profile used to create the sandbox
 //   - Type: Sandbox type ("vm" for QEMU VM, "lxc" for container)
 //   - Image: Container image for LXC sandboxes (e.g., "ubuntu:22.04")
+//   - Prompt: Initial agent prompt for agent-ready sandboxes (empty for non-agent sandboxes)
+//   - Tags: Comma-separated tags for integration attachment
 //   - State: Current state in the sandbox lifecycle
 //   - IP: IP address of the VM/container in the agent subnet
 //   - WorkspaceID: ID of attached workspace volume (optional)
@@ -71,6 +73,7 @@ type Sandbox struct {
 	Profile       string
 	Type          SandboxType // "vm" (default) or "lxc"
 	Image         string      // Container image for LXC (e.g., "ubuntu:22.04")
+	Prompt        string      // Initial agent prompt for agent-ready sandboxes
 	Tags          string      // Comma-separated tags for integration attachment
 	State         SandboxState
 	IP            string

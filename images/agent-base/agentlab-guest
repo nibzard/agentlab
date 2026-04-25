@@ -1,0 +1,53 @@
+#!/usr/bin/env bash
+# AgentLab Guest Helper
+# Provides easy access to sandbox metadata, secrets, and identity
+# from inside an AgentLab sandbox.
+#
+# Usage:
+#   agentlab-guest identity       # Show sandbox identity
+#   agentlab-guest metadata       # Show all sandbox metadata
+#   agentlab-guest secret <name>  # Get a secret value
+#   agentlab-guest prompt         # Get the initial agent prompt
+#   agentlab-guest proxy <path>   # Proxy request through credential proxy
+set -euo pipefail
+
+METADATA_BASE="http://169.254.169.254"
+
+case "${1:-help}" in
+    identity)
+        curl -sf "$METADATA_BASE/identity" | jq .
+        ;;
+    metadata)
+        curl -sf "$METADATA_BASE/metadata" | jq .
+        ;;
+    secret)
+        name="${2:?secret name required}"
+        curl -sf "$METADATA_BASE/secrets/$name" | jq -r '.value'
+        ;;
+    prompt)
+        curl -sf "$METADATA_BASE/metadata" | jq -r '.prompt // empty'
+        ;;
+    proxy)
+        path="${2:?proxy path required (e.g., llm/v1/chat/completions)}"
+        curl -sf "$METADATA_BASE/proxy/$path"
+        ;;
+    help|--help|-h)
+        cat <<EOF
+AgentLab Guest Helper - Access sandbox metadata and services.
+
+Usage:
+  agentlab-guest identity         Show sandbox identity (name, vmid, profile)
+  agentlab-guest metadata         Show all sandbox metadata key-value pairs
+  agentlab-guest secret <name>    Retrieve a named secret value
+  agentlab-guest prompt           Get the initial agent prompt (if set)
+  agentlab-guest proxy <path>     Make a request through the credential proxy
+
+The metadata endpoint is available at http://169.254.169.254 inside all sandboxes.
+EOF
+        ;;
+    *)
+        echo "Unknown command: $1"
+        echo "Run 'agentlab-guest help' for usage."
+        exit 1
+        ;;
+esac

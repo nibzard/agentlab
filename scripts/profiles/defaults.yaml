@@ -81,3 +81,77 @@ repo:
 artifacts:
   upload: true
   endpoint: http://10.77.0.1:8846/upload
+---
+# Agent-ready sandbox profiles.
+# These profiles use LXC containers for fast provisioning (~2-5s startup)
+# and come pre-loaded with coding agent tools.
+#
+# Usage:
+#   agentlab sandbox new --profile agent-claude --prompt "build a web app"
+#   agentlab sandbox new --profile agent-codex --prompt "fix the tests"
+#   agentlab sandbox new --profile agent-base  # dev tools only, no agent
+---
+name: agent-base
+type: lxc
+image: ubuntu:22.04
+network:
+  bridge: vmbr1
+  mode: nat
+resources:
+  cores: 4
+  memory_mb: 6144
+storage:
+  root_size_gb: 40
+behavior:
+  mode: dangerous
+  keepalive_default: true
+  ttl_minutes_default: 480
+secrets_bundle: default
+---
+name: agent-claude
+type: lxc
+image: ubuntu:22.04
+network:
+  bridge: vmbr1
+  mode: nat
+resources:
+  cores: 4
+  memory_mb: 8192
+storage:
+  root_size_gb: 60
+behavior:
+  mode: dangerous
+  keepalive_default: true
+  ttl_minutes_default: 480
+secrets_bundle: default
+---
+name: agent-codex
+type: lxc
+image: ubuntu:22.04
+network:
+  bridge: vmbr1
+  mode: nat
+resources:
+  cores: 4
+  memory_mb: 8192
+storage:
+  root_size_gb: 60
+behavior:
+  mode: dangerous
+  keepalive_default: true
+  ttl_minutes_default: 480
+secrets_bundle: default
+---
+# Docker-based agent profiles for local development.
+# Use with: agentlab sandbox new --profile docker-agent --type=docker --image=agentlab/agent-claude:latest
+---
+name: docker-agent
+type: docker
+image: agentlab/agent-base:latest
+resources:
+  cores: 4
+  memory_mb: 8192
+behavior:
+  mode: dangerous
+  keepalive_default: true
+  ttl_minutes_default: 480

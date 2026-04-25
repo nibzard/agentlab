@@ -1305,6 +1305,7 @@ func runSandboxNew(ctx context.Context, args []string, base commonFlags) error {
 	var keepalive optionalBool
 	var sandboxType string
 	var image string
+	var prompt string
 	help := bindHelpFlag(fs)
 	fs.StringVar(&name, "name", "", "sandbox name")
 	fs.StringVar(&profile, "profile", "", "profile name")
@@ -1316,6 +1317,7 @@ func runSandboxNew(ctx context.Context, args []string, base commonFlags) error {
 	fs.Var(&keepalive, "keepalive", "enable keepalive lease for sandbox")
 	fs.StringVar(&sandboxType, "type", "", "sandbox type: vm (default) or lxc")
 	fs.StringVar(&image, "image", "", "container image for LXC sandboxes (e.g., ubuntu:22.04)")
+	fs.StringVar(&prompt, "prompt", "", "initial agent prompt for agent-ready sandboxes")
 	if err := parseFlags(fs, args, printSandboxNewUsage, help, opts.jsonOutput); err != nil {
 		return err
 	}
@@ -1392,6 +1394,7 @@ func runSandboxNew(ctx context.Context, args []string, base commonFlags) error {
 		JobID:      jobID,
 		Type:       sandboxType,
 		Image:      image,
+		Prompt:     prompt,
 	}
 	payload, err := client.doJSON(ctx, http.MethodPost, "/v1/sandboxes", req)
 	if err != nil {
@@ -3873,6 +3876,9 @@ func printSandbox(sb sandboxResponse) {
 	fmt.Printf("Type: %s\n", sbType)
 	if sb.Image != "" {
 		fmt.Printf("Image: %s\n", sb.Image)
+	}
+	if sb.Prompt != "" {
+		fmt.Printf("Prompt: %s\n", sb.Prompt)
 	}
 	fmt.Printf("State: %s\n", sb.State)
 	fmt.Printf("IP: %s\n", orDash(sb.IP))

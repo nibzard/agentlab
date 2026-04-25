@@ -50,7 +50,7 @@ import (
 const usageText = `agentlab is the CLI for agentlabd.
 
 Quick commands (aliases for common operations):
-  agentlab new [--name <name>] (--profile <profile> | +mod [+mod...])   Create a sandbox (alias: sandbox new)
+  agentlab new [--name <name>] [--prompt <text>] (--profile <profile> | +mod [+mod...])   Create a sandbox (alias: sandbox new)
   agentlab ls                                                             List sandboxes (alias: sandbox list)
   agentlab show <vmid>                                                    Show sandbox details (alias: sandbox show)
   agentlab ssh <vmid>                                                     SSH into a sandbox
@@ -71,7 +71,7 @@ Usage:
   agentlab [--endpoint URL] [--token TOKEN] [--socket PATH] [--json] [--timeout DURATION] job artifacts <job_id>
   agentlab [--endpoint URL] [--token TOKEN] [--socket PATH] [--json] [--timeout DURATION] job artifacts download <job_id> [--out <path>] [--path <path>] [--name <name>] [--latest] [--bundle]
   agentlab [--endpoint URL] [--token TOKEN] [--socket PATH] [--json] [--timeout DURATION] job doctor <job_id> [--out <path>]
-  agentlab [--endpoint URL] [--token TOKEN] [--socket PATH] [--json] [--timeout DURATION] sandbox new [--name <name>] [--ttl <ttl>] [--keepalive] [--workspace <id>] [--vmid <vmid>] [--job <id>] [--and-ssh] (--profile <profile> | +mod [+mod...])
+  agentlab [--endpoint URL] [--token TOKEN] [--socket PATH] [--json] [--timeout DURATION] sandbox new [--name <name>] [--ttl <ttl>] [--keepalive] [--workspace <id>] [--vmid <vmid>] [--job <id>] [--and-ssh] [--type <type>] [--image <image>] [--prompt <text>] (--profile <profile> | +mod [+mod...])
   agentlab [--endpoint URL] [--token TOKEN] [--socket PATH] [--json] [--timeout DURATION] sandbox validate [--name <name>] [--ttl <ttl>] [--keepalive] [--workspace <id>] [--vmid <vmid>] [--job <id>] (+mod [+mod...] | --profile <profile>)
   agentlab [--endpoint URL] [--token TOKEN] [--socket PATH] [--json] [--timeout DURATION] sandbox list
   agentlab [--endpoint URL] [--token TOKEN] [--socket PATH] [--json] [--timeout DURATION] sandbox inventory
