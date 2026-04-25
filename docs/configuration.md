@@ -58,6 +58,7 @@ The main configuration file is located at `/etc/agentlab/config.yaml` by default
 | `proxmox_tls_insecure` | bool | `false` | Disable TLS certificate verification for Proxmox API (insecure, explicit opt-in) |
 | `proxmox_tls_ca_path` | string | `""` | Optional CA bundle path for Proxmox API verification |
 | `proxmox_api_shell_fallback` | bool | `false` | Allow API backend to fall back to shell for volume snapshot/clone |
+| `offline` | bool | `false` | Enable offline mode: block all external network calls (air-gapped deployments) |
 
 ### Network Configuration
 
@@ -467,6 +468,35 @@ agent_subnet: 10.77.0.0/16
 controller_url: https://agentlab.example.com:8844
 artifact_upload_url: https://agentlab.example.com:8846/upload
 ```
+
+### Offline / Air-Gapped Configuration
+
+AgentLab supports fully air-gapped deployments where no internet access is available. When offline mode is enabled, all outbound network calls to external addresses are blocked. Only private/local network destinations are allowed (loopback, link-local, RFC-1918, Unix sockets).
+
+Enable offline mode via config file:
+
+```yaml
+# /etc/agentlab/config.yaml
+offline: true
+proxy_enabled: true
+proxy_domain: agentlab.local
+proxy_tls_mode: self-signed
+```
+
+Or via CLI flag:
+
+```bash
+agentlabd --offline
+```
+
+**Offline mode constraints:**
+
+- `proxy_tls_mode` cannot be `letsencrypt` (requires internet for ACME challenges); use `self-signed` instead
+- Docker backend images must be pre-pulled before starting the daemon (`docker pull ubuntu:22.04`)
+- Tailscale exposure publisher is disabled (requires internet coordination)
+- LLM, Git, and HTTP proxy integrations only work with private upstream addresses (e.g., local Ollama)
+
+See [docs/offline.md](offline.md) for the full offline setup guide.
 
 ### Profile Examples
 

@@ -24,15 +24,18 @@ import (
 // Flags:
 //   - -version: Print version information and exit
 //   - -config: Path to configuration file (optional, uses defaults if not specified)
+//   - -offline: Enable offline mode for air-gapped deployments (blocks all external network calls)
 //
 // The daemon will exit with status 1 if configuration fails to load or if
 // the daemon encounters a fatal error during execution.
 func main() {
 	var showVersion bool
 	var configPath string
+	var offline bool
 
 	flag.BoolVar(&showVersion, "version", false, "print version and exit")
 	flag.StringVar(&configPath, "config", "", "path to config file")
+	flag.BoolVar(&offline, "offline", false, "enable offline mode: block all external network calls (air-gapped deployments)")
 	flag.Parse()
 
 	if showVersion {
@@ -43,6 +46,11 @@ func main() {
 	cfg, err := config.Load(configPath)
 	if err != nil {
 		log.Fatalf("config error: %v", err)
+	}
+
+	// CLI --offline flag overrides config file.
+	if offline {
+		cfg.Offline = true
 	}
 
 	log.Printf("agentlabd starting (%s)", buildinfo.String())

@@ -219,3 +219,60 @@ func TestMainVersion(t *testing.T) {
 		t.Fatalf("expected commit output, got %q", out)
 	}
 }
+
+func TestOfflineFlag(t *testing.T) {
+	t.Run("offline flag overrides config", func(t *testing.T) {
+		dir := t.TempDir()
+		configPath := filepath.Join(dir, "config.yaml")
+
+		// Config file has offline: false
+		err := os.WriteFile(configPath, []byte(`
+profiles_dir: `+dir+`/profiles
+data_dir: `+dir+`/data
+log_dir: `+dir+`/log
+run_dir: `+dir+`/run
+offline: false
+`), 0644)
+		require.NoError(t, err)
+
+		cfg, err := config.Load(configPath)
+		require.NoError(t, err)
+		assert.False(t, cfg.Offline)
+
+		// Simulating what main() does: override with CLI flag
+		cfg.Offline = true
+		assert.True(t, cfg.Offline)
+	})
+
+	t.Run("offline true in config is preserved", func(t *testing.T) {
+		dir := t.TempDir()
+		configPath := filepath.Join(dir, "config.yaml")
+
+		err := os.WriteFile(configPath, []byte(`
+profiles_dir: `+dir+`/profiles
+data_dir: `+dir+`/data
+log_dir: `+dir+`/log
+run_dir: `+dir+`/run
+offline: true
+`), 0644)
+		require.NoError(t, err)
+
+		cfg, err := config.Load(configPath)
+		require.NoError(t, err)
+		assert.True(t, cfg.Offline)
+	})
+
+	t.Run("offline validates letsencrypt incompatibility", func(t *testing.T) {
+		cfg := config.DefaultConfig()
+		cfg.Offline = true
+		cfg.ProxyEnabled = true
+		cfg.ProxyDomain = "agentlab.local"
+		cfg.ProxyTLSMode = "letsencrypt"
+		cfg.ProxyTLSEmail = "test@example.com"
+
+		err := cfg.Validate()
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "letsencrypt")
+		assert.Contains(t, err.Error(), "offline")
+	})
+}

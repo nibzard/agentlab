@@ -562,14 +562,18 @@
         "internal/sandbox/docker_backend.go",
         "internal/integrations/llm_proxy.go",
         "internal/integrations/http_proxy.go",
-        "internal/integrations/git_proxy.go"
+        "internal/integrations/git_proxy.go",
+        "cmd/agentlabd/main.go",
+        "cmd/agentlabd/main_test.go",
+        "docs/configuration.md",
+        "docs/offline.md"
       ],
       "depends_on": [
         "IMPL-3",
         "IMPL-10"
       ],
       "created_at": "2026-04-24T00:00:00Z",
-      "updated_at": "2026-04-25T04:00:00Z"
+      "updated_at": "2026-04-25T04:30:00Z"
     },
     {
       "id": "IMPL-11",
