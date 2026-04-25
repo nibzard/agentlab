@@ -71,6 +71,7 @@ type Sandbox struct {
 	Profile       string
 	Type          SandboxType // "vm" (default) or "lxc"
 	Image         string      // Container image for LXC (e.g., "ubuntu:22.04")
+	Tags          string      // Comma-separated tags for integration attachment
 	State         SandboxState
 	IP            string
 	WorkspaceID   *string

@@ -361,7 +361,7 @@
       "id": "IMPL-7a",
       "title": "Credential proxy: LLM, Git, HTTP integration through metadata endpoint",
       "priority": 2,
-      "status": "todo",
+      "status": "done",
       "tags": [
         "credentials",
         "proxy",
@@ -382,15 +382,24 @@
         "Write client examples: curl from inside sandbox for each proxy type (LLM, Git, HTTP)"
       ],
       "files": [
-        "internal/daemon/",
-        "internal/guest/",
-        "internal/integrations/"
+        "internal/integrations/llm_proxy.go",
+        "internal/integrations/llm_proxy_test.go",
+        "internal/integrations/types.go",
+        "internal/integrations/errors.go",
+        "internal/integrations/store.go",
+        "internal/daemon/integration_proxy_api.go",
+        "internal/daemon/integration_api.go",
+        "internal/daemon/metadata_api.go",
+        "internal/daemon/daemon.go",
+        "internal/db/migrations.go",
+        "internal/db/sandboxes.go",
+        "internal/models/models.go"
       ],
       "depends_on": [
         "IMPL-7"
       ],
       "created_at": "2026-04-24T00:00:00Z",
-      "updated_at": "2026-04-24T00:00:00Z"
+      "updated_at": "2026-04-25T02:07:00Z"
     },
     {
       "id": "IMPL-8",
@@ -483,20 +492,20 @@
         "Document backend requirements and setup for each provider"
       ],
       "files": [
-        "internal/sandbox/types.go",
+        "cmd/agentlab/init.go",
+        "internal/backend/health.go",
+        "internal/backend/registry.go",
+        "internal/config/config.go",
+        "internal/daemon/daemon.go",
         "internal/sandbox/docker_backend.go",
         "internal/sandbox/libvirt_backend.go",
         "internal/sandbox/lxc_backend_test.go",
-        "internal/backend/registry.go",
-        "internal/backend/health.go",
-        "internal/config/config.go",
-        "internal/daemon/daemon.go",
-        "cmd/agentlab/init.go",
+        "internal/sandbox/types.go",
         "to-do.json"
       ],
       "depends_on": [],
       "created_at": "2026-04-24T00:00:00Z",
-      "updated_at": "2026-04-25T02:15:00Z"
+      "updated_at": "2026-04-25T01:48:51Z"
     },
     {
       "id": "IMPL-10a",

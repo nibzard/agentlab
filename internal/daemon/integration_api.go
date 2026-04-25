@@ -82,6 +82,7 @@ func (api *IntegrationAPI) handleCreate(w http.ResponseWriter, r *http.Request) 
 		SecretType:     strings.TrimSpace(req.SecretType),
 		SecretHeader:   strings.TrimSpace(req.SecretHeader),
 		Username:       strings.TrimSpace(req.Username),
+		Provider:       strings.TrimSpace(req.Provider),
 		AttachMode:     attachMode,
 		AttachSelector: selector,
 	}
@@ -173,12 +174,13 @@ func (api *IntegrationAPI) handleDelete(w http.ResponseWriter, r *http.Request) 
 // V1IntegrationCreateRequest is the request body for creating an integration.
 type V1IntegrationCreateRequest struct {
 	Name         string `json:"name"`
-	Type         string `json:"type"`          // "http-proxy" or "git-proxy"
-	Target       string `json:"target"`         // Target URL for HTTP proxy
+	Type         string `json:"type"`           // "http-proxy", "git-proxy", or "llm-proxy"
+	Target       string `json:"target"`         // Target URL for proxy
 	Secret       string `json:"secret"`         // Secret value (API key, token, etc.)
 	SecretType   string `json:"secret_type"`    // "bearer", "header", "basic-auth"
 	SecretHeader string `json:"secret_header"`  // Custom header name (for header type)
 	Username     string `json:"username"`       // Username for basic-auth / git
+	Provider     string `json:"provider"`       // LLM provider: "openai", "anthropic", "ollama" (for llm-proxy)
 	Attach       string `json:"attach"`         // "sandbox:name", "tag:value", or "auto:all"
 }
 
@@ -191,6 +193,7 @@ type V1IntegrationResponse struct {
 	SecretType     string `json:"secret_type"`
 	SecretHeader   string `json:"secret_header,omitempty"`
 	Username       string `json:"username,omitempty"`
+	Provider       string `json:"provider,omitempty"`
 	AttachMode     string `json:"attach_mode"`
 	AttachSelector string `json:"attach_selector,omitempty"`
 	ProxyPath      string `json:"proxy_path"`
@@ -217,6 +220,7 @@ func integrationToResponse(integ *integrations.Integration) V1IntegrationRespons
 		SecretType:     integ.SecretType,
 		SecretHeader:   integ.SecretHeader,
 		Username:       integ.Username,
+		Provider:       integ.Provider,
 		AttachMode:     string(integ.AttachMode),
 		AttachSelector: integ.AttachSelector,
 		ProxyPath:      integ.ProxyPath(),

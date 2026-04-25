@@ -5,6 +5,7 @@
 // the VM. Supported integration types are:
 //   - http-proxy: Intercept HTTP requests, inject headers/tokens, forward to target
 //   - git-proxy: Proxy git clone/push through a gateway, inject credentials
+//   - llm-proxy: Proxy LLM API requests (OpenAI-compatible) to configured providers
 //
 // Integrations can be attached to sandboxes by:
 //   - Specific sandbox: --attach=sandbox:mybox
@@ -22,6 +23,9 @@ const (
 	TypeHTTPProxy IntegrationType = "http-proxy"
 	// TypeGitProxy is a git credential proxy that injects credentials into clone/push.
 	TypeGitProxy IntegrationType = "git-proxy"
+	// TypeLLMProxy is an LLM API proxy that forwards OpenAI-compatible requests
+	// to the configured provider (OpenAI, Anthropic, Ollama) with daemon-held credentials.
+	TypeLLMProxy IntegrationType = "llm-proxy"
 )
 
 // AttachmentMode defines how an integration is attached to sandboxes.
@@ -41,11 +45,12 @@ const (
 // Fields:
 //   - ID: Unique identifier (auto-generated)
 //   - Name: Human-readable name (unique, e.g., "myapi")
-//   - Type: Integration type (http-proxy, git-proxy)
-//   - Target: Target URL for HTTP proxy (e.g., "https://api.example.com")
+//   - Type: Integration type (http-proxy, git-proxy, llm-proxy)
+//   - Target: Target URL for proxy (e.g., "https://api.example.com")
 //   - Secret: The secret value (API key, token, password) - encrypted at rest
 //   - SecretType: How the secret is injected (bearer, header, basic-auth)
 //   - SecretHeader: Custom header name for header-type secrets
+//   - Provider: LLM provider name for llm-proxy type (openai, anthropic, ollama; auto-detected from target if empty)
 //   - AttachMode: How the integration is attached to sandboxes
 //   - AttachSelector: Specific sandbox name or tag value
 //   - CreatedAt: When the integration was created
@@ -59,6 +64,7 @@ type Integration struct {
 	SecretType     string // "bearer", "header", "basic-auth"
 	SecretHeader   string // custom header name (for SecretType="header")
 	Username       string // username for basic-auth / git
+	Provider       string // LLM provider for llm-proxy: "openai", "anthropic", "ollama"
 	AttachMode     AttachmentMode
 	AttachSelector string
 	CreatedAt      time.Time
@@ -102,11 +108,60 @@ func (i *Integration) MatchesSandbox(sandboxName string, sandboxTags []string) b
 // ProxyPath returns the URL path for proxying requests through this integration.
 // For HTTP proxy: /proxy/{name}/*
 // For git proxy: /proxy/{name}/*
+// For LLM proxy: /proxy/{name}/v1/...
 func (i *Integration) ProxyPath() string {
 	if i == nil || i.Name == "" {
 		return ""
 	}
 	return "/proxy/" + i.Name + "/"
+}
+
+// DetectProvider auto-detects the LLM provider from the target URL.
+// Returns "openai", "anthropic", or "ollama" based on the hostname.
+// If the Provider field is already set, it is returned as-is.
+func (i *Integration) DetectProvider() string {
+	if i == nil {
+		return ""
+	}
+	if i.Provider != "" {
+		return i.Provider
+	}
+	if i.Target == "" {
+		return ""
+	}
+	host := i.Target
+	// Strip scheme.
+	if idx := indexOf(host, "://"); idx >= 0 {
+		host = host[idx+3:]
+	}
+	// Strip port and path.
+	for _, sep := range []string{"/", ":"} {
+		if idx := indexOf(host, sep); idx >= 0 {
+			host = host[:idx]
+		}
+	}
+	switch {
+	case containsStr(host, "api.openai.com"):
+		return "openai"
+	case containsStr(host, "api.anthropic.com"):
+		return "anthropic"
+	default:
+		// Assume Ollama or any OpenAI-compatible endpoint.
+		return "ollama"
+	}
+}
+
+func indexOf(s, substr string) int {
+	for i := 0; i <= len(s)-len(substr); i++ {
+		if s[i:i+len(substr)] == substr {
+			return i
+		}
+	}
+	return -1
+}
+
+func containsStr(s, substr string) bool {
+	return indexOf(s, substr) >= 0
 }
 
 // Validate checks that the integration configuration is valid.
@@ -115,7 +170,7 @@ func (i *Integration) Validate() error {
 		return ErrNameRequired
 	}
 	switch i.Type {
-	case TypeHTTPProxy, TypeGitProxy:
+	case TypeHTTPProxy, TypeGitProxy, TypeLLMProxy:
 		// valid
 	default:
 		return ErrInvalidType
@@ -135,8 +190,22 @@ func (i *Integration) Validate() error {
 	if i.Type == TypeHTTPProxy && i.Target == "" {
 		return ErrTargetRequired
 	}
-	if i.Secret == "" {
+	// LLM proxy requires a target URL (the upstream API base URL).
+	if i.Type == TypeLLMProxy && i.Target == "" {
+		return ErrTargetRequired
+	}
+	// LLM proxy secret is optional for local providers (e.g., Ollama without auth).
+	if i.Secret == "" && i.Type != TypeLLMProxy {
 		return ErrSecretRequired
+	}
+	// Validate provider field for LLM proxy.
+	if i.Type == TypeLLMProxy && i.Provider != "" {
+		switch i.Provider {
+		case "openai", "anthropic", "ollama":
+			// valid
+		default:
+			return ErrInvalidProvider
+		}
 	}
 	switch i.SecretType {
 	case "bearer", "header", "basic-auth", "":

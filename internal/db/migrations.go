@@ -266,6 +266,13 @@ var migrations = []migration{
 			`ALTER TABLE sandboxes ADD COLUMN tags TEXT NOT NULL DEFAULT ''`,
 		},
 	},
+	{
+		version: 14,
+		name:    "add_integration_provider",
+		statements: []string{
+			`ALTER TABLE integrations ADD COLUMN provider TEXT NOT NULL DEFAULT ''`,
+		},
+	},
 }
 
 // Migrate runs any pending migrations against the provided database.

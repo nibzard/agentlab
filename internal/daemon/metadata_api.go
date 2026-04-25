@@ -82,6 +82,8 @@ func (api *MetadataAPI) handleIndex(w http.ResponseWriter, r *http.Request) {
 			{Path: "/metadata/identity", Method: http.MethodGet, Description: "Sandbox identity (vmid, name, profile, state)"},
 			{Path: "/metadata/metadata", Method: http.MethodGet, Description: "Sandbox metadata key-value pairs"},
 			{Path: "/metadata/secrets/{name}", Method: http.MethodGet, Description: "Access a specific secret value by name"},
+			{Path: "/proxy/{name}/...", Method: http.MethodGet, Description: "Credential proxy: forward requests with injected credentials (HTTP, Git, LLM)"},
+			{Path: "/proxy/{name}/...", Method: http.MethodPost, Description: "Credential proxy: forward requests with injected credentials (HTTP, Git, LLM)"},
 		},
 	}
 	writeJSON(w, http.StatusOK, resp)

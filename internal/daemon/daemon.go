@@ -476,7 +476,7 @@ func newService(cfg config.Config, profiles map[string]models.Profile, store *db
 	// Register integration proxy routes on bootstrap mux so sandboxes can
 	// access integrations through http://169.254.169.254/proxy/{name}/...
 	if integrationStore != nil {
-		NewIntegrationProxyAPI(integrationStore, agentSubnet, bootstrapLimiter, log.Default()).Register(bootstrapMux)
+		NewIntegrationProxyAPI(integrationStore, store, agentSubnet, bootstrapLimiter, log.Default()).Register(bootstrapMux)
 	}
 
 	artifactMux := http.NewServeMux()

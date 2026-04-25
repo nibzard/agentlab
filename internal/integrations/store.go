@@ -72,10 +72,10 @@ func (s *Store) Create(ctx context.Context, integ *Integration) error {
 	}
 	now := time.Now().UTC().Format(time.RFC3339)
 	result, err := s.store.DB.ExecContext(ctx,
-		`INSERT INTO integrations (name, type, target, encrypted_secret, secret_type, secret_header, username, attach_mode, attach_selector, created_at, updated_at)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		`INSERT INTO integrations (name, type, target, encrypted_secret, secret_type, secret_header, username, provider, attach_mode, attach_selector, created_at, updated_at)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		integ.Name, string(integ.Type), integ.Target, encryptedSecret,
-		integ.SecretType, integ.SecretHeader, integ.Username,
+		integ.SecretType, integ.SecretHeader, integ.Username, integ.Provider,
 		string(integ.AttachMode), integ.AttachSelector,
 		now, now,
 	)
@@ -95,7 +95,7 @@ func (s *Store) Create(ctx context.Context, integ *Integration) error {
 // Get retrieves an integration by name, decrypting its secret.
 func (s *Store) Get(ctx context.Context, name string) (*Integration, error) {
 	row := s.store.DB.QueryRowContext(ctx,
-		`SELECT id, name, type, target, encrypted_secret, secret_type, secret_header, username, attach_mode, attach_selector, created_at, updated_at
+		`SELECT id, name, type, target, encrypted_secret, secret_type, secret_header, username, provider, attach_mode, attach_selector, created_at, updated_at
 		 FROM integrations WHERE name = ?`, name)
 	return s.scanIntegration(row)
 }
@@ -103,7 +103,7 @@ func (s *Store) Get(ctx context.Context, name string) (*Integration, error) {
 // GetByID retrieves an integration by ID, decrypting its secret.
 func (s *Store) GetByID(ctx context.Context, id int64) (*Integration, error) {
 	row := s.store.DB.QueryRowContext(ctx,
-		`SELECT id, name, type, target, encrypted_secret, secret_type, secret_header, username, attach_mode, attach_selector, created_at, updated_at
+		`SELECT id, name, type, target, encrypted_secret, secret_type, secret_header, username, provider, attach_mode, attach_selector, created_at, updated_at
 		 FROM integrations WHERE id = ?`, id)
 	return s.scanIntegration(row)
 }
@@ -111,7 +111,7 @@ func (s *Store) GetByID(ctx context.Context, id int64) (*Integration, error) {
 // List returns all integrations, decrypting their secrets.
 func (s *Store) List(ctx context.Context) ([]*Integration, error) {
 	rows, err := s.store.DB.QueryContext(ctx,
-		`SELECT id, name, type, target, encrypted_secret, secret_type, secret_header, username, attach_mode, attach_selector, created_at, updated_at
+		`SELECT id, name, type, target, encrypted_secret, secret_type, secret_header, username, provider, attach_mode, attach_selector, created_at, updated_at
 		 FROM integrations ORDER BY name`)
 	if err != nil {
 		return nil, fmt.Errorf("list integrations: %w", err)
@@ -163,7 +163,7 @@ func (s *Store) scanIntegration(row *sql.Row) (*Integration, error) {
 	var iType, attachMode, encSecret, createdAt, updatedAt string
 	err := row.Scan(
 		&integ.ID, &integ.Name, &iType, &integ.Target, &encSecret,
-		&integ.SecretType, &integ.SecretHeader, &integ.Username,
+		&integ.SecretType, &integ.SecretHeader, &integ.Username, &integ.Provider,
 		&attachMode, &integ.AttachSelector, &createdAt, &updatedAt,
 	)
 	if err != nil {
@@ -189,7 +189,7 @@ func (s *Store) scanIntegrationFromRows(rows *sql.Rows) (*Integration, error) {
 	var iType, attachMode, encSecret, createdAt, updatedAt string
 	err := rows.Scan(
 		&integ.ID, &integ.Name, &iType, &integ.Target, &encSecret,
-		&integ.SecretType, &integ.SecretHeader, &integ.Username,
+		&integ.SecretType, &integ.SecretHeader, &integ.Username, &integ.Provider,
 		&attachMode, &integ.AttachSelector, &createdAt, &updatedAt,
 	)
 	if err != nil {

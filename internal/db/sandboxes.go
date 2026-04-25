@@ -98,7 +98,7 @@ func (s *Store) GetSandbox(ctx context.Context, vmid int) (models.Sandbox, error
 	if s == nil || s.DB == nil {
 		return models.Sandbox{}, errors.New("db store is nil")
 	}
-	row := s.DB.QueryRowContext(ctx, `SELECT vmid, name, profile, state, ip, workspace_id, keepalive, lease_expires_at, last_used_at, created_at, updated_at, type, image
+	row := s.DB.QueryRowContext(ctx, `SELECT vmid, name, profile, state, ip, workspace_id, keepalive, lease_expires_at, last_used_at, created_at, updated_at, type, image, tags
 		FROM sandboxes WHERE vmid = ?`, vmid)
 	return scanSandboxRow(row)
 }
@@ -119,7 +119,7 @@ func (s *Store) GetSandboxByIP(ctx context.Context, ip string) (models.Sandbox, 
 	if ip == "" {
 		return models.Sandbox{}, errors.New("ip is required")
 	}
-	row := s.DB.QueryRowContext(ctx, `SELECT vmid, name, profile, state, ip, workspace_id, keepalive, lease_expires_at, last_used_at, created_at, updated_at, type, image
+	row := s.DB.QueryRowContext(ctx, `SELECT vmid, name, profile, state, ip, workspace_id, keepalive, lease_expires_at, last_used_at, created_at, updated_at, type, image, tags
 		FROM sandboxes WHERE ip = ?`, ip)
 	return scanSandboxRow(row)
 }
@@ -129,7 +129,7 @@ func (s *Store) ListSandboxes(ctx context.Context) ([]models.Sandbox, error) {
 	if s == nil || s.DB == nil {
 		return nil, errors.New("db store is nil")
 	}
-	rows, err := s.DB.QueryContext(ctx, `SELECT vmid, name, profile, state, ip, workspace_id, keepalive, lease_expires_at, last_used_at, created_at, updated_at, type, image
+	rows, err := s.DB.QueryContext(ctx, `SELECT vmid, name, profile, state, ip, workspace_id, keepalive, lease_expires_at, last_used_at, created_at, updated_at, type, image, tags
 		FROM sandboxes ORDER BY created_at DESC`)
 	if err != nil {
 		return nil, fmt.Errorf("list sandboxes: %w", err)
@@ -196,7 +196,7 @@ func (s *Store) ListExpiredSandboxes(ctx context.Context, now time.Time) ([]mode
 		return nil, errors.New("db store is nil")
 	}
 	cutoff := formatTime(now)
-	rows, err := s.DB.QueryContext(ctx, `SELECT vmid, name, profile, state, ip, workspace_id, keepalive, lease_expires_at, last_used_at, created_at, updated_at, type, image
+	rows, err := s.DB.QueryContext(ctx, `SELECT vmid, name, profile, state, ip, workspace_id, keepalive, lease_expires_at, last_used_at, created_at, updated_at, type, image, tags
 		FROM sandboxes
 		WHERE lease_expires_at IS NOT NULL AND lease_expires_at <= ? AND state != ?`, cutoff, models.SandboxDestroyed)
 	if err != nil {
@@ -432,7 +432,8 @@ func scanSandboxRow(scanner interface{ Scan(dest ...any) error }) (models.Sandbo
 	var updatedAt string
 	var sbType sql.NullString
 	var sbImage sql.NullString
-	if err := scanner.Scan(&sb.VMID, &sb.Name, &sb.Profile, &state, &ip, &workspace, &keepalive, &lease, &lastUsed, &createdAt, &updatedAt, &sbType, &sbImage); err != nil {
+	var sbTags sql.NullString
+	if err := scanner.Scan(&sb.VMID, &sb.Name, &sb.Profile, &state, &ip, &workspace, &keepalive, &lease, &lastUsed, &createdAt, &updatedAt, &sbType, &sbImage, &sbTags); err != nil {
 		return models.Sandbox{}, err
 	}
 	if state == "" {
@@ -446,6 +447,9 @@ func scanSandboxRow(scanner interface{ Scan(dest ...any) error }) (models.Sandbo
 	}
 	if sbImage.Valid {
 		sb.Image = sbImage.String
+	}
+	if sbTags.Valid {
+		sb.Tags = sbTags.String
 	}
 	if ip.Valid {
 		sb.IP = ip.String
