@@ -426,37 +426,39 @@
         "Optional: Build lightweight web UI (Shelley-like) for interacting with sandbox agents"
       ],
       "files": [
+        "cmd/agentlab/api.go",
+        "cmd/agentlab/commands.go",
+        "cmd/agentlab/main.go",
         "images/agent-base/Dockerfile",
         "images/agent-base/agent-entrypoint.sh",
-        "images/agent-base/provision.sh",
         "images/agent-base/agentlab-guest",
+        "images/agent-base/provision.sh",
         "images/agent-claude/Dockerfile",
         "images/agent-codex/Dockerfile",
         "images/templates/AGENTS.md",
         "images/templates/CLAUDE.md",
-        "cmd/agentlab/api.go",
-        "cmd/agentlab/commands.go",
-        "cmd/agentlab/main.go",
         "internal/daemon/api.go",
         "internal/daemon/api_types.go",
         "internal/daemon/metadata_api.go",
         "internal/db/migrations.go",
+        "internal/db/migrations_test.go",
         "internal/db/sandboxes.go",
         "internal/models/models.go",
-        "scripts/profiles/defaults.yaml"
+        "scripts/profiles/defaults.yaml",
+        "to-do.json"
       ],
       "depends_on": [
         "IMPL-7a",
         "IMPL-2"
       ],
       "created_at": "2026-04-24T00:00:00Z",
-      "updated_at": "2026-04-25T02:40:00Z"
+      "updated_at": "2026-04-25T02:39:59Z"
     },
     {
       "id": "IMPL-9",
       "title": "Multi-user support via SSH keys",
       "priority": 3,
-      "status": "todo",
+      "status": "done",
       "tags": [
         "multi-tenancy",
         "auth",
@@ -476,16 +478,23 @@
         "Add audit logging: who did what, when, on which sandbox"
       ],
       "files": [
-        "internal/auth/",
-        "internal/daemon/",
-        "internal/user/",
-        "cmd/agentlab/"
+        "internal/user/types.go",
+        "internal/user/store.go",
+        "internal/user/registry.go",
+        "internal/daemon/user_api.go",
+        "internal/db/migrations.go",
+        "internal/db/migrations_test.go",
+        "internal/db/sandboxes.go",
+        "internal/models/models.go",
+        "internal/daemon/daemon.go",
+        "cmd/agentlab/main.go",
+        "cmd/agentlab/user_commands.go"
       ],
       "depends_on": [
         "IMPL-4"
       ],
       "created_at": "2026-04-24T00:00:00Z",
-      "updated_at": "2026-04-24T00:00:00Z"
+      "updated_at": "2026-04-25T03:15:00Z"
     },
     {
       "id": "IMPL-10",

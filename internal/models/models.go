@@ -62,6 +62,7 @@ const (
 //   - State: Current state in the sandbox lifecycle
 //   - IP: IP address of the VM/container in the agent subnet
 //   - WorkspaceID: ID of attached workspace volume (optional)
+//   - Owner: User ID of the sandbox owner (empty for single-user mode)
 //   - Keepalive: Whether the sandbox lease auto-renews
 //   - LeaseExpires: When the sandbox lease expires (zero if no TTL)
 //   - LastUsedAt: When the sandbox was last touched by a user interaction
@@ -78,6 +79,7 @@ type Sandbox struct {
 	State         SandboxState
 	IP            string
 	WorkspaceID   *string
+	Owner         string // User ID of the owner (empty in single-user mode)
 	Keepalive     bool
 	LeaseExpires  time.Time
 	LastUsedAt    time.Time

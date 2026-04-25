@@ -280,6 +280,73 @@ var migrations = []migration{
 			`ALTER TABLE sandboxes ADD COLUMN prompt TEXT NOT NULL DEFAULT ''`,
 		},
 	},
+	{
+		version: 16,
+		name:    "add_users_teams_audit",
+		statements: []string{
+			`CREATE TABLE IF NOT EXISTS users (
+				id TEXT PRIMARY KEY,
+				name TEXT NOT NULL UNIQUE,
+				role TEXT NOT NULL DEFAULT 'user',
+				primary_fingerprint TEXT NOT NULL,
+				created_at TEXT NOT NULL,
+				updated_at TEXT NOT NULL
+			)`,
+			`CREATE UNIQUE INDEX IF NOT EXISTS idx_users_name ON users(name)`,
+			`CREATE UNIQUE INDEX IF NOT EXISTS idx_users_fingerprint ON users(primary_fingerprint)`,
+			`CREATE TABLE IF NOT EXISTS user_ssh_keys (
+				id INTEGER PRIMARY KEY AUTOINCREMENT,
+				user_id TEXT NOT NULL,
+				fingerprint TEXT NOT NULL,
+				public_key TEXT NOT NULL,
+				comment TEXT NOT NULL DEFAULT '',
+				added_at TEXT NOT NULL,
+				FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
+			)`,
+			`CREATE UNIQUE INDEX IF NOT EXISTS idx_user_ssh_keys_fingerprint ON user_ssh_keys(fingerprint)`,
+			`CREATE INDEX IF NOT EXISTS idx_user_ssh_keys_user ON user_ssh_keys(user_id)`,
+			`CREATE TABLE IF NOT EXISTS teams (
+				id TEXT PRIMARY KEY,
+				name TEXT NOT NULL UNIQUE,
+				description TEXT NOT NULL DEFAULT '',
+				created_at TEXT NOT NULL,
+				updated_at TEXT NOT NULL
+			)`,
+			`CREATE UNIQUE INDEX IF NOT EXISTS idx_teams_name ON teams(name)`,
+			`CREATE TABLE IF NOT EXISTS team_members (
+				team_id TEXT NOT NULL,
+				user_id TEXT NOT NULL,
+				role TEXT NOT NULL DEFAULT 'user',
+				joined_at TEXT NOT NULL,
+				PRIMARY KEY (team_id, user_id),
+				FOREIGN KEY(team_id) REFERENCES teams(id) ON DELETE CASCADE,
+				FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
+			)`,
+			`CREATE INDEX IF NOT EXISTS idx_team_members_user ON team_members(user_id)`,
+			`CREATE TABLE IF NOT EXISTS audit_log (
+				id INTEGER PRIMARY KEY AUTOINCREMENT,
+				user_id TEXT NOT NULL DEFAULT '',
+				action TEXT NOT NULL,
+				resource TEXT NOT NULL DEFAULT '',
+				detail TEXT NOT NULL DEFAULT '',
+				timestamp TEXT NOT NULL
+			)`,
+			`CREATE INDEX IF NOT EXISTS idx_audit_log_user ON audit_log(user_id)`,
+			`CREATE INDEX IF NOT EXISTS idx_audit_log_action ON audit_log(action)`,
+			`CREATE INDEX IF NOT EXISTS idx_audit_log_timestamp ON audit_log(timestamp)`,
+			`CREATE TABLE IF NOT EXISTS resource_quotas (
+				id INTEGER PRIMARY KEY AUTOINCREMENT,
+				scope_type TEXT NOT NULL,
+				scope_id TEXT NOT NULL,
+				max_sandboxes INTEGER NOT NULL DEFAULT 0,
+				max_cpu INTEGER NOT NULL DEFAULT 0,
+				max_ram_mb INTEGER NOT NULL DEFAULT 0,
+				UNIQUE(scope_type, scope_id)
+			)`,
+			`ALTER TABLE sandboxes ADD COLUMN owner TEXT NOT NULL DEFAULT ''`,
+			`CREATE INDEX IF NOT EXISTS idx_sandboxes_owner ON sandboxes(owner)`,
+		},
+	},
 }
 
 // Migrate runs any pending migrations against the provided database.

@@ -39,6 +39,7 @@ import (
 	"github.com/agentlab/agentlab/internal/proxy"
 	"github.com/agentlab/agentlab/internal/sandbox"
 	"github.com/agentlab/agentlab/internal/secrets"
+	"github.com/agentlab/agentlab/internal/user"
 )
 
 const (
@@ -81,6 +82,7 @@ type Service struct {
 	lxcBackend        *sandbox.LXCBackend
 	sandboxBackend    sandbox.Backend
 	integrationStore  *integrations.Store
+	userRegistry      *user.Registry
 }
 
 // Run loads profiles, binds listeners, and serves until ctx is canceled.
@@ -443,6 +445,13 @@ func newService(cfg config.Config, profiles map[string]models.Profile, store *db
 		log.Printf("integrations system enabled")
 	}
 
+	// Set up multi-user support via SSH keys.
+	userStore := user.NewStore(store)
+	userRegistry := user.NewRegistry(userStore)
+	userAPI := NewUserAPI(userRegistry)
+	userAPI.Register(localMux)
+	log.Printf("multi-user support enabled")
+
 	// Register POST /v1/exec and /v1/exec/dry-run endpoints.
 	// These mirror the CLI 1:1 over HTTPS (the "SSH API shoved into a POST body").
 	cliPath := strings.TrimSpace(cfg.CLIPath)
@@ -578,6 +587,7 @@ func newService(cfg config.Config, profiles map[string]models.Profile, store *db
 		metadataRouting:   metadataRouting,
 		lxcBackend:        lxcBackend,
 		integrationStore:  integrationStore,
+		userRegistry:      userRegistry,
 	}, nil
 }
 
