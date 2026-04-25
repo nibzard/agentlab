@@ -108,6 +108,8 @@ type Config struct {
 	// Integration / secret injection configuration
 	IntegrationsEnabled bool   // Enable the integrations system
 	IntegrationEncKey   string // Hex-encoded AES-256 key for encrypting integration secrets at rest
+	// Offline mode for air-gapped deployments
+	Offline bool // When true, block all external network calls (no internet required)
 }
 
 // FileConfig represents supported YAML config overrides.
@@ -184,6 +186,7 @@ type FileConfig struct {
 	AuthorizedKeysPath       string   `yaml:"authorized_keys_path"`
 	IntegrationsEnabled      *bool    `yaml:"integrations_enabled"`
 	IntegrationEncKey        string   `yaml:"integration_enc_key"`
+	Offline                  *bool    `yaml:"offline"`
 }
 
 // DefaultConfig returns a Config struct with all default values set.
@@ -527,6 +530,9 @@ func applyFileConfig(cfg *Config, fileCfg FileConfig) error {
 	if fileCfg.IntegrationEncKey != "" {
 		cfg.IntegrationEncKey = fileCfg.IntegrationEncKey
 	}
+	if fileCfg.Offline != nil {
+		cfg.Offline = *fileCfg.Offline
+	}
 	return nil
 }
 
@@ -712,6 +718,13 @@ func (c Config) Validate() error {
 		}
 		if tlsMode == "letsencrypt" && strings.TrimSpace(c.ProxyTLSEmail) == "" {
 			return fmt.Errorf("proxy_tls_email is required when proxy_tls_mode is 'letsencrypt'")
+		}
+	}
+	// Offline mode validations: ensure no external dependencies are configured.
+	if c.Offline {
+		tlsMode := strings.TrimSpace(c.ProxyTLSMode)
+		if c.ProxyEnabled && tlsMode == "letsencrypt" {
+			return fmt.Errorf("proxy_tls_mode 'letsencrypt' requires internet access and is incompatible with offline mode; use 'self-signed' instead")
 		}
 	}
 	return nil

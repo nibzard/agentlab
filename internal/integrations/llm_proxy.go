@@ -8,7 +8,15 @@ import (
 	"net/http"
 	"strings"
 	"time"
+
+	"github.com/agentlab/agentlab/internal/offline"
 )
+
+// ProxyHandlerOptions configures optional behavior for proxy handlers.
+type ProxyHandlerOptions struct {
+	// Offline, when true, blocks requests to external (non-private) addresses.
+	Offline bool
+}
 
 // LLMProxyHandler returns an http.Handler that proxies OpenAI-compatible LLM
 // API requests to the configured upstream provider, injecting the daemon-held
@@ -23,20 +31,31 @@ import (
 // forwards to the upstream API, rewriting the URL and injecting credentials.
 // SSE streaming is supported: when the upstream responds with
 // Content-Type: text/event-stream, the response is flushed incrementally.
-func LLMProxyHandler(integ *Integration, logger *log.Logger) http.Handler {
+func LLMProxyHandler(integ *Integration, logger *log.Logger, opts ...ProxyHandlerOptions) http.Handler {
+	var opt ProxyHandlerOptions
+	if len(opts) > 0 {
+		opt = opts[0]
+	}
 	if integ == nil || integ.Type != TypeLLMProxy {
 		return http.NotFoundHandler()
 	}
 	if logger == nil {
 		logger = log.Default()
 	}
-	transport := &http.Transport{
+	transport := http.Transport{
 		MaxIdleConns:        100,
 		MaxIdleConnsPerHost: 10,
 		IdleConnTimeout:     90 * time.Second,
 	}
+	if opt.Offline {
+		transport.Proxy = nil // Disable proxy environment variables
+	}
+	var roundTripper http.RoundTripper = &transport
+	if opt.Offline {
+		roundTripper = offline.NewOfflineTransport(&transport)
+	}
 	client := &http.Client{
-		Transport: transport,
+		Transport: roundTripper,
 		Timeout:   300 * time.Second, // LLM requests can be long
 	}
 	provider := integ.DetectProvider()
@@ -79,6 +98,11 @@ func LLMProxyHandler(integ *Integration, logger *log.Logger) http.Handler {
 
 		resp, err := client.Do(proxyReq)
 		if err != nil {
+			if _, ok := err.(offline.ErrBlocked); ok {
+				logger.Printf("llm-proxy %s: blocked in offline mode: %v", integ.Name, err)
+				http.Error(w, "upstream unavailable in offline mode", http.StatusServiceUnavailable)
+				return
+			}
 			logger.Printf("llm-proxy %s: upstream error: %v", integ.Name, err)
 			http.Error(w, "upstream error", http.StatusBadGateway)
 			return

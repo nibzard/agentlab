@@ -24,3 +24,15 @@ type ExposurePublisher interface {
 	Publish(ctx context.Context, name string, targetIP string, port int) (ExposurePublishResult, error)
 	Unpublish(ctx context.Context, name string, port int) error
 }
+
+// noopPublisher is a no-op publisher used when no real publisher is available
+// (e.g., offline mode without proxy_enabled).
+type noopPublisher struct{}
+
+func (n *noopPublisher) Publish(_ context.Context, name string, targetIP string, port int) (ExposurePublishResult, error) {
+	return ExposurePublishResult{URL: "", State: exposureStateServing}, nil
+}
+
+func (n *noopPublisher) Unpublish(_ context.Context, _ string, _ int) error {
+	return nil
+}

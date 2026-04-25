@@ -1026,3 +1026,104 @@ artifact_dir: %q
 		assert.Equal(t, artifactDir, cfg.ArtifactDir)
 	})
 }
+
+func TestValidateOffline(t *testing.T) {
+	tests := []struct {
+		name        string
+		setup       func(*Config)
+		wantErr     bool
+		errContains string
+	}{
+		{
+			name: "offline mode without proxy is valid",
+			setup: func(c *Config) {
+				c.Offline = true
+			},
+			wantErr: false,
+		},
+		{
+			name: "offline mode with self-signed proxy is valid",
+			setup: func(c *Config) {
+				c.Offline = true
+				c.ProxyEnabled = true
+				c.ProxyDomain = "agentlab.local"
+				c.ProxyTLSMode = "self-signed"
+			},
+			wantErr: false,
+		},
+		{
+			name: "offline mode with letsencrypt proxy is invalid",
+			setup: func(c *Config) {
+				c.Offline = true
+				c.ProxyEnabled = true
+				c.ProxyDomain = "agentlab.example.com"
+				c.ProxyTLSMode = "letsencrypt"
+				c.ProxyTLSEmail = "admin@example.com"
+			},
+			wantErr:     true,
+			errContains: "letsencrypt",
+		},
+		{
+			name: "offline mode with off TLS is valid",
+			setup: func(c *Config) {
+				c.Offline = true
+				c.ProxyEnabled = true
+				c.ProxyDomain = "agentlab.local"
+				c.ProxyTLSMode = "off"
+			},
+			wantErr: false,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cfg := DefaultConfig()
+			if tt.setup != nil {
+				tt.setup(&cfg)
+			}
+			err := cfg.Validate()
+			if tt.wantErr {
+				require.Error(t, err)
+				if tt.errContains != "" {
+					assert.Contains(t, err.Error(), tt.errContains)
+				}
+			} else {
+				assert.NoError(t, err)
+			}
+		})
+	}
+}
+
+func TestLoadConfigOffline(t *testing.T) {
+	t.Run("offline true from yaml", func(t *testing.T) {
+		root := t.TempDir()
+		configPath := filepath.Join(root, "config.yaml")
+		payload := "offline: true\n"
+		require.NoError(t, os.WriteFile(configPath, []byte(payload), 0o600))
+
+		cfg, err := Load(configPath)
+		require.NoError(t, err)
+		assert.True(t, cfg.Offline)
+	})
+
+	t.Run("offline false from yaml", func(t *testing.T) {
+		root := t.TempDir()
+		configPath := filepath.Join(root, "config.yaml")
+		payload := "offline: false\n"
+		require.NoError(t, os.WriteFile(configPath, []byte(payload), 0o600))
+
+		cfg, err := Load(configPath)
+		require.NoError(t, err)
+		assert.False(t, cfg.Offline)
+	})
+
+	t.Run("offline not set defaults to false", func(t *testing.T) {
+		root := t.TempDir()
+		configPath := filepath.Join(root, "config.yaml")
+		payload := "data_dir: " + filepath.Join(root, "data") + "\n"
+		require.NoError(t, os.WriteFile(configPath, []byte(payload), 0o600))
+
+		cfg, err := Load(configPath)
+		require.NoError(t, err)
+		assert.False(t, cfg.Offline)
+	})
+}

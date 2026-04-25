@@ -6,6 +6,8 @@ import (
 	"net/http"
 	"strings"
 	"time"
+
+	"github.com/agentlab/agentlab/internal/offline"
 )
 
 // GitProxyHandler returns an http.Handler that proxies git smart HTTP requests
@@ -19,20 +21,31 @@ import (
 //
 // Credentials are injected as HTTP Basic Auth headers so they never exist
 // inside the sandbox.
-func GitProxyHandler(integ *Integration, logger *log.Logger) http.Handler {
+func GitProxyHandler(integ *Integration, logger *log.Logger, opts ...ProxyHandlerOptions) http.Handler {
+	var opt ProxyHandlerOptions
+	if len(opts) > 0 {
+		opt = opts[0]
+	}
 	if integ == nil || integ.Type != TypeGitProxy {
 		return http.NotFoundHandler()
 	}
 	if logger == nil {
 		logger = log.Default()
 	}
-	transport := &http.Transport{
+	transport := http.Transport{
 		MaxIdleConns:        100,
 		MaxIdleConnsPerHost: 10,
 		IdleConnTimeout:     90 * time.Second,
 	}
+	if opt.Offline {
+		transport.Proxy = nil
+	}
+	var roundTripper http.RoundTripper = &transport
+	if opt.Offline {
+		roundTripper = offline.NewOfflineTransport(&transport)
+	}
 	client := &http.Client{
-		Transport: transport,
+		Transport: roundTripper,
 		Timeout:   300 * time.Second, // git operations can be slow
 	}
 	target := strings.TrimRight(integ.Target, "/")
@@ -83,6 +96,11 @@ func GitProxyHandler(integ *Integration, logger *log.Logger) http.Handler {
 
 		resp, err := client.Do(proxyReq)
 		if err != nil {
+			if _, ok := err.(offline.ErrBlocked); ok {
+				logger.Printf("git-proxy %s: blocked in offline mode: %v", integ.Name, err)
+				http.Error(w, "upstream unavailable in offline mode", http.StatusServiceUnavailable)
+				return
+			}
 			logger.Printf("git-proxy %s: upstream error: %v", integ.Name, err)
 			http.Error(w, "upstream error", http.StatusBadGateway)
 			return

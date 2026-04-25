@@ -26,6 +26,9 @@ type DockerConfig struct {
 	// Network is the Docker network to attach containers to.
 	// Defaults to "agentlab".
 	Network string
+	// Offline, when true, prevents Docker from pulling images from remote registries.
+	// Images must be pre-pulled before starting the daemon.
+	Offline bool
 }
 
 // DockerBackend manages sandbox containers via the Docker Engine API.
@@ -41,6 +44,7 @@ type DockerBackend struct {
 	host       string
 	network    string
 	httpClient *http.Client
+	offline    bool
 }
 
 // NewDockerBackend creates a new Docker backend.
@@ -72,6 +76,7 @@ func NewDockerBackend(cfg DockerConfig) (*DockerBackend, error) {
 	return &DockerBackend{
 		host:    host,
 		network: network,
+		offline: cfg.Offline,
 		httpClient: &http.Client{
 			Timeout:   timeout,
 			Transport: transport,
@@ -317,6 +322,10 @@ func (b *DockerBackend) ValidateTemplate(ctx context.Context, templateOrImage st
 	// Check if the image exists locally.
 	_, err := b.doRequest(ctx, http.MethodGet, "/images/"+templateOrImage+"/json", nil)
 	if err != nil {
+		if b.offline {
+			// In offline mode, images must be pre-pulled. We cannot fetch from a registry.
+			return fmt.Errorf("image %s not found locally and offline mode prevents pulling from registry; run 'docker pull %s' before starting the daemon", templateOrImage, templateOrImage)
+		}
 		// Image not found locally — it will be pulled on create.
 		return nil
 	}

@@ -149,6 +149,9 @@ func NewServiceWithBackend(cfg config.Config, profiles map[string]models.Profile
 }
 
 func newService(cfg config.Config, profiles map[string]models.Profile, store *db.Store, backendOverride proxmox.Backend) (*Service, error) {
+	if cfg.Offline {
+		log.Printf("offline mode enabled: all external network calls are blocked")
+	}
 	if err := ensureDir(cfg.RunDir, runDirPerms); err != nil {
 		return nil, err
 	}
@@ -274,6 +277,7 @@ func newService(cfg config.Config, profiles map[string]models.Profile, store *db
 		dockerCfg := sandbox.DockerConfig{
 			Host:    cfg.DockerHost,
 			Timeout: cfg.ProxmoxCommandTimeout,
+			Offline: cfg.Offline,
 		}
 		dockerBackend, err := sandbox.NewDockerBackend(dockerCfg)
 		if err != nil {
@@ -346,8 +350,11 @@ func newService(cfg config.Config, profiles map[string]models.Profile, store *db
 
 	// Build exposure publisher: Tailscale is always available,
 	// Caddy proxy is added when proxy_enabled is true in config.
+	// In offline mode, Tailscale is skipped (requires internet coordination).
 	var exposurePublisher ExposurePublisher
-	exposurePublisher = &TailscaleServePublisher{Runner: proxmox.ExecRunner{}}
+	if !cfg.Offline {
+		exposurePublisher = &TailscaleServePublisher{Runner: proxmox.ExecRunner{}}
+	}
 
 	if cfg.ProxyEnabled {
 		tlsMode := proxy.TLSMode(strings.TrimSpace(cfg.ProxyTLSMode))
@@ -370,9 +377,19 @@ func newService(cfg config.Config, profiles map[string]models.Profile, store *db
 			log.Printf("warning: caddy proxy init failed, using tailscale only: %v", err)
 		} else {
 			caddyAdapter := NewCaddyProxyPublisher(caddyPub)
-			exposurePublisher = NewMultiPublisher(log.Default(), exposurePublisher, caddyAdapter)
-			log.Printf("using combined tailscale + caddy proxy publisher (domain=%s, tls=%s)", cfg.ProxyDomain, tlsMode)
+			if exposurePublisher == nil {
+				exposurePublisher = caddyAdapter
+			} else {
+				exposurePublisher = NewMultiPublisher(log.Default(), exposurePublisher, caddyAdapter)
+			}
+			log.Printf("using caddy proxy publisher (domain=%s, tls=%s)", cfg.ProxyDomain, tlsMode)
 		}
+	}
+
+	if exposurePublisher == nil {
+		// No publisher available (offline mode without proxy_enabled).
+		exposurePublisher = &noopPublisher{}
+		log.Printf("warning: no exposure publisher available (offline mode without proxy)")
 	}
 
 	sandboxManager.WithExposureCleaner(NewExposureCleaner(store, exposurePublisher, log.Default()))
@@ -485,7 +502,7 @@ func newService(cfg config.Config, profiles map[string]models.Profile, store *db
 	// Register integration proxy routes on bootstrap mux so sandboxes can
 	// access integrations through http://169.254.169.254/proxy/{name}/...
 	if integrationStore != nil {
-		NewIntegrationProxyAPI(integrationStore, store, agentSubnet, bootstrapLimiter, log.Default()).Register(bootstrapMux)
+		NewIntegrationProxyAPI(integrationStore, store, agentSubnet, bootstrapLimiter, log.Default(), cfg.Offline).Register(bootstrapMux)
 	}
 
 	artifactMux := http.NewServeMux()

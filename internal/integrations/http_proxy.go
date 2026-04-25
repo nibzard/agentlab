@@ -7,6 +7,8 @@ import (
 	"net/http"
 	"strings"
 	"time"
+
+	"github.com/agentlab/agentlab/internal/offline"
 )
 
 // HTTPProxyHandler returns an http.Handler that proxies requests to the
@@ -16,20 +18,31 @@ import (
 //   - bearer: Sets Authorization: Bearer <secret>
 //   - header: Sets a custom header (SecretHeader) to the secret value
 //   - basic-auth: Sets Authorization: Basic <base64(username:secret)>
-func HTTPProxyHandler(integ *Integration, logger *log.Logger) http.Handler {
+func HTTPProxyHandler(integ *Integration, logger *log.Logger, opts ...ProxyHandlerOptions) http.Handler {
+	var opt ProxyHandlerOptions
+	if len(opts) > 0 {
+		opt = opts[0]
+	}
 	if integ == nil || integ.Type != TypeHTTPProxy {
 		return http.NotFoundHandler()
 	}
 	if logger == nil {
 		logger = log.Default()
 	}
-	transport := &http.Transport{
+	transport := http.Transport{
 		MaxIdleConns:        100,
 		MaxIdleConnsPerHost: 10,
 		IdleConnTimeout:     90 * time.Second,
 	}
+	if opt.Offline {
+		transport.Proxy = nil
+	}
+	var roundTripper http.RoundTripper = &transport
+	if opt.Offline {
+		roundTripper = offline.NewOfflineTransport(&transport)
+	}
 	client := &http.Client{
-		Transport: transport,
+		Transport: roundTripper,
 		Timeout:   60 * time.Second,
 	}
 	target := strings.TrimRight(integ.Target, "/")
@@ -69,6 +82,11 @@ func HTTPProxyHandler(integ *Integration, logger *log.Logger) http.Handler {
 
 		resp, err := client.Do(proxyReq)
 		if err != nil {
+			if _, ok := err.(offline.ErrBlocked); ok {
+				logger.Printf("http-proxy %s: blocked in offline mode: %v", integ.Name, err)
+				http.Error(w, "upstream unavailable in offline mode", http.StatusServiceUnavailable)
+				return
+			}
 			logger.Printf("http-proxy %s: upstream error: %v", integ.Name, err)
 			http.Error(w, "upstream error", http.StatusBadGateway)
 			return

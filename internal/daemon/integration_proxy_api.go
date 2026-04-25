@@ -24,10 +24,11 @@ type IntegrationProxyAPI struct {
 	agentSubnet *net.IPNet
 	rateLimiter *IPRateLimiter
 	logger      *log.Logger
+	offline     bool
 }
 
 // NewIntegrationProxyAPI creates a new integration proxy API for sandbox access.
-func NewIntegrationProxyAPI(intStore *integrations.Store, dbStore *db.Store, agentSubnet *net.IPNet, rateLimiter *IPRateLimiter, logger *log.Logger) *IntegrationProxyAPI {
+func NewIntegrationProxyAPI(intStore *integrations.Store, dbStore *db.Store, agentSubnet *net.IPNet, rateLimiter *IPRateLimiter, logger *log.Logger, offline bool) *IntegrationProxyAPI {
 	if logger == nil {
 		logger = log.Default()
 	}
@@ -37,6 +38,7 @@ func NewIntegrationProxyAPI(intStore *integrations.Store, dbStore *db.Store, age
 		agentSubnet: agentSubnet,
 		rateLimiter: rateLimiter,
 		logger:      logger,
+		offline:     offline,
 	}
 }
 
@@ -97,15 +99,16 @@ func (api *IntegrationProxyAPI) handleProxy(w http.ResponseWriter, r *http.Reque
 	api.auditProxyAccess(r, integ, sandboxName)
 
 	// Route to the appropriate proxy handler.
+	opts := integrations.ProxyHandlerOptions{Offline: api.offline}
 	switch integ.Type {
 	case integrations.TypeHTTPProxy:
-		handler := integrations.HTTPProxyHandler(integ, api.logger)
+		handler := integrations.HTTPProxyHandler(integ, api.logger, opts)
 		handler.ServeHTTP(w, r)
 	case integrations.TypeGitProxy:
-		handler := integrations.GitProxyHandler(integ, api.logger)
+		handler := integrations.GitProxyHandler(integ, api.logger, opts)
 		handler.ServeHTTP(w, r)
 	case integrations.TypeLLMProxy:
-		handler := integrations.LLMProxyHandler(integ, api.logger)
+		handler := integrations.LLMProxyHandler(integ, api.logger, opts)
 		handler.ServeHTTP(w, r)
 	default:
 		writeError(w, http.StatusInternalServerError, "unknown integration type: "+string(integ.Type))
