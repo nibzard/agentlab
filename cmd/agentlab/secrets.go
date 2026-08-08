@@ -7,7 +7,6 @@ import (
 	"flag"
 	"fmt"
 	"os"
-	"path/filepath"
 	"strings"
 
 	agentconfig "github.com/agentlab/agentlab/internal/config"
@@ -42,12 +41,18 @@ func (s *stringListFlag) Set(value string) error {
 }
 
 func runSecretsCommand(ctx context.Context, args []string, base commonFlags) error {
-	_ = ctx
 	if len(args) == 0 {
 		if !base.jsonOutput {
 			printSecretsUsage()
 		}
 		return newUsageError(fmt.Errorf("secrets command is required"), false)
+	}
+	// set-env/set-git always go through the daemon (they have no local-file
+	// variant). The remaining subcommands talk to the daemon over HTTP when an
+	// endpoint is configured (a remote/laptop agent) and edit bundle files
+	// directly otherwise (the host operator).
+	if args[0] == "set-env" || args[0] == "set-git" || secretsRemoteMode(base) {
+		return runSecretsRemote(ctx, args, base)
 	}
 	switch args[0] {
 	case "show":
@@ -63,7 +68,7 @@ func runSecretsCommand(ctx context.Context, args []string, base commonFlags) err
 	case "clear-tailscale":
 		return runSecretsClearTailscaleCommand(args[1:], base)
 	default:
-		return unknownSubcommandError("secrets", args[0], []string{"show", "validate", "add-ssh-key", "remove-ssh-key", "set-tailscale", "clear-tailscale"})
+		return unknownSubcommandError("secrets", args[0], []string{"show", "validate", "set-env", "set-git", "add-ssh-key", "remove-ssh-key", "set-tailscale", "clear-tailscale"})
 	}
 }
 
@@ -470,102 +475,7 @@ func parseSSHPublicKey(value string) (bundles.SSHPublicKey, error) {
 }
 
 func mutateSecretBundle(store bundles.Store, bundleName string, mutate func(bundle *bundles.Bundle) error) (bundles.Bundle, string, error) {
-	bundle, path, err := loadBundleForMutation(store, bundleName)
-	if err != nil {
-		return bundles.Bundle{}, "", err
-	}
-	if err := mutate(&bundle); err != nil {
-		return bundles.Bundle{}, "", err
-	}
-	bundle = bundle.Normalized()
-	if err := writeSecretBundle(path, bundle, store); err != nil {
-		return bundles.Bundle{}, "", err
-	}
-	return bundle, path, nil
-}
-
-func loadBundleForMutation(store bundles.Store, bundleName string) (bundles.Bundle, string, error) {
-	path, err := store.ResolvePath(bundleName)
-	if err != nil {
-		if !strings.Contains(err.Error(), "not found") {
-			return bundles.Bundle{}, "", err
-		}
-		path, err = defaultBundleWritePath(store, bundleName)
-		if err != nil {
-			return bundles.Bundle{}, "", err
-		}
-		return bundles.Bundle{Version: bundles.BundleVersion}, path, nil
-	}
-	bundle, err := store.Load(context.Background(), bundleName)
-	if err != nil {
-		return bundles.Bundle{}, "", err
-	}
-	return bundle, path, nil
-}
-
-func defaultBundleWritePath(store bundles.Store, bundleName string) (string, error) {
-	bundleName = strings.TrimSpace(bundleName)
-	if bundleName == "" {
-		return "", fmt.Errorf("bundle name is required")
-	}
-	base := bundleName
-	if !filepath.IsAbs(base) && strings.TrimSpace(store.Dir) != "" {
-		base = filepath.Join(store.Dir, base)
-	}
-	if ext := filepath.Ext(base); ext != "" {
-		return base, nil
-	}
-	if strings.TrimSpace(store.AgeKeyPath) != "" && !store.AllowPlaintext {
-		return base + ".age", nil
-	}
-	return base + ".yaml", nil
-}
-
-func writeSecretBundle(path string, bundle bundles.Bundle, store bundles.Store) error {
-	path = strings.TrimSpace(path)
-	if path == "" {
-		return fmt.Errorf("bundle path is required")
-	}
-	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
-		return err
-	}
-	normalized := bundle.Normalized()
-	lower := strings.ToLower(filepath.Base(path))
-	switch {
-	case strings.HasSuffix(lower, ".age"):
-		plaintext, err := bundles.MarshalYAML(normalized)
-		if err != nil {
-			return err
-		}
-		encrypted, err := bundles.EncryptAge(plaintext, store.AgeKeyPath)
-		if err != nil {
-			return err
-		}
-		return os.WriteFile(path, encrypted, 0o600)
-	case strings.Contains(lower, ".sops."):
-		return fmt.Errorf("writing sops bundles is not supported yet; re-save as .age or plaintext")
-	case strings.HasSuffix(lower, ".yaml"), strings.HasSuffix(lower, ".yml"):
-		if !store.AllowPlaintext {
-			return fmt.Errorf("refusing to write plaintext bundle %s without --allow-plaintext", path)
-		}
-		data, err := bundles.MarshalYAML(normalized)
-		if err != nil {
-			return err
-		}
-		return os.WriteFile(path, data, 0o600)
-	case strings.HasSuffix(lower, ".json"):
-		if !store.AllowPlaintext {
-			return fmt.Errorf("refusing to write plaintext bundle %s without --allow-plaintext", path)
-		}
-		data, err := json.MarshalIndent(normalized, "", "  ")
-		if err != nil {
-			return err
-		}
-		data = append(data, '\n')
-		return os.WriteFile(path, data, 0o600)
-	default:
-		return fmt.Errorf("unsupported bundle format for %s", path)
-	}
+	return store.Mutate(context.Background(), bundleName, mutate)
 }
 
 func dedupeNonEmpty(values []string) []string {
@@ -609,7 +519,7 @@ func printSecretsMutationResult(jsonOutput bool, payload map[string]any, text st
 }
 
 func printSecretsUsage() {
-	fmt.Fprintln(os.Stdout, "Usage: agentlab secrets <show|validate|add-ssh-key|remove-ssh-key|set-tailscale|clear-tailscale>")
+	fmt.Fprintln(os.Stdout, "Usage: agentlab secrets <show|validate|set-env|set-git|add-ssh-key|remove-ssh-key|set-tailscale|clear-tailscale>")
 }
 
 func printSecretsShowUsage() {
@@ -634,4 +544,13 @@ func printSecretsSetTailscaleUsage() {
 
 func printSecretsClearTailscaleUsage() {
 	fmt.Fprintln(os.Stdout, "Usage: agentlab secrets clear-tailscale [--config <path>] [--bundle <name|path>] [--dir <path>] [--age-key <path>] [--allow-plaintext]")
+}
+
+func printSecretsSetEnvUsage() {
+	fmt.Fprintln(os.Stdout, "Usage: agentlab secrets set-env [--endpoint <url> --token <token>] [--socket <path>] [--json] --name <KEY> (--value <VAL> | --value-file <path>)")
+	fmt.Fprintln(os.Stdout, "       agentlab secrets set-env [--endpoint <url> --token <token>] --from-file <KEY=VAL|json path>")
+}
+
+func printSecretsSetGitUsage() {
+	fmt.Fprintln(os.Stdout, "Usage: agentlab secrets set-git [--endpoint <url> --token <token>] [--socket <path>] [--json] [--git-token <pat> | --git-token-file <path>] [--username <user>] [--ssh-key-file <path>] [--known-hosts-file <path>]")
 }

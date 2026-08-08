@@ -226,8 +226,9 @@ fi
 
 if [[ "$SKIP_AGENT_TOOLS" == "0" ]]; then
   [[ -f "$AGENTLAB_AGENT_WRAPPER" ]] || die "agentlab-agent wrapper not found at $AGENTLAB_AGENT_WRAPPER"
-  ensure_package "nodejs"
-  ensure_package "npm"
+  # ripgrep ships via the apt package set; Node 20 and tailscale are installed
+  # below from their upstream repos (the stock Ubuntu nodejs is Node 18, which is
+  # too old for the pinned agent CLIs; tailscale is absent from the base image).
   ensure_package "ripgrep"
   AGENT_TOOLS_ENV="$(mktemp)"
   cat > "$AGENT_TOOLS_ENV" <<EOF
@@ -382,6 +383,14 @@ if [[ "$SKIP_CUSTOMIZE" == "0" ]]; then
     --run-command "systemctl enable agent-runner.service"
     --run-command "systemctl enable agentlab-workspace-setup.service"
     --run-command "systemctl enable work.mount"
+    --run-command "curl -fsSL https://deb.nodesource.com/setup_20.x | bash -"
+    --run-command "DEBIAN_FRONTEND=noninteractive apt-get install -y nodejs"
+    --run-command "install -d -m 0755 /usr/share/keyrings"
+    --run-command "curl -fsSL https://pkgs.tailscale.com/stable/ubuntu/noble.noarmor.gpg | tee /usr/share/keyrings/tailscale-archive-keyring.gpg >/dev/null"
+    --run-command "curl -fsSL https://pkgs.tailscale.com/stable/ubuntu/noble.tailscale-keyring.list | tee /etc/apt/sources.list.d/tailscale.list"
+    --run-command "DEBIAN_FRONTEND=noninteractive apt-get update && apt-get install -y tailscale"
+    --run-command "systemctl enable tailscaled"
+    --run-command "node --version | grep -q '^v2[0-9]\\.'"
   )
 
   if [[ "$SKIP_AGENT_TOOLS" == "0" ]]; then

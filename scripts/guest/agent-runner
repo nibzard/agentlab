@@ -267,6 +267,7 @@ init_redaction() {
   add_redact_value "$TOKEN"
   add_redact_value "$(jq -r '.artifact.token // empty' "$BOOTSTRAP_RESPONSE")"
   add_redact_value "$(jq -r '.git.token // empty' "$BOOTSTRAP_RESPONSE")"
+  add_redact_value "$(jq -r '.tailscale.authkey // empty' "$BOOTSTRAP_RESPONSE")"
   if jq -e '.env // {} | length > 0' "$BOOTSTRAP_RESPONSE" >/dev/null; then
     while IFS= read -r value; do
       add_redact_value "$value"
@@ -390,7 +391,53 @@ ASKPASS
   fi
 }
 
+# setup_tailscale enrolls this VM onto the tailnet as agentlab-{vmid} (or the
+# bundle's hostname template) using the auth key delivered in the bootstrap
+# response. The auth key is never logged; on failure the job continues with a
+# warning rather than aborting, since the agent subnet still reaches the daemon.
+setup_tailscale() {
+  local authkey hostname tags_csv out_file err ts_status
+  authkey="$(jq -r '.tailscale.authkey // empty' "$BOOTSTRAP_RESPONSE")"
+  if [[ -z "$authkey" || "$authkey" == "null" ]]; then
+    log "no tailscale authkey in bootstrap payload; skipping enrollment"
+    return 0
+  fi
+  if ! command -v tailscale >/dev/null 2>&1; then
+    log "tailscale CLI not installed; skipping enrollment"
+    return 0
+  fi
+
+  hostname="$(jq -r '.tailscale.hostname // empty' "$BOOTSTRAP_RESPONSE")"
+  tags_csv="$(jq -r '.tailscale.tags // [] | join(",")' "$BOOTSTRAP_RESPONSE")"
+  sudo systemctl start tailscaled.service >/dev/null 2>&1 || true
+
+  local -a ts_args=(--authkey="$authkey")
+  if [[ -n "$hostname" && "$hostname" != "null" ]]; then
+    ts_args+=(--hostname="$hostname")
+  fi
+  if [[ -n "$tags_csv" ]]; then
+    ts_args+=(--advertise-tags="$tags_csv")
+  fi
+  while IFS= read -r arg; do
+    [[ -n "$arg" ]] && ts_args+=("$arg")
+  done < <(jq -r '.tailscale.extra_args // [] | .[]' "$BOOTSTRAP_RESPONSE")
+
+  log "bringing tailscale up (hostname=${hostname:-default})"
+  out_file="$(mktemp)"
+  if sudo tailscale up "${ts_args[@]}" >"$out_file" 2>&1; then
+    rm -f "$out_file"
+    ts_status="$(sudo tailscale status 2>/dev/null | head -n1 || true)"
+    log "tailscale up complete: ${ts_status:-status unavailable}"
+  else
+    err="$(redact_stream <"$out_file" | head -c 200 || true)"
+    rm -f "$out_file"
+    log "tailscale up failed: ${err:-unknown error}"
+    report_status "RUNNING" "warning: tailscale enrollment failed (job continues)"
+  fi
+}
+
 setup_git_auth
+setup_tailscale
 
 if [[ -z "$REPO_DIR" ]]; then
   if [[ -d /work && -w /work ]]; then

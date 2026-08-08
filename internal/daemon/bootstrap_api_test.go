@@ -392,3 +392,50 @@ func TestBootstrapFetchUsesConfiguredSubnet(t *testing.T) {
 		t.Fatalf("expected 403, got %d", resp.Code)
 	}
 }
+
+func TestBootstrapTailscaleFromBundle(t *testing.T) {
+	// Absent authkey → nil (guest skips enrollment).
+	if got := bootstrapTailscaleFromBundle(secrets.Bundle{}, 4242); got != nil {
+		t.Fatalf("expected nil tailscale for empty bundle, got %#v", got)
+	}
+
+	// Configured → hostname resolves per-vmid, extra args/tags forwarded, authkey present.
+	bundle := secrets.Bundle{
+		Tailscale: &secrets.TailscaleBundle{
+			AuthKey:          "tskey-auth-test-123456",
+			Tags:             []string{"tag:agent"},
+			ExtraArgs:        []string{"--ssh"},
+			HostnameTemplate: "agentlab-{vmid}",
+		},
+	}
+	got := bootstrapTailscaleFromBundle(bundle, 4242)
+	if got == nil {
+		t.Fatal("expected tailscale config, got nil")
+	}
+	if got.AuthKey != "tskey-auth-test-123456" {
+		t.Fatalf("authkey = %q", got.AuthKey)
+	}
+	if got.Hostname != "agentlab-4242" {
+		t.Fatalf("hostname = %q, want agentlab-4242", got.Hostname)
+	}
+	if len(got.Tags) != 1 || got.Tags[0] != "tag:agent" {
+		t.Fatalf("tags = %#v", got.Tags)
+	}
+	if len(got.ExtraArgs) != 1 || got.ExtraArgs[0] != "--ssh" {
+		t.Fatalf("extra args = %#v", got.ExtraArgs)
+	}
+
+	// Default hostname when no template is configured.
+	bundle.Tailscale.HostnameTemplate = ""
+	got = bootstrapTailscaleFromBundle(bundle, 7777)
+	if got == nil || got.Hostname != "agentlab-7777" {
+		t.Fatalf("default hostname = %q", gotHostname(got))
+	}
+}
+
+func gotHostname(ts *V1BootstrapTailscale) string {
+	if ts == nil {
+		return "<nil>"
+	}
+	return ts.Hostname
+}

@@ -135,6 +135,9 @@ func (api *BootstrapAPI) handleBootstrapFetch(w http.ResponseWriter, r *http.Req
 	}
 	if api.redactor != nil {
 		api.redactor.AddKeys(envKeys(bundle.Env)...)
+		if authKey := bundle.GetTailscaleAuthKey(); authKey != "" {
+			api.redactor.AddValues(authKey)
+		}
 	}
 	claudeSettings, err := bundle.ClaudeSettingsJSON()
 	if err != nil {
@@ -180,6 +183,9 @@ func (api *BootstrapAPI) handleBootstrapFetch(w http.ResponseWriter, r *http.Req
 	}
 	if policy != nil {
 		resp.Policy = policy
+	}
+	if ts := bootstrapTailscaleFromBundle(bundle, req.VMID); ts != nil {
+		resp.Tailscale = ts
 	}
 
 	consumed, err := api.store.ConsumeBootstrapToken(r.Context(), tokenHash, req.VMID, api.now().UTC())
@@ -312,6 +318,22 @@ func bootstrapArtifactFromBundle(bundle secrets.Bundle) *V1BootstrapArtifact {
 	return &V1BootstrapArtifact{
 		Endpoint: artifact.Endpoint,
 		Token:    artifact.Token,
+	}
+}
+
+// bootstrapTailscaleFromBundle maps the bundle's TailscaleBundle to the bootstrap
+// response, resolving the per-VM hostname ({vmid} template, default agentlab-{vmid}).
+// Returns nil when no auth key is configured, leaving the guest to skip enrollment.
+func bootstrapTailscaleFromBundle(bundle secrets.Bundle, vmid int) *V1BootstrapTailscale {
+	authKey := bundle.GetTailscaleAuthKey()
+	if authKey == "" {
+		return nil
+	}
+	return &V1BootstrapTailscale{
+		AuthKey:   authKey,
+		Hostname:  bundle.GetTailscaleHostname(vmid),
+		Tags:      bundle.GetTailscaleTags(),
+		ExtraArgs: bundle.GetTailscaleExtraArgs(),
 	}
 }
 

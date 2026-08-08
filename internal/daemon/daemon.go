@@ -370,15 +370,15 @@ func newService(cfg config.Config, profiles map[string]models.Profile, store *db
 			tlsMode = proxy.TLSModeSelfSigned
 		}
 		proxyCfg := proxy.ProxyConfig{
-			Enabled:      true,
-			Domain:       cfg.ProxyDomain,
-			TLSMode:      tlsMode,
-			TLSEmail:     cfg.ProxyTLSEmail,
-			CaddyAPI:     cfg.ProxyCaddyAPI,
-			HostsFile:    cfg.ProxyHostsFile,
-			CADir:        cfg.ProxyCADir,
-			TLSCertDir:   cfg.ProxyTLSCertDir,
-			ProxyIP:      cfg.ProxyIP,
+			Enabled:    true,
+			Domain:     cfg.ProxyDomain,
+			TLSMode:    tlsMode,
+			TLSEmail:   cfg.ProxyTLSEmail,
+			CaddyAPI:   cfg.ProxyCaddyAPI,
+			HostsFile:  cfg.ProxyHostsFile,
+			CADir:      cfg.ProxyCADir,
+			TLSCertDir: cfg.ProxyTLSCertDir,
+			ProxyIP:    cfg.ProxyIP,
 		}
 		caddyPub, err := proxy.NewCaddyPublisher(proxyCfg, log.Default())
 		if err != nil {
@@ -421,11 +421,11 @@ func newService(cfg config.Config, profiles map[string]models.Profile, store *db
 
 	// Create resource pool for sandbox over-commit tracking.
 	resourcePool := pool.New(pool.Config{
-		TotalCores:     cfg.PoolTotalCores,
-		TotalMemoryMB:  cfg.PoolTotalMemoryMB,
-		CPUOverCommit:  cfg.PoolCPUOverCommit,
+		TotalCores:       cfg.PoolTotalCores,
+		TotalMemoryMB:    cfg.PoolTotalMemoryMB,
+		CPUOverCommit:    cfg.PoolCPUOverCommit,
 		MemoryOverCommit: cfg.PoolMemOverCommit,
-		BurstDuration:  cfg.PoolBurstDuration,
+		BurstDuration:    cfg.PoolBurstDuration,
 	})
 	if resourcePool.IsEnabled() {
 		log.Printf("resource pool enabled: %d cores, %d MB RAM, cpu_over_commit=%.1f, mem_over_commit=%.1f",
@@ -447,6 +447,17 @@ func newService(cfg config.Config, profiles map[string]models.Profile, store *db
 
 	// Register pool status endpoint.
 	NewPoolAPI(resourcePool).Register(localMux)
+
+	// Build the secrets store once and share it between the agent-drivable
+	// control-plane SecretsAPI (registered here on localMux) and the
+	// bootstrap/metadata APIs further down. AllowPlaintext stays false
+	// server-side so staged keys are always written age-encrypted at rest.
+	secretsStore := secrets.Store{
+		Dir:        cfg.SecretsDir,
+		AgeKeyPath: cfg.SecretsAgeKeyPath,
+		SopsPath:   cfg.SecretsSopsPath,
+	}
+	NewSecretsAPI(secretsStore, cfg.SecretsBundle, redactor, log.Default()).Register(localMux)
 
 	// Set up integrations system if enabled.
 	var integrationStore *integrations.Store
@@ -510,11 +521,6 @@ func newService(cfg config.Config, profiles map[string]models.Profile, store *db
 
 	bootstrapMux := http.NewServeMux()
 	bootstrapMux.HandleFunc("/healthz", healthHandler)
-	secretsStore := secrets.Store{
-		Dir:        cfg.SecretsDir,
-		AgeKeyPath: cfg.SecretsAgeKeyPath,
-		SopsPath:   cfg.SecretsSopsPath,
-	}
 	artifactEndpoint := strings.TrimSpace(cfg.ArtifactUploadURL)
 	if artifactEndpoint == "" {
 		artifactEndpoint = buildArtifactUploadURL(cfg.ArtifactListen)

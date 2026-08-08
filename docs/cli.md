@@ -8,6 +8,16 @@ Do not edit by hand. Run `make docs-gen` to refresh.
 ```text
 agentlab is the CLI for agentlabd.
 
+Quick commands (aliases for common operations):
+  agentlab new [--name <name>] [--prompt <text>] (--profile <profile> | +mod [+mod...])   Create a sandbox (alias: sandbox new)
+  agentlab ls                                                             List sandboxes (alias: sandbox list)
+  agentlab show <vmid>                                                    Show sandbox details (alias: sandbox show)
+  agentlab ssh <vmid>                                                     SSH into a sandbox
+  agentlab start <vmid>                                                   Start a sandbox (alias: sandbox start)
+  agentlab stop <vmid>                                                    Stop a sandbox (alias: sandbox stop)
+  agentlab rm [--force] <vmid>                                            Destroy a sandbox (alias: sandbox destroy)
+  agentlab logs <vmid> [--follow]                                         View sandbox logs
+
 Usage:
   agentlab --version
   agentlab [--endpoint URL] [--token TOKEN] [--socket PATH] [--json] [--timeout DURATION] status
@@ -20,7 +30,7 @@ Usage:
   agentlab [--endpoint URL] [--token TOKEN] [--socket PATH] [--json] [--timeout DURATION] job artifacts <job_id>
   agentlab [--endpoint URL] [--token TOKEN] [--socket PATH] [--json] [--timeout DURATION] job artifacts download <job_id> [--out <path>] [--path <path>] [--name <name>] [--latest] [--bundle]
   agentlab [--endpoint URL] [--token TOKEN] [--socket PATH] [--json] [--timeout DURATION] job doctor <job_id> [--out <path>]
-  agentlab [--endpoint URL] [--token TOKEN] [--socket PATH] [--json] [--timeout DURATION] sandbox new [--name <name>] [--ttl <ttl>] [--keepalive] [--workspace <id>] [--vmid <vmid>] [--job <id>] [--and-ssh] (--profile <profile> | +mod [+mod...])
+  agentlab [--endpoint URL] [--token TOKEN] [--socket PATH] [--json] [--timeout DURATION] sandbox new [--name <name>] [--ttl <ttl>] [--keepalive] [--workspace <id>] [--vmid <vmid>] [--job <id>] [--and-ssh] [--type <type>] [--image <image>] [--prompt <text>] (--profile <profile> | +mod [+mod...])
   agentlab [--endpoint URL] [--token TOKEN] [--socket PATH] [--json] [--timeout DURATION] sandbox validate [--name <name>] [--ttl <ttl>] [--keepalive] [--workspace <id>] [--vmid <vmid>] [--job <id>] (+mod [+mod...] | --profile <profile>)
   agentlab [--endpoint URL] [--token TOKEN] [--socket PATH] [--json] [--timeout DURATION] sandbox list
   agentlab [--endpoint URL] [--token TOKEN] [--socket PATH] [--json] [--timeout DURATION] sandbox inventory
@@ -64,13 +74,20 @@ Usage:
   agentlab [--endpoint URL] [--token TOKEN] [--socket PATH] [--json] [--timeout DURATION] session branch <branch> --profile <profile> [--workspace <id|name|new:name>] [--workspace-create <name>] [--workspace-size <size>] [--workspace-storage <storage>]
   agentlab [--endpoint URL] [--token TOKEN] [--socket PATH] [--json] [--timeout DURATION] session doctor <session> [--out <path>]
   agentlab [--endpoint URL] [--token TOKEN] [--socket PATH] [--json] [--timeout DURATION] profile list
-  agentlab [--json] secrets <show|validate|add-ssh-key|remove-ssh-key|set-tailscale|clear-tailscale> [...]
+  agentlab [--endpoint URL] [--token TOKEN] [--socket PATH] [--json] [--timeout DURATION] secrets <show|validate|set-env|set-git|add-ssh-key|remove-ssh-key|set-tailscale|clear-tailscale> [...]
   agentlab [--endpoint URL] [--token TOKEN] [--socket PATH] [--json] [--timeout DURATION] ssh <vmid> [--user <user>] [--port <port>] [--identity <path>] [--jump-host <host>] [--jump-user <user>] [--exec] [--no-start] [--wait] [-- <remote command>...]
   agentlab [--endpoint URL] [--token TOKEN] [--socket PATH] [--json] [--timeout DURATION] msg post (--job <id> | --workspace <id> | --session <id>) [--author <name>] [--kind <kind>] [--text <text>] [--payload <json>] [message...]
   agentlab [--endpoint URL] [--token TOKEN] [--socket PATH] [--json] [--timeout DURATION] msg tail (--job <id> | --workspace <id> | --session <id>) [--follow] [--tail <n>]
   agentlab [--endpoint URL] [--token TOKEN] [--socket PATH] [--json] [--timeout DURATION] logs <vmid> [--follow] [--tail <n>]
   agentlab connect --endpoint <url> --token <token> [--jump-host <host>] [--jump-user <user>]
   agentlab disconnect
+  agentlab defaults write <key> <value>
+  agentlab defaults read <key>
+  agentlab defaults list
+  agentlab defaults delete <key>
+  agentlab version [--json]
+  agentlab [--endpoint URL] [--token TOKEN] [--socket PATH] [--json] pool status
+  agentlab completion <bash|zsh|fish>
 
 Global Flags:
   --endpoint URL  Control plane endpoint (http(s)://host:port)

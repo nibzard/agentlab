@@ -122,13 +122,103 @@ type V1BootstrapPolicy struct {
 	InnerSandboxArgs []string `json:"inner_sandbox_args,omitempty"`
 }
 
+// V1BootstrapTailscale carries per-VM Tailscale enrollment parameters so the
+// guest can run `tailscale up` and join the tailnet as agentlab-{vmid}. The
+// auth key is delivered transiently over this single-use, subnet-gated channel
+// rather than written into the host-readable cloud-init snippet.
+type V1BootstrapTailscale struct {
+	AuthKey   string   `json:"authkey,omitempty"`
+	Hostname  string   `json:"hostname,omitempty"`
+	Tags      []string `json:"tags,omitempty"`
+	ExtraArgs []string `json:"extra_args,omitempty"`
+}
+
 type V1BootstrapFetchResponse struct {
-	Job                V1BootstrapJob       `json:"job"`
-	Git                *V1BootstrapGit      `json:"git,omitempty"`
-	Env                map[string]string    `json:"env,omitempty"`
-	ClaudeSettingsJSON string               `json:"claude_settings_json,omitempty"`
-	Artifact           *V1BootstrapArtifact `json:"artifact,omitempty"`
-	Policy             *V1BootstrapPolicy   `json:"policy,omitempty"`
+	Job                V1BootstrapJob        `json:"job"`
+	Git                *V1BootstrapGit       `json:"git,omitempty"`
+	Env                map[string]string     `json:"env,omitempty"`
+	ClaudeSettingsJSON string                `json:"claude_settings_json,omitempty"`
+	Artifact           *V1BootstrapArtifact  `json:"artifact,omitempty"`
+	Policy             *V1BootstrapPolicy    `json:"policy,omitempty"`
+	Tailscale          *V1BootstrapTailscale `json:"tailscale,omitempty"`
+}
+
+// V1SecretsEnvSetRequest merges the given environment variables into the
+// secrets bundle. This is how a laptop-resident agent registers LLM API keys
+// (e.g. ANTHROPIC_API_KEY) without needing a local age key.
+type V1SecretsEnvSetRequest struct {
+	Env map[string]string `json:"env"`
+}
+
+// V1SecretsGitSetRequest merges git credentials into the bundle. Only non-empty
+// fields are applied (merge semantics); individual fields cannot be cleared via
+// this endpoint.
+type V1SecretsGitSetRequest struct {
+	Token         string `json:"token,omitempty"`
+	Username      string `json:"username,omitempty"`
+	SSHPrivateKey string `json:"ssh_private_key,omitempty"`
+	SSHPublicKey  string `json:"ssh_public_key,omitempty"`
+	KnownHosts    string `json:"known_hosts,omitempty"`
+}
+
+// V1SecretsTailscaleSetRequest configures per-VM Tailscale enrollment. An
+// authkey is required unless the bundle already has one (then tags/template can
+// be updated independently).
+type V1SecretsTailscaleSetRequest struct {
+	AuthKey          string   `json:"authkey,omitempty"`
+	HostnameTemplate string   `json:"hostname_template,omitempty"`
+	Tags             []string `json:"tags,omitempty"`
+	ExtraArgs        []string `json:"extra_args,omitempty"`
+}
+
+// V1SecretsSSHKeyAddRequest adds an SSH public key under the given name.
+type V1SecretsSSHKeyAddRequest struct {
+	Name string `json:"name"`
+	Key  string `json:"key"`
+}
+
+// V1SecretsMutationResponse is returned by every secrets mutation and by
+// GET /v1/secrets. Raw secret values are never included; see V1SecretsView.
+type V1SecretsMutationResponse struct {
+	Bundle  string        `json:"bundle"`
+	Path    string        `json:"path,omitempty"`
+	Secrets V1SecretsView `json:"secrets"`
+}
+
+// V1SecretsView is a redacted projection of the secrets bundle. Sensitive
+// values are replaced with "[REDACTED]"; only key names and non-secret metadata
+// are exposed so an agent can verify state without receiving the secrets.
+type V1SecretsView struct {
+	Env       map[string]string              `json:"env,omitempty"`
+	Git       *V1SecretsGitView              `json:"git,omitempty"`
+	SSH       map[string]V1SecretsSSHKeyView `json:"ssh,omitempty"`
+	Tailscale *V1SecretsTailscaleView        `json:"tailscale,omitempty"`
+}
+
+// V1SecretsGitView shows which git fields are configured without their values.
+type V1SecretsGitView struct {
+	Token         string `json:"token,omitempty"` // "[REDACTED]" when set
+	Username      string `json:"username,omitempty"`
+	SSHPrivateKey string `json:"ssh_private_key,omitempty"` // "[REDACTED]" when set
+	SSHPublicKey  string `json:"ssh_public_key,omitempty"`
+	KnownHosts    string `json:"known_hosts,omitempty"`
+}
+
+// V1SecretsSSHKeyView shows a registered SSH public key. Public keys are not
+// secret, so the key material is included verbatim.
+type V1SecretsSSHKeyView struct {
+	Key     string `json:"key"`
+	Type    string `json:"type,omitempty"`
+	Comment string `json:"comment,omitempty"`
+}
+
+// V1SecretsTailscaleView shows the Tailscale enrollment config minus the
+// authkey value (only whether one is configured).
+type V1SecretsTailscaleView struct {
+	HostnameTemplate  string   `json:"hostname_template,omitempty"`
+	Tags              []string `json:"tags,omitempty"`
+	ExtraArgs         []string `json:"extra_args,omitempty"`
+	AuthKeyConfigured bool     `json:"authkey_configured"`
 }
 
 type V1PreflightIssue struct {

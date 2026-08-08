@@ -81,7 +81,14 @@ pveum user token add root@pam agentlab-api --privsep=0
 6) Create secrets and minimal config/profile, then build the template:
 
 ```bash
-# Create or rotate the encrypted host bundle with the CLI
+# Register the LLM keys and git credentials every VM needs. These go through
+# the daemon, so the bundle stays age-encrypted on disk (no local age key needed
+# on a laptop driving the CLI remotely over --endpoint).
+agentlab secrets set-env --name ANTHROPIC_API_KEY --value sk-ant-...
+agentlab secrets set-env --name OPENAI_API_KEY --value sk-...
+agentlab secrets set-git --git-token ghp_... --username x-access-token
+
+# Authorize SSH and enroll each VM onto the tailnet as agentlab-{vmid}
 agentlab secrets add-ssh-key --name laptop --key-file ~/.ssh/id_ed25519.pub
 agentlab secrets set-tailscale \
   --authkey tskey-auth-XXXXXXXX \
@@ -89,14 +96,19 @@ agentlab secrets set-tailscale \
   --tag tag:agentlab \
   --extra-arg --ssh
 
-# Inspect or validate the bundle
+# Inspect or validate the bundle (values redacted by default)
 agentlab secrets show
 agentlab --json secrets validate
 
-# Then build the template and restart the daemon
+# Build the template (installs Node 20 + the tailscale CLI), then restart the daemon
 sudo scripts/create_template.sh
 sudo systemctl restart agentlabd.service
 ```
+
+The Tailscale authkey must be **reusable** (a single key reused across all VMs);
+the hostname is templated per-vmid but the key is shared. After upgrading Node,
+Tailscale, or any pinned agent CLI in the template, re-run
+`scripts/create_template.sh` so new VMs pick up the changes.
 
 7) Check control-plane status:
 
@@ -302,8 +314,12 @@ Global flags:
 When the daemon is configured with a remote control listener, you can connect from another machine:
 
 ```bash
-agentlab connect --endpoint https://host.tailnet.ts.net:8845 --token <token>
+agentlab connect --endpoint http://host.tailnet.ts.net:8845 --token <token>
 ```
+
+The remote listener serves **plaintext HTTP** behind the Tailscale TCP tunnel, so use
+`http://` (not `https://`) — the TLS-like termination happens at the Tailscale layer, not
+on the daemon port.
 
 This writes a client config file at `$XDG_CONFIG_HOME/agentlab/client.json` (or `~/.config/agentlab/client.json`). Subsequent commands use the saved endpoint and token automatically.
 
@@ -322,6 +338,14 @@ AgentLab stores host-side credentials in encrypted bundles under `secrets_dir`
 of editing bundle files manually:
 
 ```bash
+# Register LLM keys / arbitrary env (merge into the bundle)
+agentlab secrets set-env --name ANTHROPIC_API_KEY --value sk-ant-...
+agentlab secrets set-env --from-file env.txt     # bulk: KEY=VAL lines or JSON
+
+# Register git credentials for private-repo cloning
+agentlab secrets set-git --git-token ghp_... --username x-access-token
+agentlab secrets set-git --ssh-key-file ~/.ssh/id_ed25519 --known-hosts-file ~/.ssh/known_hosts
+
 # Show the default bundle with sensitive values redacted
 agentlab secrets show
 
@@ -343,6 +367,12 @@ agentlab secrets set-tailscale \
   --extra-arg --ssh
 agentlab secrets clear-tailscale
 ```
+
+`set-env`, `set-git`, and the other mutations go through the daemon: they work
+identically over the local socket (host) and a remote `--endpoint` (a laptop
+driving AgentLab from inside a coding agent), so a laptop agent can stage every
+credential a VM needs without a local age key. Mutations never echo raw secret
+values back — `show` and every mutation response redact them.
 
 Notes:
 - The CLI resolves `secrets_dir`, `secrets_bundle`, and `secrets_age_key_path`
