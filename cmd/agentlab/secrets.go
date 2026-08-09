@@ -539,7 +539,9 @@ func printSecretsRemoveSSHKeyUsage() {
 }
 
 func printSecretsSetTailscaleUsage() {
-	fmt.Fprintln(os.Stdout, "Usage: agentlab secrets set-tailscale [--config <path>] [--bundle <name|path>] [--dir <path>] [--age-key <path>] [--allow-plaintext] [--authkey <key>] [--hostname-template <template>] [--tag <tag>]... [--extra-arg <arg>]...")
+	fmt.Fprintln(os.Stdout, "Usage: agentlab secrets set-tailscale [--endpoint <url> --token <token>] [--socket <path>] [--json]")
+	fmt.Fprintln(os.Stdout, "       (per-VM minting) [--admin-api-key <tskey-api-...> | --admin-api-key-file <path>] [--tailnet <name>]")
+	fmt.Fprintln(os.Stdout, "       (shared key fallback) [--authkey <key> | --authkey-file <path>] [--hostname-template <template>] [--tag <tag>]... [--extra-arg <arg>]...")
 }
 
 func printSecretsClearTailscaleUsage() {

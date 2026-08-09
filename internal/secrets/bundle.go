@@ -101,12 +101,16 @@ type SSHPublicKey struct {
 
 // TailscaleBundle stores Tailscale configuration for guest VM setup.
 //
-// This enables automated Tailscale enrollment in sandboxes.
+// This enables automated Tailscale enrollment in sandboxes. AuthKey is the
+// legacy shared reusable key; AdminAPIKey + Tailnet enable per-VM authkey
+// minting via the Tailscale Admin API at bootstrap time.
 type TailscaleBundle struct {
 	AuthKey          string   `json:"authkey,omitempty" yaml:"authkey,omitempty"`
 	Tags             []string `json:"tags,omitempty" yaml:"tags,omitempty"`
 	HostnameTemplate string   `json:"hostname_template,omitempty" yaml:"hostname_template,omitempty"`
 	ExtraArgs        []string `json:"extra_args,omitempty" yaml:"extra_args,omitempty"`
+	AdminAPIKey      string   `json:"admin_api_key,omitempty" yaml:"admin_api_key,omitempty"`
+	Tailnet          string   `json:"tailnet,omitempty" yaml:"tailnet,omitempty"`
 }
 
 // ClaudeSettingsJSON returns the settings fragment as JSON.
@@ -179,6 +183,35 @@ func (b Bundle) GetTailscaleExtraArgs() []string {
 		return nil
 	}
 	return append([]string(nil), b.Tailscale.ExtraArgs...)
+}
+
+// GetTailscaleAdminAPIKey returns the stored Tailscale Admin API access token
+// (tskey-api-...) used to mint per-VM auth keys, or empty if unset.
+func (b Bundle) GetTailscaleAdminAPIKey() string {
+	if b.Tailscale == nil {
+		return ""
+	}
+	return strings.TrimSpace(b.Tailscale.AdminAPIKey)
+}
+
+// GetTailscaleTailnet returns the tailnet to mint keys in. An empty value maps
+// to "-", Tailscale's wildcard for the caller's own tailnet.
+func (b Bundle) GetTailscaleTailnet() string {
+	if b.Tailscale == nil {
+		return "-"
+	}
+	t := strings.TrimSpace(b.Tailscale.Tailnet)
+	if t == "" {
+		return "-"
+	}
+	return t
+}
+
+// TailscaleMintingConfigured reports whether the daemon can mint per-VM auth
+// keys. An Admin API key is sufficient; the tailnet defaults to Tailscale's "-"
+// wildcard (the caller's own tailnet) when not explicitly set.
+func (b Bundle) TailscaleMintingConfigured() bool {
+	return b.GetTailscaleAdminAPIKey() != ""
 }
 
 // ResolvePath returns the on-disk path for a bundle name or path.

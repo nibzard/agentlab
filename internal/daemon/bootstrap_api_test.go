@@ -402,7 +402,7 @@ func TestBootstrapTailscaleFromBundle(t *testing.T) {
 	// Configured → hostname resolves per-vmid, extra args/tags forwarded, authkey present.
 	bundle := secrets.Bundle{
 		Tailscale: &secrets.TailscaleBundle{
-			AuthKey:          "tskey-auth-test-123456",
+			AuthKey:          "shared-auth-key-fixture",
 			Tags:             []string{"tag:agent"},
 			ExtraArgs:        []string{"--ssh"},
 			HostnameTemplate: "agentlab-{vmid}",
@@ -412,7 +412,7 @@ func TestBootstrapTailscaleFromBundle(t *testing.T) {
 	if got == nil {
 		t.Fatal("expected tailscale config, got nil")
 	}
-	if got.AuthKey != "tskey-auth-test-123456" {
+	if got.AuthKey != "shared-auth-key-fixture" {
 		t.Fatalf("authkey = %q", got.AuthKey)
 	}
 	if got.Hostname != "agentlab-4242" {

@@ -162,13 +162,15 @@ type V1SecretsGitSetRequest struct {
 }
 
 // V1SecretsTailscaleSetRequest configures per-VM Tailscale enrollment. An
-// authkey is required unless the bundle already has one (then tags/template can
-// be updated independently).
+// authkey OR an admin_api_key is required; admin_api_key (+ optional tailnet)
+// enables per-VM authkey minting at bootstrap time instead of a shared key.
 type V1SecretsTailscaleSetRequest struct {
 	AuthKey          string   `json:"authkey,omitempty"`
 	HostnameTemplate string   `json:"hostname_template,omitempty"`
 	Tags             []string `json:"tags,omitempty"`
 	ExtraArgs        []string `json:"extra_args,omitempty"`
+	AdminAPIKey      string   `json:"admin_api_key,omitempty"`
+	Tailnet          string   `json:"tailnet,omitempty"`
 }
 
 // V1SecretsSSHKeyAddRequest adds an SSH public key under the given name.
@@ -212,13 +214,15 @@ type V1SecretsSSHKeyView struct {
 	Comment string `json:"comment,omitempty"`
 }
 
-// V1SecretsTailscaleView shows the Tailscale enrollment config minus the
-// authkey value (only whether one is configured).
+// V1SecretsTailscaleView shows the Tailscale enrollment config minus secret
+// values (only whether an authkey and/or admin_api_key is configured).
 type V1SecretsTailscaleView struct {
-	HostnameTemplate  string   `json:"hostname_template,omitempty"`
-	Tags              []string `json:"tags,omitempty"`
-	ExtraArgs         []string `json:"extra_args,omitempty"`
-	AuthKeyConfigured bool     `json:"authkey_configured"`
+	HostnameTemplate      string   `json:"hostname_template,omitempty"`
+	Tags                  []string `json:"tags,omitempty"`
+	ExtraArgs             []string `json:"extra_args,omitempty"`
+	Tailnet               string   `json:"tailnet,omitempty"`
+	AuthKeyConfigured     bool     `json:"authkey_configured"`
+	AdminAPIKeyConfigured bool     `json:"admin_api_key_configured"`
 }
 
 type V1PreflightIssue struct {

@@ -200,13 +200,19 @@ func runSecretsSetTailscaleRemote(ctx context.Context, args []string, base commo
 	var (
 		authKey          string
 		authKeyFile      string
+		adminAPIKey      string
+		adminAPIKeyFile  string
+		tailnet          string
 		hostnameTemplate string
 		tags             stringListFlag
 		extraArgs        stringListFlag
 	)
 	help := bindHelpFlag(fs)
-	fs.StringVar(&authKey, "authkey", "", "reusable Tailscale auth key")
-	fs.StringVar(&authKeyFile, "authkey-file", "", "read the Tailscale auth key from a file")
+	fs.StringVar(&authKey, "authkey", "", "shared reusable Tailscale auth key (fallback for per-VM minting)")
+	fs.StringVar(&authKeyFile, "authkey-file", "", "read the shared Tailscale auth key from a file")
+	fs.StringVar(&adminAPIKey, "admin-api-key", "", "Tailscale Admin API key (tskey-api-...) to mint per-VM auth keys")
+	fs.StringVar(&adminAPIKeyFile, "admin-api-key-file", "", "read the Tailscale Admin API key from a file")
+	fs.StringVar(&tailnet, "tailnet", "", "tailnet to mint keys in (default: the key's own tailnet, \"-\")")
 	fs.StringVar(&hostnameTemplate, "hostname-template", "", "per-VM hostname template (supports {vmid} and {name})")
 	fs.Var(&tags, "tag", "Tailscale tag (repeatable)")
 	fs.Var(&extraArgs, "extra-arg", "additional `tailscale up` arg (repeatable)")
@@ -223,6 +229,14 @@ func runSecretsSetTailscaleRemote(ctx context.Context, args []string, base commo
 	} else if k != "" {
 		body["authkey"] = k
 	}
+	if k, err := resolveSecretValue(adminAPIKey, adminAPIKeyFile); err != nil {
+		return err
+	} else if k != "" {
+		body["admin_api_key"] = k
+	}
+	if t := strings.TrimSpace(tailnet); t != "" {
+		body["tailnet"] = t
+	}
 	if h := strings.TrimSpace(hostnameTemplate); h != "" {
 		body["hostname_template"] = h
 	}
@@ -233,7 +247,7 @@ func runSecretsSetTailscaleRemote(ctx context.Context, args []string, base commo
 		body["extra_args"] = []string(extraArgs)
 	}
 	if len(body) == 0 {
-		return newUsageError(errors.New("at least one of --authkey/--authkey-file/--hostname-template/--tag/--extra-arg is required"), true)
+		return newUsageError(errors.New("at least one of --authkey/--authkey-file/--admin-api-key/--admin-api-key-file/--tailnet/--hostname-template/--tag/--extra-arg is required"), true)
 	}
 
 	client, err := apiClientFromFlags(opts)
@@ -372,7 +386,11 @@ func printSecretsRemoteResult(jsonOutput bool, data []byte, action string) error
 		fmt.Fprintln(os.Stdout, "  git: configured")
 	}
 	if resp.Secrets.Tailscale != nil {
-		fmt.Fprintf(os.Stdout, "  tailscale: configured (authkey=%v)\n", resp.Secrets.Tailscale.AuthKeyConfigured)
+		fmt.Fprintf(os.Stdout, "  tailscale: configured (authkey=%v, admin-key=%v", resp.Secrets.Tailscale.AuthKeyConfigured, resp.Secrets.Tailscale.AdminAPIKeyConfigured)
+		if t := resp.Secrets.Tailscale.Tailnet; t != "" {
+			fmt.Fprintf(os.Stdout, ", tailnet=%s", t)
+		}
+		fmt.Fprintln(os.Stdout, ")")
 	}
 	if n := len(resp.Secrets.SSH); n > 0 {
 		fmt.Fprintf(os.Stdout, "  ssh keys (%d): %s\n", n, strings.Join(sortedStringKeys(resp.Secrets.SSH), ", "))
@@ -484,8 +502,10 @@ type secretsRemoteSSHKeyView struct {
 }
 
 type secretsRemoteTailscaleView struct {
-	HostnameTemplate  string   `json:"hostname_template,omitempty"`
-	Tags              []string `json:"tags,omitempty"`
-	ExtraArgs         []string `json:"extra_args,omitempty"`
-	AuthKeyConfigured bool     `json:"authkey_configured"`
+	HostnameTemplate      string   `json:"hostname_template,omitempty"`
+	Tags                  []string `json:"tags,omitempty"`
+	ExtraArgs             []string `json:"extra_args,omitempty"`
+	Tailnet               string   `json:"tailnet,omitempty"`
+	AuthKeyConfigured     bool     `json:"authkey_configured"`
+	AdminAPIKeyConfigured bool     `json:"admin_api_key_configured"`
 }

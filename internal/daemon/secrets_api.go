@@ -204,8 +204,14 @@ func (api *SecretsAPI) handleTailscale(w http.ResponseWriter, r *http.Request) {
 			if len(req.ExtraArgs) > 0 {
 				b.Tailscale.ExtraArgs = dedupeTailscaleStrings(req.ExtraArgs)
 			}
-			if strings.TrimSpace(b.Tailscale.AuthKey) == "" {
-				return errors.New("tailscale authkey is required")
+			if k := strings.TrimSpace(req.AdminAPIKey); k != "" {
+				b.Tailscale.AdminAPIKey = k
+			}
+			if t := strings.TrimSpace(req.Tailnet); t != "" {
+				b.Tailscale.Tailnet = t
+			}
+			if strings.TrimSpace(b.Tailscale.AuthKey) == "" && strings.TrimSpace(b.Tailscale.AdminAPIKey) == "" {
+				return errors.New("tailscale authkey or admin_api_key is required")
 			}
 			return nil
 		})
@@ -323,6 +329,9 @@ func (api *SecretsAPI) registerSecrets(bundle secrets.Bundle) {
 	if authKey := bundle.GetTailscaleAuthKey(); authKey != "" {
 		values = append(values, authKey)
 	}
+	if adminKey := bundle.GetTailscaleAdminAPIKey(); adminKey != "" {
+		values = append(values, adminKey)
+	}
 	api.redactor.AddValues(values...)
 }
 
@@ -389,10 +398,12 @@ func redactedSecretsView(bundle secrets.Bundle) V1SecretsView {
 	}
 	if bundle.Tailscale != nil {
 		view.Tailscale = &V1SecretsTailscaleView{
-			HostnameTemplate:  bundle.Tailscale.HostnameTemplate,
-			Tags:              bundle.Tailscale.Tags,
-			ExtraArgs:         bundle.Tailscale.ExtraArgs,
-			AuthKeyConfigured: strings.TrimSpace(bundle.Tailscale.AuthKey) != "",
+			HostnameTemplate:      bundle.Tailscale.HostnameTemplate,
+			Tags:                  bundle.Tailscale.Tags,
+			ExtraArgs:             bundle.Tailscale.ExtraArgs,
+			Tailnet:               bundle.Tailscale.Tailnet,
+			AuthKeyConfigured:     strings.TrimSpace(bundle.Tailscale.AuthKey) != "",
+			AdminAPIKeyConfigured: strings.TrimSpace(bundle.Tailscale.AdminAPIKey) != "",
 		}
 	}
 	return view

@@ -29,6 +29,8 @@ func (b Bundle) Normalized() Bundle {
 	}
 	if out.Tailscale != nil {
 		if strings.TrimSpace(out.Tailscale.AuthKey) == "" &&
+			strings.TrimSpace(out.Tailscale.AdminAPIKey) == "" &&
+			strings.TrimSpace(out.Tailscale.Tailnet) == "" &&
 			len(out.Tailscale.Tags) == 0 &&
 			strings.TrimSpace(out.Tailscale.HostnameTemplate) == "" &&
 			len(out.Tailscale.ExtraArgs) == 0 {
@@ -57,9 +59,14 @@ func (b Bundle) Redacted() Bundle {
 	if strings.TrimSpace(out.Artifact.Token) != "" {
 		out.Artifact.Token = redactedValue
 	}
-	if out.Tailscale != nil && strings.TrimSpace(out.Tailscale.AuthKey) != "" {
+	if out.Tailscale != nil && (strings.TrimSpace(out.Tailscale.AuthKey) != "" || strings.TrimSpace(out.Tailscale.AdminAPIKey) != "") {
 		copyValue := *out.Tailscale
-		copyValue.AuthKey = redactedValue
+		if strings.TrimSpace(copyValue.AuthKey) != "" {
+			copyValue.AuthKey = redactedValue
+		}
+		if strings.TrimSpace(copyValue.AdminAPIKey) != "" {
+			copyValue.AdminAPIKey = redactedValue
+		}
 		out.Tailscale = &copyValue
 	}
 	return out

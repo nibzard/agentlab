@@ -159,14 +159,14 @@ func TestSecretsAPIGitTailscaleSSH(t *testing.T) {
 
 	// Tailscale set.
 	tsRR := doSecretsReq(t, mux, http.MethodPut, "/v1/secrets/tailscale", map[string]any{
-		"authkey":           "tskey-auth-test-123456",
+		"authkey":           "shared-auth-key-fixture",
 		"hostname_template": "agentlab-{vmid}",
 		"tags":              []string{"tag:agent"},
 	})
 	if tsRR.Code != http.StatusOK {
 		t.Fatalf("PUT tailscale: expected 200, got %d body=%s", tsRR.Code, tsRR.Body.String())
 	}
-	if strings.Contains(tsRR.Body.String(), "tskey-auth-test") {
+	if strings.Contains(tsRR.Body.String(), "shared-auth-key-fixture") {
 		t.Fatalf("response leaked tailscale authkey: %s", tsRR.Body.String())
 	}
 	tsResp := decodeSecretsResponse(t, tsRR)
@@ -246,5 +246,49 @@ func TestSecretsAPIPlaintextRefused(t *testing.T) {
 	})
 	if rr.Code != http.StatusUnprocessableEntity {
 		t.Fatalf("expected 422 for plaintext refusal, got %d body=%s", rr.Code, rr.Body.String())
+	}
+}
+
+// TestSecretsAPITailscaleAdminKey: an admin_api_key with no shared authkey is a
+// valid (mint-only) configuration. It is persisted, never echoed, and surfaces
+// only as a configured flag plus the non-secret tailnet.
+func TestSecretsAPITailscaleAdminKey(t *testing.T) {
+	store, _ := newSecretsTestStore(t, true)
+	_, mux := newSecretsAPIWithMux(store)
+
+	rr := doSecretsReq(t, mux, http.MethodPut, "/v1/secrets/tailscale", map[string]any{
+		"admin_api_key": "admin-api-key-fixture",
+		"tailnet":       "example.com",
+	})
+	if rr.Code != http.StatusOK {
+		t.Fatalf("PUT tailscale admin-only: expected 200, got %d body=%s", rr.Code, rr.Body.String())
+	}
+	if strings.Contains(rr.Body.String(), "admin-api-key-fixture") {
+		t.Fatalf("response leaked admin api key: %s", rr.Body.String())
+	}
+	resp := decodeSecretsResponse(t, rr)
+	if resp.Secrets.Tailscale == nil {
+		t.Fatal("expected tailscale view")
+	}
+	if !resp.Secrets.Tailscale.AdminAPIKeyConfigured {
+		t.Fatal("expected AdminAPIKeyConfigured=true")
+	}
+	if resp.Secrets.Tailscale.AuthKeyConfigured {
+		t.Fatal("expected AuthKeyConfigured=false for admin-only config")
+	}
+	if resp.Secrets.Tailscale.Tailnet != "example.com" {
+		t.Fatalf("tailnet = %q want example.com", resp.Secrets.Tailscale.Tailnet)
+	}
+
+	// The admin key is persisted on disk (decrypts) and survives a reload.
+	reload, err := secrets.Store{Dir: store.Dir, AgeKeyPath: store.AgeKeyPath}.Load(context.Background(), "default")
+	if err != nil {
+		t.Fatalf("reload bundle: %v", err)
+	}
+	if reload.GetTailscaleAdminAPIKey() != "admin-api-key-fixture" {
+		t.Fatalf("admin key not persisted: %q", reload.GetTailscaleAdminAPIKey())
+	}
+	if !reload.TailscaleMintingConfigured() {
+		t.Fatal("reloaded bundle reports minting unconfigured")
 	}
 }

@@ -178,7 +178,7 @@ func TestBundleRedacted(t *testing.T) {
 		},
 		Artifact: ArtifactBundle{Token: "artifact-token"},
 		Tailscale: &TailscaleBundle{
-			AuthKey: "tskey-auth-123456",
+			AuthKey: "shared-auth-key-fixture",
 		},
 	}
 	redacted := bundle.Redacted()

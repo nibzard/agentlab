@@ -91,7 +91,8 @@ agentlab secrets set-git --git-token ghp_... --username x-access-token
 # Authorize SSH and enroll each VM onto the tailnet as agentlab-{vmid}
 agentlab secrets add-ssh-key --name laptop --key-file ~/.ssh/id_ed25519.pub
 agentlab secrets set-tailscale \
-  --authkey tskey-auth-XXXXXXXX \
+  --admin-api-key tskey-api-XXXXXXXX \
+  --tailnet example.com \
   --hostname-template 'agentlab-{vmid}' \
   --tag tag:agentlab \
   --extra-arg --ssh
@@ -105,9 +106,22 @@ sudo scripts/create_template.sh
 sudo systemctl restart agentlabd.service
 ```
 
-The Tailscale authkey must be **reusable** (a single key reused across all VMs);
-the hostname is templated per-vmid but the key is shared. After upgrading Node,
-Tailscale, or any pinned agent CLI in the template, re-run
+There are two ways to enroll VMs onto the tailnet:
+
+- **Per-VM minting (recommended).** Pass `--admin-api-key tskey-api-...` (a Tailscale
+  tailnet API access key). At each VM's bootstrap the daemon calls the Tailscale Admin
+  API to mint a fresh single-use, ephemeral, preauthorized auth key for that VM alone.
+  The minted key is transient — it is never stored, never written to a cloud-init
+  snippet, and is delivered to the guest only over the subnet-gated, single-use
+  bootstrap channel. `--tailnet` is optional and defaults to the key's own tailnet (`-`).
+- **Shared reusable key (fallback).** Pass `--authkey tskey-auth-...` instead. One
+  reusable auth key is reused across all VMs (the hostname is still templated per-vmid).
+  If both are configured, the daemon mints per VM and falls back to the shared key only
+  if the Admin API call fails — so a transient Tailscale outage does not strand a VM.
+
+The Admin API key itself is treated as a secret: it is age-encrypted at rest, scrubbed
+from logs and every response, and used only to mint keys server-side. After upgrading
+Node, Tailscale, or any pinned agent CLI in the template, re-run
 `scripts/create_template.sh` so new VMs pick up the changes.
 
 7) Check control-plane status:
@@ -359,9 +373,11 @@ agentlab --json secrets validate
 agentlab secrets add-ssh-key --name laptop --key-file ~/.ssh/id_ed25519.pub
 agentlab secrets remove-ssh-key --name laptop
 
-# Configure or clear guest Tailscale bootstrap settings
+# Configure or clear guest Tailscale bootstrap settings. Per-VM minting is the
+# default (--admin-api-key); a shared --authkey is the fallback.
 agentlab secrets set-tailscale \
-  --authkey tskey-auth-XXXXXXXX \
+  --admin-api-key tskey-api-XXXXXXXX \
+  --tailnet example.com \
   --hostname-template 'agentlab-{vmid}' \
   --tag tag:agentlab \
   --extra-arg --ssh

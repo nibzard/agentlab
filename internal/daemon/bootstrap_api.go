@@ -6,7 +6,9 @@ import (
 	"database/sql"
 	"encoding/hex"
 	"errors"
+	"fmt"
 	"io"
+	"log"
 	"net"
 	"net/http"
 	"strings"
@@ -15,6 +17,7 @@ import (
 	"github.com/agentlab/agentlab/internal/db"
 	"github.com/agentlab/agentlab/internal/models"
 	"github.com/agentlab/agentlab/internal/secrets"
+	"github.com/agentlab/agentlab/internal/tailscale/admin"
 )
 
 const (
@@ -23,6 +26,9 @@ const (
 	defaultArtifactTokenTTL  = 6 * time.Hour
 	artifactTokenBytes       = 16
 	maxArtifactTokenAttempts = 5
+	// tailscaleMintKeyTTL is the lifetime of a per-VM auth key minted at
+	// bootstrap. Single-use + ephemeral means an undelivered key self-revokes.
+	tailscaleMintKeyTTL = time.Hour
 )
 
 // BootstrapAPI serves guest bootstrap payloads on the agent subnet.
@@ -38,6 +44,8 @@ type BootstrapAPI struct {
 	agentSubnet      *net.IPNet
 	redactor         *Redactor
 	rateLimiter      *IPRateLimiter
+	tailscaleMinter  TailscaleKeyMinter
+	logger           *log.Logger
 }
 
 func NewBootstrapAPI(store *db.Store, profiles map[string]models.Profile, secretsStore secrets.Store, secretsBundle string, agentSubnet *net.IPNet, artifactEndpoint string, artifactTokenTTL time.Duration, redactor *Redactor, rateLimiter *IPRateLimiter) *BootstrapAPI {
@@ -63,6 +71,8 @@ func NewBootstrapAPI(store *db.Store, profiles map[string]models.Profile, secret
 		redactor:         redactor,
 		agentSubnet:      agentSubnet,
 		rateLimiter:      rateLimiter,
+		tailscaleMinter:  daemonTailscaleMinter{},
+		logger:           log.Default(),
 	}
 	return api
 }
@@ -138,6 +148,9 @@ func (api *BootstrapAPI) handleBootstrapFetch(w http.ResponseWriter, r *http.Req
 		if authKey := bundle.GetTailscaleAuthKey(); authKey != "" {
 			api.redactor.AddValues(authKey)
 		}
+		if adminKey := bundle.GetTailscaleAdminAPIKey(); adminKey != "" {
+			api.redactor.AddValues(adminKey)
+		}
 	}
 	claudeSettings, err := bundle.ClaudeSettingsJSON()
 	if err != nil {
@@ -184,9 +197,6 @@ func (api *BootstrapAPI) handleBootstrapFetch(w http.ResponseWriter, r *http.Req
 	if policy != nil {
 		resp.Policy = policy
 	}
-	if ts := bootstrapTailscaleFromBundle(bundle, req.VMID); ts != nil {
-		resp.Tailscale = ts
-	}
 
 	consumed, err := api.store.ConsumeBootstrapToken(r.Context(), tokenHash, req.VMID, api.now().UTC())
 	if err != nil {
@@ -196,6 +206,18 @@ func (api *BootstrapAPI) handleBootstrapFetch(w http.ResponseWriter, r *http.Req
 	if !consumed {
 		writeError(w, http.StatusForbidden, "invalid or expired bootstrap token")
 		return
+	}
+
+	// Mint/deliver Tailscale enrollment AFTER the single-use token is consumed,
+	// so a per-VM key is only ever created for a token that was actually
+	// delivered to this guest (no orphaned keys on a lost consume race).
+	ts, err := api.tailscaleForBootstrap(r.Context(), bundle, req.VMID)
+	if err != nil {
+		writeError(w, http.StatusServiceUnavailable, "failed to provision tailscale enrollment")
+		return
+	}
+	if ts != nil {
+		resp.Tailscale = ts
 	}
 
 	writeJSON(w, http.StatusOK, resp)
@@ -335,6 +357,102 @@ func bootstrapTailscaleFromBundle(bundle secrets.Bundle, vmid int) *V1BootstrapT
 		Tags:      bundle.GetTailscaleTags(),
 		ExtraArgs: bundle.GetTailscaleExtraArgs(),
 	}
+}
+
+// TailscaleKeyMinter mints a per-VM Tailscale auth key. The default
+// implementation calls the Tailscale Admin API; tests inject a fake to avoid
+// network access and assert mint behavior deterministically.
+type TailscaleKeyMinter interface {
+	MintAuthKey(ctx context.Context, req TailscaleMintRequest) (TailscaleMintResult, error)
+}
+
+// TailscaleMintRequest carries the inputs to a per-VM auth-key mint.
+type TailscaleMintRequest struct {
+	AdminAPIKey string
+	Tailnet     string
+	Tags        []string
+	Description string
+}
+
+// TailscaleMintResult is the freshly minted key. Key is the transient
+// tskey-auth-... value delivered to one guest and never persisted.
+type TailscaleMintResult struct {
+	Key     string
+	ID      string
+	Expires string
+}
+
+// daemonTailscaleMinter is the default TailscaleKeyMinter: it builds a one-shot
+// Tailscale Admin API client from the bundle credential and mints a single-use,
+// ephemeral, preauthorized, tagged auth key.
+type daemonTailscaleMinter struct{}
+
+func (daemonTailscaleMinter) MintAuthKey(ctx context.Context, req TailscaleMintRequest) (TailscaleMintResult, error) {
+	client, err := admin.NewClient(req.AdminAPIKey, req.Tailnet)
+	if err != nil {
+		return TailscaleMintResult{}, err
+	}
+	resp, err := client.CreateKey(ctx, admin.CreateKeyRequest{
+		Capabilities: admin.KeyCapabilities{Devices: admin.KeyDeviceCapabilities{Create: admin.KeyCreateCapabilities{
+			Reusable:      false,
+			Ephemeral:     true,
+			Preauthorized: true,
+			Tags:          admin.NormalizeTags(req.Tags),
+		}}},
+		ExpirySeconds: int64(tailscaleMintKeyTTL.Seconds()),
+		Description:   req.Description,
+	})
+	if err != nil {
+		return TailscaleMintResult{}, err
+	}
+	return TailscaleMintResult{Key: resp.Key, ID: resp.ID, Expires: resp.Expires}, nil
+}
+
+// tailscaleForBootstrap resolves the Tailscale enrollment payload for a VM. When
+// an Admin API key is configured (and a minter is wired) it mints a fresh
+// per-VM key; on mint failure it falls back to any stored shared key. With no
+// admin key it returns the legacy shared-key payload, or nil when Tailscale is
+// unconfigured so the guest skips enrollment.
+func (api *BootstrapAPI) tailscaleForBootstrap(ctx context.Context, bundle secrets.Bundle, vmid int) (*V1BootstrapTailscale, error) {
+	if !bundle.TailscaleMintingConfigured() {
+		// No admin key: legacy shared-key path (or nil when unconfigured).
+		return bootstrapTailscaleFromBundle(bundle, vmid), nil
+	}
+	if api.tailscaleMinter == nil {
+		// Minting is configured but no minter is wired. NewBootstrapAPI always
+		// installs one, so this is unreachable on a real daemon — but if a future
+		// change drops it, degrade loudly to the shared key instead of silently.
+		if api.logger != nil {
+			api.logger.Printf("tailscale minting configured for vmid=%d but no minter is wired; falling back to shared authkey", vmid)
+		}
+		return bootstrapTailscaleFromBundle(bundle, vmid), nil
+	}
+	result, err := api.tailscaleMinter.MintAuthKey(ctx, TailscaleMintRequest{
+		AdminAPIKey: bundle.GetTailscaleAdminAPIKey(),
+		Tailnet:     bundle.GetTailscaleTailnet(),
+		Tags:        bundle.GetTailscaleTags(),
+		Description: fmt.Sprintf("agentlab vmid=%d", vmid),
+	})
+	if err == nil {
+		if api.redactor != nil {
+			api.redactor.AddValues(result.Key)
+		}
+		return &V1BootstrapTailscale{
+			AuthKey:   result.Key,
+			Hostname:  bundle.GetTailscaleHostname(vmid),
+			Tags:      bundle.GetTailscaleTags(),
+			ExtraArgs: bundle.GetTailscaleExtraArgs(),
+		}, nil
+	}
+	// Mint failed: degrade to the shared key if one is available, so a
+	// transient Tailscale-API outage does not strand the VM.
+	if ts := bootstrapTailscaleFromBundle(bundle, vmid); ts != nil {
+		if api.logger != nil {
+			api.logger.Printf("tailscale key mint failed for vmid=%d; falling back to shared authkey", vmid)
+		}
+		return ts, nil
+	}
+	return nil, fmt.Errorf("mint tailscale auth key: %w", err)
 }
 
 func (api *BootstrapAPI) issueArtifactToken(ctx context.Context, jobID string, vmid int) (string, error) {

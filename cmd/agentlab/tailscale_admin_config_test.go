@@ -14,14 +14,14 @@ func TestParseTailscaleOAuthScopes(t *testing.T) {
 func TestNormalizeTailscaleAdminConfigAPIKeyWins(t *testing.T) {
 	cfg := &tailscaleAdminConfig{
 		Tailnet:           "example",
-		APIKey:            "tskey-api-123",
+		APIKey:            "admin-api-key-fixture",
 		OAuthClientID:     "id",
 		OAuthClientSecret: "secret",
 		OAuthScopes:       []string{"device:read"},
 	}
 	normalized := normalizeTailscaleAdminConfig(cfg)
 	if assert.NotNil(t, normalized) {
-		assert.Equal(t, "tskey-api-123", normalized.APIKey)
+		assert.Equal(t, "admin-api-key-fixture", normalized.APIKey)
 		assert.Equal(t, "", normalized.OAuthClientID)
 		assert.Equal(t, "", normalized.OAuthClientSecret)
 		assert.Empty(t, normalized.OAuthScopes)
@@ -29,7 +29,7 @@ func TestNormalizeTailscaleAdminConfigAPIKeyWins(t *testing.T) {
 }
 
 func TestMergeTailscaleAdminConfig(t *testing.T) {
-	base := &tailscaleAdminConfig{Tailnet: "example", APIKey: "tskey-api-123"}
+	base := &tailscaleAdminConfig{Tailnet: "example", APIKey: "admin-api-key-fixture"}
 	override := &tailscaleAdminConfig{OAuthClientID: "id", OAuthClientSecret: "secret", OAuthScopes: []string{"device:read"}}
 	merged := mergeTailscaleAdminConfig(base, override)
 	if assert.NotNil(t, merged) {
