@@ -2,6 +2,7 @@
 /dist/
 /agentlab
 /agentlabd
+/agentlab-ssh-gateway
 /internal/daemon/_daemon_backup_*/
 /internal/daemon/*.patch
 /coverage.out
