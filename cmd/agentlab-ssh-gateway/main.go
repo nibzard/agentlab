@@ -10,8 +10,6 @@ import (
 	"bufio"
 	"bytes"
 	"context"
-	"crypto/ed25519"
-	"crypto/rand"
 	"encoding/json"
 	"errors"
 	"flag"
@@ -30,6 +28,8 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/agentlab/agentlab/internal/api"
+	"github.com/agentlab/agentlab/internal/argv"
 	"golang.org/x/crypto/ssh"
 )
 
@@ -76,6 +76,7 @@ type server struct {
 	allowedKeys   map[string]bool
 	hostSigner    ssh.Signer
 	sandboxSigner ssh.Signer
+	hostKeyPins   *hostKeyPinStore
 	client        *apiClient
 	logger        *log.Logger
 
@@ -136,6 +137,7 @@ func main() {
 		allowedKeys:   allowedKeys,
 		hostSigner:    hostSigner,
 		sandboxSigner: sandboxSigner,
+		hostKeyPins:   newHostKeyPinStore(),
 		client:        client,
 		logger:        logger,
 		conns:         make(map[*ssh.ServerConn]struct{}),
@@ -230,6 +232,12 @@ func (s *server) handleConnection(conn net.Conn) {
 	defer untrack()
 	defer sshConn.Close()
 
+	// Track bidirectional activity and enforce the idle deadline (review M7).
+	tracker := newActivityTracker()
+	done := make(chan struct{})
+	defer close(done)
+	go s.watchIdle(sshConn, tracker, done)
+
 	// Send keepalive requests to detect dead connections.
 	go s.sendKeepalives(sshConn, reqs)
 
@@ -237,11 +245,13 @@ func (s *server) handleConnection(conn net.Conn) {
 	s.logger.Printf("connection from %s as %q (fp=%s)", conn.RemoteAddr(), username, sshConn.Permissions.Extensions["fingerprint"])
 
 	for newChannel := range chans {
+		// A client opening a channel is activity even before data flows.
+		tracker.touch()
 		if newChannel.ChannelType() != "session" {
 			_ = newChannel.Reject(ssh.UnknownChannelType, "only session channels supported")
 			continue
 		}
-		go s.handleSession(newChannel, username)
+		go s.handleSession(newChannel, username, tracker)
 	}
 }
 
@@ -274,13 +284,17 @@ func (s *server) sendKeepalives(conn *ssh.ServerConn, reqs <-chan *ssh.Request) 
 //     (e.g., "sandbox list --json"), execute it via the agentlab binary.
 //  2. Proxy mode: When the client requests an interactive shell (or exec with a
 //     sandbox routing command like "new" or "sbx-123"), proxy the session to a sandbox.
-func (s *server) handleSession(newChannel ssh.NewChannel, username string) {
+func (s *server) handleSession(newChannel ssh.NewChannel, username string, tracker *activityTracker) {
 	channel, requests, err := newChannel.Accept()
 	if err != nil {
 		s.logger.Printf("accept channel: %v", err)
 		return
 	}
 	defer channel.Close()
+
+	// Wrap the channel so reads and writes refresh the idle deadline, making
+	// the timeout bidirectional (review M7).
+	tc := &trackedChannel{Channel: channel, tracker: tracker}
 
 	ctx, cancel := context.WithTimeout(context.Background(), s.cfg.waitTimeout)
 	defer cancel()
@@ -293,6 +307,8 @@ func (s *server) handleSession(newChannel ssh.NewChannel, username string) {
 	)
 
 	for req := range requests {
+		// Any client request (pty, env, exec, shell, window-change) is activity.
+		tracker.touch()
 		switch req.Type {
 		case "pty-req":
 			var pty ptyRequest
@@ -322,17 +338,17 @@ func (s *server) handleSession(newChannel ssh.NewChannel, username string) {
 			determined = true
 			cmd := strings.TrimSpace(execReq.Command)
 			if cmd == "" {
-				s.handleProxySession(ctx, channel, username, ptyReq, envRequests)
+				s.handleProxySession(ctx, tc, username, ptyReq, envRequests)
 			} else if isCLICommand(cmd) {
-				s.handleCLIExec(ctx, channel, cmd)
+				s.handleCLIExec(ctx, tc, cmd)
 			} else {
 				// Check if it's a sandbox routing shortcut.
 				route, err := parseRoute(cmd, s.cfg.defaultProfile)
 				if err != nil {
 					// Unknown command; try CLI as fallback.
-					s.handleCLIExec(ctx, channel, cmd)
+					s.handleCLIExec(ctx, tc, cmd)
 				} else {
-					s.handleProxySessionWithRoute(ctx, channel, route, ptyReq, envRequests)
+					s.handleProxySessionWithRoute(ctx, tc, route, ptyReq, envRequests)
 				}
 			}
 			return
@@ -340,7 +356,7 @@ func (s *server) handleSession(newChannel ssh.NewChannel, username string) {
 		case "shell":
 			_ = req.Reply(true, nil)
 			determined = true
-			s.handleProxySession(ctx, channel, username, ptyReq, envRequests)
+			s.handleProxySession(ctx, tc, username, ptyReq, envRequests)
 			return
 
 		case "window-change":
@@ -356,20 +372,21 @@ func (s *server) handleSession(newChannel ssh.NewChannel, username string) {
 	}
 
 	if !determined {
-		writeSessionError(channel, "session ended without shell or exec request")
+		writeSessionError(tc, "session ended without shell or exec request")
 	}
 }
 
 // --- CLI exec mode ---
 
 // isCLICommand checks whether a command string looks like an agentlab CLI command
-// (as opposed to a sandbox routing shortcut like "new" or "sbx-123").
+// (as opposed to a sandbox routing shortcut like "new" or "sbx-123"). It uses the
+// argv tokenizer so a quoted first token is recognized correctly (review M9).
 func isCLICommand(cmd string) bool {
 	if cmd == "" {
 		return false
 	}
-	parts := strings.Fields(cmd)
-	if len(parts) == 0 {
+	parts, err := argv.Tokenize(cmd)
+	if err != nil || len(parts) == 0 {
 		return false
 	}
 	first := parts[0]
@@ -394,12 +411,17 @@ func isCLICommand(cmd string) bool {
 
 // handleCLIExec executes an agentlab CLI command and streams output to the SSH channel.
 func (s *server) handleCLIExec(ctx context.Context, channel ssh.Channel, cmd string) {
-	args := buildCLIArgs(s.cfg.socketPath, cmd)
+	args, err := buildCLIArgs(s.cfg.socketPath, cmd)
+	if err != nil {
+		fmt.Fprintf(channel.Stderr(), "agentlab: invalid command: %v\n", err)
+		_, _ = channel.SendRequest("exit-status", false, ssh.Marshal(struct{ Status uint32 }{Status: uint32(2)}))
+		return
+	}
 
 	cmdCtx, cancel := context.WithTimeout(ctx, s.cfg.waitTimeout)
 	defer cancel()
 
-	s.logger.Printf("exec: agentlab %s", strings.Join(args[2:], " "))
+	s.logger.Printf("exec: agentlab %s", api.CommandSummary(args[2:]))
 
 	proc := exec.CommandContext(cmdCtx, s.cfg.cliPath, args...)
 	proc.Stdin = channel
@@ -427,11 +449,17 @@ func (s *server) handleCLIExec(ctx context.Context, channel ssh.Channel, cmd str
 }
 
 // buildCLIArgs constructs the CLI arguments for an agentlab command execution.
-// It prepends the --socket flag to ensure the CLI talks to the right daemon.
-func buildCLIArgs(socketPath, cmd string) []string {
+// It prepends the --socket flag to ensure the CLI talks to the right daemon,
+// and splits the command with the argv tokenizer so quoted arguments are
+// preserved (review M9). A malformed command yields an error instead of a
+// silently mangled argv.
+func buildCLIArgs(socketPath, cmd string) ([]string, error) {
+	tokens, err := argv.Tokenize(cmd)
+	if err != nil {
+		return nil, err
+	}
 	args := []string{"--socket", socketPath}
-	args = append(args, strings.Fields(cmd)...)
-	return args
+	return append(args, tokens...), nil
 }
 
 // --- Proxy mode (sandbox create/connect) ---
@@ -478,8 +506,11 @@ func (s *server) handleProxySessionWithRoute(ctx context.Context, channel ssh.Ch
 		}
 		if route.isNew {
 			fmt.Fprintf(channel, "agentlab: sandbox %d ready (%s)\n", sandbox.VMID, sandbox.IP)
+			// Freshly allocated VM: clear any stale pin left by a recycled VMID
+			// before TOFU pins the new key (review M7 rotation policy).
+			s.hostKeyPins.rotate(sandbox.VMID)
 		}
-		remoteClient, err = dialSandbox(ctx, sandbox.IP, s.cfg.sandboxPort, s.cfg.sandboxUser, s.sandboxSigner)
+		remoteClient, err = dialSandbox(ctx, sandbox.IP, s.cfg.sandboxPort, s.cfg.sandboxUser, s.sandboxSigner, sandbox.VMID, s.hostKeyPins, s.logger)
 		if err != nil {
 			return err
 		}
@@ -647,12 +678,16 @@ func waitForSandboxIP(ctx context.Context, client *apiClient, vmid int, interval
 	}
 }
 
-func dialSandbox(ctx context.Context, ip string, port int, user string, signer ssh.Signer) (*ssh.Client, error) {
+// dialSandbox dials a sandbox SSH server, enforcing TOFU host-key pinning per
+// VMID (review M7). pins records the first key seen for vmid and rejects any
+// later mismatch, so a different host reusing the agent-subnet address cannot
+// impersonate the target sandbox. Recreating a VM requires rotate() first.
+func dialSandbox(ctx context.Context, ip string, port int, user string, signer ssh.Signer, vmid int, pins *hostKeyPinStore, logger *log.Logger) (*ssh.Client, error) {
 	address := net.JoinHostPort(ip, strconv.Itoa(port))
 	config := &ssh.ClientConfig{
 		User:            user,
 		Auth:            []ssh.AuthMethod{ssh.PublicKeys(signer)},
-		HostKeyCallback: ssh.InsecureIgnoreHostKey(),
+		HostKeyCallback: pins.callback(vmid, logger),
 		Timeout:         10 * time.Second,
 	}
 	for {
@@ -707,7 +742,8 @@ func loadAuthorizedKeys(path string) (map[string]bool, error) {
 
 func loadHostSigner(path string, logger *log.Logger) (ssh.Signer, error) {
 	if path == "" {
-		return generateHostSigner(logger), nil
+		// No persistence path configured: keep the historical ephemeral behavior.
+		return generateHostSigner(), nil
 	}
 	data, err := os.ReadFile(path)
 	if err == nil {
@@ -716,18 +752,22 @@ func loadHostSigner(path string, logger *log.Logger) (ssh.Signer, error) {
 	if !os.IsNotExist(err) {
 		return nil, err
 	}
-	logger.Printf("host key %s not found; generating ephemeral key", path)
-	return generateHostSigner(logger), nil
+	logger.Printf("host key %s not found; generating and persisting new key", path)
+	signer, pemBytes, err := generateHostSignerPEM()
+	if err != nil {
+		return nil, err
+	}
+	if err := writePrivateKeyAtomic(path, pemBytes); err != nil {
+		return nil, fmt.Errorf("persist host key %s: %w", path, err)
+	}
+	logger.Printf("persisted generated host key to %s (mode 0600)", path)
+	return signer, nil
 }
 
-func generateHostSigner(logger *log.Logger) ssh.Signer {
-	_, priv, err := ed25519.GenerateKey(rand.Reader)
+func generateHostSigner() ssh.Signer {
+	signer, _, err := generateHostSignerPEM()
 	if err != nil {
-		logger.Fatalf("generate host key: %v", err)
-	}
-	signer, err := ssh.NewSignerFromKey(priv)
-	if err != nil {
-		logger.Fatalf("create host signer: %v", err)
+		log.Fatalf("generate host key: %v", err)
 	}
 	return signer
 }

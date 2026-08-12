@@ -146,8 +146,15 @@ func TestSopsPathAllowlist(t *testing.T) {
 	if err != nil {
 		t.Fatalf("expected allowlisted path, got %v", err)
 	}
-	if resolved != binPath {
-		t.Fatalf("resolved path = %q, want %q", resolved, binPath)
+	// sopsPath() canonicalizes via EvalSymlinks (e.g. /tmp -> /private/tmp on
+	// macOS), so compare against the canonical form of the expected path rather
+	// than the raw input. See docs/review-2026-08-11.md (macOS portability).
+	want := binPath
+	if ev, err := filepath.EvalSymlinks(binPath); err == nil {
+		want = ev
+	}
+	if resolved != want {
+		t.Fatalf("resolved path = %q, want %q", resolved, want)
 	}
 }
 

@@ -85,6 +85,13 @@ type Service struct {
 	integrationStore  *integrations.Store
 	userRegistry      *user.Registry
 	resourcePool      *pool.Pool
+
+	// Lifecycle: a context cancelled at shutdown and a tracker for in-flight
+	// background work, so shutdown waits for (or times out waiting for) detached
+	// operations before closing the store (review H2).
+	lifecycleCtx    context.Context
+	lifecycleCancel context.CancelFunc
+	tasks           *taskTracker
 }
 
 // Run loads profiles, binds listeners, and serves until ctx is canceled.
@@ -534,7 +541,7 @@ func newService(cfg config.Config, profiles map[string]models.Profile, store *db
 	// Register integration proxy routes on bootstrap mux so sandboxes can
 	// access integrations through http://169.254.169.254/proxy/{name}/...
 	if integrationStore != nil {
-		NewIntegrationProxyAPI(integrationStore, store, agentSubnet, bootstrapLimiter, log.Default(), cfg.Offline).Register(bootstrapMux)
+		NewIntegrationProxyAPI(integrationStore, store, agentSubnet, bootstrapLimiter, log.Default(), cfg.Offline, cfg.TrustAgentSubnet).Register(bootstrapMux)
 	}
 
 	artifactMux := http.NewServeMux()
@@ -574,7 +581,12 @@ func newService(cfg config.Config, profiles map[string]models.Profile, store *db
 			return nil, fmt.Errorf("control auth setup: %w", err)
 		}
 		controlServer = &http.Server{
-			Handler:           authMw.Wrap(localMux),
+			// WrapNetwork (not Wrap): the TCP control listener is the network
+			// trust boundary. Scoped SSH tokens are rejected here until
+			// per-route authorization exists (review C1). The local Unix
+			// socket uses localMux directly and remains a trusted full-access
+			// path.
+			Handler:           authMw.WrapNetwork(localMux),
 			ReadHeaderTimeout: 5 * time.Second,
 			IdleTimeout:       2 * time.Minute,
 		}
@@ -614,7 +626,7 @@ func newService(cfg config.Config, profiles map[string]models.Profile, store *db
 		}
 	}
 
-	return &Service{
+	s := &Service{
 		cfg:               cfg,
 		profiles:          profiles,
 		store:             store,
@@ -639,7 +651,19 @@ func newService(cfg config.Config, profiles map[string]models.Profile, store *db
 		integrationStore:  integrationStore,
 		userRegistry:      userRegistry,
 		resourcePool:      resourcePool,
-	}, nil
+	}
+	// Wire the daemon lifecycle runner into components that spawn detached work
+	// or run synchronous provisioning, so that work is cancelled and awaited at
+	// shutdown (review H2). At construction time the lifecycle context/tracker
+	// are nil; Serve populates them before accepting requests.
+	if jobOrchestrator != nil {
+		jobOrchestrator.WithBackgroundRunner(s)
+		jobOrchestrator.WithResourcePool(resourcePool)
+	}
+	if controlAPI != nil {
+		controlAPI.WithBackgroundRunner(s)
+	}
+	return s, nil
 }
 
 // Serve blocks until shutdown or a listener error occurs.
@@ -653,6 +677,15 @@ func newService(cfg config.Config, profiles map[string]models.Profile, store *db
 //
 // Returns any error that occurred during serving (excluding http.ErrServerClosed).
 func (s *Service) Serve(ctx context.Context) error {
+	// Establish a lifecycle context cancelled at shutdown and a task tracker so
+	// detached work can be awaited (or timed out) before the store closes. The
+	// lifecycle context is a child of the caller's ctx, so external cancellation
+	// (SIGTERM) still propagates (review H2).
+	lifecycleCtx, lifecycleCancel := context.WithCancel(ctx)
+	s.lifecycleCtx = lifecycleCtx
+	s.lifecycleCancel = lifecycleCancel
+	s.tasks = &taskTracker{}
+
 	serverCount := 3
 	if s.controlServer != nil {
 		serverCount++
@@ -669,18 +702,31 @@ func (s *Service) Serve(ctx context.Context) error {
 	if s.metricsServer != nil {
 		log.Printf("agentlabd: listening on metrics=%s", s.cfg.MetricsListen)
 	}
+	if s.resourcePool != nil && s.resourcePool.IsEnabled() {
+		// Rebuild in-memory pool accounting from live sandbox rows so a restart
+		// does not silently drop capacity enforcement (review H3).
+		if n, err := ReconstructPool(lifecycleCtx, s.resourcePool, s.store, s.profiles); err != nil {
+			log.Printf("agentlabd: pool reconstruction failed: %v", err)
+		} else if n > 0 {
+			log.Printf("agentlabd: reconstructed %d pool allocation(s) from live sandboxes", n)
+		}
+	}
 	if s.sandboxManager != nil {
-		s.sandboxManager.StartLeaseGC(ctx)
-		s.sandboxManager.StartReconciler(ctx)
+		// Recover any orphans left by a prior crash before accepting work, so a
+		// SIGKILL during provisioning cannot strand a sandbox in a transient
+		// state forever (review H2).
+		s.sandboxManager.SweepStartupOrphans(lifecycleCtx, s.cfg.OrphanGracePeriodOrDefault())
+		s.sandboxManager.StartLeaseGC(lifecycleCtx)
+		s.sandboxManager.StartReconciler(lifecycleCtx)
 	}
 	if s.idleStopper != nil {
-		s.idleStopper.Start(ctx)
+		s.idleStopper.Start(lifecycleCtx)
 	}
 	if s.artifactGC != nil {
-		s.artifactGC.Start(ctx)
+		s.artifactGC.Start(lifecycleCtx)
 	}
 	if s.resourcePool != nil && s.resourcePool.IsEnabled() {
-		s.startPoolReclaimer(ctx)
+		s.startPoolReclaimer(lifecycleCtx)
 	}
 
 	errCh := make(chan error, serverCount)
@@ -738,14 +784,19 @@ func (s *Service) startPoolReclaimer(ctx context.Context) {
 			case <-ctx.Done():
 				return
 			case <-ticker.C:
-				reclaimed := s.resourcePool.ReclaimExpired()
-				for _, id := range reclaimed {
-					log.Printf("resource pool: reclaimed burst allocation for sandbox %d (expired)", id)
+				// Destroy the VM first, then release accounting only on success,
+				// so a failed destroy cannot drop capacity accounting while the
+				// VM still exists (review H3).
+				expired := s.resourcePool.PeekExpiredBurst()
+				for _, id := range expired {
 					if s.sandboxManager != nil {
 						if err := s.sandboxManager.ForceDestroy(ctx, id); err != nil {
 							log.Printf("resource pool: failed to destroy expired sandbox %d: %v", id, err)
+							continue
 						}
 					}
+					s.resourcePool.Release(id)
+					log.Printf("resource pool: reclaimed burst allocation for sandbox %d (expired)", id)
 				}
 			}
 		}
@@ -753,6 +804,22 @@ func (s *Service) startPoolReclaimer(ctx context.Context) {
 }
 
 func (s *Service) shutdown() {
+	// Ordered shutdown (review H2):
+	//   1. Close registration of new background work so Wait cannot race Add.
+	//   2. Cancel the lifecycle context, signalling in-flight detached work
+	//      (including synchronous provisioning running under the lifecycle
+	//      context inside an HTTP handler) to abort.
+	//   3. Stop the HTTP servers with a bounded grace period. Handlers blocked
+	//      on lifecycle-cancelled work return here.
+	//   4. Wait for the remaining tracked workers to finish (bounded), while the
+	//      store is still open so their cleanup writes succeed.
+	//   5. Close the store last.
+	if s.tasks != nil {
+		s.tasks.closeRegistration()
+	}
+	if s.lifecycleCancel != nil {
+		s.lifecycleCancel()
+	}
 	ctx, cancel := context.WithTimeout(context.Background(), shutdownTimeout)
 	defer cancel()
 	_ = s.unixServer.Shutdown(ctx)
@@ -764,12 +831,52 @@ func (s *Service) shutdown() {
 	if s.metricsServer != nil {
 		_ = s.metricsServer.Shutdown(ctx)
 	}
+	if s.tasks != nil {
+		if !s.tasks.wait(shutdownTimeout) {
+			log.Printf("agentlabd: shutdown timed out waiting for %d background task(s)", s.tasks.count())
+		}
+	}
 	if s.metadataRouting != nil {
 		s.metadataRouting.Cleanup()
 	}
 	if s.store != nil {
 		_ = s.store.Close()
 	}
+}
+
+// Go runs fn in a tracked goroutine under the daemon lifecycle context, so the
+// work is cancelled and awaited at shutdown. It returns false when the daemon
+// is shutting down, in which case fn is not invoked (review H2).
+func (s *Service) Go(name string, fn func(ctx context.Context)) bool {
+	if s == nil {
+		go fn(context.Background())
+		return true
+	}
+	if s.tasks == nil {
+		// Lifecycle not initialized (e.g., direct Service use in tests); run
+		// detached so behavior matches the pre-H2 code path.
+		go fn(s.LifecycleContext())
+		return true
+	}
+	done, ok := s.tasks.register(name)
+	if !ok {
+		return false
+	}
+	go func() {
+		defer done()
+		fn(s.lifecycleCtx)
+	}()
+	return true
+}
+
+// LifecycleContext returns the daemon lifecycle context (cancelled at shutdown,
+// outliving any single HTTP request). Returns context.Background() when no
+// lifecycle has been established.
+func (s *Service) LifecycleContext() context.Context {
+	if s == nil || s.lifecycleCtx == nil {
+		return context.Background()
+	}
+	return s.lifecycleCtx
 }
 
 func ensureDir(path string, perms os.FileMode) error {

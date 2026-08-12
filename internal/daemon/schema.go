@@ -170,6 +170,9 @@ func (api *ControlAPI) handleSchema(w http.ResponseWriter, r *http.Request) {
 		writeMethodNotAllowed(w, []string{http.MethodGet})
 		return
 	}
+	if !api.authorize(w, r, permSchemaRead, nil, false) {
+		return
+	}
 	resp := buildSchemaResponse()
 	writeJSON(w, http.StatusOK, resp)
 }

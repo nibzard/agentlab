@@ -13,6 +13,7 @@ import (
 	"github.com/agentlab/agentlab/internal/daemon"
 	"github.com/agentlab/agentlab/internal/db"
 	"github.com/agentlab/agentlab/internal/models"
+	testutil "github.com/agentlab/agentlab/internal/testing"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -25,7 +26,7 @@ func startTestDaemon(t *testing.T) (*daemon.Service, config.Config, func()) {
 	temp := t.TempDir()
 	cfg := config.Config{
 		RunDir:                  filepath.Join(temp, "run"),
-		SocketPath:              filepath.Join(temp, "run", "agentlabd.sock"),
+		SocketPath:              filepath.Join(testutil.ShortSocketDir(t), "agentlabd.sock"),
 		DBPath:                  filepath.Join(temp, "agentlab.db"),
 		BootstrapListen:         "127.0.0.1:0",
 		ArtifactListen:          "127.0.0.1:0",

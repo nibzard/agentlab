@@ -58,40 +58,109 @@ type APIResponse struct {
 
 // Clone creates a new VM by cloning a template.
 // ABOUTME: Uses linked clones by default; set CloneMode="full" for full clones.
+//
+// A failed linked clone is retried once as a full clone, but only when the
+// original request was linked — never when it was already full (review M2).
+// Both synchronous POST failures and asynchronous waitForTask failures are
+// eligible. Before reposting the same target VMID the retry destroys any
+// residual VM the failed attempt left behind. Proxmox rejects a clone onto an
+// occupied VMID before performing any storage work, so reaching a snapshot
+// error proves the target was free when the attempt began; any VM now at that
+// ID is therefore ours and safe to destroy. An unrelated, pre-existing VM is
+// never deleted.
 func (b *APIBackend) Clone(ctx context.Context, template VMID, target VMID, name string) error {
 	node, err := b.ensureNode(ctx)
 	if err != nil {
 		return err
 	}
+	full := b.cloneIsFull()
 
+	task, err := b.postClone(ctx, node, template, target, name, full)
+	if err != nil {
+		if canRetryAsFull(full, err) {
+			return b.retryCloneAsFull(ctx, node, template, target, name, err)
+		}
+		return err
+	}
+	if upid := parseTaskUPID(task); upid != "" {
+		if werr := b.waitForTask(ctx, node, upid); werr != nil {
+			if canRetryAsFull(full, werr) {
+				return b.retryCloneAsFull(ctx, node, template, target, name, werr)
+			}
+			return werr
+		}
+	}
+	return nil
+}
+
+// cloneIsFull reports whether this backend is configured for full clones.
+func (b *APIBackend) cloneIsFull() bool {
+	return strings.EqualFold(strings.TrimSpace(b.CloneMode), "full")
+}
+
+// postClone issues the clone API request and returns the raw response body.
+func (b *APIBackend) postClone(ctx context.Context, node string, template VMID, target VMID, name string, full bool) ([]byte, error) {
 	params := url.Values{}
 	params.Set("newid", strconv.Itoa(int(target)))
-	full := "0"
-	if strings.EqualFold(strings.TrimSpace(b.CloneMode), "full") {
-		full = "1"
+	if full {
+		params.Set("full", "1")
+	} else {
+		params.Set("full", "0")
 	}
-	params.Set("full", full)
 	if name != "" {
 		params.Set("name", name)
 	}
-
 	endpoint := fmt.Sprintf("/nodes/%s/qemu/%d/clone", node, template)
-	task, err := b.doPost(ctx, endpoint, params)
-	if err != nil {
-		if !shouldRetryFullClone(err) {
-			return err
-		}
-		linkedErr := err
-		params.Set("full", "1")
-		task, err = b.doPost(ctx, endpoint, params)
-		if err != nil {
-			return fmt.Errorf("linked clone failed: %w; full clone retry failed: %v", linkedErr, err)
-		}
+	return b.doPost(ctx, endpoint, params)
+}
+
+// retryCloneAsFull destroys any residual target the failed attempt left behind,
+// then reposts the clone as full and waits for its task. Both the original and
+// the retry failure are preserved in the returned error (review M2).
+func (b *APIBackend) retryCloneAsFull(ctx context.Context, node string, template VMID, target VMID, name string, cause error) error {
+	if err := b.destroyOwnedResidual(ctx, node, target); err != nil {
+		return fmt.Errorf("linked clone failed: %w; full clone retry of %d aborted: %v", cause, target, err)
+	}
+	task, retryErr := b.postClone(ctx, node, template, target, name, true)
+	if retryErr != nil {
+		return fmt.Errorf("linked clone failed: %w; full clone retry failed: %v", cause, retryErr)
 	}
 	if upid := parseTaskUPID(task); upid != "" {
-		return b.waitForTask(ctx, node, upid)
+		if werr := b.waitForTask(ctx, node, upid); werr != nil {
+			return fmt.Errorf("linked clone failed: %w; full clone retry failed: %v", cause, werr)
+		}
 	}
 	return nil
+}
+
+// destroyOwnedResidual removes a partial VM left by a failed clone. It is only
+// ever called from the retry path, where the original failure was a snapshot
+// error — which Proxmox can only reach after accepting the target VMID was
+// free — so any VM present at the target is positively ours (review M2). If
+// state cannot be confirmed, the residual is left for operator action rather
+// than risk deleting an unrelated VM.
+func (b *APIBackend) destroyOwnedResidual(ctx context.Context, node string, target VMID) error {
+	exists, err := b.vmExists(ctx, node, target)
+	if err != nil {
+		return fmt.Errorf("check residual target %d: %w", target, err)
+	}
+	if !exists {
+		return nil
+	}
+	return b.Destroy(ctx, target)
+}
+
+// vmExists reports whether a VMID is present on the node. A "not found" API
+// error maps cleanly to false; any other error is surfaced.
+func (b *APIBackend) vmExists(ctx context.Context, node string, vmid VMID) (bool, error) {
+	endpoint := fmt.Sprintf("/nodes/%s/qemu/%d/status/current", node, vmid)
+	if _, err := b.doGet(ctx, endpoint); err != nil {
+		if isAPIVMNotFound(err) {
+			return false, nil
+		}
+		return false, err
+	}
+	return true, nil
 }
 
 // Configure updates VM configuration.
@@ -1524,14 +1593,20 @@ func newAPIHTTPClient(timeout time.Duration, tlsInsecure bool, caPath string) (*
 // Helper functions
 
 func extractMAC(netConfig string) string {
-	// net0: virtio=BC:24:11:D5:49:57,bridge=vmbr1
-	fields := strings.Split(netConfig, ",")
-	for _, field := range fields {
-		if strings.Contains(field, "=") {
-			kv := strings.SplitN(field, "=", 2)
-			if len(kv) == 2 && strings.ToLower(kv[0]) == "mac" {
-				return strings.TrimSpace(kv[1])
-			}
+	// Proxmox net config embeds the MAC as the value of the model key, e.g.
+	//   net0: virtio=BC:24:11:D5:49:57,bridge=vmbr1
+	//   net1: e1000=00:11:22:33:44:55,bridge=vmbr0
+	// or, less commonly, as an explicit mac= key. Validate the value with
+	// net.ParseMAC regardless of the key name so standard configurations
+	// populate the DHCP-fallback MAC list (review M3).
+	for _, field := range strings.Split(netConfig, ",") {
+		kv := strings.SplitN(strings.TrimSpace(field), "=", 2)
+		if len(kv) != 2 {
+			continue
+		}
+		val := strings.TrimSpace(kv[1])
+		if isMAC(val) {
+			return val
 		}
 	}
 	return ""

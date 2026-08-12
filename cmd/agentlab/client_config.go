@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net"
 	"net/url"
 	"os"
 	"path/filepath"
@@ -19,6 +20,7 @@ const (
 
 	envEndpoint                   = "AGENTLAB_ENDPOINT"
 	envToken                      = "AGENTLAB_TOKEN"
+	envAllowInsecureHTTP          = "AGENTLAB_ALLOW_INSECURE_HTTP"
 	envTailscaleTailnet           = "AGENTLAB_TAILSCALE_TAILNET"
 	envTailscaleAPIKey            = "AGENTLAB_TAILSCALE_API_KEY"
 	envTailscaleOAuthClientID     = "AGENTLAB_TAILSCALE_OAUTH_CLIENT_ID"
@@ -27,19 +29,60 @@ const (
 )
 
 type clientConfig struct {
-	Endpoint       string                `json:"endpoint,omitempty"`
-	Token          string                `json:"token,omitempty"`
-	JumpHost       string                `json:"jump_host,omitempty"`
-	JumpUser       string                `json:"jump_user,omitempty"`
-	TailscaleAdmin *tailscaleAdminConfig `json:"tailscale_admin,omitempty"`
+	Endpoint          string                `json:"endpoint,omitempty"`
+	Token             string                `json:"token,omitempty"`
+	JumpHost          string                `json:"jump_host,omitempty"`
+	JumpUser          string                `json:"jump_user,omitempty"`
+	AllowInsecureHTTP bool                  `json:"allow_insecure_http,omitempty"`
+	TailscaleAdmin    *tailscaleAdminConfig `json:"tailscale_admin,omitempty"`
 }
 
-func clientConfigPath() (string, error) {
+// clientConfigRootOverride, when non-empty, forces clientConfigBaseDir (and
+// therefore clientConfigPath / defaultsFilePath) to resolve beneath the given
+// directory. It exists for test isolation: os.UserConfigDir ignores
+// XDG_CONFIG_HOME on Darwin, so tests that only set XDG_CONFIG_HOME would
+// otherwise read or mutate the developer's real configuration on macOS.
+// Production code must never set it.
+var clientConfigRootOverride string
+
+// clientConfigBaseDir returns the directory holding agentlab's client-side
+// configuration (client.json, defaults.json). It honors a test override first,
+// then falls back to the platform default from os.UserConfigDir.
+func clientConfigBaseDir() (string, error) {
+	if clientConfigRootOverride != "" {
+		return filepath.Join(clientConfigRootOverride, clientConfigDir), nil
+	}
 	dir, err := os.UserConfigDir()
 	if err != nil {
 		return "", err
 	}
-	return filepath.Join(dir, clientConfigDir, clientConfigFile), nil
+	return filepath.Join(dir, clientConfigDir), nil
+}
+
+func clientConfigPath() (string, error) {
+	dir, err := clientConfigBaseDir()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(dir, clientConfigFile), nil
+}
+
+// requireConfigPathSafe rejects a path that escapes the active test override
+// root. It is a no-op in production (no override set). This prevents a test
+// that hard-codes a path, or a future code path that resolves config outside
+// clientConfigBaseDir, from touching the real user configuration.
+func requireConfigPathSafe(path string) error {
+	if clientConfigRootOverride == "" {
+		return nil
+	}
+	rel, err := filepath.Rel(clientConfigRootOverride, path)
+	if err != nil {
+		return fmt.Errorf("refusing to touch config path %q outside test root: %w", path, err)
+	}
+	if rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+		return fmt.Errorf("refusing to touch config path %q outside test root", path)
+	}
+	return nil
 }
 
 func loadClientConfig() (clientConfig, bool, error) {
@@ -73,6 +116,9 @@ func writeClientConfig(path string, cfg clientConfig) error {
 	if strings.TrimSpace(path) == "" {
 		return fmt.Errorf("config path is required")
 	}
+	if err := requireConfigPathSafe(path); err != nil {
+		return err
+	}
 	if err := os.MkdirAll(filepath.Dir(path), 0700); err != nil {
 		return err
 	}
@@ -95,6 +141,9 @@ func writeClientConfig(path string, cfg clientConfig) error {
 func removeClientConfig(path string) (bool, error) {
 	if strings.TrimSpace(path) == "" {
 		return false, fmt.Errorf("config path is required")
+	}
+	if err := requireConfigPathSafe(path); err != nil {
+		return false, err
 	}
 	if err := os.Remove(path); err != nil {
 		if errors.Is(err, os.ErrNotExist) {
@@ -123,9 +172,22 @@ func enforceClientConfigPermissions(path string) error {
 func readEnvClientConfig() clientConfig {
 	tailscaleAdmin, _ := readEnvTailscaleAdminConfig()
 	return clientConfig{
-		Endpoint:       strings.TrimSpace(os.Getenv(envEndpoint)),
-		Token:          strings.TrimSpace(os.Getenv(envToken)),
-		TailscaleAdmin: tailscaleAdmin,
+		Endpoint:          strings.TrimSpace(os.Getenv(envEndpoint)),
+		Token:             strings.TrimSpace(os.Getenv(envToken)),
+		AllowInsecureHTTP: envBool(os.Getenv(envAllowInsecureHTTP)),
+		TailscaleAdmin:    tailscaleAdmin,
+	}
+}
+
+// envBool interprets a truthy environment variable: "1", "true", "yes" (case
+// insensitive) and a non-empty value that is not an explicit falsy sentinel
+// ("0", "false", "no", "") count as true.
+func envBool(v string) bool {
+	switch strings.ToLower(strings.TrimSpace(v)) {
+	case "", "0", "false", "no", "off":
+		return false
+	default:
+		return true
 	}
 }
 
@@ -163,7 +225,11 @@ func normalizeEndpoint(raw string) (string, error) {
 		return "", nil
 	}
 	if !strings.Contains(trimmed, "://") {
-		trimmed = "http://" + trimmed
+		// Require an explicit scheme so a bare host:port never silently selects
+		// plaintext HTTP, which would attach bearer credentials in cleartext
+		// (review M8).
+		return "", fmt.Errorf("endpoint %q must include an explicit scheme (http:// or https://); "+
+			"bare host:port is rejected to avoid silently using plaintext HTTP", raw)
 	}
 	parsed, err := url.Parse(trimmed)
 	if err != nil {
@@ -183,4 +249,50 @@ func normalizeEndpoint(raw string) (string, error) {
 	parsed.Fragment = ""
 	endpoint := strings.TrimRight(parsed.String(), "/")
 	return endpoint, nil
+}
+
+// validateEndpointPolicy enforces the transport-security policy for a resolved
+// endpoint (review M8): plaintext HTTP to a non-loopback host is allowed only
+// with an explicit acknowledgement, since bearer credentials would otherwise
+// travel in cleartext outside a trusted tunnel. HTTPS and loopback HTTP are
+// always allowed.
+func validateEndpointPolicy(endpoint string, allowInsecureHTTP bool) error {
+	endpoint = strings.TrimSpace(endpoint)
+	if endpoint == "" {
+		return nil
+	}
+	parsed, err := url.Parse(endpoint)
+	if err != nil {
+		return fmt.Errorf("invalid endpoint %q", endpoint)
+	}
+	if strings.EqualFold(parsed.Scheme, "https") {
+		return nil
+	}
+	if isLoopbackHost(parsed.Hostname()) {
+		return nil
+	}
+	if !allowInsecureHTTP {
+		return fmt.Errorf("endpoint %q uses plaintext HTTP to a non-loopback host; "+
+			"pass --allow-insecure-http (or set %s=1) only inside a trusted tunnel such as Tailscale",
+			endpoint, envAllowInsecureHTTP)
+	}
+	return nil
+}
+
+// isLoopbackHost reports whether host is a loopback address or name.
+func isLoopbackHost(host string) bool {
+	host = strings.TrimSpace(host)
+	if host == "localhost" {
+		return true
+	}
+	if ip := net.ParseIP(host); ip != nil {
+		return ip.IsLoopback()
+	}
+	// Strip a bracketed IPv6 form just in case.
+	if strings.HasPrefix(host, "[") && strings.HasSuffix(host, "]") {
+		if ip := net.ParseIP(host[1 : len(host)-1]); ip != nil {
+			return ip.IsLoopback()
+		}
+	}
+	return false
 }

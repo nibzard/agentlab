@@ -69,3 +69,31 @@ func TestDecodeJSONTrailingData(t *testing.T) {
 		t.Fatalf("error = %q, want %q", err.Error(), "unexpected trailing data")
 	}
 }
+
+// TestDecodeJSONBodyOversizeReturns413 verifies the bounded decoder rejects an
+// oversized body and writeJSONDecodeError maps it to 413 (review M4).
+func TestDecodeJSONBodyOversizeReturns413(t *testing.T) {
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(strings.Repeat("x", maxJSONBytes+1)))
+	var payload decodePayload
+	err := decodeJSON(w, r, &payload)
+	if err == nil {
+		t.Fatal("expected oversize error")
+	}
+
+	w2 := httptest.NewRecorder()
+	writeJSONDecodeError(w2, err)
+	if w2.Code != http.StatusRequestEntityTooLarge {
+		t.Fatalf("status = %d, want 413", w2.Code)
+	}
+}
+
+// TestWriteJSONDecodeError_BadRequestForPlainError verifies a non-overflow
+// decode error maps to 400 (review M4).
+func TestWriteJSONDecodeError_BadRequestForPlainError(t *testing.T) {
+	w := httptest.NewRecorder()
+	writeJSONDecodeError(w, errors.New("invalid JSON: unexpected token"))
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want 400", w.Code)
+	}
+}

@@ -226,9 +226,16 @@ func ParseToken(tokenStr string, keyStore *KeyStore) (*Token, error) {
 }
 
 // IsCommandAllowed checks whether the token allows a specific command.
-// Commands are matched as prefixes: "sandbox" matches "sandbox.list",
-// "sandbox.show", etc. "*" matches everything.
+//
+// Matching is exact or dot-boundary only: "sandbox" matches "sandbox" and
+// "sandbox.list", but NOT "sandboxsecret"; "sandbox.list" matches "sandbox.list"
+// but not "sandbox.listsecret". This avoids the raw-prefix ambiguity where an
+// allowed "sandbox.list" would also grant "sandbox.listprivate". "*" matches
+// everything.
 func (t *Token) IsCommandAllowed(command string) bool {
+	if command == "" {
+		return false
+	}
 	if len(t.Claims.Commands) == 0 {
 		return false
 	}
@@ -236,8 +243,11 @@ func (t *Token) IsCommandAllowed(command string) bool {
 		if allowed == "*" {
 			return true
 		}
-		// Match exact or prefix: "sandbox" matches "sandbox" and "sandbox.list".
-		if allowed == command || strings.HasPrefix(command, allowed+".") || strings.HasPrefix(command, allowed) {
+		if allowed == command {
+			return true
+		}
+		// Dot-boundary namespace: "sandbox" matches "sandbox.list".
+		if strings.HasPrefix(command, allowed+".") {
 			return true
 		}
 	}
@@ -253,6 +263,21 @@ func (t *Token) IsSandboxAllowed(vmid int) bool {
 	target := fmt.Sprintf("sandbox:%d", vmid)
 	for _, s := range t.Claims.Scope {
 		if s == target || s == "*" {
+			return true
+		}
+	}
+	return false
+}
+
+// IsFullAccess reports whether the token grants unrestricted command and sandbox
+// access: its Commands claim contains "*" and its Scope is empty. Such a token
+// is unconstrained by per-route authorization.
+func (t *Token) IsFullAccess() bool {
+	if len(t.Claims.Scope) > 0 {
+		return false
+	}
+	for _, c := range t.Claims.Commands {
+		if c == "*" {
 			return true
 		}
 	}

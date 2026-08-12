@@ -2,11 +2,13 @@ package integrations
 
 import (
 	"bufio"
+	"context"
 	"fmt"
 	"io"
 	"log"
 	"net/http"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"github.com/agentlab/agentlab/internal/offline"
@@ -16,6 +18,20 @@ import (
 type ProxyHandlerOptions struct {
 	// Offline, when true, blocks requests to external (non-private) addresses.
 	Offline bool
+	// ConnectTimeout bounds the TCP/TLS dial to the upstream. Zero or negative
+	// means use the default (15s). Replaces a portion of the former flat 5m
+	// client.Timeout so a hung dial cannot hold a handler for minutes (M5).
+	ConnectTimeout time.Duration
+	// ResponseHeaderTimeout bounds how long the proxy waits for the upstream to
+	// return response headers (time to first response byte). Zero or negative
+	// means use the default (180s, generous for slow first-token LLM compute).
+	ResponseHeaderTimeout time.Duration
+	// ResponseBodyIdleTimeout bounds how long the response body may stall between
+	// bytes before the proxy aborts the upstream read. Zero or negative means use
+	// the default (120s). This is an idle deadline, not a total deadline: a long
+	// but active stream (large git clone, long LLM completion) is allowed to
+	// exceed the former flat 5m cap, while a truly stalled connection is reclaimed.
+	ResponseBodyIdleTimeout time.Duration
 }
 
 // LLMProxyHandler returns an http.Handler that proxies OpenAI-compatible LLM
@@ -42,22 +58,16 @@ func LLMProxyHandler(integ *Integration, logger *log.Logger, opts ...ProxyHandle
 	if logger == nil {
 		logger = log.Default()
 	}
-	transport := http.Transport{
-		MaxIdleConns:        100,
-		MaxIdleConnsPerHost: 10,
-		IdleConnTimeout:     90 * time.Second,
-	}
+	transport := newProxyTransport(opt)
+	var roundTripper http.RoundTripper = transport
 	if opt.Offline {
-		transport.Proxy = nil // Disable proxy environment variables
+		roundTripper = offline.NewOfflineTransport(transport)
 	}
-	var roundTripper http.RoundTripper = &transport
-	if opt.Offline {
-		roundTripper = offline.NewOfflineTransport(&transport)
-	}
-	client := &http.Client{
-		Transport: roundTripper,
-		Timeout:   300 * time.Second, // LLM requests can be long
-	}
+	// No flat client.Timeout: connect and response-header phases are bounded by
+	// the transport, and the response-body phase is bounded by an idle deadline
+	// applied while streaming (review M5).
+	client := &http.Client{Transport: roundTripper}
+	_, _, bodyIdle := resolveProxyTimeouts(opt)
 	provider := integ.DetectProvider()
 
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -74,7 +84,13 @@ func LLMProxyHandler(integ *Integration, logger *log.Logger, opts ...ProxyHandle
 			targetURL += "?" + r.URL.RawQuery
 		}
 
-		proxyReq, err := http.NewRequestWithContext(r.Context(), r.Method, targetURL, r.Body)
+		// Derive a cancellable context so the idle watchdog can abort a stalled
+		// upstream body read (review M5). Cancellation also propagates the
+		// client disconnecting from the proxy.
+		ctx, cancel := context.WithCancel(r.Context())
+		defer cancel()
+
+		proxyReq, err := http.NewRequestWithContext(ctx, r.Method, targetURL, r.Body)
 		if err != nil {
 			logger.Printf("llm-proxy %s: create request error: %v", integ.Name, err)
 			http.Error(w, "proxy error", http.StatusBadGateway)
@@ -120,27 +136,13 @@ func LLMProxyHandler(integ *Integration, logger *log.Logger, opts ...ProxyHandle
 		}
 		w.WriteHeader(resp.StatusCode)
 
-		// Stream the response body.
-		// For SSE responses (text/event-stream), flush after each event.
+		// Stream the response body, bounded by the idle deadline so a stalled
+		// upstream is reclaimed (review M5). For SSE responses the scanner
+		// flushes after each event; both paths share the same idle watchdog.
 		if isSSEResponse(resp) {
-			streamSSE(w, resp.Body, logger, integ.Name)
+			streamSSE(w, resp.Body, bodyIdle, cancel, logger, integ.Name)
 		} else {
-			flusher, canFlush := w.(http.Flusher)
-			buf := make([]byte, 32*1024)
-			for {
-				n, readErr := resp.Body.Read(buf)
-				if n > 0 {
-					if _, writeErr := w.Write(buf[:n]); writeErr != nil {
-						return
-					}
-					if canFlush {
-						flusher.Flush()
-					}
-				}
-				if readErr != nil {
-					break
-				}
-			}
+			copyResponseBody(w, resp.Body, bodyIdle, cancel, logger, "llm-"+integ.Name)
 		}
 	})
 }
@@ -174,12 +176,18 @@ func isSSEResponse(resp *http.Response) bool {
 }
 
 // streamSSE copies an SSE stream from the response body to the writer,
-// flushing after each complete event (line starting with "data:", "event:", etc.).
-func streamSSE(w http.ResponseWriter, body io.Reader, logger *log.Logger, name string) {
+// flushing after each line, and aborts (via cancel) if no bytes arrive within
+// the idle window (review M5).
+func streamSSE(w http.ResponseWriter, body io.Reader, idle time.Duration, cancel context.CancelFunc, logger *log.Logger, name string) {
 	flusher, canFlush := w.(http.Flusher)
+	var last atomic.Int64
+	last.Store(time.Now().UnixNano())
+	stop := idleWatchdog(idle, &last, cancel)
+	defer stop()
 	scanner := bufio.NewScanner(body)
 	scanner.Buffer(make([]byte, 0, 64*1024), 1024*1024)
 	for scanner.Scan() {
+		last.Store(time.Now().UnixNano())
 		line := scanner.Text()
 		fmt.Fprintln(w, line)
 		if canFlush {

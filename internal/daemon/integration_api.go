@@ -1,7 +1,6 @@
 package daemon
 
 import (
-	"encoding/json"
 	"log"
 	"net/http"
 	"strings"
@@ -62,8 +61,8 @@ func (api *IntegrationAPI) handleIntegrationByName(w http.ResponseWriter, r *htt
 
 func (api *IntegrationAPI) handleCreate(w http.ResponseWriter, r *http.Request) {
 	var req V1IntegrationCreateRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid JSON: "+err.Error())
+	if err := decodeJSON(w, r, &req); err != nil {
+		writeJSONDecodeError(w, err)
 		return
 	}
 
@@ -72,6 +71,16 @@ func (api *IntegrationAPI) handleCreate(w http.ResponseWriter, r *http.Request) 
 	if err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
+	}
+	// Tag selectors are normalized to match sandbox tags case-insensitively
+	// (review M6). Sandbox-name attachment is left untouched since names are
+	// case-sensitive identifiers.
+	if attachMode == integrations.AttachTag {
+		selector, err = integrations.NormalizeTagSelector(selector)
+		if err != nil {
+			writeError(w, http.StatusBadRequest, err.Error())
+			return
+		}
 	}
 
 	integ := &integrations.Integration{
@@ -174,14 +183,14 @@ func (api *IntegrationAPI) handleDelete(w http.ResponseWriter, r *http.Request) 
 // V1IntegrationCreateRequest is the request body for creating an integration.
 type V1IntegrationCreateRequest struct {
 	Name         string `json:"name"`
-	Type         string `json:"type"`           // "http-proxy", "git-proxy", or "llm-proxy"
-	Target       string `json:"target"`         // Target URL for proxy
-	Secret       string `json:"secret"`         // Secret value (API key, token, etc.)
-	SecretType   string `json:"secret_type"`    // "bearer", "header", "basic-auth"
-	SecretHeader string `json:"secret_header"`  // Custom header name (for header type)
-	Username     string `json:"username"`       // Username for basic-auth / git
-	Provider     string `json:"provider"`       // LLM provider: "openai", "anthropic", "ollama" (for llm-proxy)
-	Attach       string `json:"attach"`         // "sandbox:name", "tag:value", or "auto:all"
+	Type         string `json:"type"`          // "http-proxy", "git-proxy", or "llm-proxy"
+	Target       string `json:"target"`        // Target URL for proxy
+	Secret       string `json:"secret"`        // Secret value (API key, token, etc.)
+	SecretType   string `json:"secret_type"`   // "bearer", "header", "basic-auth"
+	SecretHeader string `json:"secret_header"` // Custom header name (for header type)
+	Username     string `json:"username"`      // Username for basic-auth / git
+	Provider     string `json:"provider"`      // LLM provider: "openai", "anthropic", "ollama" (for llm-proxy)
+	Attach       string `json:"attach"`        // "sandbox:name", "tag:value", or "auto:all"
 }
 
 // V1IntegrationResponse is the response body for an integration.
@@ -208,7 +217,7 @@ type V1IntegrationsResponse struct {
 
 // V1IntegrationStatusResponse shows integrations active for a sandbox.
 type V1IntegrationStatusResponse struct {
-	SandboxName  string                       `json:"sandbox_name"`
+	SandboxName  string                           `json:"sandbox_name"`
 	Integrations []integrations.IntegrationStatus `json:"integrations"`
 }
 

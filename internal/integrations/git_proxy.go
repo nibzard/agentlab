@@ -1,11 +1,11 @@
 package integrations
 
 import (
+	"context"
 	"fmt"
 	"log"
 	"net/http"
 	"strings"
-	"time"
 
 	"github.com/agentlab/agentlab/internal/offline"
 )
@@ -32,22 +32,16 @@ func GitProxyHandler(integ *Integration, logger *log.Logger, opts ...ProxyHandle
 	if logger == nil {
 		logger = log.Default()
 	}
-	transport := http.Transport{
-		MaxIdleConns:        100,
-		MaxIdleConnsPerHost: 10,
-		IdleConnTimeout:     90 * time.Second,
-	}
+	transport := newProxyTransport(opt)
+	var roundTripper http.RoundTripper = transport
 	if opt.Offline {
-		transport.Proxy = nil
+		roundTripper = offline.NewOfflineTransport(transport)
 	}
-	var roundTripper http.RoundTripper = &transport
-	if opt.Offline {
-		roundTripper = offline.NewOfflineTransport(&transport)
-	}
-	client := &http.Client{
-		Transport: roundTripper,
-		Timeout:   300 * time.Second, // git operations can be slow
-	}
+	// No flat client.Timeout: connect and response-header phases are bounded by
+	// the transport, and the response-body phase is bounded by an idle deadline
+	// applied while streaming (review M5).
+	client := &http.Client{Transport: roundTripper}
+	_, _, bodyIdle := resolveProxyTimeouts(opt)
 	target := strings.TrimRight(integ.Target, "/")
 
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -62,7 +56,12 @@ func GitProxyHandler(integ *Integration, logger *log.Logger, opts ...ProxyHandle
 			targetURL += "?" + r.URL.RawQuery
 		}
 
-		proxyReq, err := http.NewRequestWithContext(r.Context(), r.Method, targetURL, r.Body)
+		// Derive a cancellable context so the idle watchdog can abort a stalled
+		// upstream body read (review M5).
+		ctx, cancel := context.WithCancel(r.Context())
+		defer cancel()
+
+		proxyReq, err := http.NewRequestWithContext(ctx, r.Method, targetURL, r.Body)
 		if err != nil {
 			logger.Printf("git-proxy %s: create request error: %v", integ.Name, err)
 			http.Error(w, "proxy error", http.StatusBadGateway)
@@ -118,23 +117,9 @@ func GitProxyHandler(integ *Integration, logger *log.Logger, opts ...ProxyHandle
 		}
 		w.WriteHeader(resp.StatusCode)
 
-		// Stream the response body.
-		flusher, canFlush := w.(http.Flusher)
-		buf := make([]byte, 32*1024)
-		for {
-			n, readErr := resp.Body.Read(buf)
-			if n > 0 {
-				if _, writeErr := w.Write(buf[:n]); writeErr != nil {
-					return
-				}
-				if canFlush {
-					flusher.Flush()
-				}
-			}
-			if readErr != nil {
-				break
-			}
-		}
+		// Stream the response body, bounded by the idle deadline so a stalled
+		// upstream is reclaimed (review M5).
+		copyResponseBody(w, resp.Body, bodyIdle, cancel, logger, "git-"+integ.Name)
 	})
 }
 

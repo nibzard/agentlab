@@ -385,6 +385,26 @@ func (p *Pool) ReclaimExpired() []int {
 	return reclaimed
 }
 
+// PeekExpiredBurst returns the VMIDs of burst allocations whose expiry has
+// passed, WITHOUT removing them. Callers that destroy the backing VM should
+// Release(id) only after destruction succeeds, so accounting is not dropped
+// before the VM is gone (review H3).
+func (p *Pool) PeekExpiredBurst() []int {
+	if p == nil {
+		return nil
+	}
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	now := p.now()
+	var expired []int
+	for id, a := range p.allocations {
+		if a.Burst && !a.ExpiresAt.IsZero() && now.After(a.ExpiresAt) {
+			expired = append(expired, id)
+		}
+	}
+	return expired
+}
+
 // CanAllocate checks whether an allocation would fit without actually reserving.
 // Returns nil if the allocation can proceed, or an error describing why not.
 func (p *Pool) CanAllocate(cores, memoryMB int, burst bool) error {

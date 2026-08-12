@@ -24,23 +24,41 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/agentlab/agentlab/internal/argv"
+	"github.com/agentlab/agentlab/internal/auth"
 )
 
 const (
-	// maxOutputBytes limits the captured stdout/stderr per command execution.
+	// maxOutputBytes limits the captured stdout/stderr per command execution,
+	// in both capture and streaming modes (review H1).
 	maxOutputBytes = 4 << 20 // 4MB
 
-	// defaultExecTimeout is the default timeout for command execution.
+	// defaultExecTimeout is applied when a caller omits or sends a non-positive
+	// timeout (review H1: zero is a server default, not "unlimited").
 	defaultExecTimeout = 5 * time.Minute
+
+	// maxExecTimeout is the server-side ceiling on a caller-requested timeout.
+	// Positive client values above this are clamped down (review H1).
+	maxExecTimeout = time.Hour
 )
 
 // ExecRequest is the JSON body for POST /v1/exec and POST /v1/exec/dry-run.
 type ExecRequest struct {
 	// Command is the agentlab CLI command string, e.g. "sandbox list --json".
+	// It is split on whitespace; use Args for commands whose values contain
+	// spaces.
 	Command string `json:"command"`
 
-	// Timeout is an optional execution timeout in seconds.
-	// Defaults to 300 (5 minutes). 0 means no timeout.
+	// Args is the canonical, pre-tokenized CLI argv (review M9). When non-empty
+	// it takes precedence over Command and is passed to the CLI verbatim, so a
+	// value like "fix the flaky test" survives as one argument instead of being
+	// shattered by whitespace splitting.
+	Args []string `json:"args,omitempty"`
+
+	// Timeout is an optional execution timeout in seconds. Zero or a negative
+	// value selects the server default (5 minutes); it does NOT disable the
+	// timeout. Values above the server maximum are clamped to it (review H1).
 	Timeout int `json:"timeout,omitempty"`
 
 	// Stream enables SSE streaming output when true.
@@ -115,19 +133,30 @@ func (api *ExecAPI) handleExec(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// /v1/exec is the generic CLI escape hatch: it can invoke any command,
+	// including ones that touch resources outside any coarse scope claim. It is
+	// therefore restricted to full-access identities. Trusted callers (the local
+	// Unix socket, which has no identity; and the legacy bearer token, whose
+	// identity has Token==nil) are admitted. SSH-signed tokens must declare
+	// Commands ["*"] with no Scope (review C1/M9).
+	if !execAllowed(r.Context()) {
+		writeExecError(w, http.StatusForbidden, "exec requires a full-access token")
+		return
+	}
+
 	var req ExecRequest
 	if err := decodeExecJSON(r, &req); err != nil {
 		writeExecError(w, http.StatusBadRequest, err.Error())
 		return
 	}
 
-	cmd := strings.TrimSpace(req.Command)
-	if cmd == "" {
-		writeExecError(w, http.StatusBadRequest, "command is required")
+	cliArgs, err := resolveExecArgs(req)
+	if err != nil {
+		writeExecError(w, http.StatusBadRequest, err.Error())
 		return
 	}
 
-	args := buildExecArgs(api.socketPath, cmd)
+	args := buildExecArgsFromCLI(api.socketPath, cliArgs)
 
 	if req.Stream {
 		api.handleExecStream(w, r, args, req)
@@ -139,15 +168,10 @@ func (api *ExecAPI) handleExec(w http.ResponseWriter, r *http.Request) {
 
 // handleExecCapture runs the command and captures all output before responding.
 func (api *ExecAPI) handleExecCapture(w http.ResponseWriter, r *http.Request, args []string, req ExecRequest) {
-	timeout := defaultExecTimeout
-	if req.Timeout > 0 {
-		timeout = time.Duration(req.Timeout) * time.Second
-	}
-
-	ctx, cancel := context.WithTimeout(r.Context(), timeout)
+	ctx, cancel := context.WithTimeout(r.Context(), applyExecTimeout(req.Timeout))
 	defer cancel()
 
-	api.logger.Printf("exec: agentlab %s", strings.Join(args[2:], " "))
+	api.logger.Printf("exec: agentlab %s", CommandSummary(args[2:]))
 
 	proc := exec.CommandContext(ctx, api.cliPath, args...)
 	var stdout, stderr bytes.Buffer
@@ -177,13 +201,14 @@ func (api *ExecAPI) handleExecCapture(w http.ResponseWriter, r *http.Request, ar
 }
 
 // handleExecStream runs the command with SSE streaming output.
+//
+// stdout and stderr are read by two goroutines but funneled through a single
+// channel into one writer goroutine, because http.ResponseWriter is not safe
+// for concurrent use (review H1). The writer also enforces a total output cap;
+// once exceeded, further output is dropped (the process is allowed to finish so
+// its exit code is still reported).
 func (api *ExecAPI) handleExecStream(w http.ResponseWriter, r *http.Request, args []string, req ExecRequest) {
-	timeout := defaultExecTimeout
-	if req.Timeout > 0 {
-		timeout = time.Duration(req.Timeout) * time.Second
-	}
-
-	ctx, cancel := context.WithTimeout(r.Context(), timeout)
+	ctx, cancel := context.WithTimeout(r.Context(), applyExecTimeout(req.Timeout))
 	defer cancel()
 
 	flusher, canFlush := w.(http.Flusher)
@@ -196,7 +221,7 @@ func (api *ExecAPI) handleExecStream(w http.ResponseWriter, r *http.Request, arg
 		flusher.Flush()
 	}
 
-	api.logger.Printf("exec-stream: agentlab %s", strings.Join(args[2:], " "))
+	api.logger.Printf("exec-stream: agentlab %s", CommandSummary(args[2:]))
 
 	proc := exec.CommandContext(ctx, api.cliPath, args...)
 
@@ -220,27 +245,58 @@ func (api *ExecAPI) handleExecStream(w http.ResponseWriter, r *http.Request, arg
 		return
 	}
 
-	var wg sync.WaitGroup
-	wg.Add(2)
+	// Fan both pipes into one channel so only the writer goroutine below ever
+	// touches the ResponseWriter.
+	type streamChunk struct {
+		label string
+		data  string
+	}
+	chunks := make(chan streamChunk, 64)
 
-	streamPipe := func(label string, pipe io.Reader) {
-		defer wg.Done()
+	var readers sync.WaitGroup
+	readers.Add(2)
+	readPipe := func(label string, pipe io.Reader) {
+		defer readers.Done()
 		buf := make([]byte, 4096)
 		for {
 			n, readErr := pipe.Read(buf)
 			if n > 0 {
-				api.writeSSE(w, SSEEvent{Type: label, Data: string(buf[:n])}, canFlush, flusher)
+				select {
+				case chunks <- streamChunk{label, string(buf[:n])}:
+				case <-ctx.Done():
+					return
+				}
 			}
 			if readErr != nil {
 				return
 			}
 		}
 	}
+	go readPipe("stdout", stdoutPipe)
+	go readPipe("stderr", stderrPipe)
 
-	go streamPipe("stdout", stdoutPipe)
-	go streamPipe("stderr", stderrPipe)
+	writerDone := make(chan struct{})
+	go func() {
+		defer close(writerDone)
+		var written int64
+		capped := false
+		for ch := range chunks {
+			if capped {
+				continue
+			}
+			written += int64(len(ch.data))
+			if written > maxOutputBytes {
+				capped = true
+				api.writeSSE(w, SSEEvent{Type: "stderr", Data: "output limit exceeded"}, canFlush, flusher)
+				continue
+			}
+			api.writeSSE(w, SSEEvent{Type: ch.label, Data: ch.data}, canFlush, flusher)
+		}
+	}()
 
-	wg.Wait()
+	readers.Wait()
+	close(chunks)
+	<-writerDone
 
 	exitCode := 0
 	if err := proc.Wait(); err != nil {
@@ -255,6 +311,8 @@ func (api *ExecAPI) handleExecStream(w http.ResponseWriter, r *http.Request, arg
 		}
 	}
 
+	// Sole remaining writer (the writer goroutine has exited): safe to emit the
+	// terminal event.
 	api.writeSSE(w, SSEEvent{Type: "exit", Code: exitCode}, canFlush, flusher)
 }
 
@@ -264,6 +322,10 @@ func (api *ExecAPI) handleDryRun(w http.ResponseWriter, r *http.Request) {
 		writeExecError(w, http.StatusMethodNotAllowed, "method not allowed")
 		return
 	}
+	if !execAllowed(r.Context()) {
+		writeExecError(w, http.StatusForbidden, "exec requires a full-access token")
+		return
+	}
 
 	var req ExecRequest
 	if err := decodeExecJSON(r, &req); err != nil {
@@ -271,27 +333,27 @@ func (api *ExecAPI) handleDryRun(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	cmd := strings.TrimSpace(req.Command)
-	if cmd == "" {
-		writeExecError(w, http.StatusBadRequest, "command is required")
+	cliArgs, err := resolveExecArgs(req)
+	if err != nil {
+		writeExecError(w, http.StatusBadRequest, err.Error())
 		return
 	}
 
-	args := buildExecArgs(api.socketPath, cmd)
+	args := buildExecArgsFromCLI(api.socketPath, cliArgs)
 	// The CLI args start after --socket <path>, so the actual command args
 	// are args[2:].
-	cliArgs := args[2:]
+	resolved := args[2:]
 
 	resp := ExecDryRunResponse{
 		OK:      true,
-		Command: cmd,
-		Args:    cliArgs,
+		Command: req.Command,
+		Args:    resolved,
 	}
 
 	// Basic validation: check that the first arg is a known command.
-	if len(cliArgs) > 0 && !isValidCLICommand(cliArgs[0]) {
+	if len(resolved) > 0 && !isValidCLICommand(resolved[0]) {
 		resp.OK = false
-		resp.Errors = append(resp.Errors, fmt.Sprintf("unknown command: %q", cliArgs[0]))
+		resp.Errors = append(resp.Errors, fmt.Sprintf("unknown command: %q", resolved[0]))
 	}
 
 	writeExecJSON(w, http.StatusOK, resp)
@@ -306,11 +368,117 @@ func (api *ExecAPI) writeSSE(w http.ResponseWriter, event SSEEvent, canFlush boo
 	}
 }
 
-// buildExecArgs constructs CLI arguments with --socket prepended.
+// execAllowed reports whether the request's identity may use /v1/exec. The
+// generic exec escape hatch can invoke any CLI command, so it is restricted to
+// full-access identities: trusted callers (no identity, e.g. the Unix socket)
+// and the legacy bearer token (Token==nil) pass, as do SSH tokens that declare
+// Commands ["*"] with no Scope. Scoped SSH tokens are rejected.
+func execAllowed(ctx context.Context) bool {
+	id := auth.FromContext(ctx)
+	if id == nil || id.Token == nil {
+		return true
+	}
+	return id.Token.IsFullAccess()
+}
+
+// resolveExecArgs derives the canonical CLI argv from the request. Structured
+// Args (M9) take precedence over the free-form Command string and are passed
+// through verbatim so argument boundaries — including spaces inside a value —
+// are preserved. When Args is empty, Command is split with the argv tokenizer,
+// which honors single/double quotes and backslash escapes instead of breaking
+// on every whitespace run.
+func resolveExecArgs(req ExecRequest) ([]string, error) {
+	if len(req.Args) > 0 {
+		out := make([]string, len(req.Args))
+		copy(out, req.Args)
+		return out, nil
+	}
+	cmd := strings.TrimSpace(req.Command)
+	if cmd == "" {
+		return nil, errors.New("command or args is required")
+	}
+	tokens, err := argv.Tokenize(cmd)
+	if err != nil {
+		return nil, fmt.Errorf("parse command: %w", err)
+	}
+	if len(tokens) == 0 {
+		return nil, errors.New("command or args is required")
+	}
+	return tokens, nil
+}
+
+// buildExecArgs constructs CLI arguments with --socket prepended from a
+// command string. Retained for the legacy Command path.
 func buildExecArgs(socketPath, cmd string) []string {
 	args := []string{"--socket", socketPath}
-	args = append(args, strings.Fields(cmd)...)
+	tokens, err := argv.Tokenize(cmd)
+	if err == nil {
+		args = append(args, tokens...)
+	}
 	return args
+}
+
+// globalValueFlags are agentlab global flags that consume the following token as
+// their value (e.g. "--token <secret>"). CommandSummary skips that value so it
+// is never mistaken for the command verb or logged.
+var globalValueFlags = map[string]bool{
+	"--endpoint": true,
+	"--token":    true,
+	"--socket":   true,
+	"--timeout":  true,
+}
+
+// CommandSummary returns a log-safe summary of a CLI argv: the command verb and
+// at most its subcommand. Flags and their values are never included, so a
+// sensitive value passed via --value or --token (e.g. "secrets set-env --value
+// <secret>", or "--token <secret> sandbox list") cannot reach the logs
+// (review H1). Leading global flags — including their values — are skipped.
+func CommandSummary(cliArgs []string) string {
+	var cmd []string
+	skipNext := false
+	for _, a := range cliArgs {
+		if skipNext {
+			skipNext = false
+			continue
+		}
+		if strings.HasPrefix(a, "-") {
+			// A value-taking global flag written as "--flag value" consumes the
+			// next token; the "--flag=value" form carries its value inline and
+			// needs no special handling.
+			if !strings.Contains(a, "=") && globalValueFlags[a] {
+				skipNext = true
+			}
+			continue
+		}
+		cmd = append(cmd, a)
+		if len(cmd) == 2 {
+			break
+		}
+	}
+	if len(cmd) == 0 {
+		return "<unknown>"
+	}
+	return strings.Join(cmd, " ")
+}
+
+// applyExecTimeout resolves a caller-requested timeout (seconds) into a bounded
+// duration. Zero or negative selects the server default; values above the server
+// maximum are clamped to it (review H1).
+func applyExecTimeout(requested int) time.Duration {
+	if requested <= 0 {
+		return defaultExecTimeout
+	}
+	d := time.Duration(requested) * time.Second
+	if d > maxExecTimeout {
+		return maxExecTimeout
+	}
+	return d
+}
+
+// buildExecArgsFromCLI prepends --socket to an already-tokenized argv.
+func buildExecArgsFromCLI(socketPath string, cliArgs []string) []string {
+	args := []string{"--socket", socketPath}
+	return append(args, cliArgs...)
 }
 
 // isValidCLICommand checks whether the first token is a known agentlab command.

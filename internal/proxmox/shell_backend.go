@@ -86,30 +86,75 @@ type ShellBackend struct {
 var _ Backend = (*ShellBackend)(nil)
 
 func (b *ShellBackend) Clone(ctx context.Context, template VMID, target VMID, name string) error {
-	full := "0"
-	if strings.EqualFold(strings.TrimSpace(b.CloneMode), "full") {
-		full = "1"
+	full := b.cloneIsFull()
+
+	if err := b.runClone(ctx, template, target, name, full); err != nil {
+		if canRetryAsFull(full, err) {
+			return b.retryCloneAsFull(ctx, template, target, name, err)
+		}
+		return err
 	}
-	args := []string{"clone", strconv.Itoa(int(template)), strconv.Itoa(int(target)), "--full", full}
+	return nil
+}
+
+// cloneIsFull reports whether this backend is configured for full clones.
+func (b *ShellBackend) cloneIsFull() bool {
+	return strings.EqualFold(strings.TrimSpace(b.CloneMode), "full")
+}
+
+// runClone invokes `qm clone` with the requested mode.
+func (b *ShellBackend) runClone(ctx context.Context, template VMID, target VMID, name string, full bool) error {
+	fullVal := "0"
+	if full {
+		fullVal = "1"
+	}
+	args := []string{"clone", strconv.Itoa(int(template)), strconv.Itoa(int(target)), "--full", fullVal}
 	if name != "" {
 		args = append(args, "--name", name)
 	}
 	_, err := b.run(ctx, b.qmPath(), args...)
-	if err == nil {
-		return nil
+	return err
+}
+
+// retryCloneAsFull destroys any residual target the failed attempt left behind,
+// then retries as a full clone. It is only called when the original linked
+// clone failed with a snapshot error, which Proxmox reaches only after
+// accepting the target VMID was free — so any VM present at the target is
+// positively ours (review M2). Both failures are preserved.
+func (b *ShellBackend) retryCloneAsFull(ctx context.Context, template VMID, target VMID, name string, cause error) error {
+	if err := b.destroyOwnedResidual(ctx, target); err != nil {
+		return fmt.Errorf("linked clone failed: %w; full clone retry of %d aborted: %v", cause, target, err)
 	}
-	if !shouldRetryFullClone(err) {
-		return err
-	}
-	fullArgs := []string{"clone", strconv.Itoa(int(template)), strconv.Itoa(int(target)), "--full", "1"}
-	if name != "" {
-		fullArgs = append(fullArgs, "--name", name)
-	}
-	_, retryErr := b.run(ctx, b.qmPath(), fullArgs...)
-	if retryErr != nil {
-		return fmt.Errorf("linked clone failed: %w; full clone retry failed: %v", err, retryErr)
+	if retryErr := b.runClone(ctx, template, target, name, true); retryErr != nil {
+		return fmt.Errorf("linked clone failed: %w; full clone retry failed: %v", cause, retryErr)
 	}
 	return nil
+}
+
+// destroyOwnedResidual removes a partial VM left by a failed clone. If state
+// cannot be confirmed, the residual is left for operator action rather than
+// risk deleting an unrelated VM (review M2).
+func (b *ShellBackend) destroyOwnedResidual(ctx context.Context, target VMID) error {
+	exists, err := b.vmExists(ctx, target)
+	if err != nil {
+		return fmt.Errorf("check residual target %d: %w", target, err)
+	}
+	if !exists {
+		return nil
+	}
+	return b.Destroy(ctx, target)
+}
+
+// vmExists reports whether a VMID is present. A "missing VM" error maps to
+// false; any other error is surfaced.
+func (b *ShellBackend) vmExists(ctx context.Context, vmid VMID) (bool, error) {
+	if _, err := b.run(ctx, b.qmPath(), "status", strconv.Itoa(int(vmid))); err != nil {
+		if isMissingVMError(err) {
+			return false, nil
+		}
+		return false, err
+	}
+	return true, nil
 }
 
 func (b *ShellBackend) Configure(ctx context.Context, vmid VMID, cfg VMConfig) error {

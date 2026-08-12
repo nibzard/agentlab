@@ -1,7 +1,6 @@
 package daemon
 
 import (
-	"encoding/json"
 	"net/http"
 	"strings"
 
@@ -68,8 +67,8 @@ func (api *UserAPI) addUser(w http.ResponseWriter, r *http.Request) {
 		Key  string `json:"key"`
 		Role string `json:"role"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid request body")
+	if err := decodeJSON(w, r, &req); err != nil {
+		writeJSONDecodeError(w, err)
 		return
 	}
 	if req.Name == "" {
@@ -163,8 +162,8 @@ func (api *UserAPI) addUserKey(w http.ResponseWriter, r *http.Request, userName 
 	var req struct {
 		Key string `json:"key"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid request body")
+	if err := decodeJSON(w, r, &req); err != nil {
+		writeJSONDecodeError(w, err)
 		return
 	}
 	if req.Key == "" {
@@ -260,8 +259,8 @@ func (api *UserAPI) addTeam(w http.ResponseWriter, r *http.Request) {
 		Name        string `json:"name"`
 		Description string `json:"description"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid request body")
+	if err := decodeJSON(w, r, &req); err != nil {
+		writeJSONDecodeError(w, err)
 		return
 	}
 	if req.Name == "" {
@@ -352,8 +351,8 @@ func (api *UserAPI) addTeamMember(w http.ResponseWriter, r *http.Request, teamNa
 		UserID string `json:"user_id"`
 		Role   string `json:"role"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid request body")
+	if err := decodeJSON(w, r, &req); err != nil {
+		writeJSONDecodeError(w, err)
 		return
 	}
 	if req.UserID == "" {

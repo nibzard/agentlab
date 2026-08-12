@@ -6,9 +6,10 @@ package main
 import "strings"
 
 type clientOptions struct {
-	SocketPath string
-	Endpoint   string
-	Token      string
+	SocketPath        string
+	Endpoint          string
+	Token             string
+	AllowInsecureHTTP bool
 }
 
 func (c commonFlags) clientOptions() (clientOptions, error) {
@@ -16,14 +17,18 @@ func (c commonFlags) clientOptions() (clientOptions, error) {
 	if err != nil {
 		return clientOptions{}, err
 	}
+	if err := validateEndpointPolicy(endpoint, c.allowInsecureHTTP); err != nil {
+		return clientOptions{}, err
+	}
 	socketPath := strings.TrimSpace(c.socketPath)
 	if socketPath == "" {
 		socketPath = defaultSocketPath
 	}
 	return clientOptions{
-		SocketPath: socketPath,
-		Endpoint:   endpoint,
-		Token:      strings.TrimSpace(c.token),
+		SocketPath:        socketPath,
+		Endpoint:          endpoint,
+		Token:             strings.TrimSpace(c.token),
+		AllowInsecureHTTP: c.allowInsecureHTTP,
 	}, nil
 }
 

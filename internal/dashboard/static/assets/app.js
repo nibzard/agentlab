@@ -9,9 +9,52 @@
 
   // --- API helpers ---
 
-  async function api(path, opts) {
+  // The inbound dashboard token lives only in this browser session; it is never
+  // embedded in the shipped JavaScript. The user enters it when the server
+  // demands it (non-loopback deployments). Loopback deployments do not require
+  // it and never trigger the prompt.
+  function dashboardToken() {
+    try {
+      return sessionStorage.getItem("agentlab_dashboard_token") || "";
+    } catch (e) {
+      return "";
+    }
+  }
+
+  function setDashboardToken(tok) {
+    try {
+      sessionStorage.setItem("agentlab_dashboard_token", tok);
+    } catch (e) {
+      /* sessionStorage unavailable; token will be requested again */
+    }
+  }
+
+  function applyDashboardHeaders(opts) {
     opts = opts || {};
-    const res = await fetch("/api" + path, opts);
+    opts.headers = Object.assign({}, opts.headers || {});
+    // Custom header a plain cross-site form cannot set (CSRF defense).
+    opts.headers["X-Requested-With"] = "XMLHttpRequest";
+    var tok = dashboardToken();
+    if (tok) {
+      opts.headers["Authorization"] = "Bearer " + tok;
+    }
+    return opts;
+  }
+
+  async function api(path, opts) {
+    opts = applyDashboardHeaders(opts);
+    var res = await fetch("/api" + path, opts);
+    // If the server requires an inbound token we do not yet hold, ask the user
+    // once, persist it to this session, and retry the original request.
+    if (res.status === 401 && !opts.__agentlabRetried) {
+      var tok = window.prompt("Dashboard access token:");
+      if (tok) {
+        setDashboardToken(tok);
+        opts.__agentlabRetried = true;
+        opts.headers["Authorization"] = "Bearer " + tok;
+        res = await fetch("/api" + path, opts);
+      }
+    }
     if (!res.ok && res.status !== 404) {
       var body = await res.text();
       try {

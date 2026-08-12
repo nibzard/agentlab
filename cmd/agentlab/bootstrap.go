@@ -801,7 +801,11 @@ func writeBootstrapClientConfig(endpoint, token string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	cfg := clientConfig{Endpoint: endpoint, Token: token}
+	// Bootstrap just established the trusted tunnel (e.g. Tailscale) over which
+	// this endpoint is reached, so persist the insecure-HTTP acknowledgement:
+	// subsequent commands reuse the saved config and must not be re-blocked by
+	// the non-loopback plaintext-HTTP policy (review M8).
+	cfg := clientConfig{Endpoint: endpoint, Token: token, AllowInsecureHTTP: true}
 	if err := writeClientConfig(path, cfg); err != nil {
 		return "", err
 	}
@@ -811,7 +815,7 @@ func writeBootstrapClientConfig(endpoint, token string) (string, error) {
 func verifyEndpoint(ctx context.Context, endpoint, token string, timeout time.Duration) error {
 	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
-	client := newAPIClient(clientOptions{Endpoint: endpoint, Token: token}, timeout)
+	client := newAPIClient(clientOptions{Endpoint: endpoint, Token: token, AllowInsecureHTTP: true}, timeout)
 	_, err := client.doJSON(ctx, "GET", "/v1/status", nil)
 	return err
 }

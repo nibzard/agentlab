@@ -147,13 +147,14 @@ Exit codes:
 `
 
 type globalOptions struct {
-	socketPath     string
-	endpoint       string
-	token          string
-	jsonOutput     bool
-	showVersion    bool
-	timeout        time.Duration
-	tailscaleAdmin *tailscaleAdminConfig
+	socketPath        string
+	endpoint          string
+	token             string
+	jsonOutput        bool
+	showVersion       bool
+	timeout           time.Duration
+	tailscaleAdmin    *tailscaleAdminConfig
+	allowInsecureHTTP bool
 }
 
 func main() {
@@ -196,12 +197,13 @@ func main() {
 	defer stop()
 
 	base := commonFlags{
-		socketPath:     opts.socketPath,
-		endpoint:       opts.endpoint,
-		token:          opts.token,
-		jsonOutput:     opts.jsonOutput,
-		timeout:        opts.timeout,
-		tailscaleAdmin: opts.tailscaleAdmin,
+		socketPath:        opts.socketPath,
+		endpoint:          opts.endpoint,
+		token:             opts.token,
+		jsonOutput:        opts.jsonOutput,
+		timeout:           opts.timeout,
+		tailscaleAdmin:    opts.tailscaleAdmin,
+		allowInsecureHTTP: opts.allowInsecureHTTP,
 	}
 	if err := dispatch(ctx, args, base); err != nil {
 		if errors.Is(err, errHelp) {
@@ -223,6 +225,11 @@ func main() {
 func parseGlobal(args []string) (globalOptions, []string, error) {
 	opts := globalOptions{socketPath: defaultSocketPath, timeout: defaultRequestTimeout}
 	var tailscaleCfg *tailscaleAdminConfig
+	// allowInsecureHTTP accumulates the acknowledgement from any source
+	// (saved config, env, then --allow-insecure-http flag below). A trusted
+	// bootstrap persists this so subsequent commands keep working over the
+	// documented Tailscale tunnel without re-stating the flag (review M8).
+	var allowInsecureHTTP bool
 	if cfg, ok, err := loadClientConfig(); err != nil {
 		return opts, nil, err
 	} else if ok {
@@ -233,6 +240,7 @@ func parseGlobal(args []string) (globalOptions, []string, error) {
 			opts.token = token
 		}
 		tailscaleCfg = cfg.TailscaleAdmin
+		allowInsecureHTTP = cfg.AllowInsecureHTTP
 	}
 	envCfg := readEnvClientConfig()
 	if envCfg.Endpoint != "" {
@@ -243,6 +251,8 @@ func parseGlobal(args []string) (globalOptions, []string, error) {
 	}
 	tailscaleCfg = mergeTailscaleAdminConfig(tailscaleCfg, envCfg.TailscaleAdmin)
 	opts.tailscaleAdmin = tailscaleCfg
+	allowInsecureHTTP = allowInsecureHTTP || envCfg.AllowInsecureHTTP
+	opts.allowInsecureHTTP = allowInsecureHTTP
 
 	fs := flag.NewFlagSet("agentlab", flag.ContinueOnError)
 	fs.SetOutput(io.Discard)
@@ -252,6 +262,8 @@ func parseGlobal(args []string) (globalOptions, []string, error) {
 	fs.StringVar(&opts.socketPath, "socket", opts.socketPath, "path to agentlabd socket")
 	fs.BoolVar(&opts.jsonOutput, "json", false, jsonFlagDescription)
 	fs.DurationVar(&opts.timeout, "timeout", opts.timeout, "request timeout (e.g. 30s, 2m)")
+	fs.BoolVar(&opts.allowInsecureHTTP, "allow-insecure-http", opts.allowInsecureHTTP,
+		"permit plaintext HTTP to a non-loopback endpoint (only inside a trusted tunnel such as Tailscale)")
 	fs.BoolVar(&opts.showVersion, "version", false, "print version and exit")
 	fs.BoolVar(&help, "help", false, "show help")
 	fs.BoolVar(&help, "h", false, "show help")

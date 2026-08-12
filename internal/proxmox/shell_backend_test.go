@@ -81,6 +81,9 @@ func TestShellBackendClone(t *testing.T) {
 func TestShellBackendCloneRetriesFullCloneOnLinkedCloneFailure(t *testing.T) {
 	runner := &fakeRunner{responses: []runnerResponse{
 		{err: errors.New("linked clone not possible: storage does not support snapshots")},
+		// Existence probe after the failure: no residual VM (clean failure).
+		{err: errors.New("no such VM")},
+		// Full-clone retry succeeds.
 		{},
 	}}
 	backend := &ShellBackend{Runner: runner}
@@ -93,6 +96,10 @@ func TestShellBackendCloneRetriesFullCloneOnLinkedCloneFailure(t *testing.T) {
 		{
 			name: "qm",
 			args: []string{"clone", "9000", "101", "--full", "0", "--name", "sandbox-101"},
+		},
+		{
+			name: "qm",
+			args: []string{"status", "101"},
 		},
 		{
 			name: "qm",

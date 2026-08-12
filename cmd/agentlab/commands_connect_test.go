@@ -14,7 +14,7 @@ import (
 )
 
 func TestConnectWritesConfigAndOverwrites(t *testing.T) {
-	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	useTempClientConfig(t)
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("/v1/status", func(w http.ResponseWriter, r *http.Request) {
@@ -57,7 +57,7 @@ func TestConnectWritesConfigAndOverwrites(t *testing.T) {
 }
 
 func TestConnectRejectsEndpointWithPath(t *testing.T) {
-	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	useTempClientConfig(t)
 
 	base := commonFlags{jsonOutput: true, timeout: time.Second}
 	err := runConnectCommand(context.Background(), []string{
@@ -75,7 +75,7 @@ func TestConnectRejectsEndpointWithPath(t *testing.T) {
 }
 
 func TestDisconnectRemovesConfig(t *testing.T) {
-	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	useTempClientConfig(t)
 
 	path, err := clientConfigPath()
 	require.NoError(t, err)

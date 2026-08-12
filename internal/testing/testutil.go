@@ -81,6 +81,21 @@ func TempFile(t *testing.T, content string) string {
 	return path
 }
 
+// ShortSocketDir returns a short-lived temporary directory suitable for Unix
+// socket paths, removed when the test ends.
+//
+// t.TempDir() can yield paths longer than Darwin's sockaddr_un.sun_path limit
+// (~104 bytes) when nested under /var/folders/...; this helper uses the OS
+// temp directory with a minimal prefix so the full socket path stays well under
+// the limit on every platform. See docs/review-2026-08-11.md (macOS portability).
+func ShortSocketDir(t *testing.T) string {
+	t.Helper()
+	dir, err := os.MkdirTemp("", "al")
+	require.NoError(t, err, "failed to create short socket dir")
+	t.Cleanup(func() { _ = os.RemoveAll(dir) })
+	return dir
+}
+
 // MkdirTempInDir creates a temporary directory under the given parent directory.
 //
 // Unlike t.TempDir(), which doesn't allow specifying the parent, this function

@@ -185,36 +185,39 @@ type artifactsResponse struct {
 
 // sandboxCreateRequest contains parameters for creating a new sandbox.
 type sandboxCreateRequest struct {
-	Name       string  `json:"name,omitempty"`
-	Profile    string  `json:"profile"`
-	Keepalive  *bool   `json:"keepalive,omitempty"`
-	TTLMinutes *int    `json:"ttl_minutes,omitempty"`
-	Workspace  *string `json:"workspace_id,omitempty"`
-	VMID       *int    `json:"vmid,omitempty"`
-	JobID      string  `json:"job_id,omitempty"`
-	Type       string  `json:"type,omitempty"`
-	Image      string  `json:"image,omitempty"`
-	Prompt     string  `json:"prompt,omitempty"`
+	Name       string   `json:"name,omitempty"`
+	Profile    string   `json:"profile"`
+	Keepalive  *bool    `json:"keepalive,omitempty"`
+	TTLMinutes *int     `json:"ttl_minutes,omitempty"`
+	Workspace  *string  `json:"workspace_id,omitempty"`
+	VMID       *int     `json:"vmid,omitempty"`
+	JobID      string   `json:"job_id,omitempty"`
+	Type       string   `json:"type,omitempty"`
+	Image      string   `json:"image,omitempty"`
+	Prompt     string   `json:"prompt,omitempty"`
+	Tags       []string `json:"tags,omitempty"`
 }
 
 type sandboxValidatePlanRequest struct {
-	Name       string  `json:"name,omitempty"`
-	Profile    string  `json:"profile"`
-	Keepalive  *bool   `json:"keepalive,omitempty"`
-	TTLMinutes *int    `json:"ttl_minutes,omitempty"`
-	Workspace  *string `json:"workspace_id,omitempty"`
-	VMID       *int    `json:"vmid,omitempty"`
-	JobID      string  `json:"job_id,omitempty"`
+	Name       string   `json:"name,omitempty"`
+	Profile    string   `json:"profile"`
+	Keepalive  *bool    `json:"keepalive,omitempty"`
+	TTLMinutes *int     `json:"ttl_minutes,omitempty"`
+	Workspace  *string  `json:"workspace_id,omitempty"`
+	VMID       *int     `json:"vmid,omitempty"`
+	JobID      string   `json:"job_id,omitempty"`
+	Tags       []string `json:"tags,omitempty"`
 }
 
 type sandboxValidatePlan struct {
-	Name       string  `json:"name,omitempty"`
-	Profile    string  `json:"profile"`
-	Keepalive  bool    `json:"keepalive"`
-	TTLMinutes *int    `json:"ttl_minutes,omitempty"`
-	Workspace  *string `json:"workspace_id,omitempty"`
-	VMID       *int    `json:"vmid,omitempty"`
-	JobID      string  `json:"job_id,omitempty"`
+	Name       string   `json:"name,omitempty"`
+	Profile    string   `json:"profile"`
+	Keepalive  bool     `json:"keepalive"`
+	TTLMinutes *int     `json:"ttl_minutes,omitempty"`
+	Workspace  *string  `json:"workspace_id,omitempty"`
+	VMID       *int     `json:"vmid,omitempty"`
+	JobID      string   `json:"job_id,omitempty"`
+	Tags       []string `json:"tags,omitempty"`
 }
 
 type sandboxValidatePlanResponse struct {
@@ -236,8 +239,9 @@ type sandboxRevertRequest struct {
 }
 
 type sandboxUpdateRequest struct {
-	Cores    *int `json:"cores,omitempty"`
-	MemoryMB *int `json:"memory_mb,omitempty"`
+	Cores    *int      `json:"cores,omitempty"`
+	MemoryMB *int      `json:"memory_mb,omitempty"`
+	Tags     *[]string `json:"tags,omitempty"`
 }
 
 type sandboxResourcesResponse struct {
@@ -253,6 +257,7 @@ type sandboxResponse struct {
 	Type          string                    `json:"type,omitempty"`
 	Image         string                    `json:"image,omitempty"`
 	Prompt        string                    `json:"prompt,omitempty"`
+	Tags          []string                  `json:"tags,omitempty"`
 	State         string                    `json:"state"`
 	IP            string                    `json:"ip,omitempty"`
 	WorkspaceID   *string                   `json:"workspace_id,omitempty"`

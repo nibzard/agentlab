@@ -25,12 +25,19 @@ type IntegrationProxyAPI struct {
 	rateLimiter *IPRateLimiter
 	logger      *log.Logger
 	offline     bool
+	// trustSubnet, when true, serves auto:all integrations to any host in the
+	// agent subnet without resolving it to a registered live sandbox. Insecure;
+	// off by default (review H4).
+	trustSubnet bool
 }
 
 // NewIntegrationProxyAPI creates a new integration proxy API for sandbox access.
-func NewIntegrationProxyAPI(intStore *integrations.Store, dbStore *db.Store, agentSubnet *net.IPNet, rateLimiter *IPRateLimiter, logger *log.Logger, offline bool) *IntegrationProxyAPI {
+func NewIntegrationProxyAPI(intStore *integrations.Store, dbStore *db.Store, agentSubnet *net.IPNet, rateLimiter *IPRateLimiter, logger *log.Logger, offline bool, trustSubnet bool) *IntegrationProxyAPI {
 	if logger == nil {
 		logger = log.Default()
+	}
+	if trustSubnet {
+		logger.Printf("credential-proxy: WARNING trust_agent_subnet is enabled — auto:all integrations are served to any host in the agent subnet without sandbox identification")
 	}
 	return &IntegrationProxyAPI{
 		intStore:    intStore,
@@ -39,6 +46,7 @@ func NewIntegrationProxyAPI(intStore *integrations.Store, dbStore *db.Store, age
 		rateLimiter: rateLimiter,
 		logger:      logger,
 		offline:     offline,
+		trustSubnet: trustSubnet,
 	}
 }
 
@@ -81,12 +89,18 @@ func (api *IntegrationProxyAPI) handleProxy(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
-	// Identify sandbox by source IP to verify attachment.
-	sandboxName, sandboxTags := api.resolveSandbox(r)
-	if sandboxName == "" && integ.AttachMode != integrations.AttachAutoAll {
-		// If we can't identify the sandbox and integration isn't auto:all, deny.
-		writeError(w, http.StatusForbidden, "sandbox not identified for integration access")
-		return
+	// Identify the calling sandbox from its source IP. Only a unique LIVE
+	// sandbox is accepted: unidentified, stale, destroyed, or ambiguous sources
+	// are rejected by default (review H4).
+	sandboxName, sandboxTags, identified := api.resolveSandbox(r)
+	if !identified {
+		// The sole permitted unidentified path is auto:all under an explicit,
+		// warned trust_agent_subnet opt-in (subnet-wide trust). Every other
+		// attachment mode requires a positively identified live sandbox.
+		if !api.trustSubnet || integ.AttachMode != integrations.AttachAutoAll {
+			writeError(w, http.StatusForbidden, "sandbox not identified for integration access")
+			return
+		}
 	}
 
 	// Verify the integration is attached to this sandbox.
@@ -115,22 +129,23 @@ func (api *IntegrationProxyAPI) handleProxy(w http.ResponseWriter, r *http.Reque
 	}
 }
 
-// resolveSandbox identifies the sandbox from the request's source IP.
-// Returns the sandbox name and its tags.
-func (api *IntegrationProxyAPI) resolveSandbox(r *http.Request) (string, []string) {
+// resolveSandbox identifies the calling sandbox from the request's source IP.
+// Only a unique sandbox in an eligible live state counts as identified; a
+// missing, stale, destroyed, or ambiguous source returns identified=false so
+// the caller is rejected by default (review H4).
+func (api *IntegrationProxyAPI) resolveSandbox(r *http.Request) (name string, tags []string, identified bool) {
 	if api.dbStore == nil {
-		return "", nil
+		return "", nil, false
 	}
 	ip := parseRemoteIP(r.RemoteAddr)
 	if ip == nil || ip.IsUnspecified() {
-		return "", nil
+		return "", nil, false
 	}
-	sb, err := api.dbStore.GetSandboxByIP(r.Context(), ip.String())
+	sb, err := api.dbStore.GetLiveSandboxByIP(r.Context(), ip.String())
 	if err != nil {
-		return "", nil
+		return "", nil, false
 	}
-	tags := parseTags(sb.Tags)
-	return sb.Name, tags
+	return sb.Name, parseTags(sb.Tags), true
 }
 
 // parseTags splits a comma-separated tag string into a slice.

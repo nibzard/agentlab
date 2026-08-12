@@ -20,6 +20,7 @@ import (
 	"github.com/agentlab/agentlab/internal/db"
 	"github.com/agentlab/agentlab/internal/models"
 	"github.com/agentlab/agentlab/internal/proxmox"
+	testutil "github.com/agentlab/agentlab/internal/testing"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -47,7 +48,7 @@ func newIntegrationHarness(t *testing.T) *integrationHarness {
 		DataDir:                 temp,
 		LogDir:                  filepath.Join(temp, "log"),
 		RunDir:                  filepath.Join(temp, "run"),
-		SocketPath:              filepath.Join(temp, "run", "agentlabd.sock"),
+		SocketPath:              filepath.Join(testutil.ShortSocketDir(t), "agentlabd.sock"),
 		ControlListen:           "127.0.0.1:0",
 		ControlAuthToken:        token,
 		DBPath:                  filepath.Join(temp, "agentlab.db"),
