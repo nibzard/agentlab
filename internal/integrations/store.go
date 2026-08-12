@@ -19,8 +19,8 @@ import (
 // Secrets are encrypted using AES-GCM with a daemon-managed encryption key.
 // They are only decrypted in the proxy hot path, never written to disk in plaintext.
 type Store struct {
-	store   *db.Store
-	encKey  []byte // AES-256 encryption key
+	store  *db.Store
+	encKey []byte // AES-256 encryption key
 }
 
 // NewStore creates a new integration store.

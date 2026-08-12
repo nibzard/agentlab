@@ -205,7 +205,14 @@ func collectInitReport(ctx context.Context, configPath string, fallbackPort int)
 		if dnsName != "" {
 			endpoint = fmt.Sprintf("http://%s:%d", dnsName, port)
 		}
-		report.ConnectCommand = fmt.Sprintf("agentlab connect --endpoint %s --token %s", endpoint, controlToken)
+		// When the endpoint is reached over a trusted tunnel (non-loopback
+		// plaintext HTTP), include the acknowledgement so the emitted command
+		// works as-is rather than failing the endpoint policy (review M8).
+		var insecureFlag string
+		if validateEndpointPolicy(endpoint, false) != nil {
+			insecureFlag = " --allow-insecure-http"
+		}
+		report.ConnectCommand = fmt.Sprintf("agentlab connect --endpoint %s --token %s%s", endpoint, controlToken, insecureFlag)
 	}
 	return report, state, nil
 }

@@ -227,7 +227,7 @@ func TestSSHJumpPathFormatting(t *testing.T) {
 }
 
 func TestSSHJumpConfigPrecedence(t *testing.T) {
-	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	useTempClientConfig(t)
 	path, err := clientConfigPath()
 	if err != nil {
 		t.Fatalf("clientConfigPath() error = %v", err)

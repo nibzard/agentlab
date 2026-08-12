@@ -22,7 +22,7 @@ func TestMigrate(t *testing.T) {
 		var count int
 		err = conn.QueryRow("SELECT COUNT(*) FROM schema_migrations").Scan(&count)
 		require.NoError(t, err)
-		assert.Equal(t, 16, count) // We have 16 migrations
+		assert.Equal(t, 17, count) // We have 17 migrations
 
 		// Verify version numbers
 		rows, err := conn.Query("SELECT version FROM schema_migrations ORDER BY version")
@@ -36,7 +36,7 @@ func TestMigrate(t *testing.T) {
 			require.NoError(t, err)
 			versions = append(versions, v)
 		}
-		assert.Equal(t, []int{1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16}, versions)
+		assert.Equal(t, []int{1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17}, versions)
 	})
 
 	t.Run("idempotent - re-running is safe", func(t *testing.T) {
@@ -57,7 +57,7 @@ func TestMigrate(t *testing.T) {
 		var count int
 		err = conn.QueryRow("SELECT COUNT(*) FROM schema_migrations").Scan(&count)
 		require.NoError(t, err)
-		assert.Equal(t, 16, count)
+		assert.Equal(t, 17, count)
 	})
 
 	t.Run("creates all core tables", func(t *testing.T) {
@@ -507,15 +507,15 @@ func TestPartialMigration(t *testing.T) {
 			}
 		}
 
-		// Run migrations - should apply 2 through 16 (15 remaining migrations)
+		// Run migrations - should apply 2 through 17 (16 remaining migrations)
 		err = Migrate(conn)
 		require.NoError(t, err)
 
-		// Verify all 15 remaining migrations applied
+		// Verify all 16 remaining migrations applied
 		var count int
 		err = conn.QueryRow("SELECT COUNT(*) FROM schema_migrations").Scan(&count)
 		require.NoError(t, err)
-		assert.Equal(t, 16, count)
+		assert.Equal(t, 17, count)
 
 		// Verify tables from migration 2 and 3 exist
 		var tables int
@@ -537,7 +537,7 @@ func TestMigrationValidation(t *testing.T) {
 		for i, m := range migrations {
 			assert.Equal(t, i+1, m.version, "migration %d should have version %d", i, i+1)
 			assert.NotEmpty(t, m.name, "migration %d should have a name", m.version)
-			assert.NotEmpty(t, m.statements, "migration %d should have statements", m.version)
+			assert.True(t, len(m.statements) > 0 || m.goMigrate != nil, "migration %d should have statements or a goMigrate hook", m.version)
 		}
 	})
 }

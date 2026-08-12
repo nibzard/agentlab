@@ -300,6 +300,14 @@ func (m *SandboxManager) Transition(ctx context.Context, vmid int, target models
 		return fmt.Errorf("%w: %s -> %s", ErrInvalidTransition, current, target)
 	}
 	m.recordStateEvent(ctx, vmid, current, target)
+	// Retire the address association on destruction so a later reuse of the
+	// address cannot resolve to this row (review H4). Best-effort: a failure
+	// here does not undo the state transition.
+	if target == models.SandboxDestroyed {
+		if err := m.store.ClearSandboxIP(ctx, vmid); err != nil {
+			m.logger.Printf("clear sandbox %d ip on destroy: %v", vmid, err)
+		}
+	}
 	if m.metrics != nil {
 		m.metrics.IncSandboxTransition(current, target)
 		if target == models.SandboxRunning && !sandbox.CreatedAt.IsZero() {
@@ -1026,6 +1034,73 @@ func (m *SandboxManager) PruneOrphans(ctx context.Context) (int, error) {
 			m.cleanupExposures(ctx, sb.VMID)
 			count++
 		}
+	}
+	return count, nil
+}
+
+// startupOrphanStates are the transient provisioning states a sandbox can be
+// stranded in if the daemon is killed (SIGKILL) mid-provisioning. These are the
+// only states the startup orphan sweep considers reclaimable (review H2).
+var startupOrphanStates = map[models.SandboxState]bool{
+	models.SandboxRequested:    true,
+	models.SandboxProvisioning: true,
+	models.SandboxBooting:      true,
+}
+
+// SweepStartupOrphans reclaims sandboxes stranded in a transient provisioning
+// state by a prior crash. A sandbox is reclaimed only when ALL of:
+//
+//   - its state is a transient provisioning state (REQUESTED/PROVISIONING/BOOTING)
+//   - it is older than the grace period (so legitimate in-flight work is not
+//     disturbed)
+//   - ownership proof: no live VM exists for its VMID in the backend (the clone
+//     never completed, or was destroyed out-of-band). A VM that exists and is
+//     running is left for the reconciler to advance toward READY.
+//
+// Reclaimed sandboxes are destroyed (best effort) and marked DESTROYED.
+//
+// This closes the SIGKILL-recovery gap where a sandbox with no lease expiry and
+// no backend VM could otherwise remain stranded forever (review H2).
+func (m *SandboxManager) SweepStartupOrphans(ctx context.Context, grace time.Duration) (int, error) {
+	if m == nil || m.store == nil {
+		return 0, errors.New("sandbox manager not configured")
+	}
+	sandboxes, err := m.store.ListSandboxes(ctx)
+	if err != nil {
+		return 0, fmt.Errorf("list sandboxes: %w", err)
+	}
+	now := m.now().UTC()
+	count := 0
+	for _, sb := range sandboxes {
+		if !startupOrphanStates[sb.State] {
+			continue
+		}
+		// Grace: only reclaim sandboxes older than the grace window.
+		age := now.Sub(sb.CreatedAt)
+		if age < grace {
+			continue
+		}
+		// Ownership proof: a live VM means provisioning succeeded and the
+		// reconciler can adopt it. Skip those.
+		if m.backend != nil {
+			status, err := m.backend.Status(ctx, proxmox.VMID(sb.VMID))
+			if err == nil && status == proxmox.StatusRunning {
+				continue
+			}
+		}
+		m.logger.Printf("orphan sweep: reclaiming stranded sandbox %d (state=%s, age=%s)", sb.VMID, sb.State, age.Round(time.Second))
+		if err := m.destroySandbox(ctx, sb.VMID); err != nil {
+			if !errors.Is(err, proxmox.ErrVMNotFound) {
+				m.logger.Printf("orphan sweep: failed to destroy sandbox %d: %v", sb.VMID, err)
+				continue
+			}
+		}
+		if err := m.Transition(ctx, sb.VMID, models.SandboxDestroyed); err != nil {
+			m.logger.Printf("orphan sweep: failed to mark sandbox %d destroyed: %v", sb.VMID, err)
+			continue
+		}
+		m.cleanupExposures(ctx, sb.VMID)
+		count++
 	}
 	return count, nil
 }

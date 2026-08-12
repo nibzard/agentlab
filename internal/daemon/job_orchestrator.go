@@ -11,12 +11,14 @@ import (
 	"io"
 	"log"
 	"net"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
 
 	"github.com/agentlab/agentlab/internal/db"
 	"github.com/agentlab/agentlab/internal/models"
+	"github.com/agentlab/agentlab/internal/pool"
 	"github.com/agentlab/agentlab/internal/proxmox"
 )
 
@@ -91,6 +93,14 @@ type JobOrchestrator struct {
 	failureTimeout   time.Duration
 	snippetsMu       sync.Mutex
 	snippets         map[int]proxmox.CloudInitSnippet
+	// runner registers detached work (job execution, lease renewal) against the
+	// daemon lifecycle so it is cancelled and awaited at shutdown. Defaults to a
+	// detached runner when unset (review H2).
+	runner BackgroundRunner
+	// resourcePool, when configured, receives an allocation for every
+	// job-created sandbox so the job path no longer bypasses capacity
+	// enforcement (review H3). Nil => pool disabled.
+	resourcePool *pool.Pool
 }
 
 // NewJobOrchestrator creates a new job orchestrator with all dependencies.
@@ -134,7 +144,31 @@ func NewJobOrchestrator(store *db.Store, profiles map[string]models.Profile, bac
 		provisionTimeout: defaultProvisionTimeout,
 		failureTimeout:   defaultFailureTimeout,
 		snippets:         make(map[int]proxmox.CloudInitSnippet),
+		runner:           DetachedRunner(),
 	}
+}
+
+// WithBackgroundRunner sets the daemon lifecycle runner used to register
+// detached work for cancellation/await at shutdown (review H2).
+func (o *JobOrchestrator) WithBackgroundRunner(r BackgroundRunner) *JobOrchestrator {
+	if o == nil {
+		return o
+	}
+	if r != nil {
+		o.runner = r
+	}
+	return o
+}
+
+// WithResourcePool sets the resource pool used to account for job-created
+// sandboxes, closing the bypass where job creation skipped capacity
+// enforcement (review H3).
+func (o *JobOrchestrator) WithResourcePool(p *pool.Pool) *JobOrchestrator {
+	if o == nil {
+		return o
+	}
+	o.resourcePool = p
+	return o
 }
 
 // Start begins asynchronous execution of a job.
@@ -148,15 +182,21 @@ func (o *JobOrchestrator) Start(jobID string) {
 	if o == nil {
 		return
 	}
-	go func() {
-		if err := o.Run(context.Background(), jobID); err != nil && o.logger != nil {
+	runner := o.runner
+	if runner == nil {
+		runner = DetachedRunner()
+	}
+	// Register against the daemon lifecycle so shutdown cancels and awaits the
+	// job instead of leaving it running against a closing store (review H2).
+	runner.Go("job:"+jobID, func(ctx context.Context) {
+		if err := o.Run(ctx, jobID); err != nil && o.logger != nil {
 			msg := err.Error()
 			if o.redactor != nil {
 				msg = o.redactor.Redact(msg)
 			}
 			o.logger.Printf("job orchestration %s: %s", jobID, msg)
 		}
-	}()
+	})
 }
 
 func (o *JobOrchestrator) Run(ctx context.Context, jobID string) error {
@@ -683,7 +723,7 @@ func (o *JobOrchestrator) ensureSandbox(ctx context.Context, job models.Job) (mo
 		workspaceID := strings.TrimSpace(*job.WorkspaceID)
 		sandbox.WorkspaceID = &workspaceID
 	}
-	created, err := createSandboxWithRetry(ctx, o.store, sandbox)
+	created, err := createSandboxWithRetry(ctx, o.store, sandbox, o.resourcePool, o.profiles)
 	if err != nil {
 		return models.Sandbox{}, false, err
 	}
@@ -745,28 +785,42 @@ func (o *JobOrchestrator) startWorkspaceLeaseRenewal(jobID, workspaceID, owner s
 		return
 	}
 	interval := workspaceLeaseRenewInterval(ttl)
-	go func() {
+	runner := o.runner
+	if runner == nil {
+		runner = DetachedRunner()
+	}
+	// Register against the daemon lifecycle so the renewal loop is cancelled and
+	// awaited at shutdown (review H2).
+	runner.Go("ws-lease:"+jobID, func(ctx context.Context) {
 		ticker := time.NewTicker(interval)
 		defer ticker.Stop()
 		for {
-			if !o.shouldKeepWorkspaceLease(jobID, keepalive, vmid) {
+			if !o.shouldKeepWorkspaceLease(ctx, jobID, keepalive, vmid) {
 				if releaseOnStop {
-					o.releaseWorkspaceLease(context.Background(), workspaceID, owner, jobID, vmid)
+					renewCtx, cancel := context.WithTimeout(ctx, o.failureTimeout)
+					o.releaseWorkspaceLease(renewCtx, workspaceID, owner, jobID, vmid)
+					cancel()
 				}
 				return
 			}
-			o.renewWorkspaceLease(context.Background(), workspaceID, owner, ttl, jobID, vmid)
-			<-ticker.C
+			renewCtx, cancel := context.WithTimeout(ctx, o.failureTimeout)
+			o.renewWorkspaceLease(renewCtx, workspaceID, owner, ttl, jobID, vmid)
+			cancel()
+			select {
+			case <-ticker.C:
+			case <-ctx.Done():
+				return
+			}
 		}
-	}()
+	})
 }
 
-func (o *JobOrchestrator) shouldKeepWorkspaceLease(jobID string, keepalive bool, vmid int) bool {
+func (o *JobOrchestrator) shouldKeepWorkspaceLease(ctx context.Context, jobID string, keepalive bool, vmid int) bool {
 	if o == nil || o.store == nil {
 		return false
 	}
 	if jobID != "" {
-		job, err := o.store.GetJob(context.Background(), jobID)
+		job, err := o.store.GetJob(ctx, jobID)
 		if err != nil {
 			return false
 		}
@@ -777,7 +831,7 @@ func (o *JobOrchestrator) shouldKeepWorkspaceLease(jobID string, keepalive bool,
 		}
 	}
 	if vmid > 0 {
-		sb, err := o.store.GetSandbox(context.Background(), vmid)
+		sb, err := o.store.GetSandbox(ctx, vmid)
 		if err != nil {
 			return false
 		}
@@ -1057,7 +1111,17 @@ func (o *JobOrchestrator) observeSandboxSSH(sandbox models.Sandbox, ip string) {
 	}
 	createdAt := sandbox.CreatedAt
 	vmid := sandbox.VMID
-	go o.probeSSHReady(vmid, createdAt, strings.TrimSpace(ip))
+	probeIP := strings.TrimSpace(ip)
+	probeRunner := o.runner
+	if probeRunner == nil {
+		probeRunner = DetachedRunner()
+	}
+	// Track the SSH readiness probe against the daemon lifecycle so shutdown
+	// cancels and awaits it rather than leaving it writing to a closing store
+	// (review H2).
+	probeRunner.Go("ssh-probe:"+strconv.Itoa(vmid), func(ctx context.Context) {
+		o.probeSSHReady(ctx, vmid, createdAt, probeIP)
+	})
 }
 
 func (o *JobOrchestrator) observeJobStart(ctx context.Context, job models.Job, vmid int) {
@@ -1078,11 +1142,13 @@ func (o *JobOrchestrator) observeJobStart(ctx context.Context, job models.Job, v
 	o.recordSLOEvent(ctx, EventKindJobSLOStart, &vmid, &jobID, fmt.Sprintf("job started in %s", duration), payload)
 }
 
-func (o *JobOrchestrator) probeSSHReady(vmid int, createdAt time.Time, ip string) {
+func (o *JobOrchestrator) probeSSHReady(ctx context.Context, vmid int, createdAt time.Time, ip string) {
 	if o == nil || vmid <= 0 || createdAt.IsZero() {
 		return
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), defaultSSHProbeTimeout)
+	// Bound the probe, but derive from the lifecycle context so shutdown cancels
+	// it promptly (review H2).
+	ctx, cancel := context.WithTimeout(ctx, defaultSSHProbeTimeout)
 	defer cancel()
 	dialer := &net.Dialer{Timeout: defaultSSHProbeDialTimeout}
 	ticker := time.NewTicker(defaultSSHProbeInterval)

@@ -14,6 +14,10 @@ type migration struct {
 	version    int
 	name       string
 	statements []string
+	// goMigrate, when set, runs inside the migration transaction after the SQL
+	// statements. Use it for data backfills that cannot be expressed as static
+	// SQL (review M1).
+	goMigrate func(tx *sql.Tx) error
 }
 
 var migrations = []migration{
@@ -347,6 +351,15 @@ var migrations = []migration{
 			`CREATE INDEX IF NOT EXISTS idx_sandboxes_owner ON sandboxes(owner)`,
 		},
 	},
+	{
+		version: 17,
+		name:    "normalize_timestamps_fixed_width",
+		// No schema change; this migration rewrites every stored timestamp to
+		// the fixed-width 9-digit-fractional form so SQLite TEXT ordering agrees
+		// with chronological order within the same second (review M1). See
+		// backfillTimestampColumns for the per-column logic.
+		goMigrate: backfillTimestampColumns,
+	},
 }
 
 // Migrate runs any pending migrations against the provided database.
@@ -458,7 +471,7 @@ func verifyKnownMigrations(applied map[int]struct{}) error {
 // fails, the transaction is rolled back. On success, records the migration
 // in schema_migrations before committing. Returns an error on failure.
 func applyMigration(db *sql.DB, m migration) error {
-	if len(m.statements) == 0 {
+	if len(m.statements) == 0 && m.goMigrate == nil {
 		return fmt.Errorf("migration %d has no statements", m.version)
 	}
 	tx, err := db.Begin()
@@ -475,7 +488,13 @@ func applyMigration(db *sql.DB, m migration) error {
 			return fmt.Errorf("exec migration %d: %w", m.version, err)
 		}
 	}
-	appliedAt := time.Now().UTC().Format(time.RFC3339Nano)
+	if m.goMigrate != nil {
+		if err := m.goMigrate(tx); err != nil {
+			_ = tx.Rollback()
+			return fmt.Errorf("go-migrate %d: %w", m.version, err)
+		}
+	}
+	appliedAt := time.Now().UTC().Format(timeLayoutFixed)
 	if _, err := tx.Exec(`INSERT INTO schema_migrations (version, name, applied_at) VALUES (?, ?, ?)`, m.version, m.name, appliedAt); err != nil {
 		_ = tx.Rollback()
 		return fmt.Errorf("record migration %d: %w", m.version, err)

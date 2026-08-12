@@ -18,9 +18,41 @@ import (
 
 func useTempClientConfig(t *testing.T) {
 	t.Helper()
-	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	// Override the config root explicitly. os.UserConfigDir ignores
+	// XDG_CONFIG_HOME on Darwin, so the override — not XDG — is what
+	// guarantees the test never touches the real user configuration.
+	root := t.TempDir()
+	prev := clientConfigRootOverride
+	clientConfigRootOverride = root
+	t.Cleanup(func() { clientConfigRootOverride = prev })
+	t.Setenv("XDG_CONFIG_HOME", root)
+	t.Setenv("HOME", root)
 	t.Setenv(envEndpoint, "")
 	t.Setenv(envToken, "")
+}
+
+// TestMain isolates client-side configuration for the ENTIRE package so that no
+// test — even one that forgets to call useTempClientConfig — can read or mutate
+// the developer's real AgentLab client config. os.UserConfigDir ignores
+// XDG_CONFIG_HOME on Darwin, so both the override and the environment are
+// pinned to a throwaway directory for the whole run.
+func TestMain(m *testing.M) {
+	dir, err := os.MkdirTemp("", "agentlab-client-config-test-*")
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(1)
+	}
+	defer os.RemoveAll(dir)
+	clientConfigRootOverride = dir
+	if err := os.Setenv("XDG_CONFIG_HOME", dir); err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(1)
+	}
+	if err := os.Setenv("HOME", dir); err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(1)
+	}
+	os.Exit(m.Run())
 }
 
 func TestParseGlobal(t *testing.T) {
@@ -124,7 +156,7 @@ func TestParseGlobal(t *testing.T) {
 }
 
 func TestGlobalOptionPrecedence(t *testing.T) {
-	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	useTempClientConfig(t)
 	path, err := clientConfigPath()
 	require.NoError(t, err)
 	require.NoError(t, writeClientConfig(path, clientConfig{Endpoint: "https://cfg", Token: "cfg-token"}))

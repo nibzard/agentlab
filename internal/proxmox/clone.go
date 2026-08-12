@@ -19,3 +19,11 @@ func shouldRetryFullClone(err error) bool {
 	}
 	return false
 }
+
+// canRetryAsFull reports whether a failed clone should be retried as a full
+// clone. The original request must have been a linked clone (retrying an
+// already-full clone with full=1 is a no-op and masks the real error), and the
+// failure must look like a storage/snapshot incompatibility (review M2).
+func canRetryAsFull(wasFull bool, err error) bool {
+	return !wasFull && shouldRetryFullClone(err)
+}

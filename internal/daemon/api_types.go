@@ -301,36 +301,39 @@ type V1JobResponse struct {
 }
 
 type V1SandboxCreateRequest struct {
-	Name       string  `json:"name"`
-	Profile    string  `json:"profile"`
-	Keepalive  *bool   `json:"keepalive,omitempty"`
-	TTLMinutes *int    `json:"ttl_minutes,omitempty"`
-	Workspace  *string `json:"workspace_id,omitempty"`
-	VMID       *int    `json:"vmid,omitempty"`
-	JobID      string  `json:"job_id,omitempty"`
-	Type       string  `json:"type,omitempty"`   // "vm" or "lxc"
-	Image      string  `json:"image,omitempty"`  // Container image for LXC (e.g., "ubuntu:22.04")
-	Prompt     string  `json:"prompt,omitempty"` // Initial agent prompt for agent-ready sandboxes
+	Name       string   `json:"name"`
+	Profile    string   `json:"profile"`
+	Keepalive  *bool    `json:"keepalive,omitempty"`
+	TTLMinutes *int     `json:"ttl_minutes,omitempty"`
+	Workspace  *string  `json:"workspace_id,omitempty"`
+	VMID       *int     `json:"vmid,omitempty"`
+	JobID      string   `json:"job_id,omitempty"`
+	Type       string   `json:"type,omitempty"`   // "vm" or "lxc"
+	Image      string   `json:"image,omitempty"`  // Container image for LXC (e.g., "ubuntu:22.04")
+	Prompt     string   `json:"prompt,omitempty"` // Initial agent prompt for agent-ready sandboxes
+	Tags       []string `json:"tags,omitempty"`   // Integration-attachment tags (normalized, case-insensitive)
 }
 
 type V1SandboxValidatePlanRequest struct {
-	Name       string  `json:"name"`
-	Profile    string  `json:"profile"`
-	Keepalive  *bool   `json:"keepalive,omitempty"`
-	TTLMinutes *int    `json:"ttl_minutes,omitempty"`
-	Workspace  *string `json:"workspace_id,omitempty"`
-	VMID       *int    `json:"vmid,omitempty"`
-	JobID      string  `json:"job_id,omitempty"`
+	Name       string   `json:"name"`
+	Profile    string   `json:"profile"`
+	Keepalive  *bool    `json:"keepalive,omitempty"`
+	TTLMinutes *int     `json:"ttl_minutes,omitempty"`
+	Workspace  *string  `json:"workspace_id,omitempty"`
+	VMID       *int     `json:"vmid,omitempty"`
+	JobID      string   `json:"job_id,omitempty"`
+	Tags       []string `json:"tags,omitempty"`
 }
 
 type V1SandboxValidatePlan struct {
-	Name       string  `json:"name"`
-	Profile    string  `json:"profile"`
-	Keepalive  bool    `json:"keepalive"`
-	TTLMinutes *int    `json:"ttl_minutes,omitempty"`
-	Workspace  *string `json:"workspace_id,omitempty"`
-	VMID       *int    `json:"vmid,omitempty"`
-	JobID      string  `json:"job_id,omitempty"`
+	Name       string   `json:"name"`
+	Profile    string   `json:"profile"`
+	Keepalive  bool     `json:"keepalive"`
+	TTLMinutes *int     `json:"ttl_minutes,omitempty"`
+	Workspace  *string  `json:"workspace_id,omitempty"`
+	VMID       *int     `json:"vmid,omitempty"`
+	JobID      string   `json:"job_id,omitempty"`
+	Tags       []string `json:"tags,omitempty"`
 }
 
 type V1SandboxValidatePlanResponse struct {
@@ -352,6 +355,10 @@ type V1SandboxRevertRequest struct {
 type V1SandboxUpdateRequest struct {
 	Cores    *int `json:"cores,omitempty"`
 	MemoryMB *int `json:"memory_mb,omitempty"`
+	// Tags replaces the sandbox's tag set in full when non-nil. Omitting it
+	// leaves tags unchanged; an explicit empty slice clears them. Merge is not
+	// supported to keep the lifecycle unambiguous (review M6).
+	Tags *[]string `json:"tags,omitempty"`
 }
 
 type V1SandboxSnapshotCreateRequest struct {
@@ -375,6 +382,7 @@ type V1SandboxResponse struct {
 	Type          string                     `json:"type,omitempty"`
 	Image         string                     `json:"image,omitempty"`
 	Prompt        string                     `json:"prompt,omitempty"`
+	Tags          []string                   `json:"tags,omitempty"`
 	State         string                     `json:"state"`
 	IP            string                     `json:"ip,omitempty"`
 	WorkspaceID   *string                    `json:"workspace_id,omitempty"`
@@ -406,6 +414,7 @@ type V1SandboxInventoryEntry struct {
 	AgentlabState string   `json:"agentlab_state,omitempty"`
 	ProxmoxStatus string   `json:"proxmox_status,omitempty"`
 	AgentlabIP    string   `json:"agentlab_ip,omitempty"`
+	Tags          []string `json:"tags,omitempty"`
 	TailscaleDNS  string   `json:"tailscale_dns,omitempty"`
 	TailscaleIPs  []string `json:"tailscale_ips,omitempty"`
 	Drift         []string `json:"drift,omitempty"`

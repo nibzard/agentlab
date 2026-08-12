@@ -172,6 +172,13 @@ func TestToken_CommandAllowed(t *testing.T) {
 	// Not allowed.
 	assert.False(t, tok.IsCommandAllowed("job.run"))
 	assert.False(t, tok.IsCommandAllowed("workspace.list"))
+
+	// Dot-boundary only: a raw prefix must NOT match (review C1 item 4).
+	// "sandbox.list" allowed via the "sandbox" namespace, but "sandboxlist"
+	// (no dot) must not, and a granted "job.show" must not match "job.showsecret".
+	assert.False(t, tok.IsCommandAllowed("sandboxlist"))
+	assert.False(t, tok.IsCommandAllowed("job.showsecret"))
+	assert.False(t, tok.IsCommandAllowed("")) // empty command never allowed
 }
 
 func TestToken_SandboxAllowed(t *testing.T) {

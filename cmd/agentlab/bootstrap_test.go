@@ -30,7 +30,7 @@ func TestNewBootstrapSSHClientArgs(t *testing.T) {
 }
 
 func TestWriteBootstrapClientConfig(t *testing.T) {
-	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	useTempClientConfig(t)
 	path, err := writeBootstrapClientConfig("http://example:8845", "secret")
 	require.NoError(t, err)
 
@@ -43,6 +43,9 @@ func TestWriteBootstrapClientConfig(t *testing.T) {
 	require.True(t, ok)
 	assert.Equal(t, "http://example:8845", cfg.Endpoint)
 	assert.Equal(t, "secret", cfg.Token)
+	// Bootstrap established the trusted tunnel, so the insecure-HTTP
+	// acknowledgement must be persisted for later commands (review M8).
+	assert.True(t, cfg.AllowInsecureHTTP, "bootstrap must persist allow_insecure_http")
 }
 
 func TestParseInitConnect(t *testing.T) {

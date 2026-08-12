@@ -271,53 +271,6 @@ func TestWorkspaceJSONWithNilAttachedVM(t *testing.T) {
 	assert.Nil(t, unmarshaled.AttachedVM)
 }
 
-func TestSandboxStateTransitions(t *testing.T) {
-	// Test valid state transitions
-	validTransitions := map[SandboxState][]SandboxState{
-		SandboxRequested:    {SandboxProvisioning, SandboxFailed},
-		SandboxProvisioning: {SandboxBooting, SandboxFailed},
-		SandboxBooting:      {SandboxReady, SandboxFailed, SandboxTimeout},
-		SandboxReady:        {SandboxRunning, SandboxStopped, SandboxFailed},
-		SandboxRunning:      {SandboxCompleted, SandboxFailed, SandboxTimeout, SandboxStopped},
-		SandboxCompleted:    {SandboxDestroyed, SandboxStopped},
-		SandboxFailed:       {SandboxDestroyed, SandboxStopped},
-		SandboxTimeout:      {SandboxDestroyed, SandboxStopped},
-		SandboxStopped:      {SandboxDestroyed},
-		SandboxDestroyed:    {}, // Terminal state
-	}
-
-	// This test documents the expected state transitions
-	// In the actual code, state transitions should be validated
-	for from, toStates := range validTransitions {
-		t.Run(string(from), func(t *testing.T) {
-			for _, to := range toStates {
-				// Just document that this transition is valid
-				assert.NotEmpty(t, string(from), string(to))
-			}
-		})
-	}
-}
-
-func TestJobStatusTransitions(t *testing.T) {
-	// Test valid status transitions
-	validTransitions := map[JobStatus][]JobStatus{
-		JobQueued:    {JobRunning, JobFailed, JobTimeout},
-		JobRunning:   {JobCompleted, JobFailed, JobTimeout},
-		JobCompleted: {}, // Terminal state
-		JobFailed:    {}, // Terminal state
-		JobTimeout:   {}, // Terminal state
-	}
-
-	for from, toStates := range validTransitions {
-		t.Run(string(from), func(t *testing.T) {
-			for _, to := range toStates {
-				// Just document that this transition is valid
-				assert.NotEmpty(t, string(from), string(to))
-			}
-		})
-	}
-}
-
 func TestTimeFieldsParseRFC3339(t *testing.T) {
 	// Test that time fields can be parsed from RFC3339 format
 	testTime := "2024-01-15T10:30:00Z"
@@ -327,13 +280,15 @@ func TestTimeFieldsParseRFC3339(t *testing.T) {
 }
 
 func TestAllSandboxStatesDefined(t *testing.T) {
-	// Ensure all expected states are defined
+	// Ensure all expected states are defined. Authoritative transition rules
+	// live in internal/daemon.allowedTransition and are tested there; this only
+	// guards the constant set.
 	expectedStates := []SandboxState{
 		SandboxRequested, SandboxProvisioning, SandboxBooting,
-		SandboxReady, SandboxRunning, SandboxCompleted,
+		SandboxReady, SandboxRunning, SandboxSuspended, SandboxCompleted,
 		SandboxFailed, SandboxTimeout, SandboxStopped, SandboxDestroyed,
 	}
-	assert.Len(t, expectedStates, 10, "all sandbox states should be defined")
+	assert.Len(t, expectedStates, 11, "all sandbox states should be defined")
 }
 
 func TestAllJobStatusesDefined(t *testing.T) {

@@ -42,6 +42,9 @@ func (api *ControlAPI) handleSandboxInventory(w http.ResponseWriter, r *http.Req
 		writeMethodNotAllowed(w, []string{http.MethodGet})
 		return
 	}
+	if !api.authorize(w, r, permSandboxList, nil, false) {
+		return
+	}
 	records, err := api.collectSandboxInventory(r.Context())
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
@@ -53,6 +56,10 @@ func (api *ControlAPI) handleSandboxInventory(w http.ResponseWriter, r *http.Req
 func (api *ControlAPI) handleSandboxReconcile(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		writeMethodNotAllowed(w, []string{http.MethodPost})
+		return
+	}
+	// Bulk operation: cross-sandbox, denied to any sandbox-scoped token.
+	if !api.authorize(w, r, permSandboxBulk, nil, true) {
 		return
 	}
 	var req V1SandboxReconcileRequest
@@ -278,6 +285,7 @@ func inventoryRecordsToV1(records []sandboxInventoryRecord) []V1SandboxInventory
 			entry.Profile = record.sandbox.Profile
 			entry.AgentlabState = string(record.sandbox.State)
 			entry.AgentlabIP = strings.TrimSpace(record.sandbox.IP)
+			entry.Tags = parseTags(record.sandbox.Tags)
 		}
 		if record.peer != nil {
 			entry.TailscaleDNS = record.peer.DNSName

@@ -126,12 +126,13 @@ func usageErrorMessage(err error) (string, bool, bool) {
 
 // commonFlags contains flags shared by all commands.
 type commonFlags struct {
-	socketPath     string
-	endpoint       string
-	token          string
-	jsonOutput     bool
-	timeout        time.Duration
-	tailscaleAdmin *tailscaleAdminConfig
+	socketPath        string
+	endpoint          string
+	token             string
+	jsonOutput        bool
+	timeout           time.Duration
+	tailscaleAdmin    *tailscaleAdminConfig
+	allowInsecureHTTP bool
 }
 
 func (c *commonFlags) bind(fs *flag.FlagSet) {
@@ -140,6 +141,8 @@ func (c *commonFlags) bind(fs *flag.FlagSet) {
 	fs.StringVar(&c.socketPath, "socket", c.socketPath, "path to agentlabd socket")
 	fs.BoolVar(&c.jsonOutput, "json", c.jsonOutput, jsonFlagDescription)
 	fs.DurationVar(&c.timeout, "timeout", c.timeout, "request timeout (e.g. 30s, 2m)")
+	fs.BoolVar(&c.allowInsecureHTTP, "allow-insecure-http", c.allowInsecureHTTP,
+		"permit plaintext HTTP to a non-loopback endpoint (only inside a trusted tunnel such as Tailscale)")
 }
 
 func newFlagSet(name string) *flag.FlagSet {
@@ -184,6 +187,38 @@ func (o *optionalBool) Ptr() *bool {
 	}
 	value := o.value
 	return &value
+}
+
+// stringSliceFlag accumulates repeated --flag values into a slice. It records
+// whether it was set so callers can distinguish "not provided" from "provided
+// empty" — important for full-replacement update semantics (review M6).
+type stringSliceFlag struct {
+	values []string
+	set    bool
+}
+
+func (s *stringSliceFlag) String() string {
+	if s == nil {
+		return ""
+	}
+	return strings.Join(s.values, ",")
+}
+
+func (s *stringSliceFlag) Set(value string) error {
+	s.values = append(s.values, value)
+	s.set = true
+	return nil
+}
+
+// Ptr returns nil when the flag was never set, so omitting it leaves the server
+// field unchanged; an explicitly empty (but set) flag yields a non-nil empty
+// slice to signal "clear".
+func (s *stringSliceFlag) Ptr() *[]string {
+	if s == nil || !s.set {
+		return nil
+	}
+	values := append([]string(nil), s.values...)
+	return &values
 }
 
 func bindHelpFlag(fs *flag.FlagSet) *bool {
@@ -314,6 +349,9 @@ func runConnectCommand(ctx context.Context, args []string, base commonFlags) err
 	}
 	endpoint, err := normalizeEndpoint(endpointRaw)
 	if err != nil {
+		return err
+	}
+	if err := validateEndpointPolicy(endpoint, opts.allowInsecureHTTP); err != nil {
 		return err
 	}
 	token := strings.TrimSpace(opts.token)
@@ -1306,6 +1344,7 @@ func runSandboxNew(ctx context.Context, args []string, base commonFlags) error {
 	var sandboxType string
 	var image string
 	var prompt string
+	var tags stringSliceFlag
 	help := bindHelpFlag(fs)
 	fs.StringVar(&name, "name", "", "sandbox name")
 	fs.StringVar(&profile, "profile", "", "profile name")
@@ -1318,6 +1357,7 @@ func runSandboxNew(ctx context.Context, args []string, base commonFlags) error {
 	fs.StringVar(&sandboxType, "type", "", "sandbox type: vm (default) or lxc")
 	fs.StringVar(&image, "image", "", "container image for LXC sandboxes (e.g., ubuntu:22.04)")
 	fs.StringVar(&prompt, "prompt", "", "initial agent prompt for agent-ready sandboxes")
+	fs.Var(&tags, "tag", "integration-attachment tag (repeatable; normalized to lowercase)")
 	if err := parseFlags(fs, args, printSandboxNewUsage, help, opts.jsonOutput); err != nil {
 		return err
 	}
@@ -1395,6 +1435,7 @@ func runSandboxNew(ctx context.Context, args []string, base commonFlags) error {
 		Type:       sandboxType,
 		Image:      image,
 		Prompt:     prompt,
+		Tags:       tags.values,
 	}
 	payload, err := client.doJSON(ctx, http.MethodPost, "/v1/sandboxes", req)
 	if err != nil {
@@ -1662,9 +1703,13 @@ func runSandboxUpdate(ctx context.Context, args []string, base commonFlags) erro
 	opts.bind(fs)
 	var cores int
 	var memory string
+	var tags stringSliceFlag
+	var clearTags bool
 	help := bindHelpFlag(fs)
 	fs.IntVar(&cores, "cores", 0, "number of CPU cores")
 	fs.StringVar(&memory, "memory", "", "memory size in MiB or GiB (for example 8192 or 8GiB)")
+	fs.Var(&tags, "tag", "replace sandbox tags with these values (repeatable); omits leaves them unchanged")
+	fs.BoolVar(&clearTags, "clear-tags", false, "remove all sandbox tags")
 	if err := parseFlags(fs, args, printSandboxUpdateUsage, help, opts.jsonOutput); err != nil {
 		return err
 	}
@@ -1701,11 +1746,24 @@ func runSandboxUpdate(ctx context.Context, args []string, base commonFlags) erro
 		}
 		memoryPtr = &value
 	}
-	if coresPtr == nil && memoryPtr == nil {
+	if coresPtr == nil && memoryPtr == nil && !tags.set && !clearTags {
 		if !opts.jsonOutput {
 			printSandboxUpdateUsage()
 		}
-		return fmt.Errorf("at least one of --cores or --memory is required")
+		return fmt.Errorf("at least one of --cores, --memory, --tag, or --clear-tags is required")
+	}
+	// Full-replacement tag semantics (review M6): --clear-tags sends an empty
+	// slice to wipe tags; --tag sends the provided set; omitting both leaves
+	// the server value untouched.
+	var tagsPtr *[]string
+	switch {
+	case clearTags && tags.set:
+		return fmt.Errorf("--clear-tags cannot be combined with --tag")
+	case clearTags:
+		empty := []string{}
+		tagsPtr = &empty
+	case tags.set:
+		tagsPtr = tags.Ptr()
 	}
 
 	client, err := apiClientFromFlags(opts)
@@ -1716,7 +1774,7 @@ func runSandboxUpdate(ctx context.Context, args []string, base commonFlags) erro
 	if err != nil {
 		return err
 	}
-	req := sandboxUpdateRequest{Cores: coresPtr, MemoryMB: memoryPtr}
+	req := sandboxUpdateRequest{Cores: coresPtr, MemoryMB: memoryPtr, Tags: tagsPtr}
 	payload, err := client.doJSON(ctx, http.MethodPost, path, req)
 	if err != nil {
 		return wrapSandboxNotFound(ctx, client, vmid, err)
@@ -3879,6 +3937,9 @@ func printSandbox(sb sandboxResponse) {
 	}
 	if sb.Prompt != "" {
 		fmt.Printf("Prompt: %s\n", sb.Prompt)
+	}
+	if len(sb.Tags) > 0 {
+		fmt.Printf("Tags: %s\n", strings.Join(sb.Tags, ", "))
 	}
 	fmt.Printf("State: %s\n", sb.State)
 	fmt.Printf("IP: %s\n", orDash(sb.IP))

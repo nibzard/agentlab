@@ -116,7 +116,7 @@ func (o *JobOrchestrator) RebindWorkspace(ctx context.Context, workspaceID, prof
 		LastUpdatedAt: now,
 	}
 
-	created, err := createSandboxWithRetry(ctx, o.store, sandbox)
+	created, err := createSandboxWithRetry(ctx, o.store, sandbox, o.resourcePool, o.profiles)
 	if err != nil {
 		if released, _ := o.store.ReleaseWorkspaceLease(ctx, workspace.ID, leaseOwner, leaseNonce); released {
 			vmid := newVMID

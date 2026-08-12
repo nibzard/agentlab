@@ -13,7 +13,17 @@ import (
 )
 
 // timeLayout is the format used for storing timestamps in SQLite.
+// timeLayout accepts BOTH the legacy RFC3339Nano form (fractional trailing
+// zeros trimmed) and the fixed-width form below, so reads remain compatible
+// during and after the M1 migration. It is used for parsing only.
 const timeLayout = time.RFC3339Nano
+
+// timeLayoutFixed emits a fixed-width 9-digit fractional component. Because the
+// width never varies, SQLite's lexicographic TEXT comparison orders these
+// values identically to their chronological order — including within the same
+// second, where RFC3339Nano's trimmed form can mis-order (review M1). Used for
+// formatting only.
+const timeLayoutFixed = "2006-01-02T15:04:05.000000000Z07:00"
 
 // CreateSandbox inserts a new sandbox row.
 //
@@ -63,8 +73,8 @@ func (s *Store) CreateSandbox(ctx context.Context, sandbox models.Sandbox) error
 		workspace = *sandbox.WorkspaceID
 	}
 	_, err := s.DB.ExecContext(ctx, `INSERT INTO sandboxes (
-		vmid, name, profile, state, ip, workspace_id, keepalive, lease_expires_at, last_used_at, created_at, updated_at, meta_json, type, image, prompt, owner
-	) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		vmid, name, profile, state, ip, workspace_id, keepalive, lease_expires_at, last_used_at, created_at, updated_at, meta_json, type, image, tags, prompt, owner
+	) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		sandbox.VMID,
 		sandbox.Name,
 		sandbox.Profile,
@@ -79,6 +89,7 @@ func (s *Store) CreateSandbox(ctx context.Context, sandbox models.Sandbox) error
 		nil,
 		sandboxTypeOrDefault(sandbox.Type),
 		nullIfEmpty(sandbox.Image),
+		sandbox.Tags,
 		sandbox.Prompt,
 		sandbox.Owner,
 	)
@@ -124,6 +135,88 @@ func (s *Store) GetSandboxByIP(ctx context.Context, ip string) (models.Sandbox, 
 	row := s.DB.QueryRowContext(ctx, `SELECT vmid, name, profile, state, ip, workspace_id, keepalive, lease_expires_at, last_used_at, created_at, updated_at, type, image, tags, prompt, owner
 		FROM sandboxes WHERE ip = ?`, ip)
 	return scanSandboxRow(row)
+}
+
+// liveStatesForCredentialProxy are the sandbox states considered live enough to
+// originate credential-proxy traffic. A stale, stopped, suspended, failed, or
+// destroyed row that retains an address must NOT supply identity for named or
+// tagged attachment (review H4).
+var liveStatesForCredentialProxy = []models.SandboxState{
+	models.SandboxProvisioning,
+	models.SandboxBooting,
+	models.SandboxReady,
+	models.SandboxRunning,
+}
+
+// ErrAmbiguousSandbox indicates that more than one live sandbox matched a
+// lookup (e.g. a duplicated address). Credential resolution must treat this as
+// "unidentified" rather than guessing (review H4).
+var ErrAmbiguousSandbox = errors.New("ambiguous sandbox identity for address")
+
+// eligibleStateList renders the live-state set as a SQL IN-list. The values are
+// package constants, never user input, so interpolation is safe.
+func eligibleStateList() string {
+	parts := make([]string, len(liveStatesForCredentialProxy))
+	for i, st := range liveStatesForCredentialProxy {
+		parts[i] = "'" + string(st) + "'"
+	}
+	return strings.Join(parts, ",")
+}
+
+// GetLiveSandboxByIP loads the unique live sandbox currently bound to ip. Only
+// sandboxes in an eligible live state match; stale, stopped, suspended, failed,
+// or destroyed rows are ignored so a reused address cannot inherit the prior
+// sandbox's name or tags. It returns sql.ErrNoRows when no live sandbox matches
+// and ErrAmbiguousSandbox when more than one does (review H4).
+func (s *Store) GetLiveSandboxByIP(ctx context.Context, ip string) (models.Sandbox, error) {
+	if s == nil || s.DB == nil {
+		return models.Sandbox{}, errors.New("db store is nil")
+	}
+	ip = strings.TrimSpace(ip)
+	if ip == "" {
+		return models.Sandbox{}, errors.New("ip is required")
+	}
+	query := `SELECT vmid, name, profile, state, ip, workspace_id, keepalive, lease_expires_at, last_used_at, created_at, updated_at, type, image, tags, prompt, owner
+		FROM sandboxes WHERE ip = ? AND state IN (` + eligibleStateList() + `)`
+	rows, err := s.DB.QueryContext(ctx, query, ip)
+	if err != nil {
+		return models.Sandbox{}, fmt.Errorf("live sandbox by ip %s: %w", ip, err)
+	}
+	defer rows.Close()
+	var found []models.Sandbox
+	for rows.Next() {
+		sb, err := scanSandboxRow(rows)
+		if err != nil {
+			return models.Sandbox{}, err
+		}
+		found = append(found, sb)
+	}
+	if err := rows.Err(); err != nil {
+		return models.Sandbox{}, err
+	}
+	switch len(found) {
+	case 0:
+		return models.Sandbox{}, sql.ErrNoRows
+	case 1:
+		return found[0], nil
+	default:
+		return models.Sandbox{}, ErrAmbiguousSandbox
+	}
+}
+
+// ClearSandboxIP retires the address association for a sandbox, so a later
+// reuse of that address cannot resolve to this (now destroyed) row. Called on
+// transition to DESTROYED (review H4).
+func (s *Store) ClearSandboxIP(ctx context.Context, vmid int) error {
+	if s == nil || s.DB == nil {
+		return errors.New("db store is nil")
+	}
+	_, err := s.DB.ExecContext(ctx, `UPDATE sandboxes SET ip = '', updated_at = ? WHERE vmid = ?`,
+		formatTime(time.Now().UTC()), vmid)
+	if err != nil {
+		return fmt.Errorf("clear sandbox %d ip: %w", vmid, err)
+	}
+	return nil
 }
 
 // ListSandboxes returns all sandboxes ordered by created_at descending.
@@ -366,6 +459,36 @@ func (s *Store) UpdateSandboxWorkspace(ctx context.Context, vmid int, workspaceI
 	return nil
 }
 
+// UpdateSandboxTags replaces the comma-joined tag string for a sandbox. An empty
+// tags value clears the set (the column is NOT NULL, so clearing stores the
+// empty string rather than NULL). Tags are expected to already be normalized by
+// the caller (review M6).
+func (s *Store) UpdateSandboxTags(ctx context.Context, vmid int, tags string) error {
+	if s == nil || s.DB == nil {
+		return errors.New("db store is nil")
+	}
+	if vmid <= 0 {
+		return errors.New("vmid must be positive")
+	}
+	updatedAt := formatTime(time.Now().UTC())
+	res, err := s.DB.ExecContext(ctx, `UPDATE sandboxes SET tags = ?, updated_at = ? WHERE vmid = ?`,
+		tags,
+		updatedAt,
+		vmid,
+	)
+	if err != nil {
+		return fmt.Errorf("update sandbox %d tags: %w", vmid, err)
+	}
+	affected, err := res.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("rows affected sandbox %d tags: %w", vmid, err)
+	}
+	if affected == 0 {
+		return sql.ErrNoRows
+	}
+	return nil
+}
+
 // TouchSandbox updates only the updated_at timestamp for a sandbox.
 func (s *Store) TouchSandbox(ctx context.Context, vmid int) error {
 	if s == nil || s.DB == nil {
@@ -515,13 +638,17 @@ func parseTime(value string) (time.Time, error) {
 	}
 	parsed, err := time.Parse(timeLayout, value)
 	if err != nil {
+		// Fall back to the fixed-width layout in case a future variant slips in.
+		if p2, err2 := time.Parse(timeLayoutFixed, value); err2 == nil {
+			return p2, nil
+		}
 		return time.Time{}, err
 	}
 	return parsed, nil
 }
 
 func formatTime(value time.Time) string {
-	return value.UTC().Format(timeLayout)
+	return value.UTC().Format(timeLayoutFixed)
 }
 
 func nullIfEmpty(value string) interface{} {

@@ -18,20 +18,20 @@ const defaultsFile = "defaults.json"
 
 // wellKnownDefaults lists the recognised preference keys and their descriptions.
 var wellKnownDefaults = map[string]string{
-	"default-profile":  "Default profile for sandbox new",
-	"default-image":    "Default container image for sandbox new",
-	"default-backend":  "Default backend (proxmox, docker, libvirt)",
-	"output-format":    "Default output format (text or json)",
-	"default-timeout":  "Default request timeout (e.g. 30s, 2m)",
-	"default-socket":   "Default daemon socket path",
+	"default-profile": "Default profile for sandbox new",
+	"default-image":   "Default container image for sandbox new",
+	"default-backend": "Default backend (proxmox, docker, libvirt)",
+	"output-format":   "Default output format (text or json)",
+	"default-timeout": "Default request timeout (e.g. 30s, 2m)",
+	"default-socket":  "Default daemon socket path",
 }
 
 func defaultsFilePath() (string, error) {
-	dir, err := os.UserConfigDir()
+	dir, err := clientConfigBaseDir()
 	if err != nil {
 		return "", err
 	}
-	return filepath.Join(dir, clientConfigDir, defaultsFile), nil
+	return filepath.Join(dir, defaultsFile), nil
 }
 
 func loadDefaults() (map[string]string, error) {
@@ -56,6 +56,9 @@ func loadDefaults() (map[string]string, error) {
 func saveDefaults(m map[string]string) error {
 	path, err := defaultsFilePath()
 	if err != nil {
+		return err
+	}
+	if err := requireConfigPathSafe(path); err != nil {
 		return err
 	}
 	if err := os.MkdirAll(filepath.Dir(path), 0700); err != nil {

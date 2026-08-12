@@ -133,15 +133,29 @@ func TestJobCreateWorkspaceWait(t *testing.T) {
 	if _, err := store.TryAcquireWorkspaceLease(ctx, workspace.ID, leaseOwner, leaseNonce, time.Now().UTC().Add(10*time.Minute)); err != nil {
 		t.Fatalf("acquire lease: %v", err)
 	}
-	go func() {
-		time.Sleep(150 * time.Millisecond)
-		_, _ = store.ReleaseWorkspaceLease(ctx, workspace.ID, leaseOwner, leaseNonce)
-	}()
 
 	profiles := map[string]models.Profile{
 		"default": {Name: "default", TemplateVM: 9000},
 	}
 	api := NewControlAPI(store, profiles, nil, workspaceMgr, &JobOrchestrator{}, "", nil)
+	// Shrink the backoff so the wait path completes quickly, and release the
+	// lease the instant the waiter reports its first failed attempt — a
+	// deterministic barrier replacing the old fixed 150 ms sleep (review:
+	// timing-dependent tests).
+	api.workspaceWaitPoll = time.Millisecond
+	heldSeen := make(chan struct{}, 1)
+	released := make(chan struct{})
+	api.workspaceWaitTick = func() {
+		select {
+		case heldSeen <- struct{}{}:
+		default:
+		}
+	}
+	go func() {
+		<-heldSeen // handler has observed the held lease; now releasing.
+		_, _ = store.ReleaseWorkspaceLease(ctx, workspace.ID, leaseOwner, leaseNonce)
+		close(released)
+	}()
 
 	waitSeconds := 2
 	workspaceRef := workspace.ID
@@ -168,6 +182,13 @@ func TestJobCreateWorkspaceWait(t *testing.T) {
 	}
 	if resp.WorkspaceID == nil || *resp.WorkspaceID != workspace.ID {
 		t.Fatalf("expected workspace_id %s, got %#v", workspace.ID, resp.WorkspaceID)
+	}
+	// The handler must have observed the held lease before the release barrier
+	// fired — otherwise the wait path was not actually exercised.
+	select {
+	case <-released:
+	default:
+		t.Fatal("lease was never released: the workspace-wait path was not exercised")
 	}
 }
 

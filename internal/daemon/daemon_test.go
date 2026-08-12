@@ -12,6 +12,7 @@ import (
 	"github.com/agentlab/agentlab/internal/db"
 	"github.com/agentlab/agentlab/internal/models"
 	"github.com/agentlab/agentlab/internal/proxmox"
+	testutil "github.com/agentlab/agentlab/internal/testing"
 )
 
 type runnerCall struct {
@@ -43,7 +44,7 @@ func TestNewServicePropagatesAgentSubnetToShellBackend(t *testing.T) {
 	temp := t.TempDir()
 	cfg := config.Config{
 		RunDir:                  filepath.Join(temp, "run"),
-		SocketPath:              filepath.Join(temp, "run", "agentlabd.sock"),
+		SocketPath:              filepath.Join(testutil.ShortSocketDir(t), "agentlabd.sock"),
 		DBPath:                  filepath.Join(temp, "agentlab.db"),
 		BootstrapListen:         "127.0.0.1:0",
 		ArtifactListen:          "127.0.0.1:0",

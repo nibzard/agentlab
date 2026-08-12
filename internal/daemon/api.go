@@ -23,6 +23,7 @@ import (
 
 	"github.com/agentlab/agentlab/internal/buildinfo"
 	"github.com/agentlab/agentlab/internal/db"
+	"github.com/agentlab/agentlab/internal/integrations"
 	"github.com/agentlab/agentlab/internal/models"
 	"github.com/agentlab/agentlab/internal/pool"
 	"github.com/agentlab/agentlab/internal/proxmox"
@@ -155,6 +156,19 @@ type ControlAPI struct {
 	skillBundleVersion string
 	now                func() time.Time
 	resourcePool       *pool.Pool
+	// workspaceWaitPoll overrides the initial backoff between lease-acquire
+	// attempts during a workspace wait (0 => package default). Tests set this
+	// small so the wait path runs deterministically fast.
+	workspaceWaitPoll time.Duration
+	// workspaceWaitTick, when non-nil, is invoked after each failed
+	// lease-acquire attempt while waiting for a held workspace lease. Tests use
+	// it to release the lease exactly once the waiter has observed contention,
+	// replacing a fixed wall-clock sleep with a deterministic barrier.
+	workspaceWaitTick func()
+	// runner is the daemon lifecycle runner; used so synchronous provisioning
+	// inside an HTTP handler uses a context that outlives the request but is
+	// still cancelled at shutdown (review H2).
+	runner BackgroundRunner
 }
 
 // NewControlAPI creates a new control API instance.
@@ -276,6 +290,19 @@ func (api *ControlAPI) WithResourcePool(p *pool.Pool) *ControlAPI {
 	return api
 }
 
+// WithBackgroundRunner sets the daemon lifecycle runner used so synchronous
+// provisioning inside an HTTP handler is not coupled to the request's lifetime
+// but is still cancelled and awaited at shutdown (review H2).
+func (api *ControlAPI) WithBackgroundRunner(r BackgroundRunner) *ControlAPI {
+	if api == nil {
+		return api
+	}
+	if r != nil {
+		api.runner = r
+	}
+	return api
+}
+
 // Register registers all control API handlers with the provided mux.
 //
 // The mux will handle all v1 API endpoints. If mux is nil, this is a no-op.
@@ -314,6 +341,9 @@ func (api *ControlAPI) Register(mux *http.ServeMux) {
 func (api *ControlAPI) handleJobs(w http.ResponseWriter, r *http.Request) {
 	switch r.Method {
 	case http.MethodPost:
+		if !api.authorize(w, r, permJobCreate, nil, false) {
+			return
+		}
 		api.handleJobCreate(w, r)
 	default:
 		writeMethodNotAllowed(w, []string{http.MethodPost})
@@ -323,6 +353,9 @@ func (api *ControlAPI) handleJobs(w http.ResponseWriter, r *http.Request) {
 func (api *ControlAPI) handleJobValidatePlan(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		writeMethodNotAllowed(w, []string{http.MethodPost})
+		return
+	}
+	if !api.authorize(w, r, permJobValidate, nil, false) {
 		return
 	}
 
@@ -584,6 +617,9 @@ func (api *ControlAPI) handleSandboxValidatePlan(w http.ResponseWriter, r *http.
 		writeMethodNotAllowed(w, []string{http.MethodPost})
 		return
 	}
+	if !api.authorize(w, r, permSandboxValidate, nil, false) {
+		return
+	}
 
 	var req V1SandboxValidatePlanRequest
 	if err := decodeJSON(w, r, &req); err != nil {
@@ -596,21 +632,34 @@ func (api *ControlAPI) handleSandboxValidatePlan(w http.ResponseWriter, r *http.
 	req.JobID = strings.TrimSpace(req.JobID)
 	req.Workspace = stringPtrTrim(req.Workspace)
 
+	resp := V1SandboxValidatePlanResponse{
+		Errors:   make([]V1PreflightIssue, 0),
+		Warnings: make([]V1PreflightIssue, 0),
+	}
+
+	// Normalize tags so the echoed plan reflects exactly what would be persisted
+	// (review M6). Invalid tags surface as plan errors.
+	normalizedTags, tagsErr := integrations.NormalizeTags(req.Tags)
+
 	plan := V1SandboxValidatePlan{
 		Name:    req.Name,
 		Profile: req.Profile,
 		VMID:    req.VMID,
 		JobID:   req.JobID,
+		Tags:    normalizedTags,
+	}
+	if tagsErr != nil {
+		resp.Errors = append(resp.Errors, V1PreflightIssue{
+			Code:    "invalid_tag",
+			Field:   "tags",
+			Message: tagsErr.Error(),
+		})
 	}
 	if req.Workspace != nil {
 		workspaceID := *req.Workspace
 		plan.Workspace = &workspaceID
 	}
 
-	resp := V1SandboxValidatePlanResponse{
-		Errors:   make([]V1PreflightIssue, 0),
-		Warnings: make([]V1PreflightIssue, 0),
-	}
 	ctx := r.Context()
 	provisionSandbox := req.JobID == ""
 
@@ -780,6 +829,14 @@ func (api *ControlAPI) handleJobByID(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	jobID := parts[0]
+
+	// Authorize before dispatching. The sandbox scope is resolved from the
+	// job's assigned sandbox (DB lookup, scoped tokens only).
+	if perm := jobActionPermission(parts, r.Method); perm != "" {
+		if !api.authorize(w, r, perm, func() int { return api.jobSandboxVMID(r.Context(), jobID) }, false) {
+			return
+		}
+	}
 
 	switch len(parts) {
 	case 1:
@@ -1272,6 +1329,9 @@ func (api *ControlAPI) handleProfiles(w http.ResponseWriter, r *http.Request) {
 		writeMethodNotAllowed(w, []string{http.MethodGet})
 		return
 	}
+	if !api.authorize(w, r, permProfileRead, nil, false) {
+		return
+	}
 	resp := V1ProfilesResponse{Profiles: []V1Profile{}}
 	if api.profiles == nil {
 		writeJSON(w, http.StatusOK, resp)
@@ -1296,6 +1356,9 @@ func (api *ControlAPI) handleProfiles(w http.ResponseWriter, r *http.Request) {
 func (api *ControlAPI) handleStatus(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		writeMethodNotAllowed(w, []string{http.MethodGet})
+		return
+	}
+	if !api.authorize(w, r, permStatusRead, nil, false) {
 		return
 	}
 	ctx := r.Context()
@@ -1351,6 +1414,9 @@ func (api *ControlAPI) handleHost(w http.ResponseWriter, r *http.Request) {
 		writeMethodNotAllowed(w, []string{http.MethodGet})
 		return
 	}
+	if !api.authorize(w, r, permHostRead, nil, false) {
+		return
+	}
 	resp := V1HostResponse{
 		Version:     buildinfo.Version,
 		AgentSubnet: strings.TrimSpace(api.agentSubnet),
@@ -1372,8 +1438,14 @@ func (api *ControlAPI) handleHost(w http.ResponseWriter, r *http.Request) {
 func (api *ControlAPI) handleMessages(w http.ResponseWriter, r *http.Request) {
 	switch r.Method {
 	case http.MethodPost:
+		if !api.authorize(w, r, permMessageSend, nil, false) {
+			return
+		}
 		api.handleMessageCreate(w, r)
 	case http.MethodGet:
+		if !api.authorize(w, r, permMessageRead, nil, false) {
+			return
+		}
 		api.handleMessageList(w, r)
 	default:
 		writeMethodNotAllowed(w, []string{http.MethodGet, http.MethodPost})
@@ -1476,8 +1548,14 @@ func (api *ControlAPI) handleMessageList(w http.ResponseWriter, r *http.Request)
 func (api *ControlAPI) handleSandboxes(w http.ResponseWriter, r *http.Request) {
 	switch r.Method {
 	case http.MethodPost:
+		if !api.authorize(w, r, permSandboxCreate, nil, false) {
+			return
+		}
 		api.handleSandboxCreate(w, r)
 	case http.MethodGet:
+		if !api.authorize(w, r, permSandboxList, nil, false) {
+			return
+		}
 		api.handleSandboxList(w, r)
 	default:
 		writeMethodNotAllowed(w, []string{http.MethodGet, http.MethodPost})
@@ -1495,6 +1573,15 @@ func (api *ControlAPI) handleSandboxByID(w http.ResponseWriter, r *http.Request)
 	if err != nil || vmid <= 0 {
 		writeError(w, http.StatusBadRequest, "invalid vmid")
 		return
+	}
+
+	// Authorize before dispatching. The VMID is in the URL, so the sandbox
+	// scope check uses it directly. Unknown actions fall through to the
+	// handler's own 404.
+	if perm := sandboxActionPermission(parts, r.Method); perm != "" {
+		if !api.authorize(w, r, perm, func() int { return vmid }, false) {
+			return
+		}
 	}
 
 	switch len(parts) {
@@ -1625,8 +1712,14 @@ func (api *ControlAPI) handleSandboxByID(w http.ResponseWriter, r *http.Request)
 func (api *ControlAPI) handleWorkspaces(w http.ResponseWriter, r *http.Request) {
 	switch r.Method {
 	case http.MethodPost:
+		if !api.authorize(w, r, permWorkspaceCreate, nil, false) {
+			return
+		}
 		api.handleWorkspaceCreate(w, r)
 	case http.MethodGet:
+		if !api.authorize(w, r, permWorkspaceList, nil, false) {
+			return
+		}
 		api.handleWorkspaceList(w, r)
 	default:
 		writeMethodNotAllowed(w, []string{http.MethodGet, http.MethodPost})
@@ -1641,6 +1734,13 @@ func (api *ControlAPI) handleWorkspaceByID(w http.ResponseWriter, r *http.Reques
 		return
 	}
 	id := parts[0]
+	// Authorize before dispatching. The sandbox scope is resolved from the
+	// workspace's attached sandbox (DB lookup, scoped tokens only).
+	if perm := workspaceActionPermission(parts, r.Method); perm != "" {
+		if !api.authorize(w, r, perm, func() int { return api.workspaceSandboxVMID(r.Context(), id) }, false) {
+			return
+		}
+	}
 	switch len(parts) {
 	case 1:
 		if r.Method != http.MethodGet {
@@ -1731,8 +1831,14 @@ func (api *ControlAPI) handleWorkspaceByID(w http.ResponseWriter, r *http.Reques
 func (api *ControlAPI) handleSessions(w http.ResponseWriter, r *http.Request) {
 	switch r.Method {
 	case http.MethodPost:
+		if !api.authorize(w, r, permSessionCreate, nil, false) {
+			return
+		}
 		api.handleSessionCreate(w, r)
 	case http.MethodGet:
+		if !api.authorize(w, r, permSessionList, nil, false) {
+			return
+		}
 		api.handleSessionList(w, r)
 	default:
 		writeMethodNotAllowed(w, []string{http.MethodGet, http.MethodPost})
@@ -1747,6 +1853,13 @@ func (api *ControlAPI) handleSessionByID(w http.ResponseWriter, r *http.Request)
 		return
 	}
 	id := parts[0]
+	// Authorize before dispatching. The sandbox scope is resolved from the
+	// session's current sandbox (DB lookup, scoped tokens only).
+	if perm := sessionActionPermission(parts, r.Method); perm != "" {
+		if !api.authorize(w, r, perm, func() int { return api.sessionSandboxVMID(r.Context(), id) }, false) {
+			return
+		}
+	}
 	switch len(parts) {
 	case 1:
 		if r.Method != http.MethodGet {
@@ -1793,8 +1906,14 @@ func (api *ControlAPI) handleSessionByID(w http.ResponseWriter, r *http.Request)
 func (api *ControlAPI) handleExposures(w http.ResponseWriter, r *http.Request) {
 	switch r.Method {
 	case http.MethodPost:
+		if !api.authorize(w, r, permExposureCreate, nil, false) {
+			return
+		}
 		api.handleExposureCreate(w, r)
 	case http.MethodGet:
+		if !api.authorize(w, r, permExposureList, nil, false) {
+			return
+		}
 		api.handleExposureList(w, r)
 	default:
 		writeMethodNotAllowed(w, []string{http.MethodGet, http.MethodPost})
@@ -1812,6 +1931,11 @@ func (api *ControlAPI) handleExposureByName(w http.ResponseWriter, r *http.Reque
 		writeMethodNotAllowed(w, []string{http.MethodDelete})
 		return
 	}
+	// Authorize before deleting. The sandbox scope is resolved from the
+	// exposure's bound sandbox (DB lookup, scoped tokens only).
+	if !api.authorize(w, r, permExposureDelete, func() int { return api.exposureSandboxVMID(r.Context(), name) }, false) {
+		return
+	}
 	api.handleExposureDelete(w, r, name)
 }
 
@@ -1822,7 +1946,11 @@ func (api *ControlAPI) handleSandboxList(w http.ResponseWriter, r *http.Request)
 		return
 	}
 	resp := V1SandboxesResponse{Sandboxes: make([]V1SandboxResponse, 0, len(sandboxes))}
+	allowed := sandboxScopeFilter(r)
 	for _, sb := range sandboxes {
+		if allowed != nil && !allowed(sb.VMID) {
+			continue
+		}
 		resp.Sandboxes = append(resp.Sandboxes, api.sandboxToV1(sb))
 	}
 	writeJSON(w, http.StatusOK, resp)
@@ -1862,6 +1990,13 @@ func (api *ControlAPI) handleSandboxCreate(w http.ResponseWriter, r *http.Reques
 	req.Name = strings.TrimSpace(req.Name)
 	req.Profile = strings.TrimSpace(req.Profile)
 	req.JobID = strings.TrimSpace(req.JobID)
+	// Normalize tags early so an invalid value is rejected before any
+	// allocation or provisioning work (review M6).
+	tags, err := integrations.NormalizeTags(req.Tags)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
 	provisionSandbox := req.JobID == ""
 	if req.Profile == "" {
 		writeError(w, http.StatusBadRequest, "profile is required")
@@ -1977,6 +2112,7 @@ func (api *ControlAPI) handleSandboxCreate(w http.ResponseWriter, r *http.Reques
 		State:         models.SandboxRequested,
 		Keepalive:     keepalive,
 		LeaseExpires:  leaseExpires,
+		Tags:          integrations.JoinTags(tags),
 		CreatedAt:     now,
 		LastUpdatedAt: now,
 	}
@@ -2003,12 +2139,14 @@ func (api *ControlAPI) handleSandboxCreate(w http.ResponseWriter, r *http.Reques
 
 	var createdSandbox models.Sandbox
 	if req.VMID != nil {
-		// Check resource pool before creating with explicit VMID.
-		if err := api.allocateFromPool(ctx, sandbox, req.Profile); err != nil {
+		// Reserve pool resources for the explicit VMID; roll back on any failure
+		// so a dropped row cannot leak a phantom allocation (review H3).
+		if err := reservePoolForSandbox(api.resourcePool, sandbox.VMID, sandbox.Name, req.Profile, api.profiles); err != nil {
 			writeError(w, http.StatusConflict, err.Error())
 			return
 		}
 		if err := api.store.CreateSandbox(ctx, sandbox); err != nil {
+			releasePoolForSandbox(api.resourcePool, sandbox.VMID)
 			if isUniqueConstraint(err) {
 				writeError(w, http.StatusConflict, "sandbox vmid already exists")
 				return
@@ -2018,16 +2156,12 @@ func (api *ControlAPI) handleSandboxCreate(w http.ResponseWriter, r *http.Reques
 		}
 		createdSandbox = sandbox
 	} else {
-		// Check resource pool before creating with auto-allocated VMID.
-		if err := api.allocateFromPool(ctx, sandbox, req.Profile); err != nil {
-			writeError(w, http.StatusConflict, err.Error())
-			return
-		}
+		// createSandboxWithRetry commits the pool allocation for the final
+		// (successfully created) VMID and rolls back on every failure path,
+		// including VMID collisions (review H3).
 		var err error
-		createdSandbox, err = createSandboxWithRetry(ctx, api.store, sandbox)
+		createdSandbox, err = createSandboxWithRetry(ctx, api.store, sandbox, api.resourcePool, api.profiles)
 		if err != nil {
-			// Release pool allocation on store failure.
-			api.resourcePool.Release(sandbox.VMID)
 			writeError(w, http.StatusInternalServerError, "failed to create sandbox")
 			return
 		}
@@ -2048,7 +2182,13 @@ func (api *ControlAPI) handleSandboxCreate(w http.ResponseWriter, r *http.Reques
 	if provisionSandbox {
 		// Provisioning should not be coupled to the lifetime of the HTTP request context.
 		// AI agents may use short client-side timeouts or disconnect while provisioning continues.
-		updated, err := api.jobOrchestrator.ProvisionSandbox(context.Background(), createdSandbox.VMID)
+		// Use the daemon lifecycle context: it outlives the request but is cancelled and
+		// awaited at shutdown (review H2).
+		provisionCtx := context.Background()
+		if api.runner != nil {
+			provisionCtx = api.runner.LifecycleContext()
+		}
+		updated, err := api.jobOrchestrator.ProvisionSandbox(provisionCtx, createdSandbox.VMID)
 		if err != nil {
 			// Log the actual error before writing generic response
 			if api.logger != nil {
@@ -2118,7 +2258,11 @@ func (api *ControlAPI) handleWorkspaceList(w http.ResponseWriter, r *http.Reques
 		return
 	}
 	resp := V1WorkspacesResponse{Workspaces: make([]V1WorkspaceResponse, 0, len(workspaces))}
+	allowed := sandboxScopeFilter(r)
 	for _, ws := range workspaces {
+		if allowed != nil && ws.AttachedVM != nil && !allowed(*ws.AttachedVM) {
+			continue
+		}
 		resp.Workspaces = append(resp.Workspaces, workspaceToV1(ws))
 	}
 	writeJSON(w, http.StatusOK, resp)
@@ -2634,7 +2778,11 @@ func (api *ControlAPI) handleSessionList(w http.ResponseWriter, r *http.Request)
 		return
 	}
 	resp := V1SessionsResponse{Sessions: make([]V1SessionResponse, 0, len(sessions))}
+	allowed := sandboxScopeFilter(r)
 	for _, session := range sessions {
+		if allowed != nil && session.CurrentVMID != nil && !allowed(*session.CurrentVMID) {
+			continue
+		}
 		resp.Sessions = append(resp.Sessions, api.sessionToV1(session))
 	}
 	writeJSON(w, http.StatusOK, resp)
@@ -3098,7 +3246,11 @@ func (api *ControlAPI) handleExposureList(w http.ResponseWriter, r *http.Request
 		return
 	}
 	resp := V1ExposuresResponse{Exposures: make([]V1Exposure, 0, len(exposures))}
+	allowed := sandboxScopeFilter(r)
 	for _, exposure := range exposures {
+		if allowed != nil && exposure.VMID > 0 && !allowed(exposure.VMID) {
+			continue
+		}
 		resp.Exposures = append(resp.Exposures, exposureToV1(exposure))
 	}
 	writeJSON(w, http.StatusOK, resp)
@@ -3339,8 +3491,8 @@ func (api *ControlAPI) handleSandboxUpdate(w http.ResponseWriter, r *http.Reques
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	if req.Cores == nil && req.MemoryMB == nil {
-		writeError(w, http.StatusBadRequest, "at least one of cores or memory_mb is required")
+	if req.Cores == nil && req.MemoryMB == nil && req.Tags == nil {
+		writeError(w, http.StatusBadRequest, "at least one of cores, memory_mb, or tags is required")
 		return
 	}
 	if req.Cores != nil && *req.Cores <= 0 {
@@ -3351,6 +3503,17 @@ func (api *ControlAPI) handleSandboxUpdate(w http.ResponseWriter, r *http.Reques
 		writeError(w, http.StatusBadRequest, "memory_mb must be positive")
 		return
 	}
+	// Tags use full-replacement semantics: a non-nil slice replaces the set
+	// (empty slice clears it); omitting the field leaves tags unchanged (M6).
+	var normalizedTags []string
+	if req.Tags != nil {
+		var err error
+		normalizedTags, err = integrations.NormalizeTags(*req.Tags)
+		if err != nil {
+			writeError(w, http.StatusBadRequest, err.Error())
+			return
+		}
+	}
 	if _, err := api.store.GetSandbox(r.Context(), vmid); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			writeError(w, http.StatusNotFound, "sandbox not found")
@@ -3358,6 +3521,18 @@ func (api *ControlAPI) handleSandboxUpdate(w http.ResponseWriter, r *http.Reques
 		}
 		writeError(w, http.StatusInternalServerError, "failed to load sandbox")
 		return
+	}
+	// Persist tags before reconfiguring the VM so a tag-validation failure
+	// does not leave a half-applied resource change (review M6).
+	if req.Tags != nil {
+		if err := api.store.UpdateSandboxTags(r.Context(), vmid, integrations.JoinTags(normalizedTags)); err != nil {
+			if errors.Is(err, sql.ErrNoRows) {
+				writeError(w, http.StatusNotFound, "sandbox not found")
+				return
+			}
+			writeError(w, http.StatusInternalServerError, "failed to update sandbox tags")
+			return
+		}
 	}
 	cfg := proxmox.VMConfig{}
 	payload := map[string]any{}
@@ -3369,14 +3544,18 @@ func (api *ControlAPI) handleSandboxUpdate(w http.ResponseWriter, r *http.Reques
 		cfg.MemoryMB = *req.MemoryMB
 		payload["memory_mb"] = *req.MemoryMB
 	}
-	if err := api.backend.Configure(r.Context(), proxmox.VMID(vmid), cfg); err != nil {
-		switch {
-		case errors.Is(err, proxmox.ErrVMNotFound):
-			writeError(w, http.StatusNotFound, "sandbox VM not found")
-		default:
-			writeError(w, http.StatusInternalServerError, fmt.Sprintf("failed to update sandbox resources: %v", err))
+	// Only reconfigure the VM when resource fields were supplied; a tags-only
+	// update must not touch the underlying compute (review M6).
+	if req.Cores != nil || req.MemoryMB != nil {
+		if err := api.backend.Configure(r.Context(), proxmox.VMID(vmid), cfg); err != nil {
+			switch {
+			case errors.Is(err, proxmox.ErrVMNotFound):
+				writeError(w, http.StatusNotFound, "sandbox VM not found")
+			default:
+				writeError(w, http.StatusInternalServerError, fmt.Sprintf("failed to update sandbox resources: %v", err))
+			}
+			return
 		}
-		return
 	}
 	if err := api.store.TouchSandbox(r.Context(), vmid); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
@@ -3412,6 +3591,10 @@ func (api *ControlAPI) handleSandboxUpdate(w http.ResponseWriter, r *http.Reques
 func (api *ControlAPI) handleSandboxStopAll(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		writeMethodNotAllowed(w, []string{http.MethodPost})
+		return
+	}
+	// Bulk operation: cross-sandbox, denied to any sandbox-scoped token.
+	if !api.authorize(w, r, permSandboxBulk, nil, true) {
 		return
 	}
 	if api.sandboxManager == nil {
@@ -3729,6 +3912,10 @@ func (api *ControlAPI) handleSandboxPrune(w http.ResponseWriter, r *http.Request
 		writeMethodNotAllowed(w, []string{http.MethodPost})
 		return
 	}
+	// Bulk operation: cross-sandbox, denied to any sandbox-scoped token.
+	if !api.authorize(w, r, permSandboxBulk, nil, true) {
+		return
+	}
 	if api.sandboxManager == nil {
 		writeError(w, http.StatusInternalServerError, "sandbox manager unavailable")
 		return
@@ -3921,7 +4108,10 @@ func (api *ControlAPI) acquireWorkspaceLease(ctx context.Context, workspace mode
 	if waitSeconds > 0 {
 		deadline = start.Add(time.Duration(waitSeconds) * time.Second)
 	}
-	backoff := workspaceWaitPollInterval
+	backoff := api.workspaceWaitPoll
+	if backoff <= 0 {
+		backoff = workspaceWaitPollInterval
+	}
 	for {
 		nonce, err := newWorkspaceLeaseNonce(nil)
 		if err != nil {
@@ -3942,6 +4132,9 @@ func (api *ControlAPI) acquireWorkspaceLease(ctx context.Context, workspace mode
 		if api.metrics != nil {
 			api.metrics.IncWorkspaceLeaseContention()
 		}
+		if api.workspaceWaitTick != nil {
+			api.workspaceWaitTick()
+		}
 		if waitSeconds <= 0 {
 			return "", api.now().UTC().Sub(start), ErrWorkspaceLeaseHeld
 		}
@@ -3960,29 +4153,6 @@ func (api *ControlAPI) acquireWorkspaceLease(ctx context.Context, workspace mode
 	}
 }
 
-// allocateFromPool reserves resources from the resource pool for a new sandbox.
-// Returns nil if the pool is not enabled (pass-through mode) or if allocation succeeds.
-// Returns an error describing the resource exhaustion if the pool denies the allocation.
-func (api *ControlAPI) allocateFromPool(_ context.Context, sandbox models.Sandbox, profileName string) error {
-	if api.resourcePool == nil || !api.resourcePool.IsEnabled() {
-		return nil
-	}
-	// Extract resource requirements from the profile.
-	var cores, memoryMB int
-	var allowBurst bool
-	if p, ok := api.profile(profileName); ok {
-		cores, memoryMB, allowBurst = profileResourceAlloc(p)
-	}
-	if cores == 0 && memoryMB == 0 {
-		// No resources specified in profile; let it through without pool check.
-		return nil
-	}
-	if err := api.resourcePool.Allocate(sandbox.VMID, sandbox.Name, profileName, cores, memoryMB, allowBurst); err != nil {
-		return fmt.Errorf("resource pool: %w", err)
-	}
-	return nil
-}
-
 func (api *ControlAPI) sandboxToV1(sb models.Sandbox) V1SandboxResponse {
 	resp := V1SandboxResponse{
 		VMID:          sb.VMID,
@@ -3991,6 +4161,7 @@ func (api *ControlAPI) sandboxToV1(sb models.Sandbox) V1SandboxResponse {
 		Type:          string(sb.Type),
 		Image:         sb.Image,
 		Prompt:        sb.Prompt,
+		Tags:          parseTags(sb.Tags),
 		State:         string(sb.State),
 		IP:            sb.IP,
 		WorkspaceID:   sb.WorkspaceID,
@@ -4322,6 +4493,18 @@ func decodeJSON(w http.ResponseWriter, r *http.Request, dest any) error {
 
 func decodeOptionalJSON(w http.ResponseWriter, r *http.Request, dest any) error {
 	return decodeJSONBody(w, r, dest, true)
+}
+
+// writeJSONDecodeError maps a request-body decode error to the right status:
+// 413 for an oversized body (the bounded decoder wraps reads in
+// http.MaxBytesReader), 400 for any other decode/read failure (review M4).
+func writeJSONDecodeError(w http.ResponseWriter, err error) {
+	var maxErr *http.MaxBytesError
+	if errors.As(err, &maxErr) {
+		writeError(w, http.StatusRequestEntityTooLarge, "request body too large")
+		return
+	}
+	writeError(w, http.StatusBadRequest, err.Error())
 }
 
 func decodeJSONBody(w http.ResponseWriter, r *http.Request, dest any, allowEmpty bool) error {

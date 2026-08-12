@@ -68,7 +68,12 @@ type Config struct {
 	SSHPublicKeyPath        string
 	ProxmoxCommandTimeout   time.Duration
 	ProvisioningTimeout     time.Duration
-	IdleStopEnabled         bool
+	// OrphanGracePeriod is how long a sandbox may remain in a transient
+	// provisioning state (REQUESTED/PROVISIONING/BOOTING) after startup before
+	// the startup orphan sweep reclaims it. Defaults to 2x the provisioning
+	// timeout when unset (review H2).
+	OrphanGracePeriod time.Duration
+	IdleStopEnabled   bool
 	IdleStopInterval        time.Duration
 	IdleStopMinutesDefault  int
 	IdleStopCPUThreshold    float64
@@ -110,6 +115,11 @@ type Config struct {
 	IntegrationEncKey   string // Hex-encoded AES-256 key for encrypting integration secrets at rest
 	// Offline mode for air-gapped deployments
 	Offline bool // When true, block all external network calls (no internet required)
+	// TrustAgentSubnet lets the integration credential proxy serve auto:all
+	// integrations to ANY host in the agent subnet without resolving it to a
+	// registered live sandbox. Insecure: off by default. Enable only on isolated,
+	// fully-trusted subnets (review H4).
+	TrustAgentSubnet bool
 	// Resource pool configuration for sandbox over-commit
 	PoolTotalCores     int           // Total physical CPU cores available for sandboxes (0 = unlimited)
 	PoolTotalMemoryMB  int           // Total physical RAM in MB available for sandboxes (0 = unlimited)
@@ -160,6 +170,7 @@ type FileConfig struct {
 	SSHPublicKeyPath         string   `yaml:"ssh_public_key_path"`
 	ProxmoxCommandTimeout    string   `yaml:"proxmox_command_timeout"`
 	ProvisioningTimeout      string   `yaml:"provisioning_timeout"`
+	OrphanGracePeriod        string   `yaml:"orphan_grace_period"`
 	IdleStopEnabled          *bool    `yaml:"idle_stop_enabled"`
 	IdleStopInterval         string   `yaml:"idle_stop_interval"`
 	IdleStopMinutesDefault   *int     `yaml:"idle_stop_minutes_default"`
@@ -193,6 +204,7 @@ type FileConfig struct {
 	IntegrationsEnabled      *bool    `yaml:"integrations_enabled"`
 	IntegrationEncKey        string   `yaml:"integration_enc_key"`
 	Offline                  *bool    `yaml:"offline"`
+	TrustAgentSubnet         *bool    `yaml:"trust_agent_subnet"`
 	// Resource pool configuration
 	PoolTotalCores    *int     `yaml:"pool_total_cores"`
 	PoolTotalMemoryMB *int     `yaml:"pool_total_memory_mb"`
@@ -442,6 +454,13 @@ func applyFileConfig(cfg *Config, fileCfg FileConfig) error {
 		}
 		cfg.ProvisioningTimeout = timeout
 	}
+	if fileCfg.OrphanGracePeriod != "" {
+		timeout, err := parseDurationField(fileCfg.OrphanGracePeriod, "orphan_grace_period")
+		if err != nil {
+			return err
+		}
+		cfg.OrphanGracePeriod = timeout
+	}
 	if fileCfg.IdleStopEnabled != nil {
 		cfg.IdleStopEnabled = *fileCfg.IdleStopEnabled
 	}
@@ -545,6 +564,9 @@ func applyFileConfig(cfg *Config, fileCfg FileConfig) error {
 	if fileCfg.Offline != nil {
 		cfg.Offline = *fileCfg.Offline
 	}
+	if fileCfg.TrustAgentSubnet != nil {
+		cfg.TrustAgentSubnet = *fileCfg.TrustAgentSubnet
+	}
 	if fileCfg.PoolTotalCores != nil {
 		cfg.PoolTotalCores = *fileCfg.PoolTotalCores
 	}
@@ -591,6 +613,27 @@ func applyFileConfig(cfg *Config, fileCfg FileConfig) error {
 //   - URLs must use http or https schemes
 //
 // Returns an error describing the first validation failure encountered.
+// OrphanGracePeriodOrDefault returns the configured startup orphan grace
+// period, or a sensible default of 2x the provisioning timeout (floor 5m, cap
+// 2h) when unset (review H2).
+func (c Config) OrphanGracePeriodOrDefault() time.Duration {
+	if c.OrphanGracePeriod > 0 {
+		return c.OrphanGracePeriod
+	}
+	const (
+		floor = 5 * time.Minute
+		capv  = 2 * time.Hour
+	)
+	d := 2 * c.ProvisioningTimeout
+	if d < floor {
+		d = floor
+	}
+	if d > capv {
+		d = capv
+	}
+	return d
+}
+
 func (c Config) Validate() error {
 	if c.ConfigPath == "" {
 		return fmt.Errorf("config_path is required")

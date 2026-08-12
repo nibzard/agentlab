@@ -1,11 +1,17 @@
 package api
 
 import (
+	"bytes"
 	"encoding/json"
+	"io"
+	"log"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestBuildExecArgs(t *testing.T) {
@@ -120,8 +126,8 @@ func TestExecAPI_HandleExec_MissingCommand(t *testing.T) {
 	if err := json.NewDecoder(rec.Body).Decode(&resp); err != nil {
 		t.Fatalf("decode response: %v", err)
 	}
-	if resp["error"] != "command is required" {
-		t.Errorf("error = %q, want %q", resp["error"], "command is required")
+	if resp["error"] != "command or args is required" {
+		t.Errorf("error = %q, want %q", resp["error"], "command or args is required")
 	}
 }
 
@@ -416,5 +422,155 @@ func TestExecAPI_HandleExec_UnknownFields(t *testing.T) {
 	// Should reject unknown fields.
 	if rec.Code != http.StatusBadRequest {
 		t.Fatalf("got status %d, want %d; body: %s", rec.Code, http.StatusBadRequest, rec.Body.String())
+	}
+}
+
+// TestCommandSummary verifies that a log-safe summary of a CLI argv never
+// includes flags or their values — so a secret passed via --value cannot reach
+// the logs (review H1).
+func TestCommandSummary(t *testing.T) {
+	cases := []struct {
+		name string
+		args []string
+		want string
+	}{
+		{"secret value flag", []string{"secrets", "set-env", "--value", "TOPSECRET"}, "secrets set-env"},
+		{"secret equals form", []string{"secrets", "set-env", "--value=TOPSECRET"}, "secrets set-env"},
+		{"command and subcommand", []string{"sandbox", "list", "--json"}, "sandbox list"},
+		{"leading global flag", []string{"--json", "status"}, "status"},
+		{"single word", []string{"status"}, "status"},
+		{"third positional dropped", []string{"job", "run", "repo-url", "--branch", "x"}, "job run"},
+		{"only flags", []string{"--json", "--socket", "/x"}, "<unknown>"},
+		{"global token value skipped", []string{"--token", "tskey-secret-123", "sandbox", "list"}, "sandbox list"},
+		{"global token equals form", []string{"--token=tskey-secret-123", "status"}, "status"},
+		{"empty", []string{}, "<unknown>"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := CommandSummary(tc.args); got != tc.want {
+				t.Errorf("CommandSummary(%v) = %q, want %q", tc.args, got, tc.want)
+			}
+			if tc.name == "secret value flag" || tc.name == "secret equals form" {
+				joined := strings.Join(tc.args, " ")
+				if out := CommandSummary(tc.args); strings.Contains(out, "TOPSECRET") {
+					t.Errorf("summary leaked secret: %q (from %q)", out, joined)
+				}
+			}
+		})
+	}
+}
+
+func TestApplyExecTimeout(t *testing.T) {
+	cases := []struct {
+		requested int
+		want      time.Duration
+	}{
+		{0, defaultExecTimeout},            // zero → server default
+		{-5, defaultExecTimeout},           // negative → server default
+		{30, 30 * time.Second},             // normal
+		{3600, maxExecTimeout},             // exactly the ceiling
+		{999999, maxExecTimeout},           // above ceiling → clamped
+	}
+	for _, tc := range cases {
+		if got := applyExecTimeout(tc.requested); got != tc.want {
+			t.Errorf("applyExecTimeout(%d) = %v, want %v", tc.requested, got, tc.want)
+		}
+	}
+}
+
+// TestExecAPI_LogSummaryOmitsSecretArg proves the exec log line (capture path)
+// contains the command summary but never the secret value carried in an
+// argument (review H1 regression).
+func TestExecAPI_LogSummaryOmitsSecretArg(t *testing.T) {
+	var buf bytes.Buffer
+	api := NewExecAPI("echo", "/tmp/test.sock", log.New(&buf, "", 0))
+	mux := http.NewServeMux()
+	api.Register(mux)
+
+	const secret = "SUPER-SECRET-VALUE-999"
+	body := `{"command": "secrets set-env --name TOKEN --value ` + secret + `"}`
+	req := httptest.NewRequest(http.MethodPost, "/v1/exec", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("got status %d, want 200; body: %s", rec.Code, rec.Body.String())
+	}
+	logged := buf.String()
+	if strings.Contains(logged, secret) {
+		t.Errorf("daemon log leaked secret value: %s", logged)
+	}
+	if !strings.Contains(logged, "secrets set-env") {
+		t.Errorf("daemon log missing command summary: %s", logged)
+	}
+}
+
+// writeFloodScript writes an executable shell script that ignores its arguments
+// and floods stdout and stderr concurrently, to exercise the streaming fan-out.
+func writeFloodScript(t *testing.T, body string) string {
+	t.Helper()
+	path := filepath.Join(t.TempDir(), "flood.sh")
+	content := "#!/bin/sh\n" + body + "\n"
+	if err := os.WriteFile(path, []byte(content), 0o755); err != nil {
+		t.Fatalf("write script: %v", err)
+	}
+	return path
+}
+
+// TestExecAPI_HandleExec_StreamingBothStreams exercises the concurrent
+// stdout/stderr fan-out through the single writer goroutine (review H1). Run
+// with -race to detect any concurrent ResponseWriter use.
+func TestExecAPI_HandleExec_StreamingBothStreams(t *testing.T) {
+	script := writeFloodScript(t, "for i in 1 2 3 4 5 6 7 8 9 10; do echo out$i; echo err$i >&2; done")
+	api := NewExecAPI(script, "/tmp/test.sock", log.New(io.Discard, "", 0))
+	mux := http.NewServeMux()
+	api.Register(mux)
+
+	body := `{"command": "run", "stream": true}`
+	req := httptest.NewRequest(http.MethodPost, "/v1/exec", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("got status %d, want 200; body: %s", rec.Code, rec.Body.String())
+	}
+	out := rec.Body.String()
+	if !strings.Contains(out, `"type":"exit"`) {
+		t.Errorf("missing exit event: %s", out)
+	}
+	if !strings.Contains(out, "out1") || !strings.Contains(out, "err1") {
+		t.Errorf("missing concurrent stdout/stderr output: %s", out)
+	}
+}
+
+// TestExecAPI_HandleExec_StreamingOutputCap verifies that streaming enforces a
+// total output limit rather than streaming unbounded output (review H1).
+func TestExecAPI_HandleExec_StreamingOutputCap(t *testing.T) {
+	script := writeFloodScript(t, "while true; do echo xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx; done")
+	api := NewExecAPI(script, "/tmp/test.sock", log.New(io.Discard, "", 0))
+	mux := http.NewServeMux()
+	api.Register(mux)
+
+	// Keep the timeout short so the runaway process is reaped promptly after
+	// the cap is reached.
+	body := `{"command": "run", "stream": true, "timeout": 2}`
+	req := httptest.NewRequest(http.MethodPost, "/v1/exec", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("got status %d, want 200; body: %s", rec.Code, rec.Body.String())
+	}
+	out := rec.Body.String()
+	if !strings.Contains(out, "output limit exceeded") {
+		t.Errorf("expected output cap message: %s", out)
+	}
+	// The cap (4MB) plus SSE framing must keep the response well below, say,
+	// 16MB — proving output was truncated, not streamed forever.
+	if len(out) > 16<<20 {
+		t.Errorf("streamed response far exceeded cap: %d bytes", len(out))
 	}
 }

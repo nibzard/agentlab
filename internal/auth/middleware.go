@@ -70,6 +70,9 @@ func NewMiddlewareWithStore(store *KeyStore, legacyToken string, allowCIDRs []st
 
 // Wrap returns a handler that enforces authentication for /v1/* requests.
 // Health and non-v1 endpoints are passed through without auth.
+//
+// This performs authentication only. It does NOT enforce a token's declared
+// command/sandbox scopes — see WrapNetwork for the network path.
 func (m *Middleware) Wrap(next http.Handler) http.Handler {
 	if m == nil || next == nil {
 		return next
@@ -79,36 +82,85 @@ func (m *Middleware) Wrap(next http.Handler) http.Handler {
 			writeAuthError(w, http.StatusBadRequest, "invalid request")
 			return
 		}
-		path := r.URL.Path
-		// Health checks and non-v1 paths are exempt.
-		if path == "/healthz" || (path != "/v1" && !strings.HasPrefix(path, "/v1/")) {
-			next.ServeHTTP(w, r)
+		identity, ok := m.authenticateRequest(w, r)
+		if !ok {
 			return
 		}
-		// Check CIDR allowlist.
-		if !m.remoteAllowed(r.RemoteAddr) {
-			writeAuthError(w, http.StatusForbidden, "remote address not allowed")
-			return
-		}
-		// Extract token from Authorization header.
-		tokenStr := extractBearerToken(r.Header.Get("Authorization"))
-		if tokenStr == "" {
-			w.Header().Set("WWW-Authenticate", "Bearer")
-			writeAuthError(w, http.StatusUnauthorized, "missing bearer token")
-			return
-		}
-		// Try SSH-signed token first, then fall back to legacy bearer token.
-		identity, err := m.authenticate(tokenStr)
-		if err != nil {
-			w.Header().Set("WWW-Authenticate", "Bearer")
-			writeAuthError(w, http.StatusUnauthorized, err.Error())
-			return
-		}
-		// Store identity and token in request context for downstream handlers.
 		ctx := r.Context()
-		ctx = WithIdentity(ctx, identity)
+		if identity != nil {
+			ctx = WithIdentity(ctx, identity)
+		}
 		next.ServeHTTP(w, r.WithContext(ctx))
 	})
+}
+
+// WrapNetwork returns a handler that authenticates /v1/* requests on the TCP
+// control listener and injects the authenticated identity into the request
+// context. Per-route command and sandbox-scope authorization is enforced by
+// the daemon handlers via auth.FromContext + ControlAPI.authorize (see
+// internal/daemon/authz.go); this wrapper performs authentication only.
+//
+// Scoped SSH-signed tokens are admitted here and constrained by the handlers.
+// The trusted local Unix socket does not use this wrapper: it has no identity
+// in context, so ControlAPI.authorize treats it as a trusted full-access path.
+func (m *Middleware) WrapNetwork(next http.Handler) http.Handler {
+	if m == nil || next == nil {
+		return next
+	}
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r == nil || r.URL == nil {
+			writeAuthError(w, http.StatusBadRequest, "invalid request")
+			return
+		}
+		identity, ok := m.authenticateRequest(w, r)
+		if !ok {
+			return
+		}
+		ctx := r.Context()
+		if identity != nil {
+			ctx = WithIdentity(ctx, identity)
+		}
+		next.ServeHTTP(w, r.WithContext(ctx))
+	})
+}
+
+// authenticateRequest performs CIDR and bearer-token authentication for /v1/*
+// requests, shared by Wrap and WrapNetwork. Health and non-v1 paths bypass
+// authentication. On failure it writes the response and returns (nil, false).
+// On bypass it returns (nil, true) so the caller continues without injecting
+// an identity. On success it returns the identity and (nil-safe) true.
+func (m *Middleware) authenticateRequest(w http.ResponseWriter, r *http.Request) (*RequestIdentity, bool) {
+	path := r.URL.Path
+	// Health checks and non-v1 paths are exempt.
+	if path == "/healthz" || (path != "/v1" && !strings.HasPrefix(path, "/v1/")) {
+		return nil, true
+	}
+	// Check CIDR allowlist.
+	if !m.remoteAllowed(r.RemoteAddr) {
+		writeAuthError(w, http.StatusForbidden, "remote address not allowed")
+		return nil, false
+	}
+	// Extract token from Authorization header.
+	tokenStr := extractBearerToken(r.Header.Get("Authorization"))
+	if tokenStr == "" {
+		w.Header().Set("WWW-Authenticate", "Bearer")
+		writeAuthError(w, http.StatusUnauthorized, "missing bearer token")
+		return nil, false
+	}
+	// Try SSH-signed token first, then fall back to legacy bearer token.
+	identity, err := m.authenticate(tokenStr)
+	if err != nil {
+		w.Header().Set("WWW-Authenticate", "Bearer")
+		writeAuthError(w, http.StatusUnauthorized, err.Error())
+		return nil, false
+	}
+	return identity, true
+}
+
+// isScopedToken reports whether tok advertises anything less than full access:
+// a non-empty sandbox Scope, or a Commands claim that does not include "*".
+func isScopedToken(tok *Token) bool {
+	return !tok.IsFullAccess()
 }
 
 // authenticate attempts to authenticate the given token string.

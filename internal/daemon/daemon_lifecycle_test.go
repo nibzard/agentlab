@@ -12,9 +12,37 @@ import (
 	"github.com/agentlab/agentlab/internal/config"
 	"github.com/agentlab/agentlab/internal/db"
 	"github.com/agentlab/agentlab/internal/models"
+	testutil "github.com/agentlab/agentlab/internal/testing"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+// waitForServeReady polls the bootstrap /healthz endpoint until it responds or
+// the deadline expires. It replaces fixed startup sleeps (review: timing-
+// dependent tests) and fails fast with a clear message if the daemon never
+// becomes ready.
+func waitForServeReady(t *testing.T, service *Service) {
+	t.Helper()
+	if service == nil || service.bootstrapListener == nil {
+		t.Fatal("daemon bootstrap listener not configured")
+	}
+	url := "http://" + service.bootstrapListener.Addr().String() + "/healthz"
+	client := &http.Client{Timeout: time.Second}
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		resp, err := client.Get(url)
+		if err == nil {
+			resp.Body.Close()
+			if resp.StatusCode == http.StatusOK {
+				return
+			}
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("daemon bootstrap endpoint %s not ready within 5s", url)
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+}
 
 // Helper function to create a test config
 func testConfig(t *testing.T) config.Config {
@@ -22,7 +50,7 @@ func testConfig(t *testing.T) config.Config {
 	temp := t.TempDir()
 	return config.Config{
 		RunDir:                  filepath.Join(temp, "run"),
-		SocketPath:              filepath.Join(temp, "run", "agentlabd.sock"),
+		SocketPath:              filepath.Join(testutil.ShortSocketDir(t), "agentlabd.sock"),
 		DBPath:                  filepath.Join(temp, "agentlab.db"),
 		BootstrapListen:         "127.0.0.1:0", // Use :0 to get random available port
 		ArtifactListen:          "127.0.0.1:0",
@@ -394,8 +422,8 @@ func TestServe_GracefulShutdown(t *testing.T) {
 		errCh <- service.Serve(ctx)
 	}()
 
-	// Give the server time to start
-	time.Sleep(100 * time.Millisecond)
+	// Wait until the daemon is accepting requests (readiness poll, not a fixed sleep).
+	waitForServeReady(t, service)
 
 	// Verify servers are running by making a request
 	client := &http.Client{Timeout: time.Second}
@@ -439,8 +467,8 @@ func TestServe_ShutdownTimeout(t *testing.T) {
 		errCh <- service.Serve(ctx)
 	}()
 
-	// Give the server time to start
-	time.Sleep(100 * time.Millisecond)
+	// Wait until the daemon is accepting requests (readiness poll, not a fixed sleep).
+	waitForServeReady(t, service)
 
 	// Trigger shutdown
 	cancel()
@@ -511,8 +539,8 @@ func TestShutdown_SocketRemoval(t *testing.T) {
 		errCh <- service.Serve(ctx)
 	}()
 
-	// Give server time to start
-	time.Sleep(100 * time.Millisecond)
+	// Wait until the daemon is accepting requests (readiness poll, not a fixed sleep).
+	waitForServeReady(t, service)
 
 	// Shutdown
 	cancel()
@@ -572,8 +600,8 @@ func TestMetricsCleanup_AllListeners(t *testing.T) {
 		errCh <- service.Serve(ctx)
 	}()
 
-	// Give server time to start
-	time.Sleep(100 * time.Millisecond)
+	// Wait until the daemon is accepting requests (readiness poll, not a fixed sleep).
+	waitForServeReady(t, service)
 
 	// Shutdown
 	cancel()
@@ -714,8 +742,8 @@ func TestService_SocketCommunication(t *testing.T) {
 		cleanupService(t, service, cfg)
 	})
 
-	// Give server time to start
-	time.Sleep(100 * time.Millisecond)
+	// Wait until the daemon is accepting requests (readiness poll, not a fixed sleep).
+	waitForServeReady(t, service)
 
 	// Test Unix socket connection
 	conn, err := net.Dial("unix", cfg.SocketPath)
