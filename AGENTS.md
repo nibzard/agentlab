@@ -4,6 +4,24 @@ Guidance for AI agents and contributors who work in this repository. This
 file covers the release pipeline. See `README.md` and `docs/` for the rest
 of the project.
 
+## Repository identity
+
+The code lives at `nibzard/agentlab` on GitHub. The Go module path is
+`github.com/agentlab/agentlab`, which is intentionally different. Do not
+change the module path. It appears in `go.mod`, the package imports, and
+the `-ldflags` in the Makefile and `.goreleaser.yaml`.
+
+User-facing URLs point at the real repo:
+
+- `scripts/install.sh` sets `REPO="nibzard/agentlab"`.
+- The README, `docs/releases.md`, and `CONTRIBUTING.md` link to
+  `nibzard/agentlab`.
+- The release workflow publishes to `nibzard/agentlab` through
+  `GITHUB_TOKEN`, which always targets the current repository.
+
+If you rename the org or move the repo, change the module path, the `REPO`
+variable, and the doc URLs together.
+
 ## Release pipeline
 
 Releases are automated. A push of a `v*` git tag triggers the `release`
