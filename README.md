@@ -166,6 +166,7 @@ For full operator setup, see the runbook below.
 - Secrets bundles: `docs/secrets.md`
 - Local control API: `docs/api.md`
 - Troubleshooting: `docs/troubleshooting.md`
+- Releases: `docs/releases.md`
 
 ## Architecture Overview
 
@@ -1077,6 +1078,31 @@ systemctl status agentlabd
 # Use correct socket path
 agentlab --socket /run/agentlab/agentlabd.sock status
 ```
+
+## Releases
+
+agentlab ships as prebuilt binaries. Push a `v*` tag and the
+[release workflow](.github/workflows/release.yml) builds and publishes a
+GitHub Release with [GoReleaser](.goreleaser.yaml). No manual packaging
+is needed.
+
+Install the CLI from the latest release:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/agentlab/agentlab/main/scripts/install.sh | bash
+```
+
+Each release contains:
+
+- `agentlab_<tag>_<os>-<arch>.tar.gz` - the CLI, for `linux` and `darwin`
+  on `amd64` and `arm64`.
+- `agentlabd_<tag>_<os>-<arch>.tar.gz` - the daemon, for `linux` on `amd64`
+  and `arm64`.
+- `checksums.txt` - SHA-256 sums for every archive.
+
+agentlab follows semantic versioning. Pre-release tags such as
+`v1.2.3-rc.1` publish as prereleases. See `docs/releases.md` for the full
+procedure and `docs/upgrading.md` for the versioning policy.
 
 ## Development
 

@@ -1,0 +1,72 @@
+# GoReleaser config for agentlab.
+#
+# Publishes release archives when a v* tag is pushed
+# (see .github/workflows/release.yml). Validate locally:
+#
+#   make release-check        # schema check
+#   make release-snapshot     # full build into dist/, no publish
+#
+# The agentlab archive name matches scripts/install.sh exactly, so the
+# one-liner installer works against published releases:
+#   agentlab_<tag>_<os>-<arch>.tar.gz
+#   (for example, agentlab_v0.3.0_linux-amd64.tar.gz)
+
+version: 2
+
+project_name: agentlab
+
+builds:
+  - id: agentlab
+    main: ./cmd/agentlab
+    binary: agentlab
+    env:
+      - CGO_ENABLED=0
+    goos: [linux, darwin]
+    goarch: [amd64, arm64]
+    ldflags:
+      - -s -w
+      - -X github.com/agentlab/agentlab/internal/buildinfo.Version={{.Version}}
+      - -X github.com/agentlab/agentlab/internal/buildinfo.Commit={{.ShortCommit}}
+      - -X github.com/agentlab/agentlab/internal/buildinfo.Date={{.Date}}
+
+  - id: agentlabd
+    main: ./cmd/agentlabd
+    binary: agentlabd
+    env:
+      - CGO_ENABLED=0
+    goos: [linux]
+    goarch: [amd64, arm64]
+    ldflags:
+      - -s -w
+      - -X github.com/agentlab/agentlab/internal/buildinfo.Version={{.Version}}
+      - -X github.com/agentlab/agentlab/internal/buildinfo.Commit={{.ShortCommit}}
+      - -X github.com/agentlab/agentlab/internal/buildinfo.Date={{.Date}}
+
+archives:
+  - id: agentlab
+    ids: [agentlab]
+    name_template: '{{ .ProjectName }}_{{ .Tag }}_{{ .Os }}-{{ .Arch }}'
+    formats: [tar.gz]
+  - id: agentlabd
+    ids: [agentlabd]
+    name_template: 'agentlabd_{{ .Tag }}_{{ .Os }}-{{ .Arch }}'
+    formats: [tar.gz]
+
+checksum:
+  name_template: 'checksums.txt'
+
+snapshot:
+  version_template: '{{ incpatch .Version }}-next'
+
+changelog:
+  sort: asc
+  use: github
+  filters:
+    exclude:
+      - '^Merge'
+      - '^chore:'
+      - '^docs:'
+
+release:
+  prerelease: auto
+  draft: false

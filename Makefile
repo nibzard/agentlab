@@ -11,6 +11,7 @@ STATICCHECK_VERSION ?= v0.6.1
 GOVULNCHECK_VERSION ?= v1.1.4
 GOVULNCHECK_GOTOOLCHAIN ?= go1.25.8
 FUZZ_TIME ?= 10s
+GORELEASER ?= goreleaser
 STATICCHECK_BIN := $(TOOLS_DIR)/staticcheck
 GOVULNCHECK_BIN := $(TOOLS_DIR)/govulncheck
 
@@ -24,7 +25,7 @@ LDFLAGS := -s -w \
 	-X 'github.com/agentlab/agentlab/internal/buildinfo.Commit=$(COMMIT)' \
 	-X 'github.com/agentlab/agentlab/internal/buildinfo.Date=$(DATE)'
 
-.PHONY: all build build-ssh-gateway lint quality staticcheck govulncheck test test-ci test-coverage test-race test-integration test-all fuzz coverage-audit coverage-html docs-tools docs-lint docs-links docs-typos docs-snippets docs-check docs-gen docs-verify clean
+.PHONY: all build build-ssh-gateway lint quality staticcheck govulncheck test test-ci test-coverage test-race test-integration test-all fuzz coverage-audit coverage-html docs-tools docs-lint docs-links docs-typos docs-snippets docs-check docs-gen docs-verify release-snapshot release-check clean
 
 # Note: This project requires Go 1.24.0 or higher. Running 'go version' will show the installed version.
 
@@ -148,6 +149,12 @@ docs-verify:
 		git status --porcelain -- docs/cli.md; \
 		exit 1; \
 	fi
+
+release-snapshot:
+	$(GORELEASER) release --snapshot --clean
+
+release-check:
+	$(GORELEASER) check
 
 clean:
 	rm -rf $(BIN_DIR) $(DIST_DIR)
