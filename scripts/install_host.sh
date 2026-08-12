@@ -195,7 +195,7 @@ skill_bundle_matches_local() {
   if [[ "$(skill_bundle_name)" != "$target_name" ]]; then
     return 1
   fi
-  if [[ "$(skill_bundle_version "${SKILL_MANIFEST_PATH}") != "$target_version" ]]; then
+  if [[ "$(skill_bundle_version "${SKILL_MANIFEST_PATH}")" != "$target_version" ]]; then
     return 1
   fi
   if [[ "$CLAUDE_SKILL_FORCE" == "1" ]]; then
