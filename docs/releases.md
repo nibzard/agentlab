@@ -17,7 +17,7 @@ The CLI archive name matches `scripts/install.sh`, so the one-liner
 installer works against a published release:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/agentlab/agentlab/main/scripts/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/nibzard/agentlab/main/scripts/install.sh | bash
 ```
 
 ## Versioning

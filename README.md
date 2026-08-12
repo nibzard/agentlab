@@ -1089,7 +1089,7 @@ is needed.
 Install the CLI from the latest release:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/agentlab/agentlab/main/scripts/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/nibzard/agentlab/main/scripts/install.sh | bash
 ```
 
 Each release contains:

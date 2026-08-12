@@ -53,7 +53,7 @@ git clone https://github.com/YOUR_USERNAME/agentlab.git
 cd agentlab
 
 # Add the upstream remote
-git remote add upstream https://github.com/agentlab/agentlab.git
+git remote add upstream https://github.com/nibzard/agentlab.git
 ```
 
 ### 2. Install Dependencies

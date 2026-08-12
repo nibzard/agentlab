@@ -7,13 +7,13 @@
 #   wget -qO- https://agentlab.dev/install.sh | bash
 #
 # Or from GitHub releases:
-#   curl -fsSL https://raw.githubusercontent.com/agentlab/agentlab/main/scripts/install.sh | bash
+#   curl -fsSL https://raw.githubusercontent.com/nibzard/agentlab/main/scripts/install.sh | bash
 set -euo pipefail
 
 VERSION="${AGENTLAB_VERSION:-latest}"
 PREFIX="${AGENTLAB_PREFIX:-/usr/local}"
 BIN_DIR="${AGENTLAB_BIN_DIR:-${PREFIX}/bin}"
-REPO="agentlab/agentlab"
+REPO="nibzard/agentlab"
 GITHUB_BASE="https://github.com/${REPO}"
 
 RED='\033[0;31m'
