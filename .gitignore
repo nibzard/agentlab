@@ -7,3 +7,7 @@
 /internal/daemon/*.patch
 /coverage.out
 /coverage.html
+
+# Docs build and link-check artifacts (CI rebuilds from source)
+/site/
+/.lycheecache

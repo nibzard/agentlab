@@ -159,14 +159,15 @@ For full operator setup, see the runbook below.
 
 ## Documentation
 
-- **Architecture Diagrams**: `docs/architecture.md` - Comprehensive system architecture, state machines, and data flow diagrams
-- **State Model & Safety Guide**: `docs/state-model.md` - Workspaces vs sessions vs sandboxes, persistence, and recovery workflows
-- Remote CLI quickstart: `docs/remote-cli.md`
-- Runbook: `docs/runbook.md`
-- Secrets bundles: `docs/secrets.md`
-- Local control API: `docs/api.md`
-- Troubleshooting: `docs/troubleshooting.md`
-- Releases: `docs/releases.md`
+The documentation is organized with the [Diátaxis](https://diataxis.fr/) framework and published as a MkDocs site. Browse it under [`docs/`](docs/):
+
+- **Architecture**: [`docs/explanation/architecture.md`](docs/explanation/architecture.md) - system architecture, components, and data flow
+- **State model**: [`docs/reference/state-machine.md`](docs/reference/state-machine.md) - sandbox, workspace, session, and job states
+- **Remote CLI**: [`docs/how-to/connect-remote-daemon-over-tailnet.md`](docs/how-to/connect-remote-daemon-over-tailnet.md)
+- **Runbook and troubleshooting**: [`docs/how-to/debug-a-stuck-sandbox.md`](docs/how-to/debug-a-stuck-sandbox.md)
+- **Secrets**: [`docs/reference/secrets.md`](docs/reference/secrets.md)
+- **Local control API**: [`docs/reference/http-api.md`](docs/reference/http-api.md)
+- **Releases**: [`docs/reference/releases.md`](docs/reference/releases.md)
 
 ## Architecture Overview
 
@@ -199,7 +200,7 @@ graph TB
 - Database schema and relationships
 - Request lifecycle and error handling
 
-See [docs/architecture.md](docs/architecture.md)
+See [docs/explanation/architecture.md](docs/explanation/architecture.md)
 
 ## Sandbox States
 
@@ -1101,8 +1102,8 @@ Each release contains:
 - `checksums.txt` - SHA-256 sums for every archive.
 
 agentlab follows semantic versioning. Pre-release tags such as
-`v1.2.3-rc.1` publish as prereleases. See `docs/releases.md` for the full
-procedure and `docs/upgrading.md` for the versioning policy.
+`v1.2.3-rc.1` publish as prereleases. See `docs/reference/releases.md` for the
+full procedure and `docs/how-to/upgrade-and-migrate.md` for upgrade steps.
 
 ## Development
 

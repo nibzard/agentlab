@@ -14,7 +14,7 @@ the `-ldflags` in the Makefile and `.goreleaser.yaml`.
 User-facing URLs point at the real repo:
 
 - `scripts/install.sh` sets `REPO="nibzard/agentlab"`.
-- The README, `docs/releases.md`, and `CONTRIBUTING.md` link to
+- The README, `docs/reference/releases.md`, and `CONTRIBUTING.md` link to
   `nibzard/agentlab`.
 - The release workflow publishes to `nibzard/agentlab` through
   `GITHUB_TOKEN`, which always targets the current repository.

@@ -2,7 +2,8 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
-OUT="$ROOT/docs/cli.md"
+OUT="$ROOT/docs/reference/cli.md"
+mkdir -p "$(dirname "$OUT")"
 
 if ! command -v go >/dev/null 2>&1; then
   echo "go is required to generate CLI docs" >&2

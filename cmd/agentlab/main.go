@@ -63,7 +63,7 @@ Usage:
   agentlab --version
   agentlab [--endpoint URL] [--token TOKEN] [--socket PATH] [--json] [--timeout DURATION] status
   agentlab [--endpoint URL] [--token TOKEN] [--socket PATH] [--json] [--timeout DURATION] schema
-  agentlab [--endpoint URL] [--token TOKEN] [--socket PATH] [--json] [--timeout DURATION] init [--apply] [--smoke-test] [--assets <path>] [--force] [--control-port <port>] [--control-token <token>] [--rotate-control-token] [--tailscale-serve|--no-tailscale-serve]
+  agentlab [--endpoint URL] [--token TOKEN] [--socket PATH] [--json] [--timeout DURATION] init [--apply] [--backend <backend>] [--smoke-test] [--assets <path>] [--force] [--control-port <port>] [--control-token <token>] [--rotate-control-token] [--tailscale-serve|--no-tailscale-serve]
   agentlab [--json] bootstrap --host <ssh_host> [--ssh-user <user>] [--ssh-port <port>] [--identity <path>] [--assets <path>] [--control-port <port>] [--control-token <token>] [--rotate-control-token] [--tailscale-serve|--no-tailscale-serve] [--tailscale-authkey <key>] [--tailscale-hostname <name>] [--tailscale-tailnet <name>] [--tailscale-api-key <key>] [--tailscale-oauth-client-id <id>] [--tailscale-oauth-client-secret <secret>] [--tailscale-oauth-scopes <scopes>] [--release-url <url>] [--agentlab-bin <path>] [--agentlabd-bin <path>] [--agentlab-url <url>] [--agentlabd-url <url>] [--force] [--keep-temp] [--verbose]
   agentlab [--endpoint URL] [--token TOKEN] [--socket PATH] [--json] [--timeout DURATION] job run --repo <url> --task <task> --profile <profile> [--ref <ref>] [--branch <branch>] [--mode <mode>] [--ttl <ttl>] [--keepalive] [--workspace <id|name|new:name>] [--workspace-create <name>] [--workspace-size <size>] [--workspace-storage <storage>] [--workspace-wait <duration>] [--stateful]
   agentlab [--endpoint URL] [--token TOKEN] [--socket PATH] [--json] [--timeout DURATION] job validate --repo <url> --task <task> --profile <profile> [--ref <ref>] [--branch <branch>] [--mode <mode>] [--ttl <ttl>] [--keepalive] [--workspace <id|name|new:name>] [--workspace-create <name>] [--workspace-size <size>] [--workspace-storage <storage>] [--workspace-wait <duration>] [--stateful]
@@ -71,13 +71,13 @@ Usage:
   agentlab [--endpoint URL] [--token TOKEN] [--socket PATH] [--json] [--timeout DURATION] job artifacts <job_id>
   agentlab [--endpoint URL] [--token TOKEN] [--socket PATH] [--json] [--timeout DURATION] job artifacts download <job_id> [--out <path>] [--path <path>] [--name <name>] [--latest] [--bundle]
   agentlab [--endpoint URL] [--token TOKEN] [--socket PATH] [--json] [--timeout DURATION] job doctor <job_id> [--out <path>]
-  agentlab [--endpoint URL] [--token TOKEN] [--socket PATH] [--json] [--timeout DURATION] sandbox new [--name <name>] [--ttl <ttl>] [--keepalive] [--workspace <id>] [--vmid <vmid>] [--job <id>] [--and-ssh] [--type <type>] [--image <image>] [--prompt <text>] (--profile <profile> | +mod [+mod...])
+  agentlab [--endpoint URL] [--token TOKEN] [--socket PATH] [--json] [--timeout DURATION] sandbox new [--name <name>] [--ttl <ttl>] [--keepalive] [--workspace <id>] [--vmid <vmid>] [--job <id>] [--and-ssh] [--type <type>] [--image <image>] [--prompt <text>] [--tag <tag>...] (--profile <profile> | +mod [+mod...])
   agentlab [--endpoint URL] [--token TOKEN] [--socket PATH] [--json] [--timeout DURATION] sandbox validate [--name <name>] [--ttl <ttl>] [--keepalive] [--workspace <id>] [--vmid <vmid>] [--job <id>] (+mod [+mod...] | --profile <profile>)
   agentlab [--endpoint URL] [--token TOKEN] [--socket PATH] [--json] [--timeout DURATION] sandbox list
   agentlab [--endpoint URL] [--token TOKEN] [--socket PATH] [--json] [--timeout DURATION] sandbox inventory
   agentlab [--endpoint URL] [--token TOKEN] [--socket PATH] [--json] [--timeout DURATION] sandbox reconcile [--apply]
   agentlab [--endpoint URL] [--token TOKEN] [--socket PATH] [--json] [--timeout DURATION] sandbox show <vmid>
-  agentlab [--endpoint URL] [--token TOKEN] [--socket PATH] [--json] [--timeout DURATION] sandbox update [--cores <n>] [--memory <size>] <vmid>
+  agentlab [--endpoint URL] [--token TOKEN] [--socket PATH] [--json] [--timeout DURATION] sandbox update [--cores <n>] [--memory <size>] [--tag <tag>...] [--clear-tags] <vmid>
   agentlab [--endpoint URL] [--token TOKEN] [--socket PATH] [--json] [--timeout DURATION] sandbox start <vmid>
   agentlab [--endpoint URL] [--token TOKEN] [--socket PATH] [--json] [--timeout DURATION] sandbox stop <vmid>
   agentlab [--endpoint URL] [--token TOKEN] [--socket PATH] [--json] [--timeout DURATION] sandbox stop --all [--force]
@@ -116,6 +116,10 @@ Usage:
   agentlab [--endpoint URL] [--token TOKEN] [--socket PATH] [--json] [--timeout DURATION] session doctor <session> [--out <path>]
   agentlab [--endpoint URL] [--token TOKEN] [--socket PATH] [--json] [--timeout DURATION] profile list
   agentlab [--endpoint URL] [--token TOKEN] [--socket PATH] [--json] [--timeout DURATION] secrets <show|validate|set-env|set-git|add-ssh-key|remove-ssh-key|set-tailscale|clear-tailscale> [...]
+  agentlab [--endpoint URL] [--token TOKEN] [--socket PATH] [--json] [--timeout DURATION] token <create|list|inspect> [...]
+  agentlab [--endpoint URL] [--token TOKEN] [--socket PATH] [--json] [--timeout DURATION] integration <add|list|rm|status> [...]
+  agentlab [--endpoint URL] [--token TOKEN] [--socket PATH] [--json] [--timeout DURATION] user <add|list|show|rm|key> [...]
+  agentlab [--endpoint URL] [--token TOKEN] [--socket PATH] [--json] [--timeout DURATION] team <add|list|rm|members|member> [...]
   agentlab [--endpoint URL] [--token TOKEN] [--socket PATH] [--json] [--timeout DURATION] ssh <vmid> [--user <user>] [--port <port>] [--identity <path>] [--jump-host <host>] [--jump-user <user>] [--exec] [--no-start] [--wait] [-- <remote command>...]
   agentlab [--endpoint URL] [--token TOKEN] [--socket PATH] [--json] [--timeout DURATION] msg post (--job <id> | --workspace <id> | --session <id>) [--author <name>] [--kind <kind>] [--text <text>] [--payload <json>] [message...]
   agentlab [--endpoint URL] [--token TOKEN] [--socket PATH] [--json] [--timeout DURATION] msg tail (--job <id> | --workspace <id> | --session <id>) [--follow] [--tail <n>]

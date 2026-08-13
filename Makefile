@@ -144,9 +144,9 @@ docs-gen:
 
 docs-verify:
 	./scripts/dev/gen_cli_docs.sh
-	@if [ -n "$$(git status --porcelain -- docs/cli.md)" ]; then \
-		echo "docs/cli.md is out of date. Run 'make docs-gen'."; \
-		git status --porcelain -- docs/cli.md; \
+	@if [ -n "$$(git status --porcelain -- docs/reference/cli.md)" ]; then \
+		echo "docs/reference/cli.md is out of date. Run 'make docs-gen'."; \
+		git status --porcelain -- docs/reference/cli.md; \
 		exit 1; \
 	fi
 

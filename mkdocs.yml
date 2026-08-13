@@ -1,0 +1,154 @@
+# MkDocs configuration for the AgentLab documentation site.
+# Build locally:  pip install -r requirements-docs.txt && mkdocs serve
+# Production:     GitHub Actions builds with 'mkdocs build --strict' and deploys to Pages.
+
+site_name: AgentLab
+site_description: Proxmox VE sandbox and job orchestration for AI coding agents.
+site_url: https://nibzard.github.io/agentlab/
+repo_url: https://github.com/nibzard/agentlab
+repo_name: nibzard/agentlab
+edit_uri: edit/main/docs/
+
+docs_dir: docs
+site_dir: site
+strict: true
+use_directory_urls: true
+
+theme:
+  name: material
+  language: en
+  features:
+    - navigation.tabs
+    - navigation.sections
+    - navigation.top
+    - navigation.tracking
+    - search.suggest
+    - search.highlight
+    - content.code.copy
+    - content.code.annotate
+    - content.tabs.link
+    - toc.follow
+  palette:
+    - scheme: default
+      primary: indigo
+      accent: indigo
+      toggle:
+        icon: material/brightness-7
+        name: Switch to dark mode
+    - scheme: slate
+      primary: indigo
+      accent: indigo
+      toggle:
+        icon: material/brightness-4
+        name: Switch to light mode
+  icon:
+    repo: fontawesome/brands/github
+
+plugins:
+  - search
+  - redirects:
+      redirect_maps:
+        quickstart.md: tutorials/install-agentlab.md
+        cli.md: reference/cli.md
+        configuration.md: reference/configuration.md
+        api.md: reference/http-api.md
+        architecture.md: explanation/architecture.md
+        state-model.md: reference/state-machine.md
+        security.md: reference/security.md
+        secrets.md: reference/secrets.md
+        runbook.md: how-to/debug-a-stuck-sandbox.md
+        troubleshooting.md: how-to/debug-a-stuck-sandbox.md
+        upgrading.md: how-to/upgrade-and-migrate.md
+        releases.md: reference/releases.md
+        offline.md: how-to/run-air-gapped-offline.md
+        remote-cli.md: how-to/connect-remote-daemon-over-tailnet.md
+        proxmox.md: how-to/configure-proxmox-api-backend.md
+        performance.md: explanation/performance-and-tuning.md
+        faq.md: explanation/faq.md
+        ssh_gateway_spike.md: how-to/build-and-run-ssh-gateway.md
+        STYLE.md: meta/style-guide.md
+        README.md: index.md
+
+markdown_extensions:
+  - admonition
+  - attr_list
+  - def_list
+  - md_in_html
+  - tables
+  - toc:
+      permalink: true
+  - pymdownx.details
+  - pymdownx.superfences
+  - pymdownx.highlight:
+      anchor_linenums: true
+      line_spans: __span
+      pygments_lang_class: true
+  - pymdownx.inlinehilite
+  - pymdownx.tasklist:
+      custom_checkbox: true
+
+nav:
+  - AgentLab documentation: index.md
+  - Tutorials:
+      - Install AgentLab: tutorials/install-agentlab.md
+      - Set up the Proxmox host: tutorials/set-up-proxmox-host.md
+      - Create your first sandbox: tutorials/create-first-sandbox.md
+      - Run your first job: tutorials/run-first-job.md
+      - Enable remote tailnet access: tutorials/enable-remote-tailnet-access.md
+      - Build a VM template: tutorials/build-a-vm-template.md
+      - Run a stateful dev session: tutorials/stateful-dev-session.md
+  - How-to guides:
+      - Renew a sandbox lease: how-to/renew-a-lease.md
+      - Expose a sandbox port on the tailnet: how-to/expose-a-sandbox-port.md
+      - Collect and download job artifacts: how-to/collect-job-artifacts.md
+      - Rotate secrets and age keys: how-to/rotate-secrets-and-age-keys.md
+      - Rotate the control-plane token: how-to/rotate-control-token.md
+      - Debug a stuck sandbox: how-to/debug-a-stuck-sandbox.md
+      - Run AgentLab air-gapped: how-to/run-air-gapped-offline.md
+      - Connect to a remote daemon over the tailnet: how-to/connect-remote-daemon-over-tailnet.md
+      - Configure the Proxmox API backend: how-to/configure-proxmox-api-backend.md
+      - Manage secrets bundles: how-to/manage-secrets-bundles.md
+      - Use workspaces and rebind: how-to/use-workspaces-and-rebind.md
+      - Fork and snapshot workspaces: how-to/fork-and-snapshot-workspaces.md
+      - Recover a workspace with revert and fsck: how-to/recover-with-revert-and-fsck.md
+      - Configure Tailscale subnet routing: how-to/configure-tailscale-subnet-routing.md
+      - Scrape Prometheus metrics: how-to/scrape-prometheus-metrics.md
+      - Run the dashboard: how-to/run-the-dashboard.md
+      - Upgrade and migrate: how-to/upgrade-and-migrate.md
+      - Bootstrap a Proxmox host over SSH: how-to/bootstrap-proxmox-host-over-ssh.md
+      - Author a profile: how-to/author-a-profile.md
+      - Use the inner bubblewrap sandbox: how-to/use-the-inner-bubblewrap-sandbox.md
+      - Collect doctor diagnostics: how-to/collect-doctor-diagnostics.md
+      - Build and run the SSH gateway: how-to/build-and-run-ssh-gateway.md
+  - Reference:
+      - CLI reference: reference/cli.md
+      - Global flags, environment, and exit codes: reference/global-flags-env-and-exit-codes.md
+      - agentlabd flags: reference/agentlabd-flags.md
+      - Configuration reference: reference/configuration.md
+      - HTTP API reference: reference/http-api.md
+      - Event contract: reference/event-contract.md
+      - Prometheus metrics: reference/metrics.md
+      - Listeners and ports: reference/listeners-and-ports.md
+      - Security reference: reference/security.md
+      - Secrets reference: reference/secrets.md
+      - State machine reference: reference/state-machine.md
+      - Profile and template schema: reference/profile-and-template-schema.md
+      - Guest environment variables: reference/guest-environment-variables.md
+      - Releases and versioning: reference/releases.md
+  - Explanation:
+      - Architecture: explanation/architecture.md
+      - Why Proxmox: explanation/why-proxmox.md
+      - Network isolation model: explanation/network-isolation-model.md
+      - Secrets delivery model: explanation/secrets-delivery-model.md
+      - Control plane and trust boundaries: explanation/control-plane-and-trust-boundaries.md
+      - Guest runner flow: explanation/guest-runner-flow.md
+      - Workspaces, sessions, and sandboxes: explanation/workspaces-sessions-sandboxes.md
+      - Idle stop and lease model: explanation/idle-stop-and-lease-model.md
+      - Reconciliation and shutdown: explanation/reconciliation-and-shutdown.md
+      - Shell versus API backend: explanation/shell-vs-api-backend.md
+      - FAQ: explanation/faq.md
+      - Performance and tuning: explanation/performance-and-tuning.md
+  - Meta:
+      - Glossary: meta/glossary.md
+      - Documentation style guide: meta/style-guide.md
+      - Contributing: meta/contributing.md
