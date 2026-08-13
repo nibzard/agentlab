@@ -2,6 +2,17 @@
 
 Reference for the `agentlabd` control-plane and guest-facing HTTP routes. The control API is versioned under `/v1`, uses `application/json`, and emits timestamps as RFC 3339 Nano. Every listener also serves `GET /healthz`.
 
+!!! tip "Agents: prefer the CLI `--json` surface"
+    A coding agent should drive `agentlabd` through the `agentlab` CLI with
+    `--json` instead of calling these routes by hand. The CLI prints the daemon
+    response verbatim and handles auth, retries, and parsing. See
+    [JSON output for agents](agent-json-output.md) and
+    [Drive AgentLab as a coding agent](../how-to/drive-agentlab-as-a-coding-agent.md).
+    Three routes behave differently from the table: `POST /v1/exec` is
+    full-access and always returns HTTP 200 (branch on `exit_code`),
+    `/v1/integrations` handlers skip authorization, and `/v1/runner/report` is
+    served on the guest bootstrap listener (agent subnet, no bearer token).
+
 ## Discovery and status
 
 | Method | Path | Purpose | Response type |

@@ -11,7 +11,7 @@ These flags may appear before any subcommand that talks to the daemon.
 | `--endpoint` | URL | none | Control-plane HTTP(S) endpoint. Must include an `http://` or `https://` scheme. |
 | `--token` | string | none | Control-plane bearer token, sent as `Authorization: Bearer`. |
 | `--socket` | path | `/run/agentlab/agentlabd.sock` | Path to the `agentlabd` Unix socket. Used when `--endpoint` is not set. |
-| `--json` | bool | `false` | Emit JSON output. Errors are emitted as a JSON object. |
+| `--json` | bool | `false` | Emit JSON output. Errors are emitted as a JSON object. See [JSON output for agents](agent-json-output.md) for the full contract. |
 | `--timeout` | duration | `10m` | Request timeout, for example `30s` or `2m`. |
 | `--allow-insecure-http` | bool | `false` | Permit plaintext HTTP to a non-loopback endpoint. Intended only inside a trusted tunnel such as Tailscale. |
 | `--version` | bool | `false` | Print CLI version and exit. |
@@ -64,7 +64,7 @@ Both files live in the OS user configuration directory, in an `agentlab/` subdir
 | `default-profile` | profile name | Default profile used by `sandbox new`. |
 | `default-image` | image | Default container image used by `sandbox new`. |
 | `default-backend` | `proxmox`, `docker`, `libvirt` | Default backend. |
-| `output-format` | `text`, `json` | Default output format. |
+| `output-format` | `text`, `json` | Default output format. Documented but not currently applied; pass `--json` on each invocation. |
 | `default-timeout` | duration | Default request timeout, for example `30s`. |
 | `default-socket` | path | Default daemon socket path. |
 
