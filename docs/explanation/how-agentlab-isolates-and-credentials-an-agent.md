@@ -189,20 +189,20 @@ yourself in the VM from the agent's bootstrap step.
 An agent that drives these paths programmatically hits several hard limits. Plan
 for them up front.
 
-- **`/v1/exec` output is capped at 4 MiB per stream** (stdout and stderr each).
+- `/v1/exec` output is capped at 4 MiB per stream (stdout and stderr each).
   In capture mode the output is silently truncated when the cap is reached. Do
   not rely on the last bytes of a large build log arriving intact.
-- **`/v1/exec` timeout defaults to 5 minutes.** A caller can request up to 1
+- `/v1/exec` timeout defaults to 5 minutes. A caller can request up to 1
   hour; values above the ceiling are clamped silently, and zero or negative
   means the 5-minute default, not unlimited. A timeout produces `exit_code 124`,
   not an HTTP error. The response is always HTTP 200, so branch on `exit_code`.
-- **`ssh` is non-interactive.** The CLI launches `ssh` with `BatchMode=yes`,
+- `ssh` is non-interactive. The CLI launches `ssh` with `BatchMode=yes`,
   `IdentitiesOnly`, `StrictHostKeyChecking=no`, and
   `UserKnownHostsFile=/dev/null`. These options exist so agents run reliably
   without a human at a terminal.
-- **The default ssh identity** is `/etc/agentlab/keys/agentlab_id_ed25519`, or
+- The default ssh identity is `/etc/agentlab/keys/agentlab_id_ed25519`, or
   the path in `$AGENTLAB_SSH_IDENTITY`. Override it with `--identity`.
-- **Runner reports use a separate listener.** The guest runner posts status to
+- Runner reports use a separate listener. The guest runner posts status to
   `POST /v1/runner/report` on the bootstrap listener (the agent subnet). That
   route takes no bearer token and is gated by agent-subnet source IP; it is not
   on the control listener. See [Guest runner flow](guest-runner-flow.md).

@@ -227,9 +227,9 @@ Other options and why they were not chosen.
 
 CI runs `make docs-check`, which aggregates four checks. Run them locally before you open a pull request.
 
-- `docs-lint` — `markdownlint-cli2` through `npx`. Requires Node.js.
-- `docs-links` — `lychee` link check. Install with `make docs-tools`.
-- `docs-typos` — `typos` spell check. Install with `make docs-tools`.
-- `docs-snippets` — bash and YAML snippet validation plus `agentlab` command drift.
+- `docs-lint`: `markdownlint-cli2` through `npx`. Requires Node.js.
+- `docs-links`: `lychee` link check. Install with `make docs-tools`.
+- `docs-typos`: `typos` spell check. Install with `make docs-tools`.
+- `docs-snippets`: bash and YAML snippet validation plus `agentlab` command drift.
 
 The generated [CLI reference](../reference/cli.md) comes from `agentlab --help`. Never edit it by hand. Run `make docs-gen` to refresh it and `make docs-verify` to fail CI when it drifts. See [Contributing](contributing.md) for the full workflow.

@@ -124,10 +124,10 @@ make docs-check
 
 The four checks:
 
-- `docs-lint` — `markdownlint-cli2` through `npx`. Requires Node.js.
-- `docs-links` — `lychee` link check. Install with `make docs-tools`.
-- `docs-typos` — `typos` spell check. Install with `make docs-tools`.
-- `docs-snippets` — bash and YAML snippet validation plus `agentlab` command drift.
+- `docs-lint`: `markdownlint-cli2` through `npx`. Requires Node.js.
+- `docs-links`: `lychee` link check. Install with `make docs-tools`.
+- `docs-typos`: `typos` spell check. Install with `make docs-tools`.
+- `docs-snippets`: bash and YAML snippet validation plus `agentlab` command drift.
 
 ### Snippet rules
 

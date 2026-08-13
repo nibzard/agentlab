@@ -39,16 +39,16 @@ agentlab status
 If you are a coding agent driving AgentLab to manage sandboxes for yourself,
 your user, or other agents, start with the agent track:
 
-- [JSON output for agents](reference/agent-json-output.md) — the `--json`
+- [JSON output for agents](reference/agent-json-output.md): the `--json`
   contract every command emits, and how to parse it.
-- [Drive AgentLab as a coding agent](how-to/drive-agentlab-as-a-coding-agent.md)
-  — the full loop: discover, provision, run, collect, tear down.
-- [Coordinate multiple agents](tutorials/coordinate-multiple-agents.md) — share
+- [Drive AgentLab as a coding agent](how-to/drive-agentlab-as-a-coding-agent.md):
+  the full loop (discover, provision, run, collect, tear down).
+- [Coordinate multiple agents](tutorials/coordinate-multiple-agents.md): share
   state and hand off work between agents and humans.
-- [Mint scoped tokens for an agent](how-to/mint-scoped-tokens-for-an-agent.md)
-  — delegate least-privilege access to another agent.
-- [Isolation and credentials for agents](explanation/how-agentlab-isolates-and-credentials-an-agent.md)
-  — the boundaries and credential model from an agent's point of view.
+- [Mint scoped tokens for an agent](how-to/mint-scoped-tokens-for-an-agent.md):
+  delegate least-privilege access to another agent.
+- [Isolation and credentials for agents](explanation/how-agentlab-isolates-and-credentials-an-agent.md):
+  the boundaries and credential model from an agent's point of view.
 
 ## Browse by quadrant
 
