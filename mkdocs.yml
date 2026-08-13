@@ -67,7 +67,6 @@ plugins:
         faq.md: explanation/faq.md
         ssh_gateway_spike.md: how-to/build-and-run-ssh-gateway.md
         STYLE.md: meta/style-guide.md
-        README.md: index.md
 
 markdown_extensions:
   - admonition
