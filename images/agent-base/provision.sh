@@ -67,11 +67,26 @@ cat > /usr/local/bin/agentlab-guest <<'GUEST_EOF'
 # AgentLab guest helper - fetches sandbox metadata and secrets.
 set -euo pipefail
 META="http://169.254.169.254"
+SECRET_FILE="${AGENTLAB_SANDBOX_SECRET_FILE:-/run/agentlab/secrets/sandbox-secret}"
+SECRET=""
+if [[ -r "$SECRET_FILE" ]]; then
+    SECRET="$(cat "$SECRET_FILE")"
+fi
+# Every metadata request must carry the per-sandbox secret. Requests
+# without it are rejected.
+meta_curl() {
+    if [[ -n "$SECRET" ]]; then
+        curl -sf -H "X-AgentLab-Sandbox-Secret: $SECRET" "$@"
+    else
+        echo "agentlab-guest: missing sandbox secret at $SECRET_FILE" >&2
+        return 1
+    fi
+}
 case "${1:-help}" in
-    identity)  curl -sf "$META/identity" | jq . ;;
-    metadata)  curl -sf "$META/metadata" | jq . ;;
-    secret)    curl -sf "$META/secrets/${2:?secret name required}" | jq -r '.value' ;;
-    prompt)    curl -sf "$META/metadata" | jq -r '.prompt // empty' ;;
+    identity)  meta_curl "$META/identity" | jq . ;;
+    metadata)  meta_curl "$META/metadata" | jq . ;;
+    secret)    meta_curl "$META/secrets/${2:?secret name required}" | jq -r '.value' ;;
+    prompt)    meta_curl "$META/metadata" | jq -r '.prompt // empty' ;;
     help|*)    echo "Usage: agentlab-guest {identity|metadata|secret <name>|prompt}" ;;
 esac
 GUEST_EOF
@@ -82,7 +97,15 @@ cat > /usr/local/bin/agent-entrypoint.sh <<'ENTRYPOINT_EOF'
 #!/usr/bin/env bash
 set -euo pipefail
 META="http://169.254.169.254"
-PROMPT=$(curl -sf --max-time 5 "$META/metadata" 2>/dev/null | jq -r '.prompt // empty' || true)
+SECRET_FILE="${AGENTLAB_SANDBOX_SECRET_FILE:-/run/agentlab/secrets/sandbox-secret}"
+SECRET=""
+if [[ -r "$SECRET_FILE" ]]; then
+    SECRET="$(cat "$SECRET_FILE")"
+fi
+PROMPT=""
+if [[ -n "$SECRET" ]]; then
+    PROMPT=$(curl -sf --max-time 5 -H "X-AgentLab-Sandbox-Secret: $SECRET" "$META/metadata" 2>/dev/null | jq -r '.prompt // empty' || true)
+fi
 if [ -n "$PROMPT" ] && command -v claude &>/dev/null; then
     echo "Launching Claude Code with prompt: ${PROMPT:0:80}..."
     cd /workspace

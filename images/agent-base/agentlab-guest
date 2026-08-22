@@ -12,24 +12,43 @@
 set -euo pipefail
 
 METADATA_BASE="http://169.254.169.254"
+SANDBOX_SECRET_FILE="${AGENTLAB_SANDBOX_SECRET_FILE:-/run/agentlab/secrets/sandbox-secret}"
+
+# The metadata and credential-proxy endpoints require the per-sandbox secret
+# that the agent runner stores at boot. Identity no longer rests on the
+# source IP alone.
+SANDBOX_SECRET=""
+if [[ -r "$SANDBOX_SECRET_FILE" ]]; then
+    SANDBOX_SECRET="$(cat "$SANDBOX_SECRET_FILE")"
+fi
+
+meta_curl() {
+    if [[ -n "$SANDBOX_SECRET" ]]; then
+        curl -sf -H "X-AgentLab-Sandbox-Secret: $SANDBOX_SECRET" "$@"
+    else
+        echo "agentlab-guest: missing sandbox secret at $SANDBOX_SECRET_FILE" >&2
+        echo "The metadata endpoint rejects requests without it." >&2
+        return 1
+    fi
+}
 
 case "${1:-help}" in
     identity)
-        curl -sf "$METADATA_BASE/identity" | jq .
+        meta_curl "$METADATA_BASE/identity" | jq .
         ;;
     metadata)
-        curl -sf "$METADATA_BASE/metadata" | jq .
+        meta_curl "$METADATA_BASE/metadata" | jq .
         ;;
     secret)
         name="${2:?secret name required}"
-        curl -sf "$METADATA_BASE/secrets/$name" | jq -r '.value'
+        meta_curl "$METADATA_BASE/secrets/$name" | jq -r '.value'
         ;;
     prompt)
-        curl -sf "$METADATA_BASE/metadata" | jq -r '.prompt // empty'
+        meta_curl "$METADATA_BASE/metadata" | jq -r '.prompt // empty'
         ;;
     proxy)
         path="${2:?proxy path required (e.g., llm/v1/chat/completions)}"
-        curl -sf "$METADATA_BASE/proxy/$path"
+        meta_curl "$METADATA_BASE/proxy/$path"
         ;;
     help|--help|-h)
         cat <<EOF
@@ -42,7 +61,9 @@ Usage:
   agentlab-guest prompt           Get the initial agent prompt (if set)
   agentlab-guest proxy <path>     Make a request through the credential proxy
 
-The metadata endpoint is available at http://169.254.169.254 inside all sandboxes.
+The metadata endpoint is available at http://169.254.169.254 inside all
+sandboxes. Every request must carry the sandbox secret from
+$SANDBOX_SECRET_FILE in the X-AgentLab-Sandbox-Secret header.
 EOF
         ;;
     *)

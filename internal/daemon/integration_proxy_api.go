@@ -9,15 +9,19 @@ import (
 
 	"github.com/agentlab/agentlab/internal/db"
 	"github.com/agentlab/agentlab/internal/integrations"
+	"github.com/agentlab/agentlab/internal/models"
 )
 
 // IntegrationProxyAPI serves integration proxy routes on the bootstrap mux
 // so that sandboxes can access integrations through the metadata endpoint
 // at http://169.254.169.254/proxy/{name}/...
 //
-// The proxy identifies the requesting sandbox by source IP and checks that
-// the integration is attached to that sandbox before proxying the request.
-// All proxy requests are audit-logged with sandbox identity and integration name.
+// The proxy identifies the requesting sandbox by source IP, then requires the
+// per-sandbox secret issued at bootstrap before it trusts that identification.
+// The source IP selects the candidate; the secret authorizes it (review F4).
+// It then checks that the integration is attached to that sandbox before
+// proxying the request. All proxy requests are audit-logged with sandbox
+// identity and integration name.
 type IntegrationProxyAPI struct {
 	intStore    *integrations.Store
 	dbStore     *db.Store
@@ -92,8 +96,16 @@ func (api *IntegrationProxyAPI) handleProxy(w http.ResponseWriter, r *http.Reque
 	// Identify the calling sandbox from its source IP. Only a unique LIVE
 	// sandbox is accepted: unidentified, stale, destroyed, or ambiguous sources
 	// are rejected by default (review H4).
-	sandboxName, sandboxTags, identified := api.resolveSandbox(r)
-	if !identified {
+	sandbox, identified := api.sandboxBySourceIP(r)
+	if identified {
+		// The source IP only selects the candidate row. The per-sandbox
+		// secret issued at bootstrap is what the caller must prove, so a
+		// neighbor that spoofs this address gets nothing (review F4).
+		if !verifySandboxSecret(r.Context(), api.dbStore, r, sandbox.VMID) {
+			writeError(w, http.StatusForbidden, "invalid or missing sandbox secret")
+			return
+		}
+	} else {
 		// The sole permitted unidentified path is auto:all under an explicit,
 		// warned trust_agent_subnet opt-in (subnet-wide trust). Every other
 		// attachment mode requires a positively identified live sandbox.
@@ -102,6 +114,8 @@ func (api *IntegrationProxyAPI) handleProxy(w http.ResponseWriter, r *http.Reque
 			return
 		}
 	}
+	sandboxName := sandbox.Name
+	sandboxTags := parseTags(sandbox.Tags)
 
 	// Verify the integration is attached to this sandbox.
 	if !integ.MatchesSandbox(sandboxName, sandboxTags) {
@@ -129,20 +143,31 @@ func (api *IntegrationProxyAPI) handleProxy(w http.ResponseWriter, r *http.Reque
 	}
 }
 
-// resolveSandbox identifies the calling sandbox from the request's source IP.
+// sandboxBySourceIP resolves the calling sandbox from the request's source IP.
 // Only a unique sandbox in an eligible live state counts as identified; a
 // missing, stale, destroyed, or ambiguous source returns identified=false so
 // the caller is rejected by default (review H4).
-func (api *IntegrationProxyAPI) resolveSandbox(r *http.Request) (name string, tags []string, identified bool) {
+func (api *IntegrationProxyAPI) sandboxBySourceIP(r *http.Request) (models.Sandbox, bool) {
 	if api.dbStore == nil {
-		return "", nil, false
+		return models.Sandbox{}, false
 	}
 	ip := parseRemoteIP(r.RemoteAddr)
 	if ip == nil || ip.IsUnspecified() {
-		return "", nil, false
+		return models.Sandbox{}, false
 	}
 	sb, err := api.dbStore.GetLiveSandboxByIP(r.Context(), ip.String())
 	if err != nil {
+		return models.Sandbox{}, false
+	}
+	return sb, true
+}
+
+// resolveSandbox identifies the calling sandbox by source IP and returns its
+// name and tags. Identification alone does not authorize proxy access; the
+// caller must also present the sandbox secret (review F4).
+func (api *IntegrationProxyAPI) resolveSandbox(r *http.Request) (name string, tags []string, identified bool) {
+	sb, identified := api.sandboxBySourceIP(r)
+	if !identified {
 		return "", nil, false
 	}
 	return sb.Name, parseTags(sb.Tags), true

@@ -360,6 +360,31 @@ var migrations = []migration{
 		// backfillTimestampColumns for the per-column logic.
 		goMigrate: backfillTimestampColumns,
 	},
+	{
+		version: 18,
+		name:    "add_workspace_last_attached",
+		// Detach clears attached_vmid, so the vmid of the last attachment is
+		// kept separately. Scoped tokens use it to refuse attach on detached
+		// workspaces that belong to another scope (review F5).
+		statements: []string{
+			`ALTER TABLE workspaces ADD COLUMN last_attached_vmid INTEGER`,
+		},
+	},
+	{
+		version: 19,
+		name:    "add_sandbox_secrets",
+		// One hashed secret per sandbox, issued at bootstrap. The metadata and
+		// credential-proxy endpoints require it in addition to the source IP,
+		// so a neighbor cannot spoof another sandbox's address (review F4).
+		statements: []string{
+			`CREATE TABLE IF NOT EXISTS sandbox_secrets (
+				vmid INTEGER PRIMARY KEY,
+				secret_hash TEXT NOT NULL,
+				created_at TEXT NOT NULL,
+				FOREIGN KEY(vmid) REFERENCES sandboxes(vmid) ON DELETE CASCADE
+			)`,
+		},
+	},
 }
 
 // Migrate runs any pending migrations against the provided database.

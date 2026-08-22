@@ -429,8 +429,17 @@ func (o *JobOrchestrator) ProvisionSandbox(ctx context.Context, vmid int) (model
 	}
 
 	var provisionErr error
+	cloned := false
 	defer func() {
 		if provisionErr == nil {
+			return
+		}
+		// A failure before the clone completed cannot have created the VM.
+		// Destroying then would target whatever already occupies the VMID.
+		if !cloned {
+			if o.logger != nil {
+				o.logger.Printf("sandbox %d: skipping cleanup, clone never succeeded: %v", vmid, provisionErr)
+			}
 			return
 		}
 		// Use background context instead of potentially-canceled ctx
@@ -459,6 +468,7 @@ func (o *JobOrchestrator) ProvisionSandbox(ctx context.Context, vmid int) (model
 	if err := o.backend.Clone(ctx, proxmox.VMID(profile.TemplateVM), proxmox.VMID(sandbox.VMID), sandbox.Name); err != nil {
 		return fail(err)
 	}
+	cloned = true
 	if o.logger != nil {
 		o.logger.Printf("sandbox %d: cloned from template %d", sandbox.VMID, profile.TemplateVM)
 	}

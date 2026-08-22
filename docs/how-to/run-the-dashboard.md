@@ -16,11 +16,12 @@ see [Control plane and trust boundaries](../explanation/control-plane-and-trust-
 
 ## Steps
 
-1. Run the dashboard on loopback. The default bind is `127.0.0.1:8080`, which
-   trusts only the local browser.
+1. Run the dashboard on loopback with an inbound browser token. Every bind
+   requires a token, loopback included, because the dashboard forwards every
+   `/api/*` request to the trusted daemon socket.
 
     ```bash
-    agentlab-dashboard --listen 127.0.0.1:8080 --socket /run/agentlab/agentlabd.sock
+    agentlab-dashboard --listen 127.0.0.1:8080 --browser-token <inbound-token>
     ```
 
     If the daemon's local socket is protected by a bearer token, pass it with
@@ -28,14 +29,31 @@ see [Control plane and trust boundaries](../explanation/control-plane-and-trust-
     only.
 
     ```bash
-    agentlab-dashboard --listen 127.0.0.1:8080 --token <daemon-bearer-token>
+    agentlab-dashboard --listen 127.0.0.1:8080 \
+        --browser-token <inbound-token> --token <daemon-bearer-token>
     ```
 
     Open <http://127.0.0.1:8080> in a browser. The UI shows five views:
     Sandboxes, Jobs, Workspaces, Exposures, Events.
 
-2. To expose the dashboard on a non-loopback interface, you must set an inbound
-   browser token. The server refuses to start otherwise.
+2. Alternatively, start without `--browser-token`. The server then generates a
+   random token, logs it, and expects you to enter it in the browser.
+
+    ```bash
+    agentlab-dashboard --listen 127.0.0.1:8080
+    ```
+
+    ```text
+    dashboard: listening on 127.0.0.1:8080 (socket=/run/agentlab/agentlabd.sock)
+    dashboard: no --browser-token configured; generated a session token: <token>
+    dashboard: enter this token in the browser prompt to use the dashboard (it gates every /api/* request; restart generates a new one)
+    ```
+
+    The first `/api/*` request from the browser prompts for the token. The
+    token is valid until the process restarts; a restart mints a new one.
+
+3. To expose the dashboard on a non-loopback interface, pass an explicit
+   `--browser-token` so it is stable across restarts.
 
     ```bash
     agentlab-dashboard --listen 0.0.0.0:8080 \
@@ -53,7 +71,7 @@ see [Control plane and trust boundaries](../explanation/control-plane-and-trust-
         as a Tailscale sidecar. A concrete reverse-proxy TLS recipe is not yet
         documented.
 
-3. Override the socket path without a flag, if needed, through the environment.
+4. Override the socket path without a flag, if needed, through the environment.
 
     ```bash
     AGENTLABD_SOCKET=/run/agentlab/agentlabd.sock agentlab-dashboard --listen 127.0.0.1:8080
@@ -65,9 +83,14 @@ Confirm the binary starts and proxies the daemon.
 
 ```bash
 agentlab-dashboard --version
-curl -s http://127.0.0.1:8080/api/v1/status
+curl -s -H "X-Dashboard-Token: <inbound-token>" http://127.0.0.1:8080/api/v1/status
 ```
 
 A successful `status` response means the dashboard reached the daemon over the
-Unix socket. The Sandboxes view offers Stop All, Prune Stopped, and New Sandbox
-actions; forwarded request bodies are capped at 2 MiB.
+Unix socket. Without the header, `/api/*` returns 401. The Sandboxes view offers
+Stop All, Prune Stopped, and New Sandbox actions; forwarded request bodies are
+capped at 2 MiB.
+
+Every response also carries a `Content-Security-Policy` that allows only
+same-origin script, style, and fetch. The UI attaches all event handlers from
+`/assets/app.js`, so the policy forbids inline handlers.

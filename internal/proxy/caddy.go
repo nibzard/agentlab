@@ -10,6 +10,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log"
@@ -17,6 +18,11 @@ import (
 	"strings"
 	"time"
 )
+
+// ErrRouteExists is returned by AddRoute when a route for the requested
+// host is already installed. Call RemoveRoute first to replace a live
+// route; AddRoute never displaces an existing route on its own.
+var ErrRouteExists = errors.New("route already exists for host")
 
 // Default Caddy admin API address.
 const defaultCaddyAdminAPI = "http://localhost:2019"
@@ -47,9 +53,9 @@ func NewCaddyClient(endpoint string, logger *log.Logger) *CaddyClient {
 
 // caddyRoute represents a Caddy route for JSON configuration.
 type caddyRoute struct {
-	Match      []caddyMatch    `json:"match,omitempty"`
-	Handle     []caddyHandle   `json:"handle,omitempty"`
-	Terminal   bool            `json:"terminal,omitempty"`
+	Match    []caddyMatch  `json:"match,omitempty"`
+	Handle   []caddyHandle `json:"handle,omitempty"`
+	Terminal bool          `json:"terminal,omitempty"`
 }
 
 type caddyMatch struct {
@@ -57,9 +63,9 @@ type caddyMatch struct {
 }
 
 type caddyHandle struct {
-	Handler   string          `json:"handler"`
-	Upstream string          `json:"upstream,omitempty"`
-	Headers  *caddyHeaders   `json:"headers,omitempty"`
+	Handler  string        `json:"handler"`
+	Upstream string        `json:"upstream,omitempty"`
+	Headers  *caddyHeaders `json:"headers,omitempty"`
 }
 
 type caddyHeaders struct {
@@ -72,8 +78,12 @@ type caddyConfigRequest struct {
 	Routes []caddyRoute `json:"routes,omitempty"`
 }
 
-// AddRoute creates or updates a reverse proxy route in Caddy.
+// AddRoute creates a reverse proxy route in Caddy.
 // The route maps subdomain to the target address (host:port).
+// It returns an error wrapping ErrRouteExists when a route for the
+// subdomain is already installed. Removing the old route is left to
+// the caller so a second publisher cannot silently displace a live
+// route and hijack its hostname.
 func (c *CaddyClient) AddRoute(ctx context.Context, subdomain, targetAddr string) error {
 	routeID := routeID(subdomain)
 
@@ -84,16 +94,12 @@ func (c *CaddyClient) AddRoute(ctx context.Context, subdomain, targetAddr string
 		c.Logger.Printf("proxy: caddy get routes: %v", err)
 	}
 
-	// Check if route already exists
+	// Reject a duplicate host instead of replacing the live route.
 	for _, r := range existing {
 		for _, m := range r.Match {
 			for _, h := range m.Host {
 				if h == subdomain {
-					// Route exists, remove it first
-					if err := c.removeRoute(ctx, routeID); err != nil {
-						c.Logger.Printf("proxy: remove existing route %s: %v", subdomain, err)
-					}
-					break
+					return fmt.Errorf("%w: %s", ErrRouteExists, subdomain)
 				}
 			}
 		}
@@ -105,8 +111,8 @@ func (c *CaddyClient) AddRoute(ctx context.Context, subdomain, targetAddr string
 		},
 		Handle: []caddyHandle{
 			{
-				Handler:   "reverse_proxy",
-				Upstream:  targetAddr,
+				Handler:  "reverse_proxy",
+				Upstream: targetAddr,
 			},
 		},
 		Terminal: true,

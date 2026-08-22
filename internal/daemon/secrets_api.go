@@ -29,6 +29,11 @@ var errSecretsSSHKeyNotFound = errors.New("ssh key not found")
 //   - DELETE /v1/secrets/ssh-keys/{name} - remove an SSH public key
 //
 // Responses never include raw secret values; see V1SecretsView.
+//
+// The bundle is a global resource shared by every sandbox, so remote callers
+// are held to the secrets.read / secrets.write permissions and any
+// sandbox-scoped token is refused (review F6). The local Unix socket, which
+// carries no identity, remains a trusted full-access path.
 type SecretsAPI struct {
 	store    secrets.Store
 	bundle   string
@@ -67,9 +72,25 @@ func (api *SecretsAPI) Register(mux *http.ServeMux) {
 	mux.HandleFunc("/v1/secrets/ssh-keys/", api.handleSSHKeyName)
 }
 
+// authorizeRead gates the redacted bundle view on the secrets.read
+// permission. The bundle is global, so sandbox-scoped tokens are denied.
+func (api *SecretsAPI) authorizeRead(w http.ResponseWriter, r *http.Request) bool {
+	return authorizeStandalone(w, r, permSecretsRead, true)
+}
+
+// authorizeWrite gates every bundle mutation on the secrets.write permission.
+// Mutating the shared bundle affects every future sandbox, so sandbox-scoped
+// tokens are denied outright.
+func (api *SecretsAPI) authorizeWrite(w http.ResponseWriter, r *http.Request) bool {
+	return authorizeStandalone(w, r, permSecretsWrite, true)
+}
+
 func (api *SecretsAPI) handleSecrets(w http.ResponseWriter, r *http.Request) {
 	switch r.Method {
 	case http.MethodGet:
+		if !api.authorizeRead(w, r) {
+			return
+		}
 		bundle, err := api.store.Load(r.Context(), api.bundle)
 		if err != nil && !isSecretsNotFound(err) {
 			api.logger.Printf("secrets load error: %v", err)
@@ -85,6 +106,9 @@ func (api *SecretsAPI) handleSecrets(w http.ResponseWriter, r *http.Request) {
 func (api *SecretsAPI) handleEnv(w http.ResponseWriter, r *http.Request) {
 	switch r.Method {
 	case http.MethodPut:
+		if !api.authorizeWrite(w, r) {
+			return
+		}
 		var req V1SecretsEnvSetRequest
 		if err := decodeJSON(w, r, &req); err != nil {
 			writeError(w, http.StatusBadRequest, "invalid request body: "+err.Error())
@@ -121,6 +145,9 @@ func (api *SecretsAPI) handleEnv(w http.ResponseWriter, r *http.Request) {
 func (api *SecretsAPI) handleEnvKey(w http.ResponseWriter, r *http.Request) {
 	switch r.Method {
 	case http.MethodDelete:
+		if !api.authorizeWrite(w, r) {
+			return
+		}
 		key := strings.TrimSpace(strings.TrimPrefix(r.URL.Path, "/v1/secrets/env/"))
 		if key == "" {
 			writeError(w, http.StatusBadRequest, "env key is required")
@@ -146,6 +173,9 @@ func (api *SecretsAPI) handleEnvKey(w http.ResponseWriter, r *http.Request) {
 func (api *SecretsAPI) handleGit(w http.ResponseWriter, r *http.Request) {
 	switch r.Method {
 	case http.MethodPut:
+		if !api.authorizeWrite(w, r) {
+			return
+		}
 		var req V1SecretsGitSetRequest
 		if err := decodeJSON(w, r, &req); err != nil {
 			writeError(w, http.StatusBadRequest, "invalid request body: "+err.Error())
@@ -183,6 +213,9 @@ func (api *SecretsAPI) handleGit(w http.ResponseWriter, r *http.Request) {
 func (api *SecretsAPI) handleTailscale(w http.ResponseWriter, r *http.Request) {
 	switch r.Method {
 	case http.MethodPut:
+		if !api.authorizeWrite(w, r) {
+			return
+		}
 		var req V1SecretsTailscaleSetRequest
 		if err := decodeJSON(w, r, &req); err != nil {
 			writeError(w, http.StatusBadRequest, "invalid request body: "+err.Error())
@@ -222,6 +255,9 @@ func (api *SecretsAPI) handleTailscale(w http.ResponseWriter, r *http.Request) {
 		api.registerSecrets(bundle)
 		writeJSON(w, http.StatusOK, api.mutationResponse(bundle))
 	case http.MethodDelete:
+		if !api.authorizeWrite(w, r) {
+			return
+		}
 		bundle, _, err := api.store.Mutate(r.Context(), api.bundle, func(b *secrets.Bundle) error {
 			b.Tailscale = nil
 			return nil
@@ -239,6 +275,9 @@ func (api *SecretsAPI) handleTailscale(w http.ResponseWriter, r *http.Request) {
 func (api *SecretsAPI) handleSSHKeys(w http.ResponseWriter, r *http.Request) {
 	switch r.Method {
 	case http.MethodPost:
+		if !api.authorizeWrite(w, r) {
+			return
+		}
 		var req V1SecretsSSHKeyAddRequest
 		if err := decodeJSON(w, r, &req); err != nil {
 			writeError(w, http.StatusBadRequest, "invalid request body: "+err.Error())
@@ -277,6 +316,9 @@ func (api *SecretsAPI) handleSSHKeys(w http.ResponseWriter, r *http.Request) {
 func (api *SecretsAPI) handleSSHKeyName(w http.ResponseWriter, r *http.Request) {
 	switch r.Method {
 	case http.MethodDelete:
+		if !api.authorizeWrite(w, r) {
+			return
+		}
 		name := strings.TrimSpace(strings.TrimPrefix(r.URL.Path, "/v1/secrets/ssh-keys/"))
 		if name == "" {
 			writeError(w, http.StatusBadRequest, "ssh key name is required")

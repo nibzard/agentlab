@@ -4,24 +4,29 @@
 // workspaces, and exposures. The dashboard connects to the agentlabd daemon
 // via its Unix socket and proxies API requests to the daemon's ControlAPI.
 //
-// # Inbound security model (review C2)
+// # Inbound security model (review C2, finding F9)
 //
-// By default the dashboard binds to loopback only, where it trusts the local
-// browser. A non-loopback bind requires an inbound browser token
-// (--browser-token); the server refuses to start otherwise, because anyone who
-// can reach it could otherwise drive its destructive proxy (create/destroy
-// sandboxes, stop_all, prune, exposures).
+// Every bind — loopback included — requires an inbound browser token, because
+// the dashboard proxies destructive daemon operations (create/destroy
+// sandboxes, stop_all, prune, exposures) to a trusted Unix socket. When
+// --browser-token is not supplied, the server generates a random token at
+// startup and logs it; loopback deployments therefore stay usable without
+// pre-configuring anything, while any other local process is still locked out.
 //
-// Two protections apply to /api/* regardless of bind address:
+// Two protections apply to /api/*:
 //
-//   - Browser token: when configured, every /api/* request must carry it
-//     (Authorization: Bearer, X-Dashboard-Token, or dashboard_token cookie).
-//     The frontend obtains it from the user at runtime and keeps it in
-//     sessionStorage; it is never embedded in the shipped JavaScript.
+//   - Browser token: every /api/* request must carry it (Authorization:
+//     Bearer, X-Dashboard-Token, or dashboard_token cookie). The frontend
+//     obtains it from the user at runtime and keeps it in sessionStorage; it
+//     is never embedded in the shipped JavaScript.
 //
 //   - CSRF/Origin: state-changing requests (POST/PUT/PATCH/DELETE) must carry
 //     a same-origin Origin (or Referer) header and the custom X-Requested-With
 //     header, which a plain cross-site form submission cannot set.
+//
+// Every response also carries a Content-Security-Policy that forbids inline
+// script and inline event handlers (finding F3): the UI is built from
+// same-origin assets only, with listeners attached via addEventListener.
 //
 // The dashboard-to-daemon hop is over the local Unix socket (a trusted path)
 // and uses the outbound --token; that token is not what protects the browser
@@ -30,8 +35,10 @@ package dashboard
 
 import (
 	"context"
+	"crypto/rand"
 	"crypto/subtle"
 	"embed"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -54,7 +61,10 @@ type Server struct {
 	socketPath   string
 	token        string
 	browserToken string
-	logger       *log.Logger
+	// generatedToken records that browserToken was minted at startup rather
+	// than supplied by the operator, so startup logging can tell the user.
+	generatedToken bool
+	logger         *log.Logger
 }
 
 // Config holds dashboard server configuration.
@@ -68,10 +78,11 @@ type Config struct {
 	// Token is the bearer token for daemon (outbound) authentication.
 	Token string
 
-	// BrowserToken, when set, gates every /api/* request: the browser must
-	// supply it (Authorization: Bearer, X-Dashboard-Token, or
-	// dashboard_token cookie). It is required for non-loopback binds; loopback
-	// binds may omit it (review C2).
+	// BrowserToken gates every /api/* request: the browser must supply it
+	// (Authorization: Bearer, X-Dashboard-Token, or dashboard_token cookie).
+	// It is required on every bind. When it is empty, ListenAndServe
+	// generates a random token and logs it, so loopback deployments work
+	// without pre-configuring one (finding F9).
 	BrowserToken string
 }
 
@@ -89,21 +100,40 @@ func NewServer(cfg Config, logger *log.Logger) *Server {
 	}
 }
 
-// validateConfig enforces the inbound trust model before the server binds. A
-// non-loopback listener without a browser token is refused: the dashboard
-// proxies destructive operations and has no other inbound gate. Loopback binds
-// may omit the token (review C2).
+// ensureBrowserToken supplies the inbound token that every bind requires
+// (finding F9). When the operator passed no --browser-token, it generates a
+// random one so a loopback deployment stays usable without configuration; the
+// token is logged at startup for the user to enter in the browser.
+func (s *Server) ensureBrowserToken() error {
+	if s.browserToken != "" {
+		return nil
+	}
+	buf := make([]byte, 24) // 192 bits, base64url-encoded below
+	if _, err := rand.Read(buf); err != nil {
+		return fmt.Errorf("dashboard: generating browser token: %w", err)
+	}
+	s.browserToken = base64.RawURLEncoding.EncodeToString(buf)
+	s.generatedToken = true
+	return nil
+}
+
+// validateConfig enforces the inbound trust model before the server binds:
+// every bind, loopback included, must carry a browser token, because the
+// dashboard proxies destructive daemon operations and the remaining CSRF
+// check alone does not keep other local processes out (finding F9).
 func (s *Server) validateConfig() error {
-	if !isLoopbackListen(s.listen) && s.browserToken == "" {
-		return fmt.Errorf("dashboard: --browser-token is required for non-loopback bind %q "+
-			"(loopback binds may omit it; otherwise place the dashboard behind an authenticating "+
-			"encrypted reverse proxy)", s.listen)
+	if s.browserToken == "" {
+		return fmt.Errorf("dashboard: --browser-token is required for bind %q "+
+			"(pass one, or start without it to have a random token generated and logged)", s.listen)
 	}
 	return nil
 }
 
 // ListenAndServe starts the dashboard HTTP server.
 func (s *Server) ListenAndServe(ctx context.Context) error {
+	if err := s.ensureBrowserToken(); err != nil {
+		return err
+	}
 	if err := s.validateConfig(); err != nil {
 		return err
 	}
@@ -137,7 +167,7 @@ func (s *Server) ListenAndServe(ctx context.Context) error {
 	mux.HandleFunc("/api/v1/pool/status", s.proxyGet)
 
 	srv := &http.Server{
-		Handler:           s.inboundMiddleware(mux),
+		Handler:           s.securityHeaders(s.inboundMiddleware(mux)),
 		ReadHeaderTimeout: 5 * time.Second,
 		ReadTimeout:       60 * time.Second,
 		IdleTimeout:       2 * time.Minute,
@@ -149,13 +179,15 @@ func (s *Server) ListenAndServe(ctx context.Context) error {
 	}
 
 	s.logger.Printf("dashboard: listening on %s (socket=%s)", s.listen, s.socketPath)
+	if s.generatedToken {
+		s.logger.Printf("dashboard: no --browser-token configured; generated a session token: %s", s.browserToken)
+		s.logger.Printf("dashboard: enter this token in the browser prompt to use the dashboard " +
+			"(it gates every /api/* request; restart generates a new one)")
+	}
 	if !isLoopbackListen(s.listen) {
-		// validateConfig already guaranteed browserToken is set for non-loopback.
-		s.logger.Printf("dashboard: %s binds to a non-loopback interface; inbound browser token is enabled. "+
+		s.logger.Printf("dashboard: %s binds to a non-loopback interface. "+
 			"Ensure TLS or a trusted encrypted tunnel terminates in front of it, since the token travels "+
 			"in cleartext over HTTP otherwise (see docs/review-2026-08-11.md C2).", s.listen)
-	} else if s.browserToken != "" {
-		s.logger.Printf("dashboard: inbound browser token is enabled")
 	}
 
 	errCh := make(chan error, 1)
@@ -415,17 +447,41 @@ func isLoopbackListen(addr string) bool {
 	return net.ParseIP(host).IsLoopback()
 }
 
-// inboundMiddleware gates /api/* requests with the browser token (when
-// configured) and CSRF/Origin checks for state-changing methods. Static UI
-// assets (the HTML/JS/CSS needed to even present a login) are served without
-// inbound auth.
+// contentSecurityPolicy is applied to every dashboard response (finding F3).
+// It allows only same-origin script, style, and fetch; inline script and
+// inline event handlers are forbidden, so the UI attaches all listeners via
+// addEventListener and carries no inline style attributes. If you need to
+// loosen this, keep 'unsafe-inline' out of script-src.
+const contentSecurityPolicy = "default-src 'none'; script-src 'self'; " +
+	"style-src 'self'; img-src 'self' data:; connect-src 'self'; " +
+	"base-uri 'none'; form-action 'self'; frame-ancestors 'none'"
+
+// securityHeaders sets the response headers that bound what dashboard content
+// may do in the browser. It wraps the whole handler chain so proxied daemon
+// responses carry them too.
+func (s *Server) securityHeaders(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		h := w.Header()
+		h.Set("Content-Security-Policy", contentSecurityPolicy)
+		h.Set("X-Content-Type-Options", "nosniff")
+		next.ServeHTTP(w, r)
+	})
+}
+
+// inboundMiddleware gates /api/* requests with the browser token and
+// CSRF/Origin checks for state-changing methods. It fails closed: with no
+// token configured, every /api/* request is rejected. Static UI assets (the
+// HTML/JS/CSS needed to even present a login) are served without inbound auth.
 func (s *Server) inboundMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/api" && !strings.HasPrefix(r.URL.Path, "/api/") {
 			next.ServeHTTP(w, r)
 			return
 		}
-		if s.browserToken != "" && !s.requestHasBrowserToken(r) {
+		// Fail closed: requestHasBrowserToken returns false when no token is
+		// configured, so a Server that somehow skipped ensureBrowserToken can
+		// never serve /api/* unauthenticated.
+		if !s.requestHasBrowserToken(r) {
 			writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "dashboard token required"})
 			return
 		}

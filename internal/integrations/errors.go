@@ -11,6 +11,8 @@ var (
 	ErrSecretRequired         = errors.New("secret value is required")
 	ErrInvalidSecretType      = errors.New("secret_type must be 'bearer', 'header', or 'basic-auth'")
 	ErrInvalidProvider        = errors.New("llm provider must be 'openai', 'anthropic', or 'ollama'")
+	ErrInvalidTargetScheme    = errors.New("integration target scheme must be http or https")
+	ErrInvalidTargetHost      = errors.New("integration target host is not allowed")
 	ErrNotFound               = errors.New("integration not found")
 	ErrDuplicateName          = errors.New("integration with this name already exists")
 	ErrEncryptFailed          = errors.New("failed to encrypt secret")

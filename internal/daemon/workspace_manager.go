@@ -6,8 +6,10 @@ import (
 	"database/sql"
 	"encoding/hex"
 	"errors"
+	"fmt"
 	"io"
 	"log"
+	"strconv"
 	"strings"
 	"time"
 
@@ -172,6 +174,9 @@ func (m *WorkspaceManager) Attach(ctx context.Context, idOrName string, vmid int
 		}
 		return models.Workspace{}, ErrWorkspaceAttached
 	}
+	if err := m.checkAttachLease(ctx, workspace, vmid); err != nil {
+		return models.Workspace{}, err
+	}
 	if _, err := m.store.GetSandbox(ctx, vmid); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return models.Workspace{}, ErrSandboxNotFound
@@ -256,6 +261,97 @@ func (m *WorkspaceManager) DetachFromVM(ctx context.Context, vmid int) error {
 	}
 	_, err = m.Detach(ctx, workspace.ID)
 	return err
+}
+
+// checkAttachLease mirrors the lease check RebindWorkspace performs: a
+// workspace whose lease is live cannot be attached anywhere except to the
+// sandbox the lease belongs to. A lease held by a sandbox covers only that
+// sandbox. A lease held by a job or a session covers the sandbox that job
+// or session is bound to. Rebind acquires the lease for the target sandbox
+// before it attaches, and the orchestrator binds the job (and, for
+// session-backed jobs, the session) to the target sandbox before it
+// attaches, so those internal flows still pass.
+func (m *WorkspaceManager) checkAttachLease(ctx context.Context, workspace models.Workspace, vmid int) error {
+	owner := strings.TrimSpace(workspace.LeaseOwner)
+	if owner == "" {
+		return nil
+	}
+	if workspace.LeaseExpires.IsZero() || !workspace.LeaseExpires.After(m.now().UTC()) {
+		return nil
+	}
+	allowed, err := m.leaseOwnerAllowsAttach(ctx, owner, vmid)
+	if err != nil {
+		return err
+	}
+	if allowed {
+		return nil
+	}
+	return fmt.Errorf("%w by %s", ErrWorkspaceLeaseHeld, owner)
+}
+
+// leaseOwnerAllowsAttach reports whether a live lease held by owner still
+// permits attaching the workspace to vmid. Unknown owners and owners that
+// cannot be resolved fail closed, like the lease acquisition in rebind.
+func (m *WorkspaceManager) leaseOwnerAllowsAttach(ctx context.Context, owner string, vmid int) (bool, error) {
+	if leasedVMID, ok := workspaceLeaseSandboxOwner(owner); ok {
+		return leasedVMID == vmid, nil
+	}
+	jobID, isJob := strings.CutPrefix(owner, "job:")
+	if isJob {
+		job, err := m.jobBoundToSandbox(ctx, vmid)
+		if err != nil {
+			return false, err
+		}
+		return job.ID == jobID, nil
+	}
+	sessionID, isSession := strings.CutPrefix(owner, "session:")
+	if isSession {
+		session, err := m.store.GetSession(ctx, sessionID)
+		if err != nil {
+			if errors.Is(err, sql.ErrNoRows) {
+				return false, nil
+			}
+			return false, err
+		}
+		if session.CurrentVMID != nil && *session.CurrentVMID == vmid {
+			return true, nil
+		}
+		// A session-backed job binds the session's next sandbox before it
+		// attaches the workspace, before the session row is updated.
+		job, err := m.jobBoundToSandbox(ctx, vmid)
+		if err != nil {
+			return false, err
+		}
+		return job.SessionID != nil && *job.SessionID == sessionID, nil
+	}
+	return false, nil
+}
+
+// jobBoundToSandbox loads the job that a sandbox is provisioned for. An
+// unbound sandbox reports an empty job.
+func (m *WorkspaceManager) jobBoundToSandbox(ctx context.Context, vmid int) (models.Job, error) {
+	job, err := m.store.GetJobBySandboxVMID(ctx, vmid)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return models.Job{}, nil
+		}
+		return models.Job{}, err
+	}
+	return job, nil
+}
+
+// workspaceLeaseSandboxOwner reports the VMID encoded in a sandbox lease
+// owner and whether the owner identifies a sandbox at all.
+func workspaceLeaseSandboxOwner(owner string) (int, bool) {
+	value, found := strings.CutPrefix(strings.TrimSpace(owner), "sandbox:")
+	if !found {
+		return 0, false
+	}
+	vmid, err := strconv.Atoi(value)
+	if err != nil || vmid <= 0 {
+		return 0, false
+	}
+	return vmid, true
 }
 
 func newWorkspaceID(r io.Reader) (string, error) {

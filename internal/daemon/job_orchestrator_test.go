@@ -863,6 +863,54 @@ func TestJobOrchestratorProvisionSandboxTimeoutCleanup(t *testing.T) {
 	}
 }
 
+func TestJobOrchestratorProvisionSandboxCloneFailureNoDestroy(t *testing.T) {
+	ctx := context.Background()
+	store := newTestStore(t)
+	backend := &orchestratorBackend{blockClone: true}
+	manager := NewSandboxManager(store, backend, log.New(io.Discard, "", 0))
+	profiles := map[string]models.Profile{
+		"yolo": {Name: "yolo", TemplateVM: 9000},
+	}
+	snippetDir := t.TempDir()
+	snippetStore := proxmox.SnippetStore{Storage: "local", Dir: snippetDir}
+	orchestrator := NewJobOrchestrator(store, profiles, backend, manager, nil, snippetStore, "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIBtestkey agent@test", "http://10.77.0.1:8844", log.New(io.Discard, "", 0), nil, nil)
+	orchestrator.WithProvisionTimeout(25 * time.Millisecond)
+
+	now := time.Date(2026, 1, 29, 16, 45, 0, 0, time.UTC)
+	// The VMID is occupied in Proxmox, so the clone fails. Cleanup must not
+	// destroy the pre-existing VM behind that VMID.
+	sandbox := models.Sandbox{
+		VMID:          1400,
+		Name:          "sandbox-1400",
+		Profile:       "yolo",
+		State:         models.SandboxRequested,
+		Keepalive:     true,
+		CreatedAt:     now,
+		LastUpdatedAt: now,
+	}
+	if err := store.CreateSandbox(ctx, sandbox); err != nil {
+		t.Fatalf("create sandbox: %v", err)
+	}
+
+	if _, err := orchestrator.ProvisionSandbox(ctx, sandbox.VMID); err == nil {
+		t.Fatalf("expected clone failure error")
+	}
+
+	if len(backend.cloneCalls) != 1 || backend.cloneCalls[0] != proxmox.VMID(sandbox.VMID) {
+		t.Fatalf("expected clone called for vmid %d, got %+v", sandbox.VMID, backend.cloneCalls)
+	}
+	if len(backend.destroyCalls) != 0 {
+		t.Fatalf("expected no destroy calls after clone failure, got %d", len(backend.destroyCalls))
+	}
+	updatedSandbox, err := store.GetSandbox(ctx, sandbox.VMID)
+	if err != nil {
+		t.Fatalf("get sandbox: %v", err)
+	}
+	if updatedSandbox.State != models.SandboxProvisioning {
+		t.Fatalf("expected sandbox PROVISIONING, got %s", updatedSandbox.State)
+	}
+}
+
 func TestWorkspaceRebindTimeoutCleanup(t *testing.T) {
 	ctx := context.Background()
 	store := newTestStore(t)

@@ -368,7 +368,7 @@ func newService(cfg config.Config, profiles map[string]models.Profile, store *db
 	// In offline mode, Tailscale is skipped (requires internet coordination).
 	var exposurePublisher ExposurePublisher
 	if !cfg.Offline {
-		exposurePublisher = &TailscaleServePublisher{Runner: proxmox.ExecRunner{}}
+		exposurePublisher = &TailscaleServePublisher{Runner: proxmox.ExecRunner{}, AgentSubnet: agentSubnet}
 	}
 
 	if cfg.ProxyEnabled {
@@ -501,7 +501,8 @@ func newService(cfg config.Config, profiles map[string]models.Profile, store *db
 			_ = unixListener.Close()
 			return nil, fmt.Errorf("create integration store: %w", storeErr)
 		}
-		integrationAPI := NewIntegrationAPI(integrationStore, log.Default())
+		integrationAPI := NewIntegrationAPI(integrationStore, log.Default()).
+			WithTargetAllowlist(cfg.IntegrationTargetAllowlist)
 		integrationAPI.Register(localMux)
 		log.Printf("integrations system enabled")
 	}
@@ -582,10 +583,13 @@ func newService(cfg config.Config, profiles map[string]models.Profile, store *db
 		}
 		controlServer = &http.Server{
 			// WrapNetwork (not Wrap): the TCP control listener is the network
-			// trust boundary. Scoped SSH tokens are rejected here until
-			// per-route authorization exists (review C1). The local Unix
-			// socket uses localMux directly and remains a trusted full-access
-			// path.
+			// trust boundary. It authenticates only; authorization is
+			// per-route. ControlAPI handlers call authorize, the standalone
+			// APIs (secrets, integrations, users, pool) call
+			// authorizeStandalone, and /v1/exec calls execAllowed. Scoped SSH
+			// tokens pass authentication and are then confined per route. The
+			// local Unix socket uses localMux directly and remains a trusted
+			// full-access path.
 			Handler:           authMw.WrapNetwork(localMux),
 			ReadHeaderTimeout: 5 * time.Second,
 			IdleTimeout:       2 * time.Minute,

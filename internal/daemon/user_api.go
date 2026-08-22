@@ -8,6 +8,12 @@ import (
 )
 
 // UserAPI provides HTTP endpoints for user and team management.
+//
+// The registry maps SSH identities to roles. It is not wired into
+// authentication yet, but it holds the keys that will be, so every handler is
+// gated now: reads need user.read, mutations need user.write, and any
+// sandbox-scoped token is refused outright because the registry is a global
+// resource with no per-scope view (review F13).
 type UserAPI struct {
 	registry *user.Registry
 }
@@ -23,6 +29,20 @@ func (api *UserAPI) Register(mux *http.ServeMux) {
 	mux.HandleFunc("/v1/users/", api.handleUserResource)
 	mux.HandleFunc("/v1/teams", api.handleTeams)
 	mux.HandleFunc("/v1/teams/", api.handleTeamResource)
+}
+
+// authorizeRead gates user and team listings on the user.read permission.
+// Registry records are global, so sandbox-scoped tokens are denied.
+func (api *UserAPI) authorizeRead(w http.ResponseWriter, r *http.Request) bool {
+	return authorizeStandalone(w, r, permUserRead, true)
+}
+
+// authorizeWrite gates every user and team mutation on the user.write
+// permission. Mutations can mint admin roles and register or retire the SSH
+// keys that authentication trusts, so sandbox-scoped tokens are denied
+// outright.
+func (api *UserAPI) authorizeWrite(w http.ResponseWriter, r *http.Request) bool {
+	return authorizeStandalone(w, r, permUserWrite, true)
 }
 
 func (api *UserAPI) handleUsers(w http.ResponseWriter, r *http.Request) {
@@ -62,6 +82,9 @@ func (api *UserAPI) handleUserResource(w http.ResponseWriter, r *http.Request) {
 }
 
 func (api *UserAPI) addUser(w http.ResponseWriter, r *http.Request) {
+	if !api.authorizeWrite(w, r) {
+		return
+	}
 	var req struct {
 		Name string `json:"name"`
 		Key  string `json:"key"`
@@ -101,6 +124,9 @@ func (api *UserAPI) addUser(w http.ResponseWriter, r *http.Request) {
 }
 
 func (api *UserAPI) listUsers(w http.ResponseWriter, r *http.Request) {
+	if !api.authorizeRead(w, r) {
+		return
+	}
 	users, err := api.registry.ListUsers(r.Context())
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
@@ -124,6 +150,9 @@ func (api *UserAPI) listUsers(w http.ResponseWriter, r *http.Request) {
 }
 
 func (api *UserAPI) showUser(w http.ResponseWriter, r *http.Request, name string) {
+	if !api.authorizeRead(w, r) {
+		return
+	}
 	u, err := api.registry.Store().GetUserByName(r.Context(), name)
 	if err != nil {
 		writeError(w, http.StatusNotFound, "user not found")
@@ -139,6 +168,9 @@ func (api *UserAPI) showUser(w http.ResponseWriter, r *http.Request, name string
 }
 
 func (api *UserAPI) removeUser(w http.ResponseWriter, r *http.Request, name string) {
+	if !api.authorizeWrite(w, r) {
+		return
+	}
 	err := api.registry.RemoveUser(r.Context(), name, name)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
@@ -159,6 +191,9 @@ func (api *UserAPI) handleUserKeys(w http.ResponseWriter, r *http.Request, userN
 }
 
 func (api *UserAPI) addUserKey(w http.ResponseWriter, r *http.Request, userName string) {
+	if !api.authorizeWrite(w, r) {
+		return
+	}
 	var req struct {
 		Key string `json:"key"`
 	}
@@ -188,6 +223,9 @@ func (api *UserAPI) addUserKey(w http.ResponseWriter, r *http.Request, userName 
 }
 
 func (api *UserAPI) removeUserKey(w http.ResponseWriter, r *http.Request, userName string) {
+	if !api.authorizeWrite(w, r) {
+		return
+	}
 	fingerprint := r.URL.Query().Get("fingerprint")
 	if fingerprint == "" {
 		writeError(w, http.StatusBadRequest, "fingerprint is required")
@@ -255,6 +293,9 @@ func (api *UserAPI) handleTeamResource(w http.ResponseWriter, r *http.Request) {
 }
 
 func (api *UserAPI) addTeam(w http.ResponseWriter, r *http.Request) {
+	if !api.authorizeWrite(w, r) {
+		return
+	}
 	var req struct {
 		Name        string `json:"name"`
 		Description string `json:"description"`
@@ -283,6 +324,9 @@ func (api *UserAPI) addTeam(w http.ResponseWriter, r *http.Request) {
 }
 
 func (api *UserAPI) listTeams(w http.ResponseWriter, r *http.Request) {
+	if !api.authorizeRead(w, r) {
+		return
+	}
 	teams, err := api.registry.ListTeams(r.Context())
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
@@ -305,6 +349,9 @@ func (api *UserAPI) listTeams(w http.ResponseWriter, r *http.Request) {
 }
 
 func (api *UserAPI) removeTeam(w http.ResponseWriter, r *http.Request, name string) {
+	if !api.authorizeWrite(w, r) {
+		return
+	}
 	err := api.registry.RemoveTeam(r.Context(), name, "")
 	if err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
@@ -325,6 +372,9 @@ func (api *UserAPI) handleTeamMembers(w http.ResponseWriter, r *http.Request, te
 }
 
 func (api *UserAPI) listTeamMembers(w http.ResponseWriter, r *http.Request, teamName string) {
+	if !api.authorizeRead(w, r) {
+		return
+	}
 	members, err := api.registry.ListTeamMembers(r.Context(), teamName)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
@@ -347,6 +397,9 @@ func (api *UserAPI) listTeamMembers(w http.ResponseWriter, r *http.Request, team
 }
 
 func (api *UserAPI) addTeamMember(w http.ResponseWriter, r *http.Request, teamName string) {
+	if !api.authorizeWrite(w, r) {
+		return
+	}
 	var req struct {
 		UserID string `json:"user_id"`
 		Role   string `json:"role"`
@@ -375,6 +428,9 @@ func (api *UserAPI) addTeamMember(w http.ResponseWriter, r *http.Request, teamNa
 }
 
 func (api *UserAPI) removeTeamMember(w http.ResponseWriter, r *http.Request, teamName, userName string) {
+	if !api.authorizeWrite(w, r) {
+		return
+	}
 	err := api.registry.RemoveTeamMember(r.Context(), teamName, userName, "")
 	if err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())

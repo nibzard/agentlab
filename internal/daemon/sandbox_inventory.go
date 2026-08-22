@@ -50,6 +50,19 @@ func (api *ControlAPI) handleSandboxInventory(w http.ResponseWriter, r *http.Req
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
+	// Scoped callers see only their own sandboxes. Unmanaged Proxmox VMs have
+	// no sandbox row, so no scope can cover them: drop them entirely (review
+	// F10). Reconcile is bulk-gated and never reaches a scoped token.
+	if allowed := sandboxScopeFilter(r); allowed != nil {
+		filtered := make([]sandboxInventoryRecord, 0, len(records))
+		for _, record := range records {
+			if record.sandbox == nil || !allowed(inventoryVMID(record)) {
+				continue
+			}
+			filtered = append(filtered, record)
+		}
+		records = filtered
+	}
 	writeJSON(w, http.StatusOK, V1SandboxInventoryResponse{Sandboxes: inventoryRecordsToV1(records)})
 }
 

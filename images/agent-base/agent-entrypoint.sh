@@ -9,10 +9,22 @@ set -euo pipefail
 # Fetch sandbox metadata from the metadata endpoint.
 # The metadata endpoint is available at 169.254.169.254 inside sandboxes.
 METADATA_BASE="http://169.254.169.254"
+SANDBOX_SECRET_FILE="${AGENTLAB_SANDBOX_SECRET_FILE:-/run/agentlab/secrets/sandbox-secret}"
+
+# The endpoint requires the per-sandbox secret stored by the agent runner.
+# Requests without it are rejected.
+SANDBOX_SECRET=""
+if [[ -r "$SANDBOX_SECRET_FILE" ]]; then
+    SANDBOX_SECRET="$(cat "$SANDBOX_SECRET_FILE")"
+fi
 
 fetch_metadata() {
     local path="$1"
-    curl -sf --max-time 5 "${METADATA_BASE}${path}" 2>/dev/null || echo "{}"
+    if [[ -n "$SANDBOX_SECRET" ]]; then
+        curl -sf --max-time 5 -H "X-AgentLab-Sandbox-Secret: $SANDBOX_SECRET" "${METADATA_BASE}${path}" 2>/dev/null || echo "{}"
+    else
+        echo "{}"
+    fi
 }
 
 # Get sandbox identity.

@@ -57,15 +57,24 @@ func (s *Store) CreateWorkspace(ctx context.Context, workspace models.Workspace)
 	if workspace.AttachedVM != nil && *workspace.AttachedVM > 0 {
 		attached = *workspace.AttachedVM
 	}
+	// A workspace created with an attachment records that attachment as its
+	// last one, so the detach history starts consistent.
+	var lastAttached interface{}
+	if workspace.LastAttachedVM != nil && *workspace.LastAttachedVM > 0 {
+		lastAttached = *workspace.LastAttachedVM
+	} else if attached != nil {
+		lastAttached = attached
+	}
 	_, err := s.DB.ExecContext(ctx, `INSERT INTO workspaces (
-		id, name, storage, volid, size_gb, attached_vmid, lease_owner, lease_nonce, lease_expires_at, created_at, updated_at, meta_json
-	) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		id, name, storage, volid, size_gb, attached_vmid, last_attached_vmid, lease_owner, lease_nonce, lease_expires_at, created_at, updated_at, meta_json
+	) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		workspace.ID,
 		workspace.Name,
 		workspace.Storage,
 		workspace.VolumeID,
 		workspace.SizeGB,
 		attached,
+		lastAttached,
 		leaseOwner,
 		leaseNonce,
 		leaseExpires,
@@ -84,7 +93,7 @@ func (s *Store) GetWorkspace(ctx context.Context, id string) (models.Workspace, 
 	if s == nil || s.DB == nil {
 		return models.Workspace{}, errors.New("db store is nil")
 	}
-	row := s.DB.QueryRowContext(ctx, `SELECT id, name, storage, volid, size_gb, attached_vmid, lease_owner, lease_nonce, lease_expires_at, created_at, updated_at
+	row := s.DB.QueryRowContext(ctx, `SELECT id, name, storage, volid, size_gb, attached_vmid, last_attached_vmid, lease_owner, lease_nonce, lease_expires_at, created_at, updated_at
 		FROM workspaces WHERE id = ?`, id)
 	return scanWorkspaceRow(row)
 }
@@ -94,7 +103,7 @@ func (s *Store) GetWorkspaceByName(ctx context.Context, name string) (models.Wor
 	if s == nil || s.DB == nil {
 		return models.Workspace{}, errors.New("db store is nil")
 	}
-	row := s.DB.QueryRowContext(ctx, `SELECT id, name, storage, volid, size_gb, attached_vmid, lease_owner, lease_nonce, lease_expires_at, created_at, updated_at
+	row := s.DB.QueryRowContext(ctx, `SELECT id, name, storage, volid, size_gb, attached_vmid, last_attached_vmid, lease_owner, lease_nonce, lease_expires_at, created_at, updated_at
 		FROM workspaces WHERE name = ?`, name)
 	return scanWorkspaceRow(row)
 }
@@ -107,7 +116,7 @@ func (s *Store) GetWorkspaceByAttachedVMID(ctx context.Context, vmid int) (model
 	if vmid <= 0 {
 		return models.Workspace{}, errors.New("vmid must be positive")
 	}
-	row := s.DB.QueryRowContext(ctx, `SELECT id, name, storage, volid, size_gb, attached_vmid, lease_owner, lease_nonce, lease_expires_at, created_at, updated_at
+	row := s.DB.QueryRowContext(ctx, `SELECT id, name, storage, volid, size_gb, attached_vmid, last_attached_vmid, lease_owner, lease_nonce, lease_expires_at, created_at, updated_at
 		FROM workspaces WHERE attached_vmid = ?`, vmid)
 	return scanWorkspaceRow(row)
 }
@@ -117,7 +126,7 @@ func (s *Store) ListWorkspaces(ctx context.Context) ([]models.Workspace, error) 
 	if s == nil || s.DB == nil {
 		return nil, errors.New("db store is nil")
 	}
-	rows, err := s.DB.QueryContext(ctx, `SELECT id, name, storage, volid, size_gb, attached_vmid, lease_owner, lease_nonce, lease_expires_at, created_at, updated_at
+	rows, err := s.DB.QueryContext(ctx, `SELECT id, name, storage, volid, size_gb, attached_vmid, last_attached_vmid, lease_owner, lease_nonce, lease_expires_at, created_at, updated_at
 		FROM workspaces ORDER BY created_at DESC`)
 	if err != nil {
 		return nil, fmt.Errorf("list workspaces: %w", err)
@@ -150,8 +159,8 @@ func (s *Store) AttachWorkspace(ctx context.Context, id string, vmid int) (bool,
 	}
 	updatedAt := formatTime(time.Now().UTC())
 	id = strings.TrimSpace(id)
-	res, err := s.DB.ExecContext(ctx, `UPDATE workspaces SET attached_vmid = ?, updated_at = ?
-		WHERE id = ? AND attached_vmid IS NULL`, vmid, updatedAt, id)
+	res, err := s.DB.ExecContext(ctx, `UPDATE workspaces SET attached_vmid = ?, last_attached_vmid = ?, updated_at = ?
+		WHERE id = ? AND attached_vmid IS NULL`, vmid, vmid, updatedAt, id)
 	if err != nil {
 		return false, fmt.Errorf("attach workspace %s: %w", id, err)
 	}
@@ -162,7 +171,9 @@ func (s *Store) AttachWorkspace(ctx context.Context, id string, vmid int) (bool,
 	return affected > 0, nil
 }
 
-// DetachWorkspace clears attached_vmid if it matches the provided vmid.
+// DetachWorkspace clears attached_vmid if it matches the provided vmid. The
+// vmid is kept in last_attached_vmid, because a detached workspace must
+// remember which sandbox scope it belongs to (review F5).
 func (s *Store) DetachWorkspace(ctx context.Context, id string, vmid int) (bool, error) {
 	if s == nil || s.DB == nil {
 		return false, errors.New("db store is nil")
@@ -175,7 +186,9 @@ func (s *Store) DetachWorkspace(ctx context.Context, id string, vmid int) (bool,
 	}
 	updatedAt := formatTime(time.Now().UTC())
 	id = strings.TrimSpace(id)
-	res, err := s.DB.ExecContext(ctx, `UPDATE workspaces SET attached_vmid = NULL, updated_at = ?
+	// SQLite evaluates every SET expression against the unmodified row, so
+	// last_attached_vmid receives the pre-detach attached_vmid.
+	res, err := s.DB.ExecContext(ctx, `UPDATE workspaces SET last_attached_vmid = attached_vmid, attached_vmid = NULL, updated_at = ?
 		WHERE id = ? AND attached_vmid = ?`, updatedAt, id, vmid)
 	if err != nil {
 		return false, fmt.Errorf("detach workspace %s: %w", id, err)
@@ -190,17 +203,22 @@ func (s *Store) DetachWorkspace(ctx context.Context, id string, vmid int) (bool,
 func scanWorkspaceRow(scanner interface{ Scan(dest ...any) error }) (models.Workspace, error) {
 	var ws models.Workspace
 	var attached sql.NullInt64
+	var lastAttached sql.NullInt64
 	var leaseOwner sql.NullString
 	var leaseNonce sql.NullString
 	var leaseExpires sql.NullString
 	var createdAt string
 	var updatedAt string
-	if err := scanner.Scan(&ws.ID, &ws.Name, &ws.Storage, &ws.VolumeID, &ws.SizeGB, &attached, &leaseOwner, &leaseNonce, &leaseExpires, &createdAt, &updatedAt); err != nil {
+	if err := scanner.Scan(&ws.ID, &ws.Name, &ws.Storage, &ws.VolumeID, &ws.SizeGB, &attached, &lastAttached, &leaseOwner, &leaseNonce, &leaseExpires, &createdAt, &updatedAt); err != nil {
 		return models.Workspace{}, err
 	}
 	if attached.Valid {
 		value := int(attached.Int64)
 		ws.AttachedVM = &value
+	}
+	if lastAttached.Valid {
+		value := int(lastAttached.Int64)
+		ws.LastAttachedVM = &value
 	}
 	if leaseOwner.Valid {
 		ws.LeaseOwner = leaseOwner.String
@@ -240,7 +258,7 @@ func (s *Store) GetWorkspaceByLeaseOwner(ctx context.Context, owner string) (mod
 	if owner == "" {
 		return models.Workspace{}, errors.New("lease owner is required")
 	}
-	row := s.DB.QueryRowContext(ctx, `SELECT id, name, storage, volid, size_gb, attached_vmid, lease_owner, lease_nonce, lease_expires_at, created_at, updated_at
+	row := s.DB.QueryRowContext(ctx, `SELECT id, name, storage, volid, size_gb, attached_vmid, last_attached_vmid, lease_owner, lease_nonce, lease_expires_at, created_at, updated_at
 		FROM workspaces WHERE lease_owner = ?`, owner)
 	return scanWorkspaceRow(row)
 }

@@ -16,11 +16,14 @@ import (
 
 func TestMetadataIndex(t *testing.T) {
 	store := newTestStore(t)
+	seedSecretTestSandbox(t, store, 3100, "index-caller", "10.77.0.55")
+	indexSecret := seedSandboxSecret(t, store, 3100)
 	agentSubnet := mustParseCIDR(t, "10.77.0.0/16")
 	api := NewMetadataAPI(store, secrets.Store{}, "", agentSubnet, nil, nil)
 
 	req := httptest.NewRequest(http.MethodGet, "/metadata/", nil)
 	req.RemoteAddr = "10.77.0.55:1234"
+	withSandboxSecret(req, indexSecret)
 	resp := httptest.NewRecorder()
 	api.handleIndex(resp, req)
 
@@ -94,11 +97,13 @@ func TestMetadataIdentity(t *testing.T) {
 		t.Fatalf("update sandbox ip: %v", err)
 	}
 
+	identitySecret := seedSandboxSecret(t, store, 3001)
 	agentSubnet := mustParseCIDR(t, "10.77.0.0/16")
 	api := NewMetadataAPI(store, secrets.Store{}, "", agentSubnet, nil, nil)
 
 	req := httptest.NewRequest(http.MethodGet, "/metadata/identity", nil)
 	req.RemoteAddr = "10.77.1.42:4321"
+	withSandboxSecret(req, identitySecret)
 	resp := httptest.NewRecorder()
 	api.handleIdentity(resp, req)
 
@@ -163,10 +168,12 @@ func TestMetadataIdentity_WorkspaceID(t *testing.T) {
 		t.Fatalf("update sandbox ip: %v", err)
 	}
 
+	workspaceSecret := seedSandboxSecret(t, store, 3002)
 	api := NewMetadataAPI(store, secrets.Store{}, "", mustParseCIDR(t, "10.77.0.0/16"), nil, nil)
 
 	req := httptest.NewRequest(http.MethodGet, "/metadata/identity", nil)
 	req.RemoteAddr = "10.77.2.10:4321"
+	withSandboxSecret(req, workspaceSecret)
 	resp := httptest.NewRecorder()
 	api.handleIdentity(resp, req)
 
@@ -214,10 +221,12 @@ metadata:
 		t.Fatalf("write bundle: %v", err)
 	}
 
+	metadataSecret := seedSandboxSecret(t, store, 3003)
 	api := NewMetadataAPI(store, secrets.Store{Dir: secretsDir, AllowPlaintext: true}, "default", mustParseCIDR(t, "10.77.0.0/16"), nil, nil)
 
 	req := httptest.NewRequest(http.MethodGet, "/metadata/metadata", nil)
 	req.RemoteAddr = "10.77.3.20:4321"
+	withSandboxSecret(req, metadataSecret)
 	resp := httptest.NewRecorder()
 	api.handleMetadata(resp, req)
 
@@ -276,11 +285,13 @@ metadata:
 		t.Fatalf("write bundle: %v", err)
 	}
 
+	secretsSecret := seedSandboxSecret(t, store, 3004)
 	api := NewMetadataAPI(store, secrets.Store{Dir: secretsDir, AllowPlaintext: true}, "default", mustParseCIDR(t, "10.77.0.0/16"), nil, nil)
 
 	// Test fetching env secret.
 	req := httptest.NewRequest(http.MethodGet, "/metadata/secrets/API_KEY", nil)
 	req.RemoteAddr = "10.77.4.30:4321"
+	withSandboxSecret(req, secretsSecret)
 	resp := httptest.NewRecorder()
 	api.handleSecrets(resp, req)
 
@@ -301,6 +312,7 @@ metadata:
 	// Test fetching metadata secret.
 	req2 := httptest.NewRequest(http.MethodGet, "/metadata/secrets/region", nil)
 	req2.RemoteAddr = "10.77.4.30:4321"
+	withSandboxSecret(req2, secretsSecret)
 	resp2 := httptest.NewRecorder()
 	api.handleSecrets(resp2, req2)
 
@@ -340,10 +352,12 @@ func TestMetadataSecrets_NotFound(t *testing.T) {
 		t.Fatalf("write bundle: %v", err)
 	}
 
+	notFoundSecret := seedSandboxSecret(t, store, 3005)
 	api := NewMetadataAPI(store, secrets.Store{Dir: secretsDir, AllowPlaintext: true}, "default", mustParseCIDR(t, "10.77.0.0/16"), nil, nil)
 
 	req := httptest.NewRequest(http.MethodGet, "/metadata/secrets/NONEXISTENT", nil)
 	req.RemoteAddr = "10.77.5.40:4321"
+	withSandboxSecret(req, notFoundSecret)
 	resp := httptest.NewRecorder()
 	api.handleSecrets(resp, req)
 
@@ -384,6 +398,7 @@ func TestMetadataRateLimiting(t *testing.T) {
 		t.Fatalf("update sandbox ip: %v", err)
 	}
 
+	rateSecret := seedSandboxSecret(t, store, 3006)
 	limiter := NewIPRateLimiter(1, 2)
 	api := NewMetadataAPI(store, secrets.Store{}, "", mustParseCIDR(t, "10.77.0.0/16"), limiter, nil)
 
@@ -391,6 +406,7 @@ func TestMetadataRateLimiting(t *testing.T) {
 	for i := 0; i < 2; i++ {
 		req := httptest.NewRequest(http.MethodGet, "/metadata/identity", nil)
 		req.RemoteAddr = "10.77.6.50:4321"
+		withSandboxSecret(req, rateSecret)
 		resp := httptest.NewRecorder()
 		api.handleIdentity(resp, req)
 		if resp.Code != http.StatusOK {

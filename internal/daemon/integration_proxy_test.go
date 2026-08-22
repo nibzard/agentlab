@@ -123,11 +123,13 @@ func TestIntegrationProxy_AdmitsIdentifiedAndBypass(t *testing.T) {
 	subnet := mustParseCIDR(t, "10.77.0.0/16")
 
 	t.Run("identified live sandbox is admitted (passes the gate)", func(t *testing.T) {
+		identifiedSecret := seedSandboxSecret(t, store, 2010)
 		var buf bytes.Buffer
 		api := NewIntegrationProxyAPI(intStore, store, subnet, nil, log.New(&buf, "", 0), false, false)
 		mux := http.NewServeMux()
 		api.Register(mux)
 		req := newProxyReq(http.MethodGet, "/proxy/auto/info/refs", "10.77.0.10:1234")
+		withSandboxSecret(req, identifiedSecret)
 		rec := httptest.NewRecorder()
 		mux.ServeHTTP(rec, req)
 		// The identification/attachment gate passed: the audit line was written

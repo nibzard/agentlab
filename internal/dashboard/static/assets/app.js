@@ -11,8 +11,8 @@
 
   // The inbound dashboard token lives only in this browser session; it is never
   // embedded in the shipped JavaScript. The user enters it when the server
-  // demands it (non-loopback deployments). Loopback deployments do not require
-  // it and never trigger the prompt.
+  // demands it. Every bind requires a token: the operator passes
+  // --browser-token, or the server generates one and logs it at startup.
   function dashboardToken() {
     try {
       return sessionStorage.getItem("agentlab_dashboard_token") || "";
@@ -76,11 +76,63 @@
     return res.json();
   }
 
-  // --- State badge ---
+  // --- DOM helpers ---
+  //
+  // Rows are built with createElement/textContent and addEventListener so
+  // untrusted values (exposure names, job IDs, states) can never break out of
+  // an attribute or handler string (review F3).
 
-  function stateBadge(state) {
-    var cls = "state state-" + (state || "unknown").toLowerCase();
-    return '<span class="' + cls + '">' + esc(state || "-") + "</span>";
+  function appendTd(tr, text) {
+    var td = document.createElement("td");
+    if (text !== null && text !== undefined) {
+      td.textContent = text;
+    }
+    tr.appendChild(td);
+    return td;
+  }
+
+  function codeEl(text) {
+    var code = document.createElement("code");
+    code.textContent = text;
+    return code;
+  }
+
+  function stateBadgeEl(state) {
+    var span = document.createElement("span");
+    span.className = "state state-" + (classSlug(state) || "unknown");
+    span.textContent = state || "-";
+    return span;
+  }
+
+  function addActionButton(parent, label, className, handler) {
+    var btn = document.createElement("button");
+    btn.type = "button";
+    btn.className = className;
+    btn.textContent = label;
+    btn.addEventListener("click", handler);
+    parent.appendChild(btn);
+  }
+
+  function errorRow(tbody, colspan, message) {
+    tbody.innerHTML = "";
+    var tr = document.createElement("tr");
+    var td = document.createElement("td");
+    td.colSpan = colspan;
+    td.className = "error";
+    td.textContent = "Failed to load: " + message;
+    tr.appendChild(td);
+    tbody.appendChild(tr);
+  }
+
+  // isHttpUrl reports whether a URL is safe to render as a link. It keeps
+  // untrusted URLs (for example a javascript: pseudo-URL) out of href.
+  function isHttpUrl(u) {
+    try {
+      var protocol = new URL(String(u), window.location.origin).protocol;
+      return protocol === "http:" || protocol === "https:";
+    } catch (e) {
+      return false;
+    }
   }
 
   // --- Time formatting ---
@@ -112,11 +164,26 @@
     );
   }
 
+  // esc encodes the five characters that can break out of an HTML text node,
+  // a double-quoted attribute, or a single-quoted attribute. Never interpolate
+  // it into JavaScript string contexts (inline handlers); attach listeners
+  // instead.
   function esc(s) {
     if (!s) return "";
-    var d = document.createElement("div");
-    d.textContent = String(s);
-    return d.innerHTML;
+    return String(s)
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;")
+      .replace(/'/g, "&#39;");
+  }
+
+  // classSlug reduces an untrusted value to the characters that are safe
+  // inside a class attribute: [a-z0-9-].
+  function classSlug(s) {
+    return String(s || "")
+      .toLowerCase()
+      .replace(/[^a-z0-9-]/g, "");
   }
 
   // --- Tabs ---
@@ -248,79 +315,54 @@
         return;
       }
       empty.style.display = "none";
-      tbody.innerHTML = list
-        .map(function (sb) {
-          return (
-            "<tr>" +
-            "<td>" +
-            esc(sb.vmid) +
-            "</td>" +
-            "<td>" +
-            esc(sb.name) +
-            "</td>" +
-            "<td>" +
-            esc(sb.profile) +
-            "</td>" +
-            "<td>" +
-            esc(sb.type || "vm") +
-            "</td>" +
-            "<td>" +
-            stateBadge(sb.state) +
-            "</td>" +
-            "<td><code>" +
-            esc(sb.ip || "-") +
-            "</code></td>" +
-            "<td>" +
-            timeAgo(sb.created_at) +
-            "</td>" +
-            "<td>" +
-            actionButtons(sb) +
-            "</td>" +
-            "</tr>"
-          );
-        })
-        .join("");
+      tbody.innerHTML = "";
+      list.forEach(function (sb) {
+        var vmid = sb.vmid;
+        var tr = document.createElement("tr");
+        appendTd(tr, String(sb.vmid));
+        appendTd(tr, sb.name);
+        appendTd(tr, sb.profile);
+        appendTd(tr, sb.type || "vm");
+        appendTd(tr).appendChild(stateBadgeEl(sb.state));
+        appendTd(tr).appendChild(codeEl(sb.ip || "-"));
+        appendTd(tr, timeAgo(sb.created_at));
+        appendActions(tr, sb);
+        tbody.appendChild(tr);
+      });
     } catch (e) {
-      tbody.innerHTML =
-        '<tr><td colspan="8" class="error">Failed to load: ' +
-        esc(e.message) +
-        "</td></tr>";
+      errorRow(tbody, 8, e.message);
     }
   }
 
-  function actionButtons(sb) {
+  function appendActions(tr, sb) {
+    var td = document.createElement("td");
+    var group = document.createElement("div");
+    group.className = "action-group";
     var vmid = sb.vmid;
     var state = (sb.state || "").toLowerCase();
-    var html = '<div class="action-group">';
-    html +=
-      '<button class="btn btn-sm" onclick="showDetail(' +
-      vmid +
-      ')">Detail</button>';
+    addActionButton(group, "Detail", "btn btn-sm", function () {
+      showDetail(vmid);
+    });
     if (state === "running" || state === "ready") {
-      html +=
-        '<button class="btn btn-sm" onclick="stopSandbox(' +
-        vmid +
-        ')">Stop</button>';
-      html +=
-        '<button class="btn btn-sm" onclick="showExpose(' +
-        vmid +
-        ')">Expose</button>';
-      html +=
-        '<button class="btn btn-sm" onclick="showSnapshot(' +
-        vmid +
-        ')">Snapshot</button>';
+      addActionButton(group, "Stop", "btn btn-sm", function () {
+        stopSandbox(vmid);
+      });
+      addActionButton(group, "Expose", "btn btn-sm", function () {
+        showExpose(vmid);
+      });
+      addActionButton(group, "Snapshot", "btn btn-sm", function () {
+        showSnapshot(vmid);
+      });
     } else if (state === "stopped") {
-      html +=
-        '<button class="btn btn-sm" onclick="startSandbox(' +
-        vmid +
-        ')">Start</button>';
+      addActionButton(group, "Start", "btn btn-sm", function () {
+        startSandbox(vmid);
+      });
     }
-    html +=
-      '<button class="btn btn-sm btn-danger" onclick="destroySandbox(' +
-      vmid +
-      ')">Destroy</button>';
-    html += "</div>";
-    return html;
+    addActionButton(group, "Destroy", "btn btn-sm btn-danger", function () {
+      destroySandbox(vmid);
+    });
+    td.appendChild(group);
+    tr.appendChild(td);
   }
 
   async function loadJobs() {
@@ -381,44 +423,27 @@
         return;
       }
       empty.style.display = "none";
-      tbody.innerHTML = rows
-        .map(function (r) {
-          return (
-            "<tr>" +
-            "<td><code>" +
-            esc(r.job_id).substring(0, 8) +
-            "</code></td>" +
-            "<td>" +
-            esc(r.repo) +
-            "</td>" +
-            "<td>" +
-            esc(r.task) +
-            "</td>" +
-            "<td>" +
-            esc(r.profile) +
-            "</td>" +
-            "<td>" +
-            stateBadge(r.status) +
-            "</td>" +
-            "<td>" +
-            timeAgo(r.created) +
-            "</td>" +
-            "<td>" +
-            (r.status === "failed"
-              ? '<button class="btn btn-sm" onclick="showJobDetail(\'' +
-                esc(r.job_id) +
-                "')'>View</button>"
-              : "") +
-            "</td>" +
-            "</tr>"
-          );
-        })
-        .join("");
+      tbody.innerHTML = "";
+      rows.forEach(function (r) {
+        var jobId = r.job_id;
+        var tr = document.createElement("tr");
+        appendTd(tr).appendChild(codeEl(String(jobId).substring(0, 8)));
+        appendTd(tr, r.repo);
+        appendTd(tr, r.task);
+        appendTd(tr, r.profile);
+        appendTd(tr).appendChild(stateBadgeEl(r.status));
+        appendTd(tr, timeAgo(r.created));
+        var actions = document.createElement("td");
+        if (r.status === "failed") {
+          addActionButton(actions, "View", "btn btn-sm", function () {
+            showJobDetail(jobId);
+          });
+        }
+        tr.appendChild(actions);
+        tbody.appendChild(tr);
+      });
     } catch (e) {
-      tbody.innerHTML =
-        '<tr><td colspan="7" class="error">Failed to load: ' +
-        esc(e.message) +
-        "</td></tr>";
+      errorRow(tbody, 7, e.message);
     }
   }
 
@@ -479,48 +504,37 @@
         return;
       }
       empty.style.display = "none";
-      tbody.innerHTML = list
-        .map(function (ex) {
-          return (
-            "<tr>" +
-            "<td>" +
-            esc(ex.name) +
-            "</td>" +
-            "<td>" +
-            esc(ex.vmid) +
-            "</td>" +
-            "<td>" +
-            esc(ex.port) +
-            "</td>" +
-            "<td>" +
-            (ex.url
-              ? '<a class="exposure-url" href="' +
-                esc(ex.url) +
-                '" target="_blank">' +
-                esc(ex.url) +
-                "</a>"
-              : "-") +
-            "</td>" +
-            "<td>" +
-            stateBadge(ex.state) +
-            "</td>" +
-            "<td>" +
-            timeAgo(ex.created_at) +
-            "</td>" +
-            "<td>" +
-            '<button class="btn btn-sm btn-danger" onclick="removeExposure(\'' +
-            esc(ex.name) +
-            "')\">Remove</button>" +
-            "</td>" +
-            "</tr>"
-          );
-        })
-        .join("");
+      tbody.innerHTML = "";
+      list.forEach(function (ex) {
+        var name = ex.name;
+        var tr = document.createElement("tr");
+        appendTd(tr, name);
+        appendTd(tr, String(ex.vmid));
+        appendTd(tr, String(ex.port));
+        var urlTd = document.createElement("td");
+        if (ex.url && isHttpUrl(ex.url)) {
+          var a = document.createElement("a");
+          a.className = "exposure-url";
+          a.href = ex.url;
+          a.target = "_blank";
+          a.rel = "noopener noreferrer";
+          a.textContent = ex.url;
+          urlTd.appendChild(a);
+        } else {
+          urlTd.textContent = (ex.url && String(ex.url)) || "-";
+        }
+        tr.appendChild(urlTd);
+        appendTd(tr).appendChild(stateBadgeEl(ex.state));
+        appendTd(tr, timeAgo(ex.created_at));
+        var actions = document.createElement("td");
+        addActionButton(actions, "Remove", "btn btn-sm btn-danger", function () {
+          removeExposure(name);
+        });
+        tr.appendChild(actions);
+        tbody.appendChild(tr);
+      });
     } catch (e) {
-      tbody.innerHTML =
-        '<tr><td colspan="7" class="error">Failed to load: ' +
-        esc(e.message) +
-        "</td></tr>";
+      errorRow(tbody, 7, e.message);
     }
   }
 
@@ -571,7 +585,7 @@
       container.innerHTML = events
         .slice(0, 100)
         .map(function (ev) {
-          var kindClass = "event-kind kind-" + (ev.kind || "").toLowerCase();
+          var kindClass = "event-kind kind-" + (classSlug(ev.kind) || "event");
           return (
             '<div class="event-row">' +
             '<span class="event-time">' +
@@ -612,17 +626,20 @@
   }
 
   // --- Actions ---
+  //
+  // Handlers are plain local functions wired with addEventListener; no
+  // function needs to be global, so no inline handler can reach them.
 
-  window.startSandbox = async function (vmid) {
+  async function startSandbox(vmid) {
     try {
       await api("/v1/sandboxes/" + vmid + "/start", { method: "POST" });
       await loadSandboxes();
     } catch (e) {
       alert("Failed to start: " + e.message);
     }
-  };
+  }
 
-  window.stopSandbox = async function (vmid) {
+  async function stopSandbox(vmid) {
     if (!confirm("Stop sandbox " + vmid + "?")) return;
     try {
       await api("/v1/sandboxes/" + vmid + "/stop", { method: "POST" });
@@ -630,9 +647,9 @@
     } catch (e) {
       alert("Failed to stop: " + e.message);
     }
-  };
+  }
 
-  window.destroySandbox = async function (vmid) {
+  async function destroySandbox(vmid) {
     if (!confirm("Destroy sandbox " + vmid + "? This cannot be undone."))
       return;
     try {
@@ -645,9 +662,9 @@
     } catch (e) {
       alert("Failed to destroy: " + e.message);
     }
-  };
+  }
 
-  window.showDetail = async function (vmid) {
+  async function showDetail(vmid) {
     try {
       var data = await apiJSON("/v1/sandboxes/" + vmid);
       document.getElementById("detail-title").textContent =
@@ -712,9 +729,9 @@
     } catch (e) {
       alert("Failed to load details: " + e.message);
     }
-  };
+  }
 
-  window.showJobDetail = async function (jobId) {
+  async function showJobDetail(jobId) {
     try {
       var data = await apiJSON("/v1/jobs/" + jobId);
       if (!data) {
@@ -758,33 +775,33 @@
     } catch (e) {
       alert("Failed to load job: " + e.message);
     }
-  };
+  }
 
   // --- Expose ---
 
   var exposeVMID = null;
 
-  window.showExpose = function (vmid) {
+  function showExpose(vmid) {
     exposeVMID = vmid;
     document.getElementById("expose-vmid").textContent = "#" + vmid;
     document.getElementById("form-expose").reset();
     document.getElementById("modal-expose").style.display = "flex";
-  };
+  }
 
   // --- Snapshot ---
 
   var snapshotVMID = null;
 
-  window.showSnapshot = function (vmid) {
+  function showSnapshot(vmid) {
     snapshotVMID = vmid;
     document.getElementById("snapshot-vmid").textContent = "#" + vmid;
     document.getElementById("form-snapshot").reset();
     document.getElementById("modal-snapshot").style.display = "flex";
-  };
+  }
 
   // --- Remove exposure ---
 
-  window.removeExposure = async function (name) {
+  async function removeExposure(name) {
     if (!confirm("Remove exposure " + name + "?")) return;
     try {
       await api("/v1/exposures/" + encodeURIComponent(name), {
@@ -794,11 +811,11 @@
     } catch (e) {
       alert("Failed to remove exposure: " + e.message);
     }
-  };
+  }
 
-  window.closeModal = function (id) {
+  function closeModal(id) {
     document.getElementById(id).style.display = "none";
-  };
+  }
 
   // --- New Sandbox Form ---
 
@@ -945,6 +962,14 @@
     initExposeForm();
     initSnapshotForm();
     initBulkActions();
+
+    // Modal cancel/close buttons declare data-close-modal instead of inline
+    // onclick handlers (the CSP forbids inline handlers).
+    document.querySelectorAll("[data-close-modal]").forEach(function (btn) {
+      btn.addEventListener("click", function () {
+        closeModal(btn.dataset.closeModal);
+      });
+    });
 
     document.getElementById("btn-refresh").addEventListener("click", refreshAll);
 

@@ -162,12 +162,14 @@ func TestMetadataAuditLog(t *testing.T) {
 		t.Fatalf("update ip: %v", err)
 	}
 
+	auditSecret := seedSandboxSecret(t, store, 4001)
 	var buf bytes.Buffer
 	logger := log.New(&buf, "", 0)
 	api := NewMetadataAPI(store, secrets.Store{}, "", mustParseCIDR(t, "10.77.0.0/16"), nil, logger)
 
 	req := httptest.NewRequest(http.MethodGet, "/metadata/identity", nil)
 	req.RemoteAddr = "10.77.1.100:4321"
+	withSandboxSecret(req, auditSecret)
 	resp := httptest.NewRecorder()
 	api.handleIdentity(resp, req)
 
@@ -215,12 +217,14 @@ func TestMetadataAuditLog_SecretsEndpoint(t *testing.T) {
 		t.Fatalf("write bundle: %v", err)
 	}
 
+	secretsAudit := seedSandboxSecret(t, store, 4002)
 	var buf bytes.Buffer
 	logger := log.New(&buf, "", 0)
 	api := NewMetadataAPI(store, secrets.Store{Dir: secretsDir, AllowPlaintext: true}, "default", mustParseCIDR(t, "10.77.0.0/16"), nil, logger)
 
 	req := httptest.NewRequest(http.MethodGet, "/metadata/secrets/MY_KEY", nil)
 	req.RemoteAddr = "10.77.2.200:4321"
+	withSandboxSecret(req, secretsAudit)
 	resp := httptest.NewRecorder()
 	api.handleSecrets(resp, req)
 
@@ -239,12 +243,15 @@ func TestMetadataAuditLog_SecretsEndpoint(t *testing.T) {
 
 func TestMetadataIndexResponse_AuditFields(t *testing.T) {
 	store := newTestStore(t)
+	seedSecretTestSandbox(t, store, 4003, "index-audit", "10.77.0.55")
+	indexSecret := seedSandboxSecret(t, store, 4003)
 	var buf bytes.Buffer
 	logger := log.New(&buf, "", 0)
 	api := NewMetadataAPI(store, secrets.Store{}, "", mustParseCIDR(t, "10.77.0.0/16"), nil, logger)
 
 	req := httptest.NewRequest(http.MethodGet, "/metadata/", nil)
 	req.RemoteAddr = "10.77.0.55:1234"
+	withSandboxSecret(req, indexSecret)
 	resp := httptest.NewRecorder()
 	api.handleIndex(resp, req)
 

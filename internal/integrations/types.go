@@ -13,7 +13,13 @@
 //   - Auto: --attach=auto:all (applies to all sandboxes)
 package integrations
 
-import "time"
+import (
+	"fmt"
+	"net"
+	"net/url"
+	"strings"
+	"time"
+)
 
 // IntegrationType defines the type of integration.
 type IntegrationType string
@@ -73,11 +79,11 @@ type Integration struct {
 
 // IntegrationStatus describes the status of an integration for a sandbox.
 type IntegrationStatus struct {
-	Name       string         `json:"name"`
+	Name       string          `json:"name"`
 	Type       IntegrationType `json:"type"`
-	Target     string         `json:"target,omitempty"`
+	Target     string          `json:"target,omitempty"`
 	AttachMode AttachmentMode  `json:"attach_mode"`
-	ProxyPath  string         `json:"proxy_path,omitempty"`
+	ProxyPath  string          `json:"proxy_path,omitempty"`
 }
 
 // MatchesSandbox checks if this integration should apply to the given sandbox.
@@ -164,6 +170,72 @@ func containsStr(s, substr string) bool {
 	return indexOf(s, substr) >= 0
 }
 
+// ValidateTarget checks that a proxy target URL is safe to forward to.
+//
+// The target must use the http or https scheme, must carry a host, and
+// must not point at a loopback, link-local, or unspecified address. Such
+// targets would let a sandbox reach daemon-side or host-local services
+// through the proxy.
+//
+// When allowlist is non-empty, the host (hostname or literal IP, port
+// excluded) must match one of its entries. Matching is case-insensitive;
+// literal IPs are compared by value, so an entry may use a different
+// notation than the target. An empty allowlist disables this check.
+func ValidateTarget(target string, allowlist []string) error {
+	target = strings.TrimSpace(target)
+	if target == "" {
+		return ErrTargetRequired
+	}
+	u, err := url.Parse(target)
+	if err != nil {
+		return fmt.Errorf("%w: %q", ErrInvalidTargetScheme, target)
+	}
+	switch u.Scheme {
+	case "http", "https":
+		// valid
+	default:
+		return fmt.Errorf("%w: %q", ErrInvalidTargetScheme, target)
+	}
+	host := u.Hostname()
+	if host == "" {
+		return ErrTargetRequired
+	}
+
+	allowed := len(allowlist) == 0
+	for _, entry := range allowlist {
+		entry = strings.ToLower(strings.TrimSpace(entry))
+		if entry == "" {
+			continue
+		}
+		if ip := net.ParseIP(entry); ip != nil {
+			if tip := net.ParseIP(host); tip != nil && ip.Equal(tip) {
+				allowed = true
+				break
+			}
+			continue
+		}
+		if entry == strings.ToLower(host) {
+			allowed = true
+			break
+		}
+	}
+	if !allowed {
+		return fmt.Errorf("%w: %q is not in the target allowlist", ErrInvalidTargetHost, host)
+	}
+
+	if ip := net.ParseIP(host); ip != nil {
+		if ip.IsLoopback() || ip.IsLinkLocalUnicast() || ip.IsLinkLocalMulticast() || ip.IsUnspecified() {
+			return fmt.Errorf("%w: %s", ErrInvalidTargetHost, host)
+		}
+		return nil
+	}
+	name := strings.ToLower(host)
+	if name == "localhost" || strings.HasSuffix(name, ".localhost") {
+		return fmt.Errorf("%w: %s", ErrInvalidTargetHost, host)
+	}
+	return nil
+}
+
 // Validate checks that the integration configuration is valid.
 func (i *Integration) Validate() error {
 	if i.Name == "" {
@@ -193,6 +265,12 @@ func (i *Integration) Validate() error {
 	// LLM proxy requires a target URL (the upstream API base URL).
 	if i.Type == TypeLLMProxy && i.Target == "" {
 		return ErrTargetRequired
+	}
+	// A set target must be a safe upstream for the proxy to forward to.
+	if i.Target != "" {
+		if err := ValidateTarget(i.Target, nil); err != nil {
+			return err
+		}
 	}
 	// LLM proxy secret is optional for local providers (e.g., Ollama without auth).
 	if i.Secret == "" && i.Type != TypeLLMProxy {

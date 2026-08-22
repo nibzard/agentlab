@@ -268,12 +268,28 @@ init_redaction() {
   add_redact_value "$(jq -r '.artifact.token // empty' "$BOOTSTRAP_RESPONSE")"
   add_redact_value "$(jq -r '.git.token // empty' "$BOOTSTRAP_RESPONSE")"
   add_redact_value "$(jq -r '.tailscale.authkey // empty' "$BOOTSTRAP_RESPONSE")"
+  add_redact_value "$(jq -r '.sandbox_secret // empty' "$BOOTSTRAP_RESPONSE")"
   if jq -e '.env // {} | length > 0' "$BOOTSTRAP_RESPONSE" >/dev/null; then
     while IFS= read -r value; do
       add_redact_value "$value"
     done < <(jq -r '.env // {} | to_entries[] | .value | tostring' "$BOOTSTRAP_RESPONSE")
   fi
   build_redact_sed
+}
+
+# write_sandbox_secret persists the per-sandbox endpoint secret from the
+# bootstrap payload. Guest-side metadata and credential-proxy clients send it
+# in the X-AgentLab-Sandbox-Secret header. The daemon stores only a hash and
+# rotates the secret on every bootstrap fetch.
+write_sandbox_secret() {
+  local secret
+  secret="$(jq -r '.sandbox_secret // empty' "$BOOTSTRAP_RESPONSE")"
+  if [[ -z "$secret" ]]; then
+    log "no sandbox secret in bootstrap payload; metadata and proxy clients will not authenticate"
+    return 0
+  fi
+  printf "%s" "$secret" >"$SECRETS_DIR/sandbox-secret"
+  chmod 600 "$SECRETS_DIR/sandbox-secret"
 }
 
 if [[ "$BOOTSTRAP_CACHE" != "0" && -s "$BOOTSTRAP_RESPONSE" ]]; then
@@ -312,6 +328,7 @@ if [[ -z "$JOB_REF" || "$JOB_REF" == "null" ]]; then
 fi
 
 init_redaction
+write_sandbox_secret
 load_inner_sandbox_config
 
 report_status() {
@@ -449,11 +466,61 @@ fi
 
 mkdir -p "$(dirname "$REPO_DIR")"
 
+# A reused /work volume may hold a .git from an earlier tenant. Its local
+# config and hooks are residue, not input. Residue can execute commands
+# during fetch and checkout through hooks, filter drivers, credential
+# helpers, an fsmonitor probe, or a substitute ssh client. It can redirect
+# a fetch through an url.*.insteadOf rewrite, an http.<url>.* override, or
+# a residue remote. Fetch and checkout on the reuse path pass
+# GIT_HARDEN_ARGS. scrub_residue_config drops the residue sections and
+# command keys first.
+GIT_HARDEN_ARGS=(-c core.hooksPath=/dev/null -c core.fsmonitor=false)
+
+remove_local_sections() {
+  # Remove every local config section that owns a key matching the
+  # pattern. For example "filter.foo.smudge" removes section "filter.foo".
+  local pattern="$1" name section
+  while IFS= read -r name; do
+    [[ -n "$name" ]] || continue
+    section="${name%.*}"
+    git -C "$REPO_DIR" config --local --remove-section "$section" >/dev/null 2>&1 || true
+  done < <(git -C "$REPO_DIR" config --local --name-only --get-regexp "$pattern" 2>/dev/null | sort -u || true)
+}
+
+scrub_residue_config() {
+  # Includes come first. An included file can carry every section listed
+  # below, and a section that lives in an included file cannot be removed
+  # from the local config by name.
+  remove_local_sections '^include(if)?\.'
+  # Sections that execute a command or redirect a fetch.
+  remove_local_sections '^(filter|url|credential|http)\.'
+  # Keys that name a command git runs during fetch and checkout. The
+  # bundle-supplied GIT_ASKPASS and GIT_SSH_COMMAND do not read them.
+  local key
+  for key in core.hooksPath core.fsmonitor core.sshCommand; do
+    git -C "$REPO_DIR" config --local --unset-all "$key" >/dev/null 2>&1 || true
+  done
+}
+
 clone_or_update_repo() {
   if [[ -d "$REPO_DIR/.git" ]]; then
-    log "updating repo in $REPO_DIR"
-    git -C "$REPO_DIR" fetch --force origin "$JOB_REF"
-    git -C "$REPO_DIR" checkout -B agentlab FETCH_HEAD
+    log "updating repo in $REPO_DIR (existing .git treated as untrusted)"
+    scrub_residue_config
+    # Reset the remotes from the job spec. Residue may point any remote,
+    # not just origin, at a repository the previous tenant controls. Fetch
+    # reads every configured URL and any promisor remote. Remove every
+    # residue remote, then add the job remote.
+    remove_local_sections '^remote\.'
+    if git -C "$REPO_DIR" config --local --get remote.origin.url >/dev/null 2>&1; then
+      # A residue origin survived the section removal. Force its URL list
+      # to the job repo.
+      git -C "$REPO_DIR" config --local --unset-all remote.origin.url >/dev/null 2>&1 || true
+      git -C "$REPO_DIR" config --local --add remote.origin.url "$JOB_REPO"
+    else
+      git -C "$REPO_DIR" remote add origin "$JOB_REPO"
+    fi
+    git -C "$REPO_DIR" "${GIT_HARDEN_ARGS[@]}" fetch --force origin "$JOB_REF"
+    git -C "$REPO_DIR" "${GIT_HARDEN_ARGS[@]}" checkout -B agentlab FETCH_HEAD
   else
     rm -rf "$REPO_DIR"
     log "cloning repo $JOB_REPO to $REPO_DIR"

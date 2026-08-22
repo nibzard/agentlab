@@ -65,12 +65,12 @@ type ProxyConfig struct {
 //  3. Provisions a TLS certificate (self-signed or via Let's Encrypt)
 //  4. Cleans up all of the above on unexpose
 type CaddyPublisher struct {
-	config  ProxyConfig
-	client  *CaddyClient
-	dns     *DNSResolver
-	ca      *CA
-	logger  *log.Logger
-	mu      sync.Mutex
+	config ProxyConfig
+	client *CaddyClient
+	dns    *DNSResolver
+	ca     *CA
+	logger *log.Logger
+	mu     sync.Mutex
 }
 
 // NewCaddyPublisher creates a new Caddy-based exposure publisher.
@@ -123,6 +123,32 @@ type PublishResult struct {
 	State string
 }
 
+// ValidateTargetIP reports whether ip is acceptable as an exposure target
+// (review F2). Loopback, link-local, unspecified, multicast, and broadcast
+// addresses are refused: an exposure must never forward tailnet or public
+// traffic to a daemon-local or link-scoped listener. Subnet membership is
+// enforced by the caller, which knows the configured agent subnet.
+func ValidateTargetIP(ip string) error {
+	parsed := net.ParseIP(strings.TrimSpace(ip))
+	if parsed == nil {
+		return fmt.Errorf("target %q is not a valid ip address", ip)
+	}
+	switch {
+	case parsed.IsLoopback():
+		return fmt.Errorf("target %s is a loopback address", parsed)
+	case parsed.IsLinkLocalUnicast() || parsed.IsLinkLocalMulticast():
+		return fmt.Errorf("target %s is a link-local address", parsed)
+	case parsed.IsUnspecified():
+		return fmt.Errorf("target %s is an unspecified address", parsed)
+	case parsed.IsMulticast():
+		return fmt.Errorf("target %s is a multicast address", parsed)
+	case parsed.Equal(net.IPv4bcast):
+		return fmt.Errorf("target %s is a broadcast address", parsed)
+	default:
+		return nil
+	}
+}
+
 // Publish configures a reverse proxy route for the sandbox exposure.
 //
 // It assigns a subdomain, creates DNS and Caddy route entries, and
@@ -131,11 +157,16 @@ func (p *CaddyPublisher) Publish(ctx context.Context, name string, targetIP stri
 	if p == nil {
 		return PublishResult{}, fmt.Errorf("caddy publisher not configured")
 	}
+	// Defense in depth (review F2): refuse to route an exposure to a
+	// daemon-local or link-scoped address before any state changes.
+	if err := ValidateTargetIP(targetIP); err != nil {
+		return PublishResult{}, err
+	}
 
 	p.mu.Lock()
 	defer p.mu.Unlock()
 
-	subdomain := sanitizeSubdomain(name)
+	subdomain := SanitizeSubdomain(name)
 	fqdn := fmt.Sprintf("%s.%s", subdomain, p.config.Domain)
 	targetAddr := fmt.Sprintf("%s:%d", targetIP, port)
 
@@ -197,7 +228,7 @@ func (p *CaddyPublisher) Unpublish(ctx context.Context, name string, port int) e
 	p.mu.Lock()
 	defer p.mu.Unlock()
 
-	subdomain := sanitizeSubdomain(name)
+	subdomain := SanitizeSubdomain(name)
 	fqdn := fmt.Sprintf("%s.%s", subdomain, p.config.Domain)
 
 	// Remove Caddy route
@@ -238,7 +269,7 @@ func (p *CaddyPublisher) provisionCert(domain string) error {
 		return err
 	}
 
-	certFile := filepath.Join(certDir, sanitizeSubdomain(domain)+".pem")
+	certFile := filepath.Join(certDir, SanitizeSubdomain(domain)+".pem")
 	return os.WriteFile(certFile, certPEM, 0o600)
 }
 
@@ -248,7 +279,7 @@ func (p *CaddyPublisher) removeCert(domain string) {
 	if strings.TrimSpace(certDir) == "" {
 		certDir = filepath.Join("/var/lib/agentlab", "tls")
 	}
-	certFile := filepath.Join(certDir, sanitizeSubdomain(domain)+".pem")
+	certFile := filepath.Join(certDir, SanitizeSubdomain(domain)+".pem")
 	if err := os.Remove(certFile); err != nil && !os.IsNotExist(err) {
 		p.logger.Printf("proxy: remove cert %s: %v", certFile, err)
 	}
@@ -265,8 +296,8 @@ func (p *CaddyPublisher) healthCheck(ctx context.Context, ip string, port int) e
 	return conn.Close()
 }
 
-// sanitizeSubdomain converts a sandbox name to a DNS-safe subdomain.
-func sanitizeSubdomain(name string) string {
+// SanitizeSubdomain converts a sandbox name to a DNS-safe subdomain.
+func SanitizeSubdomain(name string) string {
 	s := strings.ToLower(strings.TrimSpace(name))
 	s = strings.ReplaceAll(s, "_", "-")
 	s = strings.ReplaceAll(s, " ", "-")

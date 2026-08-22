@@ -85,6 +85,26 @@ const (
 	permHostRead    = "host.read"
 	permMessageRead = "message.read"
 	permMessageSend = "message.create"
+
+	// The secrets bundle, the integration registry, and the user registry are
+	// global resources: they are not bound to one sandbox, so any token that
+	// declares a sandbox scope is refused for them outright.
+	permSecretsRead      = "secrets.read"
+	permSecretsWrite     = "secrets.write"
+	permIntegrationRead  = "integration.read"
+	permIntegrationWrite = "integration.write"
+	permUserRead         = "user.read"
+	permUserWrite        = "user.write"
+
+	// integration.delete is a grant above bare integration.write: deleting a
+	// live name and recreating it (which integration.write alone covers)
+	// silently redirects every sandbox that resolves that name, so removal
+	// must be elevated on its own (review F11).
+	permIntegrationDelete = "integration.delete"
+
+	// Pool status carries no secrets; scoped tokens may read it, and the
+	// allocations list is filtered to their scope (PoolAPI.handlePoolStatus).
+	permPoolStatus = "pool.status"
 )
 
 // authorize enforces command and sandbox-scope authorization for a request.
@@ -105,11 +125,33 @@ const (
 // (stop_all/prune/reconcile): any sandbox-scoped token is denied outright
 // because scope cannot meaningfully bound a global mutation.
 func (api *ControlAPI) authorize(w http.ResponseWriter, r *http.Request, perm string, resolve func() int, bulk bool) bool {
+	if !authorizeChecked(w, r, perm, bulk) {
+		return false
+	}
+	if resolve == nil {
+		return true
+	}
+	id := auth.FromContext(r.Context())
+	if id == nil || id.Token == nil || len(id.Token.Claims.Scope) == 0 {
+		return true
+	}
+	if vmid := resolve(); vmid > 0 && !id.IsSandboxAllowed(vmid) {
+		writeAuthzDenied(w, perm)
+		return false
+	}
+	return true
+}
+
+// authorizeChecked is the command and global-scope enforcement core shared by
+// ControlAPI.authorize and authorizeStandalone. It rejects sandbox-scoped
+// tokens for cross-sandbox operations (the bulk/global rule) and any token
+// that lacks perm. Trusted callers (nil identity, legacy bearer token) pass.
+func authorizeChecked(w http.ResponseWriter, r *http.Request, perm string, global bool) bool {
 	id := auth.FromContext(r.Context())
 	if id == nil || id.Token == nil {
 		return true
 	}
-	if bulk && len(id.Token.Claims.Scope) > 0 {
+	if global && len(id.Token.Claims.Scope) > 0 {
 		writeAuthzDenied(w, perm)
 		return false
 	}
@@ -117,13 +159,17 @@ func (api *ControlAPI) authorize(w http.ResponseWriter, r *http.Request, perm st
 		writeAuthzDenied(w, perm)
 		return false
 	}
-	if len(id.Token.Claims.Scope) > 0 && resolve != nil {
-		if vmid := resolve(); vmid > 0 && !id.IsSandboxAllowed(vmid) {
-			writeAuthzDenied(w, perm)
-			return false
-		}
-	}
 	return true
+}
+
+// authorizeStandalone enforces authorization for API handlers registered on
+// the control mux outside ControlAPI (secrets, integrations, users, pool). It
+// mirrors authorize with a nil resolver: global marks the resource as
+// cross-sandbox, so any sandbox-scoped token is denied outright. Non-global
+// resources stay readable to scoped tokens, which then filter their responses
+// with sandboxScopeFilter.
+func authorizeStandalone(w http.ResponseWriter, r *http.Request, perm string, global bool) bool {
+	return authorizeChecked(w, r, perm, global)
 }
 
 // writeAuthzDenied writes a uniform 403 for an authorization failure. It avoids
@@ -154,12 +200,23 @@ func (api *ControlAPI) jobSandboxVMID(ctx context.Context, jobID string) int {
 	return *job.SandboxVMID
 }
 
+// workspaceSandboxVMID resolves the sandbox a workspace belongs to: its
+// current attachment, or when detached, the sandbox that detached it. A
+// detached workspace therefore stays governed by the scope it came from
+// (review F5). A never-attached workspace resolves to 0 and stays governed by
+// command permission alone.
 func (api *ControlAPI) workspaceSandboxVMID(ctx context.Context, id string) int {
 	ws, err := api.store.GetWorkspace(ctx, id)
-	if err != nil || ws.AttachedVM == nil {
+	if err != nil {
 		return 0
 	}
-	return *ws.AttachedVM
+	if ws.AttachedVM != nil {
+		return *ws.AttachedVM
+	}
+	if ws.LastAttachedVM != nil {
+		return *ws.LastAttachedVM
+	}
+	return 0
 }
 
 func (api *ControlAPI) sessionSandboxVMID(ctx context.Context, id string) int {

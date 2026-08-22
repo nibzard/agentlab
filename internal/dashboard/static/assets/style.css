@@ -289,6 +289,13 @@ main {
   justify-content: center;
 }
 
+/* Initial hidden state. Kept as a class, not an inline style attribute,
+   so the Content-Security-Policy can forbid inline styles. Script shows an
+   element by setting element.style.display directly, which overrides this. */
+.hidden {
+  display: none;
+}
+
 .modal-backdrop {
   position: absolute;
   inset: 0;

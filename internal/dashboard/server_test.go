@@ -1,6 +1,8 @@
 package dashboard
 
 import (
+	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -9,6 +11,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"regexp"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -46,7 +49,7 @@ func TestIsLoopbackListen(t *testing.T) {
 		{"127.0.0.1:8080", true},
 		{"localhost:8080", true},
 		{"[::1]:8080", true},
-		{":8080", false},       // all interfaces — NOT loopback
+		{":8080", false}, // all interfaces — NOT loopback
 		{"0.0.0.0:8080", false},
 		{"[::]:8080", false},
 		{"10.0.0.5:8080", false},
@@ -280,17 +283,13 @@ func gatedHandler(t *testing.T, cfg Config) (http.Handler, *bool) {
 	return srv.inboundMiddleware(inner), &called
 }
 
-func TestValidateConfig_LoopbackNoTokenOK(t *testing.T) {
-	// Loopback binds may omit the browser token (trusted local browser).
-	srv := NewServer(Config{Listen: "127.0.0.1:8080"}, log.New(io.Discard, "", 0))
-	if err := srv.validateConfig(); err != nil {
-		t.Errorf("loopback without token: got %v, want nil", err)
-	}
-}
-
-func TestValidateConfig_NonLoopbackRequiresToken(t *testing.T) {
+func TestValidateConfig_RequiresTokenOnEveryBind(t *testing.T) {
+	// Finding F9: loopback is no longer exempt — without a token the
+	// dashboard re-exposes the group-gated daemon socket to any local UID.
 	cases := []struct{ addr string }{
-		{":8080"},      // all interfaces
+		{"127.0.0.1:8080"}, // loopback
+		{"localhost:8080"},
+		{":8080"}, // all interfaces
 		{"0.0.0.0:8080"},
 		{"[::]:8080"},
 		{"10.0.0.5:8080"},
@@ -298,12 +297,148 @@ func TestValidateConfig_NonLoopbackRequiresToken(t *testing.T) {
 	for _, tc := range cases {
 		srv := NewServer(Config{Listen: tc.addr}, log.New(io.Discard, "", 0))
 		if err := srv.validateConfig(); err == nil {
-			t.Errorf("non-loopback %q without browser token: want error, got nil", tc.addr)
+			t.Errorf("bind %q without browser token: want error, got nil", tc.addr)
 		}
 		// Supplying a token clears the failure.
 		srv = NewServer(Config{Listen: tc.addr, BrowserToken: "sekrit"}, log.New(io.Discard, "", 0))
 		if err := srv.validateConfig(); err != nil {
-			t.Errorf("non-loopback %q with token: got %v, want nil", tc.addr, err)
+			t.Errorf("bind %q with token: got %v, want nil", tc.addr, err)
+		}
+	}
+}
+
+// TestEnsureBrowserToken_GeneratesWhenMissing verifies a tokenless start mints
+// a random token (finding F9) and that it actually gates /api/*.
+func TestEnsureBrowserToken_GeneratesWhenMissing(t *testing.T) {
+	srv := NewServer(Config{Listen: "127.0.0.1:8080"}, log.New(io.Discard, "", 0))
+	if err := srv.ensureBrowserToken(); err != nil {
+		t.Fatalf("ensureBrowserToken: %v", err)
+	}
+	if srv.browserToken == "" {
+		t.Fatal("generated browser token is empty")
+	}
+	if !srv.generatedToken {
+		t.Error("generatedToken not set for a minted token")
+	}
+	if err := srv.validateConfig(); err != nil {
+		t.Errorf("validateConfig after generation: %v", err)
+	}
+
+	// The minted token must gate /api/* immediately.
+	called := false
+	h := srv.inboundMiddleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		called = true
+		w.WriteHeader(http.StatusOK)
+	}))
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/status", nil)
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+	if w.Code != http.StatusUnauthorized || called {
+		t.Errorf("anonymous /api after token generation: code=%d called=%v, want 401/false", w.Code, called)
+	}
+	req.Header.Set("X-Dashboard-Token", srv.browserToken)
+	w = httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+	if w.Code != http.StatusOK || !called {
+		t.Errorf("minted token rejected: code=%d called=%v, want 200/true", w.Code, called)
+	}
+}
+
+// TestEnsureBrowserToken_KeepsConfigured verifies an operator-supplied token is
+// used verbatim and not flagged as generated.
+func TestEnsureBrowserToken_KeepsConfigured(t *testing.T) {
+	srv := NewServer(Config{Listen: "127.0.0.1:8080", BrowserToken: "sekrit"}, log.New(io.Discard, "", 0))
+	if err := srv.ensureBrowserToken(); err != nil {
+		t.Fatalf("ensureBrowserToken: %v", err)
+	}
+	if srv.browserToken != "sekrit" {
+		t.Errorf("browserToken = %q, want configured value", srv.browserToken)
+	}
+	if srv.generatedToken {
+		t.Error("generatedToken set for a configured token")
+	}
+}
+
+// TestListenAndServe_GeneratesAndLogsToken verifies a tokenless loopback start
+// still serves and logs a generated token for the user (finding F9).
+func TestListenAndServe_GeneratesAndLogsToken(t *testing.T) {
+	var logBuf bytes.Buffer
+	srv := NewServer(Config{Listen: "127.0.0.1:0"}, log.New(&logBuf, "", 0))
+
+	// Cancel up front: ListenAndServe generates and logs the token before it
+	// blocks in Serve, so a pre-canceled context shuts it down right after
+	// startup. Reading srv fields and logBuf after <-errCh is synchronized by
+	// the channel.
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	errCh := make(chan error, 1)
+	go func() { errCh <- srv.ListenAndServe(ctx) }()
+
+	if err := <-errCh; err != nil {
+		t.Fatalf("ListenAndServe: %v", err)
+	}
+
+	if srv.browserToken == "" {
+		t.Fatal("no browser token generated at startup")
+	}
+	logs := logBuf.String()
+	if !strings.Contains(logs, srv.browserToken) {
+		t.Errorf("startup log does not contain the generated token; log:\n%s", logs)
+	}
+	if !srv.generatedToken {
+		t.Error("generatedToken not set for a tokenless start")
+	}
+}
+
+// TestSecurityHeaders_ContentSecurityPolicy verifies every response carries
+// the CSP, on static pages and on proxied API responses (finding F3).
+func TestSecurityHeaders_ContentSecurityPolicy(t *testing.T) {
+	srv := testServer("/nonexistent")
+	h := srv.securityHeaders(http.HandlerFunc(srv.handleStatic))
+
+	for _, path := range []string{"/", "/assets/app.js", "/api/v1/status"} {
+		req := httptest.NewRequest(http.MethodGet, path, nil)
+		w := httptest.NewRecorder()
+		h.ServeHTTP(w, req)
+		csp := w.Header().Get("Content-Security-Policy")
+		if csp == "" {
+			t.Errorf("GET %s: missing Content-Security-Policy header", path)
+			continue
+		}
+		if strings.Contains(csp, "unsafe-inline") {
+			t.Errorf("GET %s: CSP allows unsafe-inline: %q", path, csp)
+		}
+		if !strings.Contains(csp, "script-src 'self'") {
+			t.Errorf("GET %s: CSP lacks script-src 'self': %q", path, csp)
+		}
+		if w.Header().Get("X-Content-Type-Options") != "nosniff" {
+			t.Errorf("GET %s: missing X-Content-Type-Options: nosniff", path)
+		}
+	}
+}
+
+// TestStaticAssetsHaveNoInlineHandlers verifies the shipped UI needs no inline
+// script, event handlers, or style attributes, so the CSP can forbid them all
+// (findings F3 and F10).
+func TestStaticAssetsHaveNoInlineHandlers(t *testing.T) {
+	handlerRe := regexp.MustCompile(`\son[a-z]+\s*=`)
+	files := []string{"static/index.html", "static/assets/app.js"}
+	for _, name := range files {
+		data, err := staticFiles.ReadFile(name)
+		if err != nil {
+			t.Fatalf("read embedded %s: %v", name, err)
+		}
+		if handlerRe.Match(data) {
+			t.Errorf("%s contains an inline event handler (forbidden by the CSP)", name)
+		}
+		if name == "static/index.html" {
+			html := string(data)
+			if strings.Contains(html, "<script>") {
+				t.Error("index.html contains an inline <script> element (forbidden by the CSP)")
+			}
+			if strings.Contains(html, `style="`) {
+				t.Error("index.html contains an inline style attribute (forbidden by the CSP)")
+			}
 		}
 	}
 }
@@ -376,24 +511,48 @@ func TestInboundMiddleware_WrongTokenRejected(t *testing.T) {
 	}
 }
 
-func TestInboundMiddleware_CSRF_BlocksCrossSitePOST(t *testing.T) {
-	// No browser token (loopback trusted). A cross-site POST must still be
-	// blocked by the Origin/X-Requested-With check.
+// TestInboundMiddleware_FailsClosedWithoutToken verifies that a server with no
+// browser token configured rejects every /api/* request instead of serving it
+// unauthenticated (finding F9). Only ListenAndServe's ensureBrowserToken makes
+// the gate passable; the middleware itself never opens for a tokenless server.
+func TestInboundMiddleware_FailsClosedWithoutToken(t *testing.T) {
 	h, called := gatedHandler(t, Config{Listen: "127.0.0.1:8080"})
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/status", nil)
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+	if w.Code != http.StatusUnauthorized || *called {
+		t.Errorf("tokenless server /api: code=%d called=%v, want 401/false", w.Code, *called)
+	}
 
-	// No X-Requested-With, no Origin → rejected.
+	// The static UI still loads so the browser can present the prompt.
+	req = httptest.NewRequest(http.MethodGet, "/", nil)
+	w = httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+	if w.Code != http.StatusOK || !*called {
+		t.Errorf("tokenless server GET /: code=%d called=%v, want 200/true", w.Code, *called)
+	}
+}
+
+func TestInboundMiddleware_CSRF_BlocksCrossSitePOST(t *testing.T) {
+	// A valid browser token is attached throughout, so any rejection below is
+	// the Origin/X-Requested-With check, not authentication.
+	h, called := gatedHandler(t, Config{Listen: "127.0.0.1:8080", BrowserToken: "sekrit"})
+
+	// Token but no X-Requested-With/Origin → rejected.
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/sandboxes", strings.NewReader("{}"))
 	req.Host = "127.0.0.1:8080"
+	req.Header.Set("X-Dashboard-Token", "sekrit")
 	w := httptest.NewRecorder()
 	h.ServeHTTP(w, req)
 	if w.Code != http.StatusForbidden || *called {
 		t.Errorf("POST without CSRF headers: code=%d called=%v, want 403/false", w.Code, *called)
 	}
 
-	// X-Requested-With present but cross-site Origin → rejected.
+	// Token and X-Requested-With present but cross-site Origin → rejected.
 	*called = false
 	req = httptest.NewRequest(http.MethodPost, "/api/v1/sandboxes", strings.NewReader("{}"))
 	req.Host = "127.0.0.1:8080"
+	req.Header.Set("X-Dashboard-Token", "sekrit")
 	req.Header.Set("X-Requested-With", "XMLHttpRequest")
 	req.Header.Set("Origin", "https://evil.example")
 	w = httptest.NewRecorder()
@@ -404,9 +563,10 @@ func TestInboundMiddleware_CSRF_BlocksCrossSitePOST(t *testing.T) {
 }
 
 func TestInboundMiddleware_CSRF_AllowsSameOriginPOST(t *testing.T) {
-	h, called := gatedHandler(t, Config{Listen: "127.0.0.1:8080"})
+	h, called := gatedHandler(t, Config{Listen: "127.0.0.1:8080", BrowserToken: "sekrit"})
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/sandboxes", strings.NewReader("{}"))
 	req.Host = "127.0.0.1:8080"
+	req.Header.Set("X-Dashboard-Token", "sekrit")
 	req.Header.Set("X-Requested-With", "XMLHttpRequest")
 	req.Header.Set("Origin", "http://127.0.0.1:8080")
 	w := httptest.NewRecorder()
@@ -418,8 +578,9 @@ func TestInboundMiddleware_CSRF_AllowsSameOriginPOST(t *testing.T) {
 
 func TestInboundMiddleware_GETNeedsNoCSRFHeader(t *testing.T) {
 	// Safe methods must not require X-Requested-With/Origin.
-	h, called := gatedHandler(t, Config{Listen: "127.0.0.1:8080"})
+	h, called := gatedHandler(t, Config{Listen: "127.0.0.1:8080", BrowserToken: "sekrit"})
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/status", nil)
+	req.Header.Set("X-Dashboard-Token", "sekrit")
 	w := httptest.NewRecorder()
 	h.ServeHTTP(w, req)
 	if w.Code != http.StatusOK || !*called {
@@ -428,9 +589,12 @@ func TestInboundMiddleware_GETNeedsNoCSRFHeader(t *testing.T) {
 }
 
 func TestHostEqual(t *testing.T) {
-	cases := []struct{ a, b string; want bool }{
+	cases := []struct {
+		a, b string
+		want bool
+	}{
 		{"127.0.0.1:8080", "127.0.0.1:8080", true},
-		{"127.0.0.1:80", "127.0.0.1", true},   // default port stripped
+		{"127.0.0.1:80", "127.0.0.1", true}, // default port stripped
 		{"127.0.0.1:8080", "127.0.0.1:9090", false},
 		{"127.0.0.1:8080", "evil.example", false},
 		{"LOCALhost:8080", "localhost:8080", true}, // case-insensitive

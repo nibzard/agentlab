@@ -15,6 +15,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strconv"
 	"strings"
@@ -27,6 +28,7 @@ import (
 	"github.com/agentlab/agentlab/internal/models"
 	"github.com/agentlab/agentlab/internal/pool"
 	"github.com/agentlab/agentlab/internal/proxmox"
+	"github.com/agentlab/agentlab/internal/proxy"
 )
 
 const (
@@ -73,6 +75,10 @@ var (
 		"workspace": {},
 		"session":   {},
 	}
+	// exposureNamePattern constrains exposure names to a subdomain-safe
+	// charset so a name cannot carry markup into the dashboard or collide
+	// after hostname sanitization (reviews F3 and F8).
+	exposureNamePattern = regexp.MustCompile(`^[a-z0-9][a-z0-9-]{0,62}$`)
 )
 
 // ControlAPI handles local control plane HTTP requests over the Unix socket.
@@ -311,6 +317,50 @@ func (api *ControlAPI) WithBackgroundRunner(r BackgroundRunner) *ControlAPI {
 //   - /v1/jobs - Job management
 //   - /v1/sandboxes - Sandbox management
 //   - /v1/workspaces - Workspace management
+//
+// --- scope-resolver audit (review T33, 2026-08-14) ---
+//
+// Every authorize call site in this file and its siblings, with the decision
+// taken for the sandbox scope. "Target" means a value that names exactly one
+// sandbox, directly (a vmid) or indirectly (an id that resolves to one).
+//
+//	Route                                Resolver                     Decision
+//	POST /v1/jobs                        jobTargetScopeVMID           Body names workspace_id or session_id; the job runs in that workspace's sandbox. Resolved.
+//	POST /v1/jobs/validate-plan          jobTargetScopeVMID           Same body shape as job create; the plan discloses target state. Resolved.
+//	GET  /v1/jobs/{id}[/...]             jobSandboxVMID               Path id resolves to the job's sandbox. Resolved (pre-existing).
+//	POST /v1/sandboxes                   sandboxCreateVMID            Body may carry vmid. Resolved (review F1).
+//	GET  /v1/sandboxes                   none (list)                  Response filtered by sandboxScopeFilter.
+//	GET  /v1/sandboxes/inventory         none (list)                  Response filtered; unmanaged records dropped (review F10).
+//	POST /v1/sandboxes/validate-plan     sandboxValidatePlanVMID      Body may carry vmid. Resolved.
+//	/v1/sandboxes/{vmid}[/...]           path vmid                    Path names the sandbox. Resolved (pre-existing).
+//	POST /v1/sandboxes/stop_all          none (bulk)                  Cross-sandbox: any scoped token is denied outright.
+//	POST /v1/sandboxes/prune             none (bulk)                  Cross-sandbox: any scoped token is denied outright.
+//	POST /v1/sandboxes/reconcile         none (bulk)                  Cross-sandbox: any scoped token is denied outright.
+//	POST /v1/workspaces                  none                         Body carries no sandbox target; a new workspace starts detached.
+//	GET  /v1/workspaces                  none (list)                  Response filtered by attachment (and last attachment when detached).
+//	/v1/workspaces/{id}[/...]            workspaceSandboxVMID         Path id resolves to the workspace's sandbox. Resolved (pre-existing).
+//	POST /v1/workspaces/{id}/attach      workspaceAttachScopeVMID     Body vmid first, then the workspace's own sandbox. Resolved (review F5).
+//	POST /v1/sessions                    sessionCreateScopeVMID       Body names workspace_id; the session runs in that workspace's sandbox. Resolved.
+//	GET  /v1/sessions                    none (list)                  Response filtered by current vmid.
+//	/v1/sessions/{id}[/...]              sessionSandboxVMID           Path id resolves to the session's sandbox. Resolved (pre-existing).
+//	POST /v1/exposures                   exposureCreateVMID           Body carries vmid. Resolved (review F2).
+//	GET  /v1/exposures                   none (list)                  Response filtered by the bound sandbox.
+//	DELETE /v1/exposures/{name}          exposureSandboxVMID          Path name resolves to the bound sandbox. Resolved (pre-existing).
+//	POST /v1/messages                    messageBodyScopeVMID         Body scope (job, workspace, or session) resolves to a sandbox. Resolved.
+//	GET  /v1/messages                    messageQueryScopeVMID        Query scope resolves the same way. Resolved.
+//	GET  /v1/profiles, /v1/schema        none                         No sandbox target exists.
+//	GET  /v1/status, /v1/host            none                         Host-wide reads; no sandbox target.
+//
+// Sibling APIs on the same mux: secrets, integrations, users, and teams are
+// global resources with no sandbox target, so authorizeStandalone denies any
+// scoped token outright (reviews F6, F11, F13). Pool status filters its
+// allocations (review F12). The exec API is full-access only (execAllowed).
+// The bootstrap, metadata, runner, artifact, and integration-proxy muxes are
+// guest-facing and are not reachable through the control listener.
+//
+// The deny-by-default matrix in api_authz_test.go walks this registration set
+// and asserts scope enforcement for every target-bearing route (reviews T34
+// and T35). A route added here without an authorize call fails that matrix.
 func (api *ControlAPI) Register(mux *http.ServeMux) {
 	if mux == nil {
 		return
@@ -341,7 +391,9 @@ func (api *ControlAPI) Register(mux *http.ServeMux) {
 func (api *ControlAPI) handleJobs(w http.ResponseWriter, r *http.Request) {
 	switch r.Method {
 	case http.MethodPost:
-		if !api.authorize(w, r, permJobCreate, nil, false) {
+		// The body names the workspace the job runs in, so the scope check
+		// resolves that workspace's sandbox (review T33).
+		if !api.authorize(w, r, permJobCreate, func() int { return api.jobTargetScopeVMID(r) }, false) {
 			return
 		}
 		api.handleJobCreate(w, r)
@@ -355,7 +407,8 @@ func (api *ControlAPI) handleJobValidatePlan(w http.ResponseWriter, r *http.Requ
 		writeMethodNotAllowed(w, []string{http.MethodPost})
 		return
 	}
-	if !api.authorize(w, r, permJobValidate, nil, false) {
+	// Same target shape as job create: the named workspace decides the scope.
+	if !api.authorize(w, r, permJobValidate, func() int { return api.jobTargetScopeVMID(r) }, false) {
 		return
 	}
 
@@ -617,7 +670,9 @@ func (api *ControlAPI) handleSandboxValidatePlan(w http.ResponseWriter, r *http.
 		writeMethodNotAllowed(w, []string{http.MethodPost})
 		return
 	}
-	if !api.authorize(w, r, permSandboxValidate, nil, false) {
+	// The body may name the vmid the caller plans to use, so the scope check
+	// resolves it (review T33).
+	if !api.authorize(w, r, permSandboxValidate, func() int { return sandboxValidatePlanVMID(r) }, false) {
 		return
 	}
 
@@ -1438,12 +1493,16 @@ func (api *ControlAPI) handleHost(w http.ResponseWriter, r *http.Request) {
 func (api *ControlAPI) handleMessages(w http.ResponseWriter, r *http.Request) {
 	switch r.Method {
 	case http.MethodPost:
-		if !api.authorize(w, r, permMessageSend, nil, false) {
+		// The body scope names a job, workspace, or session, which resolves to
+		// the sandbox the message belongs to (review T33).
+		if !api.authorize(w, r, permMessageSend, func() int { return api.messageBodyScopeVMID(r) }, false) {
 			return
 		}
 		api.handleMessageCreate(w, r)
 	case http.MethodGet:
-		if !api.authorize(w, r, permMessageRead, nil, false) {
+		// The query scope resolves the same way, so a scoped reader cannot
+		// read another scope's feed.
+		if !api.authorize(w, r, permMessageRead, func() int { return api.messageQueryScopeVMID(r) }, false) {
 			return
 		}
 		api.handleMessageList(w, r)
@@ -1548,7 +1607,9 @@ func (api *ControlAPI) handleMessageList(w http.ResponseWriter, r *http.Request)
 func (api *ControlAPI) handleSandboxes(w http.ResponseWriter, r *http.Request) {
 	switch r.Method {
 	case http.MethodPost:
-		if !api.authorize(w, r, permSandboxCreate, nil, false) {
+		// The create body names its target when it carries a vmid, so the
+		// scope check resolves that vmid (review F1). See sandboxCreateVMID.
+		if !api.authorize(w, r, permSandboxCreate, func() int { return sandboxCreateVMID(r) }, false) {
 			return
 		}
 		api.handleSandboxCreate(w, r)
@@ -1737,7 +1798,13 @@ func (api *ControlAPI) handleWorkspaceByID(w http.ResponseWriter, r *http.Reques
 	// Authorize before dispatching. The sandbox scope is resolved from the
 	// workspace's attached sandbox (DB lookup, scoped tokens only).
 	if perm := workspaceActionPermission(parts, r.Method); perm != "" {
-		if !api.authorize(w, r, perm, func() int { return api.workspaceSandboxVMID(r.Context(), id) }, false) {
+		resolve := func() int { return api.workspaceSandboxVMID(r.Context(), id) }
+		if len(parts) == 2 && parts[1] == "attach" && r.Method == http.MethodPost {
+			// Attach names its own target in the request body, so the scope
+			// check resolves that vmid first (review F5).
+			resolve = func() int { return api.workspaceAttachScopeVMID(r.Context(), r, id) }
+		}
+		if !api.authorize(w, r, perm, resolve, false) {
 			return
 		}
 	}
@@ -1831,7 +1898,9 @@ func (api *ControlAPI) handleWorkspaceByID(w http.ResponseWriter, r *http.Reques
 func (api *ControlAPI) handleSessions(w http.ResponseWriter, r *http.Request) {
 	switch r.Method {
 	case http.MethodPost:
-		if !api.authorize(w, r, permSessionCreate, nil, false) {
+		// The body names the workspace the session runs in, so the scope check
+		// resolves that workspace's sandbox (review T33).
+		if !api.authorize(w, r, permSessionCreate, func() int { return api.sessionCreateScopeVMID(r) }, false) {
 			return
 		}
 		api.handleSessionCreate(w, r)
@@ -1906,7 +1975,9 @@ func (api *ControlAPI) handleSessionByID(w http.ResponseWriter, r *http.Request)
 func (api *ControlAPI) handleExposures(w http.ResponseWriter, r *http.Request) {
 	switch r.Method {
 	case http.MethodPost:
-		if !api.authorize(w, r, permExposureCreate, nil, false) {
+		// The create body names the target sandbox, so the scope check
+		// resolves that vmid (review F2). See exposureCreateVMID.
+		if !api.authorize(w, r, permExposureCreate, func() int { return exposureCreateVMID(r) }, false) {
 			return
 		}
 		api.handleExposureCreate(w, r)
@@ -2095,6 +2166,20 @@ func (api *ControlAPI) handleSandboxCreate(w http.ResponseWriter, r *http.Reques
 		}
 		vmid = next
 	}
+	if req.VMID != nil {
+		// Never trust a caller-supplied vmid. When Proxmox already runs a
+		// VM under it, refuse before any row exists: both the failure-cleanup
+		// path and lease GC destroy by vmid (review F1).
+		occupied, err := api.proxmoxVMIDOccupied(ctx, vmid)
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, "failed to check vmid availability", err)
+			return
+		}
+		if occupied {
+			writeError(w, http.StatusConflict, "vmid already exists in proxmox inventory")
+			return
+		}
+	}
 	if req.Name == "" {
 		req.Name = fmt.Sprintf("sandbox-%d", vmid)
 	}
@@ -2214,6 +2299,65 @@ func (api *ControlAPI) handleSandboxCreate(w http.ResponseWriter, r *http.Reques
 	writeJSON(w, http.StatusCreated, api.sandboxToV1(createdSandbox))
 }
 
+// peekJSONBody decodes the request body into dst before the handler runs, then
+// restores the body so the handler's own decode sees the same bytes. It is the
+// authorization-time view of a body-borne target. The body is buffered with the
+// same size limit the decoder uses. A body that cannot be read or parsed
+// reports false; the handler's strict decode then rejects the request on its
+// own, so authorization fails open only for requests that fail anyway.
+func peekJSONBody(r *http.Request, dst any) bool {
+	if r == nil || r.Body == nil {
+		return false
+	}
+	data, err := io.ReadAll(http.MaxBytesReader(nil, r.Body, maxJSONBytes))
+	r.Body = io.NopCloser(bytes.NewReader(data))
+	if err != nil {
+		return false
+	}
+	return json.Unmarshal(data, dst) == nil
+}
+
+// sandboxCreateVMID resolves the concrete VMID a sandbox create request
+// targets, for the sandbox scope check. The target lives in the request body,
+// which the handler has not decoded yet at authorization time; see
+// peekJSONBody. A request without a caller-supplied vmid has no concrete target
+// and returns 0.
+func sandboxCreateVMID(r *http.Request) int {
+	var payload struct {
+		VMID *int `json:"vmid"`
+	}
+	if !peekJSONBody(r, &payload) || payload.VMID == nil {
+		return 0
+	}
+	return *payload.VMID
+}
+
+// sandboxValidatePlanVMID resolves the vmid a sandbox validate-plan request
+// names in its body. The route only plans, but the plan reports target state,
+// so the target stays inside the caller's scope (review T33).
+func sandboxValidatePlanVMID(r *http.Request) int {
+	return sandboxCreateVMID(r)
+}
+
+// proxmoxVMIDOccupied reports whether a Proxmox VM already uses vmid. A nil
+// backend cannot reach Proxmox, so the check is skipped: without a backend no
+// clone and no destroy can run either.
+func (api *ControlAPI) proxmoxVMIDOccupied(ctx context.Context, vmid int) (bool, error) {
+	if api == nil || api.backend == nil {
+		return false, nil
+	}
+	vms, err := api.backend.ListVMs(ctx)
+	if err != nil {
+		return false, err
+	}
+	for _, vm := range vms {
+		if int(vm.VMID) == vmid {
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
 func (api *ControlAPI) handleWorkspaceCreate(w http.ResponseWriter, r *http.Request) {
 	if api.workspaceMgr == nil {
 		writeError(w, http.StatusInternalServerError, "workspace manager unavailable")
@@ -2247,6 +2391,20 @@ func (api *ControlAPI) handleWorkspaceCreate(w http.ResponseWriter, r *http.Requ
 	writeJSON(w, http.StatusCreated, workspaceToV1(workspace))
 }
 
+// workspaceInScope reports whether a scoped caller may see a workspace. An
+// attached workspace belongs to its attachment. A detached workspace keeps
+// belonging to its last attachment, so a foreign detached workspace stays
+// hidden. A never-attached workspace is part of the shared pool (review F5).
+func workspaceInScope(ws models.Workspace, allowed func(int) bool) bool {
+	if ws.AttachedVM != nil {
+		return allowed(*ws.AttachedVM)
+	}
+	if ws.LastAttachedVM != nil {
+		return allowed(*ws.LastAttachedVM)
+	}
+	return true
+}
+
 func (api *ControlAPI) handleWorkspaceList(w http.ResponseWriter, r *http.Request) {
 	if api.workspaceMgr == nil {
 		writeError(w, http.StatusInternalServerError, "workspace manager unavailable")
@@ -2260,7 +2418,7 @@ func (api *ControlAPI) handleWorkspaceList(w http.ResponseWriter, r *http.Reques
 	resp := V1WorkspacesResponse{Workspaces: make([]V1WorkspaceResponse, 0, len(workspaces))}
 	allowed := sandboxScopeFilter(r)
 	for _, ws := range workspaces {
-		if allowed != nil && ws.AttachedVM != nil && !allowed(*ws.AttachedVM) {
+		if allowed != nil && !workspaceInScope(ws, allowed) {
 			continue
 		}
 		resp.Workspaces = append(resp.Workspaces, workspaceToV1(ws))
@@ -2333,6 +2491,147 @@ func (api *ControlAPI) handleWorkspaceFSCK(w http.ResponseWriter, r *http.Reques
 	writeJSON(w, http.StatusOK, workspaceFSCKToV1(result))
 }
 
+// workspaceAttachTargetVMID resolves the concrete VMID a workspace attach
+// request targets, for the sandbox scope check. The vmid lives in the request
+// body, which the handler has not decoded yet at authorization time; see
+// peekJSONBody. A body without a positive vmid returns 0; the handler's own
+// validation rejects such a request later.
+func workspaceAttachTargetVMID(r *http.Request) int {
+	var payload struct {
+		VMID int `json:"vmid"`
+	}
+	if !peekJSONBody(r, &payload) || payload.VMID <= 0 {
+		return 0
+	}
+	return payload.VMID
+}
+
+// jobTargetScopeVMID resolves the sandbox a job create or job validate-plan
+// request targets (review T33). The body names no vmid directly: it names the
+// workspace the work runs in, or the session whose workspace it reuses. A
+// request that creates its own workspace, or names no workspace at all, has no
+// concrete target yet and returns 0.
+func (api *ControlAPI) jobTargetScopeVMID(r *http.Request) int {
+	var payload struct {
+		WorkspaceID string `json:"workspace_id"`
+		SessionID   string `json:"session_id"`
+	}
+	if !peekJSONBody(r, &payload) {
+		return 0
+	}
+	if id := strings.TrimSpace(payload.WorkspaceID); id != "" {
+		return api.workspaceSandboxVMID(r.Context(), id)
+	}
+	if id := strings.TrimSpace(payload.SessionID); id != "" {
+		return api.sessionScopeVMID(r.Context(), id)
+	}
+	return 0
+}
+
+// sessionCreateScopeVMID resolves the sandbox a session create request targets:
+// the workspace it names (review T33). A session that creates its own workspace
+// has no concrete target and returns 0.
+func (api *ControlAPI) sessionCreateScopeVMID(r *http.Request) int {
+	var payload struct {
+		WorkspaceID string `json:"workspace_id"`
+	}
+	if !peekJSONBody(r, &payload) {
+		return 0
+	}
+	if id := strings.TrimSpace(payload.WorkspaceID); id != "" {
+		return api.workspaceSandboxVMID(r.Context(), id)
+	}
+	return 0
+}
+
+// sessionScopeVMID resolves the sandbox a session belongs to through its
+// workspace, so a session named by id keeps the scope of the sandbox its
+// workspace runs in.
+func (api *ControlAPI) sessionScopeVMID(ctx context.Context, sessionID string) int {
+	if api == nil || api.store == nil {
+		return 0
+	}
+	session, err := api.store.GetSession(ctx, sessionID)
+	if err != nil {
+		return 0
+	}
+	return api.workspaceSandboxVMID(ctx, strings.TrimSpace(session.WorkspaceID))
+}
+
+// messageBodyScopeVMID resolves the sandbox a message create request targets
+// from its body scope (review T33).
+func (api *ControlAPI) messageBodyScopeVMID(r *http.Request) int {
+	var payload struct {
+		ScopeType string `json:"scope_type"`
+		ScopeID   string `json:"scope_id"`
+	}
+	if !peekJSONBody(r, &payload) {
+		return 0
+	}
+	return api.messageScopeVMID(r.Context(), payload.ScopeType, payload.ScopeID)
+}
+
+// messageQueryScopeVMID resolves the sandbox a message list request targets
+// from its query scope (review T33).
+func (api *ControlAPI) messageQueryScopeVMID(r *http.Request) int {
+	query := r.URL.Query()
+	return api.messageScopeVMID(r.Context(), query.Get("scope_type"), query.Get("scope_id"))
+}
+
+// messageScopeVMID resolves the sandbox a message scope names. A job, workspace,
+// or session id resolves to the sandbox it belongs to. An unknown scope type, a
+// missing id, or an id that cannot be resolved has no sandbox target; the
+// handler's own scope validation rejects malformed input.
+func (api *ControlAPI) messageScopeVMID(ctx context.Context, scopeType, scopeID string) int {
+	if api == nil || api.store == nil {
+		return 0
+	}
+	id := strings.TrimSpace(scopeID)
+	if id == "" {
+		return 0
+	}
+	switch strings.ToLower(strings.TrimSpace(scopeType)) {
+	case "job":
+		return api.jobSandboxVMID(ctx, id)
+	case "workspace":
+		return api.workspaceSandboxVMID(ctx, id)
+	case "session":
+		return api.sessionScopeVMID(ctx, id)
+	}
+	return 0
+}
+
+// workspaceAttachScopeVMID resolves the sandbox scope for a workspace attach
+// request: the target vmid from the body when present, otherwise the
+// workspace's own sandbox (review F5).
+func (api *ControlAPI) workspaceAttachScopeVMID(ctx context.Context, r *http.Request, id string) int {
+	if vmid := workspaceAttachTargetVMID(r); vmid > 0 {
+		return vmid
+	}
+	return api.workspaceSandboxVMID(ctx, id)
+}
+
+// workspaceAttachInScope reports whether the caller may attach workspace id
+// into vmid. It enforces the token scope on the requested target and, for a
+// detached workspace, on the workspace's last attachment: a workspace another
+// scope detached still belongs to that scope (review F5). Callers without a
+// sandbox scope, and workspaces that cannot be resolved yet, pass; Attach
+// reports resolution failures on its own.
+func (api *ControlAPI) workspaceAttachInScope(ctx context.Context, r *http.Request, id string, vmid int) bool {
+	allowed := sandboxScopeFilter(r)
+	if allowed == nil {
+		return true
+	}
+	workspace, err := api.workspaceMgr.Resolve(ctx, id)
+	if err != nil {
+		return true
+	}
+	if !allowed(vmid) || !workspaceInScope(workspace, allowed) {
+		return false
+	}
+	return true
+}
+
 func (api *ControlAPI) handleWorkspaceAttach(w http.ResponseWriter, r *http.Request, id string) {
 	if api.workspaceMgr == nil {
 		writeError(w, http.StatusInternalServerError, "workspace manager unavailable")
@@ -2345,6 +2644,10 @@ func (api *ControlAPI) handleWorkspaceAttach(w http.ResponseWriter, r *http.Requ
 	}
 	if req.VMID <= 0 {
 		writeError(w, http.StatusBadRequest, "vmid must be positive")
+		return
+	}
+	if !api.workspaceAttachInScope(r.Context(), r, id, req.VMID) {
+		writeAuthzDenied(w, permWorkspaceAttach)
 		return
 	}
 	workspace, err := api.workspaceMgr.Attach(r.Context(), id, req.VMID)
@@ -3145,12 +3448,15 @@ func (api *ControlAPI) handleExposureCreate(w http.ResponseWriter, r *http.Reque
 		return
 	}
 	req.Name = strings.TrimSpace(req.Name)
-	req.TargetIP = strings.TrimSpace(req.TargetIP)
 	req.URL = strings.TrimSpace(req.URL)
 	req.State = strings.TrimSpace(req.State)
 
 	if req.Name == "" {
 		writeError(w, http.StatusBadRequest, "name is required")
+		return
+	}
+	if !exposureNamePattern.MatchString(req.Name) {
+		writeError(w, http.StatusBadRequest, "name must match "+exposureNamePattern.String())
 		return
 	}
 	if req.VMID <= 0 {
@@ -3170,6 +3476,20 @@ func (api *ControlAPI) handleExposureCreate(w http.ResponseWriter, r *http.Reque
 		writeError(w, http.StatusInternalServerError, "failed to check exposure")
 		return
 	}
+	// The published hostname is the sanitized subdomain, so uniqueness must
+	// hold on the subdomain, not on the raw name (review F8).
+	subdomain := proxy.SanitizeSubdomain(req.Name)
+	existing, err := api.store.ListExposures(ctx)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to check exposure")
+		return
+	}
+	for _, ex := range existing {
+		if proxy.SanitizeSubdomain(ex.Name) == subdomain {
+			writeError(w, http.StatusConflict, "exposure subdomain already exists")
+			return
+		}
+	}
 	sandbox, err := api.store.GetSandbox(ctx, req.VMID)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
@@ -3179,20 +3499,25 @@ func (api *ControlAPI) handleExposureCreate(w http.ResponseWriter, r *http.Reque
 		writeError(w, http.StatusInternalServerError, "failed to load sandbox")
 		return
 	}
-	if req.TargetIP == "" {
-		req.TargetIP = strings.TrimSpace(sandbox.IP)
-	}
-	if req.TargetIP == "" {
+	// The target is never caller-controlled: it is derived from the sandbox
+	// row, and only the address classes the agent subnet serves are
+	// publishable (review F2).
+	targetIP := strings.TrimSpace(sandbox.IP)
+	if targetIP == "" {
 		writeError(w, http.StatusConflict, "sandbox has no ip assigned")
 		return
 	}
-	if net.ParseIP(req.TargetIP) == nil {
-		writeError(w, http.StatusBadRequest, "target_ip must be a valid IP")
+	if err := api.checkExposureTarget(targetIP); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
 
-	publishResult, err := api.exposurePublisher.Publish(ctx, req.Name, req.TargetIP, req.Port)
+	publishResult, err := api.exposurePublisher.Publish(ctx, req.Name, targetIP, req.Port)
 	if err != nil {
+		if errors.Is(err, proxy.ErrRouteExists) {
+			writeError(w, http.StatusConflict, "exposure route already exists")
+			return
+		}
 		writeError(w, http.StatusInternalServerError, "failed to configure exposure")
 		return
 	}
@@ -3205,7 +3530,7 @@ func (api *ControlAPI) handleExposureCreate(w http.ResponseWriter, r *http.Reque
 		Name:      req.Name,
 		VMID:      req.VMID,
 		Port:      req.Port,
-		TargetIP:  req.TargetIP,
+		TargetIP:  targetIP,
 		URL:       publishResult.URL,
 		State:     publishResult.State,
 		CreatedAt: now,
@@ -3233,6 +3558,54 @@ func (api *ControlAPI) handleExposureCreate(w http.ResponseWriter, r *http.Reque
 	})
 
 	writeJSON(w, http.StatusCreated, exposureToV1(exposure))
+}
+
+// exposureCreateVMID resolves the concrete VMID an exposure create request
+// targets, for the sandbox scope check. The vmid lives in the request body,
+// which the handler has not decoded yet at authorization time; see
+// peekJSONBody. A body without a positive vmid returns 0; the handler's own
+// validation rejects such a request later.
+func exposureCreateVMID(r *http.Request) int {
+	var payload struct {
+		VMID int `json:"vmid"`
+	}
+	if !peekJSONBody(r, &payload) || payload.VMID <= 0 {
+		return 0
+	}
+	return payload.VMID
+}
+
+// checkExposureTarget validates a derived exposure target (review F2). It
+// refuses loopback, link-local, and other non-routable classes. When an agent
+// subnet is configured, the target must also sit inside it, so a poisoned
+// sandbox row cannot publish a host outside the sandbox network.
+func (api *ControlAPI) checkExposureTarget(ip string) error {
+	if err := proxy.ValidateTargetIP(ip); err != nil {
+		return err
+	}
+	subnet := api.agentSubnetNet()
+	if subnet == nil {
+		return nil
+	}
+	if parsed := net.ParseIP(strings.TrimSpace(ip)); parsed == nil || !subnet.Contains(parsed) {
+		return fmt.Errorf("target %s is outside the agent subnet %s", ip, subnet)
+	}
+	return nil
+}
+
+// agentSubnetNet parses the configured agent subnet. It returns nil when no
+// valid subnet is configured; target checks then apply the address-class
+// rules only.
+func (api *ControlAPI) agentSubnetNet() *net.IPNet {
+	cidr := strings.TrimSpace(api.agentSubnet)
+	if cidr == "" {
+		return nil
+	}
+	_, subnet, err := net.ParseCIDR(cidr)
+	if err != nil {
+		return nil
+	}
+	return subnet
 }
 
 func (api *ControlAPI) handleExposureList(w http.ResponseWriter, r *http.Request) {

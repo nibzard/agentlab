@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/agentlab/agentlab/internal/proxmox"
+	"github.com/agentlab/agentlab/internal/proxy"
 )
 
 const (
@@ -38,6 +39,9 @@ type TailscaleServePublisher struct {
 	TCPTimeout     time.Duration
 	HTTPTimeout    time.Duration
 	HTTPPorts      map[int]struct{}
+	// AgentSubnet, when set, confines exposure targets to the configured
+	// agent subnet in addition to the address-class rules below.
+	AgentSubnet *net.IPNet
 }
 
 // Publish configures tailscale serve for the exposure and performs health checks.
@@ -51,6 +55,12 @@ func (p *TailscaleServePublisher) Publish(ctx context.Context, name string, targ
 	}
 	if port <= 0 || port > 65535 {
 		return ExposurePublishResult{}, fmt.Errorf("port must be between 1 and 65535")
+	}
+	// Defense in depth (review F2): never point a serve rule at the daemon
+	// host itself or at a link-local neighbor, even if a caller managed to
+	// plant such a target in a sandbox row.
+	if err := p.checkTarget(targetIP); err != nil {
+		return ExposurePublishResult{}, err
 	}
 	serveTarget := fmt.Sprintf("tcp://%s:%d", targetIP, port)
 	if _, err := p.run(ctx, "serve", fmt.Sprintf("--tcp=%d", port), serveTarget); err != nil {
@@ -93,6 +103,23 @@ func (p *TailscaleServePublisher) Unpublish(ctx context.Context, name string, po
 			return ErrServeRuleNotFound
 		}
 		return err
+	}
+	return nil
+}
+
+// checkTarget refuses targets that an exposure must never publish to
+// (review F2). The address-class rules always apply. When AgentSubnet is
+// configured, the target must also sit inside it.
+func (p *TailscaleServePublisher) checkTarget(targetIP string) error {
+	if err := proxy.ValidateTargetIP(targetIP); err != nil {
+		return err
+	}
+	if p.AgentSubnet == nil {
+		return nil
+	}
+	ip := net.ParseIP(strings.TrimSpace(targetIP))
+	if ip == nil || !p.AgentSubnet.Contains(ip) {
+		return fmt.Errorf("target %s is outside the agent subnet %s", targetIP, p.AgentSubnet)
 	}
 	return nil
 }

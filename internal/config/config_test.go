@@ -1127,3 +1127,27 @@ func TestLoadConfigOffline(t *testing.T) {
 		assert.False(t, cfg.Offline)
 	})
 }
+
+func TestLoadConfigIntegrationTargetAllowlist(t *testing.T) {
+	t.Run("allowlist set from yaml", func(t *testing.T) {
+		root := t.TempDir()
+		configPath := filepath.Join(root, "config.yaml")
+		payload := "integration_target_allowlist:\n  - api.example.com\n  - 10.1.2.3\n"
+		require.NoError(t, os.WriteFile(configPath, []byte(payload), 0o600))
+
+		cfg, err := Load(configPath)
+		require.NoError(t, err)
+		assert.Equal(t, []string{"api.example.com", "10.1.2.3"}, cfg.IntegrationTargetAllowlist)
+	})
+
+	t.Run("allowlist unset stays empty", func(t *testing.T) {
+		root := t.TempDir()
+		configPath := filepath.Join(root, "config.yaml")
+		payload := "data_dir: " + filepath.Join(root, "data") + "\n"
+		require.NoError(t, os.WriteFile(configPath, []byte(payload), 0o600))
+
+		cfg, err := Load(configPath)
+		require.NoError(t, err)
+		assert.Empty(t, cfg.IntegrationTargetAllowlist)
+	})
+}

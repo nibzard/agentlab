@@ -26,6 +26,10 @@ const (
 	defaultArtifactTokenTTL  = 6 * time.Hour
 	artifactTokenBytes       = 16
 	maxArtifactTokenAttempts = 5
+	// sandboxSecretBytes is the entropy of the per-sandbox endpoint secret.
+	// The metadata and credential-proxy endpoints require it in addition to
+	// the source IP (review F4).
+	sandboxSecretBytes = 32
 	// tailscaleMintKeyTTL is the lifetime of a per-VM auth key minted at
 	// bootstrap. Single-use + ephemeral means an undelivered key self-revokes.
 	tailscaleMintKeyTTL = time.Hour
@@ -183,6 +187,15 @@ func (api *BootstrapAPI) handleBootstrapFetch(w http.ResponseWriter, r *http.Req
 	} else if artifact := bootstrapArtifactFromBundle(bundle); artifact != nil {
 		resp.Artifact = artifact
 	}
+	// Issue the per-sandbox endpoint secret before the single-use token is
+	// consumed. A failure here leaves the token unconsumed, so the guest can
+	// retry the whole fetch.
+	sandboxSecret, err := api.issueSandboxSecret(r.Context(), req.VMID)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to issue sandbox secret")
+		return
+	}
+	resp.SandboxSecret = sandboxSecret
 	var profile *models.Profile
 	if api.profiles != nil {
 		if stored, ok := api.profiles[job.Profile]; ok {
@@ -497,6 +510,35 @@ func (api *BootstrapAPI) newArtifactToken() (string, string, time.Time, error) {
 	}
 	expires := api.now().UTC().Add(api.artifactTokenTTL)
 	return token, hash, expires, nil
+}
+
+// issueSandboxSecret mints a fresh endpoint secret for vmid, stores only its
+// hash, and returns the plaintext for the bootstrap response. The rotation on
+// every fetch means the guest that bootstrapped most recently holds the only
+// valid secret (review F4).
+func (api *BootstrapAPI) issueSandboxSecret(ctx context.Context, vmid int) (string, error) {
+	if api == nil || api.store == nil {
+		return "", errors.New("sandbox secret store unavailable")
+	}
+	if vmid <= 0 {
+		return "", errors.New("vmid must be positive")
+	}
+	buf := make([]byte, sandboxSecretBytes)
+	if _, err := io.ReadFull(api.randReader(), buf); err != nil {
+		return "", err
+	}
+	secret := hex.EncodeToString(buf)
+	hash, err := db.HashSandboxSecret(secret)
+	if err != nil {
+		return "", err
+	}
+	if err := api.store.UpsertSandboxSecret(ctx, vmid, hash); err != nil {
+		return "", err
+	}
+	if api.redactor != nil {
+		api.redactor.AddValues(secret)
+	}
+	return secret, nil
 }
 
 func (api *BootstrapAPI) randReader() io.Reader {

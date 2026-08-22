@@ -5,9 +5,12 @@
 define agent_if = "vmbr1"
 define wan_if = "vmbr0"
 define agent_subnet = 10.77.0.0/16
+define bridge_addr = 10.77.0.1
 define tailscale_if = "tailscale0"
 define tailnet_v4 = 100.64.0.0/10
 define tailnet_v6 = fd7a:115c:a1e0::/48
+define guest_tcp_ports = { 8844, 8846 }
+define metadata_ip = 169.254.169.254
 
 table inet agentlab {
   chain forward {
@@ -27,6 +30,134 @@ table inet agentlab {
     iifname $agent_if ip6 daddr {fc00::/7, fe80::/10} drop
 
     return
+  }
+
+  # Traffic addressed to the host itself takes the input path, which the
+  # forward chain above never sees. Drop every new connection from the
+  # agent bridge to any address on this host: the bridge address, the LAN
+  # address, and tailscale0. Without this chain a sandbox can reach the
+  # Proxmox VE API on 10.77.0.1:8006, sshd on 10.77.0.1:22, and every other
+  # host listener.
+  chain input {
+    type filter hook input priority -100;
+    policy accept;
+
+    # Only police traffic that arrived on the agent bridge.
+    iifname != $agent_if return
+
+    ct state established,related return
+
+    # Guest-facing listeners: bootstrap/metadata (8844) and artifacts (8846).
+    ip saddr $agent_subnet tcp dport $guest_tcp_ports accept
+
+    # Metadata endpoint when 169.254.169.254 is configured on the bridge
+    # itself. When the daemon installs its DNAT rule instead, prerouting
+    # rewrites the destination to the bootstrap listener before this chain
+    # runs, and the guest-port rule above covers that flow.
+    ip saddr $agent_subnet ip daddr $metadata_ip tcp dport 80 accept
+
+    # DNS: dnsmasq on the host is the resolver that DHCP hands to sandboxes.
+    ip saddr $agent_subnet udp dport 53 accept
+    ip saddr $agent_subnet tcp dport 53 accept
+
+    # DHCP: dnsmasq hands out leases on the bridge, and a booting client
+    # has no address yet, so no source check is possible here.
+    udp dport 67 accept
+
+    # Let a sandbox ping its gateway and keep IPv6 neighbour discovery
+    # working on the link.
+    ip saddr $agent_subnet icmp type echo-request accept
+    meta l4proto ipv6-icmp accept
+
+    # Everything else that starts a connection to the host is dropped,
+    # whatever source address the sender claims.
+    ct state new drop
+
+    return
+  }
+}
+
+# L2 anti-spoofing for sandbox taps on the agent bridge.
+#
+# A sandbox is untrusted root, so the ruleset must not accept the MAC or IP
+# address a frame claims. Every sandbox NIC gets a binding of tap name, MAC,
+# and IPv4 address. A frame from a bound tap is dropped unless it carries the
+# bound pair, for ARP and for IPv4. One sandbox therefore cannot speak or ARP
+# as a neighbour.
+#
+# The bindings are runtime state, not template text. scripts/net/apply.sh
+# rebuilds them from the Proxmox NIC configuration and the DHCP leases each
+# time the rules are applied, and updates one binding at run time with
+# --bind-tap or --unbind-tap. A tap without a binding falls back to the
+# subnet-wide checks at the end of the chain. A binding tightens the rules;
+# it never opens them.
+table bridge agentlab_l2 {
+  # Taps that have at least one binding and must pass the strict checks.
+  set bound_ports {
+    type ifname
+  }
+
+  # Tap and MAC pairs, used for DHCP and ARP probes from a client that has
+  # no address yet.
+  set port_macs {
+    type ifname . ether_addr
+  }
+
+  # Tap, MAC, and IPv4 address triples, one per sandbox NIC.
+  set tap_bindings {
+    type ifname . ether_addr . ipv4_addr
+  }
+
+  chain antispoof {
+    # Only frames that arrived on the agent bridge are policed. In the
+    # bridge family, iifname is the bridge port (the tap) and meta ibrname
+    # is the bridge itself. Do not use meta ibriport: nft accepts the
+    # spelling but treats it as a second ibrname, which matches the bridge
+    # for every tap and never fires these per-port rules.
+    meta ibrname != $agent_if return
+
+    # Strict checks for a tap with a binding. DHCP requests and ARP probes
+    # come first: a booting or renumbering client has no address to compare
+    # yet, so only the tap and MAC pair is enforced for them.
+    ether type arp arp saddr ip 0.0.0.0 iifname . arp saddr ether @port_macs return
+    ether type ip ip saddr 0.0.0.0 udp dport 67 iifname . ether saddr @port_macs return
+
+    # ARP must announce the bound MAC and IPv4 address.
+    ether type arp iifname . arp saddr ether . arp saddr ip @tap_bindings return
+    ether type arp iifname @bound_ports drop
+
+    # IPv4 must carry the bound MAC and IPv4 source.
+    ether type ip iifname . ether saddr . ip saddr @tap_bindings return
+    ether type ip iifname @bound_ports drop
+
+    # Subnet-wide checks for a tap without a binding. ARP probes carry
+    # sender IP 0.0.0.0.
+    ether type arp arp saddr ip 0.0.0.0 return
+
+    # No sandbox may announce the bridge address and hijack the gateway.
+    ether type arp arp saddr ip $bridge_addr drop
+    ether type arp arp saddr ip $agent_subnet return
+    ether type arp drop
+
+    # IPv4: a booting DHCP client has no address yet.
+    ether type ip ip saddr 0.0.0.0 udp dport 67 return
+    ether type ip ip saddr $bridge_addr drop
+    ether type ip ip saddr $agent_subnet return
+    ether type ip drop
+  }
+
+  # Frames from a tap to the host itself.
+  chain input {
+    type filter hook input priority -200;
+    policy accept;
+    jump antispoof
+  }
+
+  # Frames switched between two taps on the same bridge.
+  chain forward {
+    type filter hook forward priority -200;
+    policy accept;
+    jump antispoof
   }
 }
 

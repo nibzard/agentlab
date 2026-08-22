@@ -141,6 +141,10 @@ type V1BootstrapFetchResponse struct {
 	Artifact           *V1BootstrapArtifact  `json:"artifact,omitempty"`
 	Policy             *V1BootstrapPolicy    `json:"policy,omitempty"`
 	Tailscale          *V1BootstrapTailscale `json:"tailscale,omitempty"`
+	// SandboxSecret proves this sandbox's identity to the /metadata/* and
+	// /proxy/* endpoints. The daemon stores only its hash and rotates it on
+	// every bootstrap fetch (review F4).
+	SandboxSecret string `json:"sandbox_secret,omitempty"`
 }
 
 // V1SecretsEnvSetRequest merges the given environment variables into the
@@ -650,14 +654,17 @@ type V1SessionForkRequest struct {
 	Branch          string                    `json:"branch,omitempty"`
 }
 
+// V1ExposureCreateRequest creates an exposure. The target address is not
+// caller-controlled: the daemon derives it from the referenced sandbox row
+// (review F2). A request that carries target_ip is rejected by the strict
+// decoder.
 type V1ExposureCreateRequest struct {
-	Name     string `json:"name"`
-	VMID     int    `json:"vmid"`
-	Port     int    `json:"port"`
-	Force    bool   `json:"force,omitempty"`
-	TargetIP string `json:"target_ip,omitempty"`
-	URL      string `json:"url,omitempty"`
-	State    string `json:"state,omitempty"`
+	Name  string `json:"name"`
+	VMID  int    `json:"vmid"`
+	Port  int    `json:"port"`
+	Force bool   `json:"force,omitempty"`
+	URL   string `json:"url,omitempty"`
+	State string `json:"state,omitempty"`
 }
 
 type V1Exposure struct {

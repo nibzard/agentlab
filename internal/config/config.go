@@ -72,40 +72,40 @@ type Config struct {
 	// provisioning state (REQUESTED/PROVISIONING/BOOTING) after startup before
 	// the startup orphan sweep reclaims it. Defaults to 2x the provisioning
 	// timeout when unset (review H2).
-	OrphanGracePeriod time.Duration
-	IdleStopEnabled   bool
-	IdleStopInterval        time.Duration
-	IdleStopMinutesDefault  int
-	IdleStopCPUThreshold    float64
+	OrphanGracePeriod      time.Duration
+	IdleStopEnabled        bool
+	IdleStopInterval       time.Duration
+	IdleStopMinutesDefault int
+	IdleStopCPUThreshold   float64
 	// Proxmox backend configuration
-	ProxmoxBackend           string // "shell" or "api"
-	ProxmoxCloneMode         string // "linked" or "full"
-	ProxmoxAPIURL            string // e.g., "https://localhost:8006/api2/json"
-	ProxmoxAPIToken          string // e.g., "root@pam!token=uuid"
-	ProxmoxNode              string // Proxmox node name (optional, auto-detected if empty)
-	ProxmoxTLSInsecure       bool   // Skip TLS verification for Proxmox API
-	ProxmoxTLSCAPath         string // Optional CA bundle path for Proxmox API TLS verification
-	ProxmoxAPIShellFallback  bool   // Allow shell fallback for API backend volume ops
+	ProxmoxBackend          string // "shell" or "api"
+	ProxmoxCloneMode        string // "linked" or "full"
+	ProxmoxAPIURL           string // e.g., "https://localhost:8006/api2/json"
+	ProxmoxAPIToken         string // e.g., "root@pam!token=uuid"
+	ProxmoxNode             string // Proxmox node name (optional, auto-detected if empty)
+	ProxmoxTLSInsecure      bool   // Skip TLS verification for Proxmox API
+	ProxmoxTLSCAPath        string // Optional CA bundle path for Proxmox API TLS verification
+	ProxmoxAPIShellFallback bool   // Allow shell fallback for API backend volume ops
 	// LXC container backend configuration
 	LXCEnabled bool // Enable LXC container sandbox support
 	// Pluggable backend configuration
-	Backend     string // Backend provider: "proxmox", "docker", "libvirt" (default "proxmox")
-	DockerHost  string // Docker daemon socket path (default "unix:///var/run/docker.sock")
-	LibvirtURI  string // libvirt connection URI (default "qemu:///system")
+	Backend                  string // Backend provider: "proxmox", "docker", "libvirt" (default "proxmox")
+	DockerHost               string // Docker daemon socket path (default "unix:///var/run/docker.sock")
+	LibvirtURI               string // libvirt connection URI (default "qemu:///system")
 	ClaudeSkillBundleName    string
 	ClaudeSkillBundleVersion string
 	// Reverse proxy configuration
-	ProxyEnabled   bool
-	ProxyDomain    string // Base domain for sandbox subdomains (e.g., "agentlab.local")
-	ProxyTLSMode   string // "off", "self-signed", "letsencrypt"
-	ProxyTLSEmail  string // Email for Let's Encrypt registration
-	ProxyCaddyAPI  string // Caddy admin API endpoint (default "http://localhost:2019")
-	ProxyHostsFile string // Path to hosts file for DNS entries (default "/etc/hosts")
-	ProxyCADir     string // Directory for self-signed CA cert/key
+	ProxyEnabled    bool
+	ProxyDomain     string // Base domain for sandbox subdomains (e.g., "agentlab.local")
+	ProxyTLSMode    string // "off", "self-signed", "letsencrypt"
+	ProxyTLSEmail   string // Email for Let's Encrypt registration
+	ProxyCaddyAPI   string // Caddy admin API endpoint (default "http://localhost:2019")
+	ProxyHostsFile  string // Path to hosts file for DNS entries (default "/etc/hosts")
+	ProxyCADir      string // Directory for self-signed CA cert/key
 	ProxyTLSCertDir string // Directory for issued TLS certificates
-	ProxyIP        string // IP address the proxy listens on (for DNS entries)
+	ProxyIP         string // IP address the proxy listens on (for DNS entries)
 	// Metadata endpoint configuration
-	MetadataRoutingEnabled bool   // Enable iptables DNAT for 169.254.169.254
+	MetadataRoutingEnabled bool // Enable iptables DNAT for 169.254.169.254
 	// HTTPS exec API configuration
 	CLIPath string // Path to agentlab CLI binary (auto-detected if empty)
 	// SSH key-based authentication configuration
@@ -113,6 +113,10 @@ type Config struct {
 	// Integration / secret injection configuration
 	IntegrationsEnabled bool   // Enable the integrations system
 	IntegrationEncKey   string // Hex-encoded AES-256 key for encrypting integration secrets at rest
+	// IntegrationTargetAllowlist restricts the hosts a proxy integration may
+	// target when it is non-empty. Hostnames and literal IPs are allowed;
+	// ports and schemes are not part of an entry.
+	IntegrationTargetAllowlist []string
 	// Offline mode for air-gapped deployments
 	Offline bool // When true, block all external network calls (no internet required)
 	// TrustAgentSubnet lets the integration credential proxy serve auto:all
@@ -121,11 +125,11 @@ type Config struct {
 	// fully-trusted subnets (review H4).
 	TrustAgentSubnet bool
 	// Resource pool configuration for sandbox over-commit
-	PoolTotalCores     int           // Total physical CPU cores available for sandboxes (0 = unlimited)
-	PoolTotalMemoryMB  int           // Total physical RAM in MB available for sandboxes (0 = unlimited)
-	PoolCPUOverCommit  float64       // CPU over-commit ratio (default 1.0, e.g., 4.0 = 4x cores)
-	PoolMemOverCommit  float64       // Memory over-commit ratio (default 1.0, e.g., 2.0 = 2x RAM)
-	PoolBurstDuration  time.Duration // How long burst allocations may exceed commit limit (0 = disabled)
+	PoolTotalCores    int           // Total physical CPU cores available for sandboxes (0 = unlimited)
+	PoolTotalMemoryMB int           // Total physical RAM in MB available for sandboxes (0 = unlimited)
+	PoolCPUOverCommit float64       // CPU over-commit ratio (default 1.0, e.g., 4.0 = 4x cores)
+	PoolMemOverCommit float64       // Memory over-commit ratio (default 1.0, e.g., 2.0 = 2x RAM)
+	PoolBurstDuration time.Duration // How long burst allocations may exceed commit limit (0 = disabled)
 }
 
 // FileConfig represents supported YAML config overrides.
@@ -138,73 +142,74 @@ type Config struct {
 // configuration overrides. Duration fields accept Go duration format
 // strings (e.g., "30s", "5m", "1h").
 type FileConfig struct {
-	ProfilesDir              string   `yaml:"profiles_dir"`
-	DataDir                  string   `yaml:"data_dir"`
-	LogDir                   string   `yaml:"log_dir"`
-	RunDir                   string   `yaml:"run_dir"`
-	SocketPath               string   `yaml:"socket_path"`
-	ControlListen            string   `yaml:"control_listen"`
-	ControlAuthToken         string   `yaml:"control_auth_token"`
-	ControlAllowCIDRs        []string `yaml:"control_allow_cidrs"`
-	DBPath                   string   `yaml:"db_path"`
-	BootstrapListen          string   `yaml:"bootstrap_listen"`
-	ArtifactListen           string   `yaml:"artifact_listen"`
-	MetricsListen            string   `yaml:"metrics_listen"`
-	AgentSubnet              string   `yaml:"agent_subnet"`
-	ControllerURL            string   `yaml:"controller_url"`
-	ArtifactUploadURL        string   `yaml:"artifact_upload_url"`
-	ArtifactDir              string   `yaml:"artifact_dir"`
-	ArtifactMaxBytes         int64    `yaml:"artifact_max_bytes"`
-	ArtifactTokenTTLMinutes  int      `yaml:"artifact_token_ttl_minutes"`
-	BootstrapRateLimitQPS    *float64 `yaml:"bootstrap_rate_limit_qps"`
-	BootstrapRateLimitBurst  *int     `yaml:"bootstrap_rate_limit_burst"`
-	ArtifactRateLimitQPS     *float64 `yaml:"artifact_rate_limit_qps"`
-	ArtifactRateLimitBurst   *int     `yaml:"artifact_rate_limit_burst"`
-	SecretsDir               string   `yaml:"secrets_dir"`
-	SecretsBundle            string   `yaml:"secrets_bundle"`
-	SecretsAgeKeyPath        string   `yaml:"secrets_age_key_path"`
-	SecretsSopsPath          string   `yaml:"secrets_sops_path"`
-	SnippetsDir              string   `yaml:"snippets_dir"`
-	SnippetStorage           string   `yaml:"snippet_storage"`
-	SSHPublicKey             string   `yaml:"ssh_public_key"`
-	SSHPublicKeyPath         string   `yaml:"ssh_public_key_path"`
-	ProxmoxCommandTimeout    string   `yaml:"proxmox_command_timeout"`
-	ProvisioningTimeout      string   `yaml:"provisioning_timeout"`
-	OrphanGracePeriod        string   `yaml:"orphan_grace_period"`
-	IdleStopEnabled          *bool    `yaml:"idle_stop_enabled"`
-	IdleStopInterval         string   `yaml:"idle_stop_interval"`
-	IdleStopMinutesDefault   *int     `yaml:"idle_stop_minutes_default"`
-	IdleStopCPUThreshold     *float64 `yaml:"idle_stop_cpu_threshold"`
-	ProxmoxBackend           string   `yaml:"proxmox_backend"`
-	ProxmoxCloneMode         string   `yaml:"proxmox_clone_mode"`
-	ProxmoxAPIURL            string   `yaml:"proxmox_api_url"`
-	ProxmoxAPIToken          string   `yaml:"proxmox_api_token"`
-	ProxmoxNode              string   `yaml:"proxmox_node"`
-	ProxmoxTLSInsecure       *bool    `yaml:"proxmox_tls_insecure"`
-	ProxmoxTLSCAPath         string   `yaml:"proxmox_tls_ca_path"`
-	ProxmoxAPIShellFallback  *bool    `yaml:"proxmox_api_shell_fallback"`
-	LXCEnabled               *bool    `yaml:"lxc_enabled"`
-	Backend                  string   `yaml:"backend"`
-	DockerHost               string   `yaml:"docker_host"`
-	LibvirtURI               string   `yaml:"libvirt_uri"`
-	ClaudeSkillBundleName    string   `yaml:"claude_skill_bundle_name"`
-	ClaudeSkillBundleVersion string   `yaml:"claude_skill_bundle_version"`
-	ProxyEnabled             *bool    `yaml:"proxy_enabled"`
-	ProxyDomain              string   `yaml:"proxy_domain"`
-	ProxyTLSMode             string   `yaml:"proxy_tls_mode"`
-	ProxyTLSEmail            string   `yaml:"proxy_tls_email"`
-	ProxyCaddyAPI            string   `yaml:"proxy_caddy_api"`
-	ProxyHostsFile           string   `yaml:"proxy_hosts_file"`
-	ProxyCADir               string   `yaml:"proxy_ca_dir"`
-	ProxyTLSCertDir          string   `yaml:"proxy_tls_cert_dir"`
-	ProxyIP                  string   `yaml:"proxy_ip"`
-	MetadataRoutingEnabled   *bool    `yaml:"metadata_routing_enabled"`
-	CLIPath                  string   `yaml:"cli_path"`
-	AuthorizedKeysPath       string   `yaml:"authorized_keys_path"`
-	IntegrationsEnabled      *bool    `yaml:"integrations_enabled"`
-	IntegrationEncKey        string   `yaml:"integration_enc_key"`
-	Offline                  *bool    `yaml:"offline"`
-	TrustAgentSubnet         *bool    `yaml:"trust_agent_subnet"`
+	ProfilesDir                string   `yaml:"profiles_dir"`
+	DataDir                    string   `yaml:"data_dir"`
+	LogDir                     string   `yaml:"log_dir"`
+	RunDir                     string   `yaml:"run_dir"`
+	SocketPath                 string   `yaml:"socket_path"`
+	ControlListen              string   `yaml:"control_listen"`
+	ControlAuthToken           string   `yaml:"control_auth_token"`
+	ControlAllowCIDRs          []string `yaml:"control_allow_cidrs"`
+	DBPath                     string   `yaml:"db_path"`
+	BootstrapListen            string   `yaml:"bootstrap_listen"`
+	ArtifactListen             string   `yaml:"artifact_listen"`
+	MetricsListen              string   `yaml:"metrics_listen"`
+	AgentSubnet                string   `yaml:"agent_subnet"`
+	ControllerURL              string   `yaml:"controller_url"`
+	ArtifactUploadURL          string   `yaml:"artifact_upload_url"`
+	ArtifactDir                string   `yaml:"artifact_dir"`
+	ArtifactMaxBytes           int64    `yaml:"artifact_max_bytes"`
+	ArtifactTokenTTLMinutes    int      `yaml:"artifact_token_ttl_minutes"`
+	BootstrapRateLimitQPS      *float64 `yaml:"bootstrap_rate_limit_qps"`
+	BootstrapRateLimitBurst    *int     `yaml:"bootstrap_rate_limit_burst"`
+	ArtifactRateLimitQPS       *float64 `yaml:"artifact_rate_limit_qps"`
+	ArtifactRateLimitBurst     *int     `yaml:"artifact_rate_limit_burst"`
+	SecretsDir                 string   `yaml:"secrets_dir"`
+	SecretsBundle              string   `yaml:"secrets_bundle"`
+	SecretsAgeKeyPath          string   `yaml:"secrets_age_key_path"`
+	SecretsSopsPath            string   `yaml:"secrets_sops_path"`
+	SnippetsDir                string   `yaml:"snippets_dir"`
+	SnippetStorage             string   `yaml:"snippet_storage"`
+	SSHPublicKey               string   `yaml:"ssh_public_key"`
+	SSHPublicKeyPath           string   `yaml:"ssh_public_key_path"`
+	ProxmoxCommandTimeout      string   `yaml:"proxmox_command_timeout"`
+	ProvisioningTimeout        string   `yaml:"provisioning_timeout"`
+	OrphanGracePeriod          string   `yaml:"orphan_grace_period"`
+	IdleStopEnabled            *bool    `yaml:"idle_stop_enabled"`
+	IdleStopInterval           string   `yaml:"idle_stop_interval"`
+	IdleStopMinutesDefault     *int     `yaml:"idle_stop_minutes_default"`
+	IdleStopCPUThreshold       *float64 `yaml:"idle_stop_cpu_threshold"`
+	ProxmoxBackend             string   `yaml:"proxmox_backend"`
+	ProxmoxCloneMode           string   `yaml:"proxmox_clone_mode"`
+	ProxmoxAPIURL              string   `yaml:"proxmox_api_url"`
+	ProxmoxAPIToken            string   `yaml:"proxmox_api_token"`
+	ProxmoxNode                string   `yaml:"proxmox_node"`
+	ProxmoxTLSInsecure         *bool    `yaml:"proxmox_tls_insecure"`
+	ProxmoxTLSCAPath           string   `yaml:"proxmox_tls_ca_path"`
+	ProxmoxAPIShellFallback    *bool    `yaml:"proxmox_api_shell_fallback"`
+	LXCEnabled                 *bool    `yaml:"lxc_enabled"`
+	Backend                    string   `yaml:"backend"`
+	DockerHost                 string   `yaml:"docker_host"`
+	LibvirtURI                 string   `yaml:"libvirt_uri"`
+	ClaudeSkillBundleName      string   `yaml:"claude_skill_bundle_name"`
+	ClaudeSkillBundleVersion   string   `yaml:"claude_skill_bundle_version"`
+	ProxyEnabled               *bool    `yaml:"proxy_enabled"`
+	ProxyDomain                string   `yaml:"proxy_domain"`
+	ProxyTLSMode               string   `yaml:"proxy_tls_mode"`
+	ProxyTLSEmail              string   `yaml:"proxy_tls_email"`
+	ProxyCaddyAPI              string   `yaml:"proxy_caddy_api"`
+	ProxyHostsFile             string   `yaml:"proxy_hosts_file"`
+	ProxyCADir                 string   `yaml:"proxy_ca_dir"`
+	ProxyTLSCertDir            string   `yaml:"proxy_tls_cert_dir"`
+	ProxyIP                    string   `yaml:"proxy_ip"`
+	MetadataRoutingEnabled     *bool    `yaml:"metadata_routing_enabled"`
+	CLIPath                    string   `yaml:"cli_path"`
+	AuthorizedKeysPath         string   `yaml:"authorized_keys_path"`
+	IntegrationsEnabled        *bool    `yaml:"integrations_enabled"`
+	IntegrationEncKey          string   `yaml:"integration_enc_key"`
+	IntegrationTargetAllowlist []string `yaml:"integration_target_allowlist"`
+	Offline                    *bool    `yaml:"offline"`
+	TrustAgentSubnet           *bool    `yaml:"trust_agent_subnet"`
 	// Resource pool configuration
 	PoolTotalCores    *int     `yaml:"pool_total_cores"`
 	PoolTotalMemoryMB *int     `yaml:"pool_total_memory_mb"`
@@ -560,6 +565,9 @@ func applyFileConfig(cfg *Config, fileCfg FileConfig) error {
 	}
 	if fileCfg.IntegrationEncKey != "" {
 		cfg.IntegrationEncKey = fileCfg.IntegrationEncKey
+	}
+	if len(fileCfg.IntegrationTargetAllowlist) > 0 {
+		cfg.IntegrationTargetAllowlist = fileCfg.IntegrationTargetAllowlist
 	}
 	if fileCfg.Offline != nil {
 		cfg.Offline = *fileCfg.Offline

@@ -10,14 +10,22 @@ import (
 
 // IntegrationAPI handles integration CRUD operations on the control API.
 //
+// The registry is a global resource: integrations resolve by name for every
+// sandbox at request time, so remote callers are held to the
+// integration.read / integration.write permissions and any sandbox-scoped
+// token is refused (review F11). Deleting an integration needs the separate
+// integration.delete grant, so a bare integration.write token cannot replace
+// a live integration by deleting and recreating its name (review F11).
+//
 // Endpoints:
 //   - POST   /v1/integrations          - Create a new integration
 //   - GET    /v1/integrations          - List all integrations
 //   - GET    /v1/integrations/{name}   - Get a specific integration
 //   - DELETE /v1/integrations/{name}   - Delete an integration
 type IntegrationAPI struct {
-	store  *integrations.Store
-	logger *log.Logger
+	store           *integrations.Store
+	logger          *log.Logger
+	targetAllowlist []string
 }
 
 // NewIntegrationAPI creates a new integration API handler.
@@ -28,6 +36,17 @@ func NewIntegrationAPI(store *integrations.Store, logger *log.Logger) *Integrati
 	return &IntegrationAPI{store: store, logger: logger}
 }
 
+// WithTargetAllowlist restricts the hosts a proxy integration may target.
+// An empty allowlist (the default) keeps only the scheme and host sanity
+// checks that Integration.Validate already performs.
+func (api *IntegrationAPI) WithTargetAllowlist(hosts []string) *IntegrationAPI {
+	if api == nil {
+		return api
+	}
+	api.targetAllowlist = hosts
+	return api
+}
+
 // Register mounts integration API routes onto the given mux.
 func (api *IntegrationAPI) Register(mux *http.ServeMux) {
 	if mux == nil || api == nil {
@@ -35,6 +54,27 @@ func (api *IntegrationAPI) Register(mux *http.ServeMux) {
 	}
 	mux.HandleFunc("/v1/integrations", api.handleIntegrations)
 	mux.HandleFunc("/v1/integrations/", api.handleIntegrationByName)
+}
+
+// authorizeRead gates the registry listing on the integration.read
+// permission. Targets and usernames are internal, and the registry is global,
+// so sandbox-scoped tokens are denied.
+func (api *IntegrationAPI) authorizeRead(w http.ResponseWriter, r *http.Request) bool {
+	return authorizeStandalone(w, r, permIntegrationRead, true)
+}
+
+// authorizeWrite gates integration creation on the integration.write
+// permission. A new integration can capture traffic from every matching
+// sandbox, so sandbox-scoped tokens are denied outright.
+func (api *IntegrationAPI) authorizeWrite(w http.ResponseWriter, r *http.Request) bool {
+	return authorizeStandalone(w, r, permIntegrationWrite, true)
+}
+
+// authorizeDelete gates integration deletion on the integration.delete
+// permission, a grant above bare integration.write: removing a live name and
+// recreating it redirects every sandbox that resolves that name.
+func (api *IntegrationAPI) authorizeDelete(w http.ResponseWriter, r *http.Request) bool {
+	return authorizeStandalone(w, r, permIntegrationDelete, true)
 }
 
 func (api *IntegrationAPI) handleIntegrations(w http.ResponseWriter, r *http.Request) {
@@ -60,6 +100,9 @@ func (api *IntegrationAPI) handleIntegrationByName(w http.ResponseWriter, r *htt
 }
 
 func (api *IntegrationAPI) handleCreate(w http.ResponseWriter, r *http.Request) {
+	if !api.authorizeWrite(w, r) {
+		return
+	}
 	var req V1IntegrationCreateRequest
 	if err := decodeJSON(w, r, &req); err != nil {
 		writeJSONDecodeError(w, err)
@@ -109,6 +152,14 @@ func (api *IntegrationAPI) handleCreate(w http.ResponseWriter, r *http.Request) 
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
+	// Operator policy on top of Validate: when an allowlist is configured,
+	// a proxy target host must appear in it (review F11).
+	if integ.Target != "" {
+		if err := integrations.ValidateTarget(integ.Target, api.targetAllowlist); err != nil {
+			writeError(w, http.StatusBadRequest, err.Error())
+			return
+		}
+	}
 
 	if err := api.store.Create(r.Context(), integ); err != nil {
 		if err == integrations.ErrDuplicateName {
@@ -127,6 +178,9 @@ func (api *IntegrationAPI) handleCreate(w http.ResponseWriter, r *http.Request) 
 }
 
 func (api *IntegrationAPI) handleList(w http.ResponseWriter, r *http.Request) {
+	if !api.authorizeRead(w, r) {
+		return
+	}
 	integrations, err := api.store.List(r.Context())
 	if err != nil {
 		api.logger.Printf("integration list error: %v", err)
@@ -141,6 +195,9 @@ func (api *IntegrationAPI) handleList(w http.ResponseWriter, r *http.Request) {
 }
 
 func (api *IntegrationAPI) handleGet(w http.ResponseWriter, r *http.Request) {
+	if !api.authorizeRead(w, r) {
+		return
+	}
 	name := strings.TrimPrefix(r.URL.Path, "/v1/integrations/")
 	name = strings.TrimSpace(name)
 	if name == "" {
@@ -161,6 +218,9 @@ func (api *IntegrationAPI) handleGet(w http.ResponseWriter, r *http.Request) {
 }
 
 func (api *IntegrationAPI) handleDelete(w http.ResponseWriter, r *http.Request) {
+	if !api.authorizeDelete(w, r) {
+		return
+	}
 	name := strings.TrimPrefix(r.URL.Path, "/v1/integrations/")
 	name = strings.TrimSpace(name)
 	if name == "" {

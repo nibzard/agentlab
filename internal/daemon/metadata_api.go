@@ -1,6 +1,8 @@
 package daemon
 
 import (
+	"context"
+	"crypto/subtle"
 	"database/sql"
 	"log"
 	"net"
@@ -53,6 +55,52 @@ func NewMetadataAPI(store *db.Store, secretsStore secrets.Store, secretsBundle s
 	}
 }
 
+// sandboxSecretHeader carries the per-sandbox endpoint secret on requests to
+// the metadata and credential-proxy endpoints (review F4).
+const sandboxSecretHeader = "X-AgentLab-Sandbox-Secret"
+
+// verifySandboxSecret reports whether r carries the endpoint secret that
+// bootstrap issued for vmid. Both sides are hashed, and the digests are
+// compared in constant time. A sandbox with no stored secret — one that was
+// bootstrapped before this check existed — never verifies, so tenant identity
+// never rests on the source IP alone.
+func verifySandboxSecret(ctx context.Context, store *db.Store, r *http.Request, vmid int) bool {
+	if store == nil || vmid <= 0 {
+		return false
+	}
+	presented := strings.TrimSpace(r.Header.Get(sandboxSecretHeader))
+	if presented == "" {
+		return false
+	}
+	presentedHash, err := db.HashSandboxSecret(presented)
+	if err != nil {
+		return false
+	}
+	storedHash, err := store.GetSandboxSecretHash(ctx, vmid)
+	if err != nil {
+		// Missing row or store failure: fail closed.
+		return false
+	}
+	return subtle.ConstantTimeCompare([]byte(presentedHash), []byte(storedHash)) == 1
+}
+
+// requireSandboxSecret resolves the caller by source IP and then verifies the
+// endpoint secret. It writes the error response and returns nil when the
+// caller is not a sandbox with a valid secret. The source IP alone selects the
+// candidate row; the secret is what authorizes it (review F4).
+func (api *MetadataAPI) requireSandboxSecret(w http.ResponseWriter, r *http.Request) (*models.Sandbox, bool) {
+	sandbox, err := api.sandboxByRemoteIP(r)
+	if err != nil {
+		writeError(w, http.StatusNotFound, "sandbox not found for source IP")
+		return nil, false
+	}
+	if !verifySandboxSecret(r.Context(), api.store, r, sandbox.VMID) {
+		writeError(w, http.StatusForbidden, "invalid or missing sandbox secret")
+		return nil, false
+	}
+	return sandbox, true
+}
+
 // Register mounts all metadata routes onto the given mux.
 func (api *MetadataAPI) Register(mux *http.ServeMux) {
 	if mux == nil {
@@ -77,6 +125,10 @@ func (api *MetadataAPI) handleIndex(w http.ResponseWriter, r *http.Request) {
 		writeRateLimitExceeded(w)
 		return
 	}
+	sandbox, ok := api.requireSandboxSecret(w, r)
+	if !ok {
+		return
+	}
 	resp := MetadataIndexResponse{
 		Endpoints: []MetadataEndpoint{
 			{Path: "/metadata/identity", Method: http.MethodGet, Description: "Sandbox identity (vmid, name, profile, state)"},
@@ -87,7 +139,7 @@ func (api *MetadataAPI) handleIndex(w http.ResponseWriter, r *http.Request) {
 		},
 	}
 	writeJSON(w, http.StatusOK, resp)
-	api.auditLog(r.RemoteAddr, "/metadata/", r.Method, nil)
+	api.auditLog(r.RemoteAddr, "/metadata/", r.Method, sandbox)
 }
 
 func (api *MetadataAPI) handleIdentity(w http.ResponseWriter, r *http.Request) {
@@ -103,18 +155,17 @@ func (api *MetadataAPI) handleIdentity(w http.ResponseWriter, r *http.Request) {
 		writeRateLimitExceeded(w)
 		return
 	}
-	sandbox, err := api.sandboxByRemoteIP(r)
-	if err != nil {
-		writeError(w, http.StatusNotFound, "sandbox not found for source IP")
+	sandbox, ok := api.requireSandboxSecret(w, r)
+	if !ok {
 		return
 	}
 	resp := MetadataIdentityResponse{
-		VMID:        sandbox.VMID,
-		Name:        sandbox.Name,
-		Profile:     sandbox.Profile,
-		State:       string(sandbox.State),
-		IP:          sandbox.IP,
-		CreatedAt:   sandbox.CreatedAt.Format("2006-01-02T15:04:05Z"),
+		VMID:      sandbox.VMID,
+		Name:      sandbox.Name,
+		Profile:   sandbox.Profile,
+		State:     string(sandbox.State),
+		IP:        sandbox.IP,
+		CreatedAt: sandbox.CreatedAt.Format("2006-01-02T15:04:05Z"),
 	}
 	if sandbox.WorkspaceID != nil {
 		resp.WorkspaceID = *sandbox.WorkspaceID
@@ -136,9 +187,8 @@ func (api *MetadataAPI) handleMetadata(w http.ResponseWriter, r *http.Request) {
 		writeRateLimitExceeded(w)
 		return
 	}
-	sandbox, err := api.sandboxByRemoteIP(r)
-	if err != nil {
-		writeError(w, http.StatusNotFound, "sandbox not found for source IP")
+	sandbox, ok := api.requireSandboxSecret(w, r)
+	if !ok {
 		return
 	}
 	// Load metadata from the secrets bundle associated with this sandbox's profile.
@@ -180,9 +230,8 @@ func (api *MetadataAPI) handleSecrets(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "secret name is required")
 		return
 	}
-	sandbox, err := api.sandboxByRemoteIP(r)
-	if err != nil {
-		writeError(w, http.StatusNotFound, "sandbox not found for source IP")
+	sandbox, ok := api.requireSandboxSecret(w, r)
+	if !ok {
 		return
 	}
 	value, err := api.loadSecret(r, name)
