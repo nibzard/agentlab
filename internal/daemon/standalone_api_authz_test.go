@@ -267,7 +267,11 @@ func TestStandaloneAPIAuthorization(t *testing.T) {
 	})
 
 	t.Run("user and team permissions are per-grant", func(t *testing.T) {
-		keyLine, fingerprint := sshKey(t)
+		// Alice is created with the first key. The keys endpoint then adds
+		// a second, distinct key: the fingerprint column is unique, so
+		// re-adding the creation key would collide.
+		keyLine, _ := sshKey(t)
+		secondKey, fingerprint := sshKey(t)
 
 		// Read grant lists but cannot mutate.
 		if code, _ := doReq(t, userReader, http.MethodGet, "/v1/users", ""); code != http.StatusOK {
@@ -285,7 +289,7 @@ func TestStandaloneAPIAuthorization(t *testing.T) {
 		if code, _ := doReq(t, userWriter, http.MethodPost, "/v1/users", string(createBody)); code != http.StatusCreated {
 			t.Fatalf("user.write POST /v1/users: got %d, want 201", code)
 		}
-		if code, _ := doReq(t, userWriter, http.MethodPost, "/v1/users/alice/keys", `{"key":"`+keyLine+`"}`); code != http.StatusOK {
+		if code, _ := doReq(t, userWriter, http.MethodPost, "/v1/users/alice/keys", `{"key":"`+secondKey+`"}`); code != http.StatusOK {
 			t.Errorf("user.write POST /v1/users/alice/keys: got %d, want 200", code)
 		}
 		// Percent-encode the fingerprint: its base64 form may carry "+" or

@@ -593,11 +593,10 @@ type workspaceFsckResponse struct {
 
 // exposureCreateRequest contains parameters for creating a new exposure.
 type exposureCreateRequest struct {
-	Name     string `json:"name"`
-	VMID     int    `json:"vmid"`
-	Port     int    `json:"port"`
-	Force    bool   `json:"force,omitempty"`
-	TargetIP string `json:"target_ip,omitempty"`
+	Name  string `json:"name"`
+	VMID  int    `json:"vmid"`
+	Port  int    `json:"port"`
+	Force bool   `json:"force,omitempty"`
 }
 
 // exposureResponse represents an exposure returned from the API.
@@ -605,7 +604,6 @@ type exposureResponse struct {
 	Name      string `json:"name"`
 	VMID      int    `json:"vmid"`
 	Port      int    `json:"port"`
-	TargetIP  string `json:"target_ip"`
 	URL       string `json:"url,omitempty"`
 	State     string `json:"state"`
 	CreatedAt string `json:"created_at"`

@@ -55,10 +55,17 @@ bound to the agent subnet and are reachable only by guests. A caller outside the
 subnet gets HTTP 403.
 
 Authority on these listeners does not come from the control token. It comes from
-single-use, short-lived tokens. The bootstrap token is bound to a VMID, hashed
-at rest, consumed on first use, and has a default 10-minute TTL. The artifact
-token is minted per job and governed by `artifact_token_ttl_minutes`. Both
-endpoints are rate-limited per source IP. The full delivery path is explained in
+single-use, short-lived tokens and a per-sandbox secret. The bootstrap token is
+bound to a VMID, hashed at rest, consumed on first use, and has a default
+10-minute TTL. The artifact token is minted per job and governed by
+`artifact_token_ttl_minutes`. Both endpoints are rate-limited per source IP.
+
+Beyond the one-time bootstrap, guest-facing metadata and credential-proxy
+endpoints require the per-sandbox secret header `X-AgentLab-Sandbox-Secret`. The
+daemon issues a 256-bit secret at bootstrap, stores only its SHA-256 hash, and
+validates it in constant time. The source IP selects the candidate sandbox row;
+the secret authorizes it. This prevents a sandbox from spoofing another sandbox's
+address. The full delivery path is explained in
 [Secrets delivery model](secrets-delivery-model.md).
 
 A fifth guest-facing surface is the metadata API at `169.254.169.254`, installed

@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"github.com/agentlab/agentlab/internal/user"
+	"golang.org/x/crypto/ssh"
 )
 
 // UserAPI provides HTTP endpoints for user and team management.
@@ -206,20 +207,28 @@ func (api *UserAPI) addUserKey(w http.ResponseWriter, r *http.Request, userName 
 		return
 	}
 
+	// Parse the SSH public key to extract its real fingerprint.
+	pubKey, comment, _, _, err := ssh.ParseAuthorizedKey([]byte(req.Key))
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "invalid SSH public key: "+err.Error())
+		return
+	}
+	fingerprint := ssh.FingerprintSHA256(pubKey)
+
 	u, err := api.registry.Store().GetUserByName(r.Context(), userName)
 	if err != nil {
 		writeError(w, http.StatusNotFound, "user not found")
 		return
 	}
 
-	err = api.registry.Store().AddSSHKey(r.Context(), u.ID, req.Key, req.Key, "")
+	err = api.registry.Store().AddSSHKey(r.Context(), u.ID, fingerprint, req.Key, comment)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
 
-	_ = api.registry.RecordAction(r.Context(), u.ID, "user.key.add", "user:"+userName, "")
-	writeJSON(w, http.StatusOK, map[string]string{"status": "added"})
+	_ = api.registry.RecordAction(r.Context(), u.ID, "user.key.add", "user:"+userName, "fingerprint="+fingerprint)
+	writeJSON(w, http.StatusOK, map[string]string{"status": "added", "fingerprint": fingerprint})
 }
 
 func (api *UserAPI) removeUserKey(w http.ResponseWriter, r *http.Request, userName string) {

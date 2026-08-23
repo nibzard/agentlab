@@ -220,60 +220,61 @@ func (o *JobOrchestrator) Run(ctx context.Context, jobID string) error {
 	}
 	profile, ok := o.profile(job.Profile)
 	if !ok {
-		return o.failJob(job, 0, fmt.Errorf("unknown profile %q", job.Profile))
+		return o.failJob(job, 0, false, fmt.Errorf("unknown profile %q", job.Profile))
 	}
 	if err := validateProfileForProvisioning(profile); err != nil {
-		return o.failJob(job, 0, err)
+		return o.failJob(job, 0, false, err)
 	}
 	if err := o.backend.ValidateTemplate(ctx, proxmox.VMID(profile.TemplateVM)); err != nil {
-		return o.failJob(job, 0, fmt.Errorf("template validation failed: %w", err))
+		return o.failJob(job, 0, false, fmt.Errorf("template validation failed: %w", err))
 	}
 	if o.sandboxManager == nil {
-		return o.failJob(job, 0, errors.New("sandbox manager unavailable"))
+		return o.failJob(job, 0, false, errors.New("sandbox manager unavailable"))
 	}
 	if o.backend == nil {
-		return o.failJob(job, 0, errors.New("proxmox backend unavailable"))
+		return o.failJob(job, 0, false, errors.New("proxmox backend unavailable"))
 	}
 	if o.sshPublicKey == "" {
-		return o.failJob(job, 0, errors.New("ssh public key unavailable"))
+		return o.failJob(job, 0, false, errors.New("ssh public key unavailable"))
 	}
 	if o.controllerURL == "" {
-		return o.failJob(job, 0, errors.New("controller URL unavailable"))
+		return o.failJob(job, 0, false, errors.New("controller URL unavailable"))
 	}
 
 	sandbox, created, err := o.ensureSandbox(ctx, job)
 	if err != nil {
-		return o.failJob(job, 0, err)
+		return o.failJob(job, 0, false, err)
 	}
 	if created {
 		if _, err := o.store.UpdateJobSandbox(ctx, job.ID, sandbox.VMID); err != nil {
-			return o.failJob(job, sandbox.VMID, err)
+			return o.failJob(job, sandbox.VMID, false, err)
 		}
 	}
 	if jobUsesSessionLease(job.SessionID) {
 		if err := o.store.UpdateSessionCurrentVMID(ctx, *job.SessionID, &sandbox.VMID); err != nil {
-			return o.failJob(job, sandbox.VMID, err)
+			return o.failJob(job, sandbox.VMID, false, err)
 		}
 	}
 
 	if err := o.ensureWorkspaceAvailable(ctx, job, sandbox); err != nil {
-		return o.failJob(job, sandbox.VMID, err)
+		return o.failJob(job, sandbox.VMID, false, err)
 	}
 
 	if err := o.sandboxManager.Transition(ctx, sandbox.VMID, models.SandboxProvisioning); err != nil {
-		return o.failJob(job, sandbox.VMID, err)
+		return o.failJob(job, sandbox.VMID, false, err)
 	}
 
 	if err := o.backend.Clone(ctx, proxmox.VMID(profile.TemplateVM), proxmox.VMID(sandbox.VMID), sandbox.Name); err != nil {
-		return o.failJob(job, sandbox.VMID, err)
+		return o.failJob(job, sandbox.VMID, false, err)
 	}
+	cloned := true
 
 	token, tokenHash, expiresAt, err := o.bootstrapToken()
 	if err != nil {
-		return o.failJob(job, sandbox.VMID, err)
+		return o.failJob(job, sandbox.VMID, cloned, err)
 	}
 	if err := o.store.CreateBootstrapToken(ctx, tokenHash, sandbox.VMID, expiresAt); err != nil {
-		return o.failJob(job, sandbox.VMID, err)
+		return o.failJob(job, sandbox.VMID, cloned, err)
 	}
 
 	snippet, err := o.snippetStore.Create(proxmox.SnippetInput{
@@ -284,7 +285,7 @@ func (o *JobOrchestrator) Run(ctx context.Context, jobID string) error {
 		ControllerURL:  o.controllerURL,
 	})
 	if err != nil {
-		return o.failJob(job, sandbox.VMID, err)
+		return o.failJob(job, sandbox.VMID, cloned, err)
 	}
 	o.rememberSnippet(snippet)
 
@@ -295,29 +296,29 @@ func (o *JobOrchestrator) Run(ctx context.Context, jobID string) error {
 	cfg, err = applyProfileVMConfig(profile, cfg)
 	if err != nil {
 		o.cleanupSnippet(sandbox.VMID)
-		return o.failJob(job, sandbox.VMID, err)
+		return o.failJob(job, sandbox.VMID, cloned, err)
 	}
 	if err := o.backend.Configure(ctx, proxmox.VMID(sandbox.VMID), cfg); err != nil {
 		o.cleanupSnippet(sandbox.VMID)
-		return o.failJob(job, sandbox.VMID, err)
+		return o.failJob(job, sandbox.VMID, cloned, err)
 	}
 
 	if sandbox.WorkspaceID != nil && strings.TrimSpace(*sandbox.WorkspaceID) != "" {
 		if o.workspaceMgr == nil {
 			o.cleanupSnippet(sandbox.VMID)
-			return o.failJob(job, sandbox.VMID, errors.New("workspace manager unavailable"))
+			return o.failJob(job, sandbox.VMID, cloned, errors.New("workspace manager unavailable"))
 		}
 		if _, err := o.workspaceMgr.Attach(ctx, *sandbox.WorkspaceID, sandbox.VMID); err != nil {
 			o.cleanupSnippet(sandbox.VMID)
-			return o.failJob(job, sandbox.VMID, err)
+			return o.failJob(job, sandbox.VMID, cloned, err)
 		}
 	}
 
 	if err := o.sandboxManager.Transition(ctx, sandbox.VMID, models.SandboxBooting); err != nil {
-		return o.failJob(job, sandbox.VMID, err)
+		return o.failJob(job, sandbox.VMID, cloned, err)
 	}
 	if err := o.backend.Start(ctx, proxmox.VMID(sandbox.VMID)); err != nil {
-		return o.failJob(job, sandbox.VMID, err)
+		return o.failJob(job, sandbox.VMID, cloned, err)
 	}
 
 	ipCtx, cancel := context.WithTimeout(ctx, defaultIPLookupTimeout)
@@ -325,7 +326,7 @@ func (o *JobOrchestrator) Run(ctx context.Context, jobID string) error {
 	cancel()
 	if err != nil {
 		if !errors.Is(err, proxmox.ErrGuestIPNotFound) && !errors.Is(err, context.DeadlineExceeded) && !errors.Is(err, context.Canceled) {
-			return o.failJob(job, sandbox.VMID, err)
+			return o.failJob(job, sandbox.VMID, cloned, err)
 		}
 		_ = emitEvent(ctx, NewStoreEventRecorder(o.store), EventKindSandboxIPPending, &sandbox.VMID, &job.ID, "sandbox started but IP not yet discovered", nil)
 	}
@@ -333,7 +334,7 @@ func (o *JobOrchestrator) Run(ctx context.Context, jobID string) error {
 		candidateIP := strings.TrimSpace(ip)
 		resolvedIP, persistErr := o.persistDiscoveredSandboxIP(ctx, sandbox.VMID, candidateIP, &job.ID)
 		if persistErr != nil {
-			return o.failJob(job, sandbox.VMID, persistErr)
+			return o.failJob(job, sandbox.VMID, cloned, persistErr)
 		}
 		ip = resolvedIP
 		if ip == "" && o.logger != nil {
@@ -343,17 +344,17 @@ func (o *JobOrchestrator) Run(ctx context.Context, jobID string) error {
 	o.observeSandboxSSH(sandbox, ip)
 
 	if err := o.sandboxManager.Transition(ctx, sandbox.VMID, models.SandboxReady); err != nil {
-		return o.failJob(job, sandbox.VMID, err)
+		return o.failJob(job, sandbox.VMID, cloned, err)
 	}
 	o.observeSandboxReady(ctx, sandbox)
 	if err := o.sandboxManager.Transition(ctx, sandbox.VMID, models.SandboxRunning); err != nil {
-		return o.failJob(job, sandbox.VMID, err)
+		return o.failJob(job, sandbox.VMID, cloned, err)
 	}
 	jobIDValue := job.ID
 	o.createCleanSnapshot(ctx, sandbox.VMID, &jobIDValue)
 	currentJob, err := o.store.GetJob(ctx, job.ID)
 	if err != nil {
-		return o.failJob(job, sandbox.VMID, err)
+		return o.failJob(job, sandbox.VMID, cloned, err)
 	}
 	switch currentJob.Status {
 	case models.JobCompleted, models.JobFailed, models.JobTimeout:
@@ -364,7 +365,7 @@ func (o *JobOrchestrator) Run(ctx context.Context, jobID string) error {
 		// Another path already marked the job running.
 	default:
 		if err := o.store.UpdateJobStatus(ctx, job.ID, models.JobRunning); err != nil {
-			return o.failJob(job, sandbox.VMID, err)
+			return o.failJob(job, sandbox.VMID, cloned, err)
 		}
 		if o.metrics != nil {
 			o.metrics.IncJobStatus(models.JobRunning)
@@ -714,6 +715,16 @@ func (o *JobOrchestrator) ensureSandbox(ctx context.Context, job models.Job) (mo
 	if err != nil {
 		return models.Sandbox{}, false, err
 	}
+	// Check the auto-allocated VMID against the live Proxmox inventory.
+	// If the VMID is already occupied, reject it before creating the DB row.
+	// This prevents creating a sandbox row for a VMID that cannot be cloned.
+	occupied, occupiedErr := proxmoxVMIDOccupied(ctx, o.backend, vmid)
+	if occupiedErr != nil {
+		return models.Sandbox{}, false, fmt.Errorf("check vmid %d occupancy: %w", vmid, occupiedErr)
+	}
+	if occupied {
+		return models.Sandbox{}, false, fmt.Errorf("vmid %d is already occupied in Proxmox inventory", vmid)
+	}
 	now := o.now().UTC()
 	var leaseExpires time.Time
 	if job.TTLMinutes > 0 {
@@ -733,7 +744,7 @@ func (o *JobOrchestrator) ensureSandbox(ctx context.Context, job models.Job) (mo
 		workspaceID := strings.TrimSpace(*job.WorkspaceID)
 		sandbox.WorkspaceID = &workspaceID
 	}
-	created, err := createSandboxWithRetry(ctx, o.store, sandbox, o.resourcePool, o.profiles)
+	created, err := createSandboxWithRetry(ctx, o.store, sandbox, o.resourcePool, o.profiles, o.backend)
 	if err != nil {
 		return models.Sandbox{}, false, err
 	}
@@ -907,7 +918,7 @@ func (o *JobOrchestrator) releaseWorkspaceLease(ctx context.Context, workspaceID
 	recordWorkspaceLeaseEvent(ctx, o.store, "workspace.lease.released", vmidPtr, jobIDPtr, workspaceID, owner, time.Time{})
 }
 
-func (o *JobOrchestrator) failJob(job models.Job, vmid int, cause error) error {
+func (o *JobOrchestrator) failJob(job models.Job, vmid int, cloned bool, cause error) error {
 	if cause == nil {
 		return nil
 	}
@@ -939,7 +950,10 @@ func (o *JobOrchestrator) failJob(job models.Job, vmid int, cause error) error {
 		owner := workspaceLeaseOwnerForJobOrSession(job.ID, job.SessionID)
 		o.releaseWorkspaceLease(failureCtx, *job.WorkspaceID, owner, job.ID, vmid)
 	}
-	if vmid > 0 && !job.Keepalive && o.sandboxManager != nil {
+	// Only destroy the VM if the clone actually succeeded. A failure before
+	// the clone cannot have created the VM, so destroying would target an
+	// unrelated VM that happens to occupy the same VMID.
+	if vmid > 0 && cloned && !job.Keepalive && o.sandboxManager != nil {
 		_ = o.sandboxManager.Destroy(failureCtx, vmid)
 		o.cleanupSnippet(vmid)
 	}

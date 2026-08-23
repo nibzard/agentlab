@@ -536,7 +536,7 @@ func newService(cfg config.Config, profiles map[string]models.Profile, store *db
 	bootstrapLimiter := NewIPRateLimiter(cfg.BootstrapRateLimitQPS, cfg.BootstrapRateLimitBurst)
 	artifactLimiter := NewIPRateLimiter(cfg.ArtifactRateLimitQPS, cfg.ArtifactRateLimitBurst)
 	NewBootstrapAPI(store, profiles, secretsStore, cfg.SecretsBundle, agentSubnet, artifactEndpoint, time.Duration(cfg.ArtifactTokenTTLMinutes)*time.Minute, redactor, bootstrapLimiter).Register(bootstrapMux)
-	NewRunnerAPI(jobOrchestrator, agentSubnet).Register(bootstrapMux)
+	NewRunnerAPI(jobOrchestrator, store, agentSubnet).Register(bootstrapMux)
 	NewMetadataAPI(store, secretsStore, cfg.SecretsBundle, agentSubnet, bootstrapLimiter, log.Default()).Register(bootstrapMux)
 
 	// Register integration proxy routes on bootstrap mux so sandboxes can

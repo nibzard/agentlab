@@ -15,7 +15,6 @@ func TestCLIExposureCommands(t *testing.T) {
 		Name:      exposureName(9001, 8080),
 		VMID:      9001,
 		Port:      8080,
-		TargetIP:  "10.77.0.10",
 		URL:       "tcp://tailnet.example:8080",
 		State:     "serving",
 		CreatedAt: "2026-02-08T20:30:00Z",

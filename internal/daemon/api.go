@@ -2245,7 +2245,7 @@ func (api *ControlAPI) handleSandboxCreate(w http.ResponseWriter, r *http.Reques
 		// (successfully created) VMID and rolls back on every failure path,
 		// including VMID collisions (review H3).
 		var err error
-		createdSandbox, err = createSandboxWithRetry(ctx, api.store, sandbox, api.resourcePool, api.profiles)
+		createdSandbox, err = createSandboxWithRetry(ctx, api.store, sandbox, api.resourcePool, api.profiles, api.backend)
 		if err != nil {
 			writeError(w, http.StatusInternalServerError, "failed to create sandbox")
 			return

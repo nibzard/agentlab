@@ -4183,7 +4183,6 @@ func printExposure(exposure exposureResponse) {
 	fmt.Printf("Name: %s\n", exposure.Name)
 	fmt.Printf("VMID: %d\n", exposure.VMID)
 	fmt.Printf("Port: %d\n", exposure.Port)
-	fmt.Printf("Target IP: %s\n", orDash(exposure.TargetIP))
 	fmt.Printf("URL: %s\n", orDash(exposure.URL))
 	fmt.Printf("State: %s\n", orDash(exposure.State))
 	fmt.Printf("Created At: %s\n", orDash(exposure.CreatedAt))
@@ -4192,13 +4191,12 @@ func printExposure(exposure exposureResponse) {
 
 func printExposureList(exposures []exposureResponse) {
 	w := tabwriter.NewWriter(os.Stdout, 2, 8, 2, ' ', 0)
-	fmt.Fprintln(w, "NAME\tVMID\tPORT\tTARGET\tURL\tSTATE\tUPDATED")
+	fmt.Fprintln(w, "NAME\tVMID\tPORT\tURL\tSTATE\tUPDATED")
 	for _, exposure := range exposures {
-		fmt.Fprintf(w, "%s\t%d\t%d\t%s\t%s\t%s\t%s\n",
+		fmt.Fprintf(w, "%s\t%d\t%d\t%s\t%s\t%s\n",
 			orDash(exposure.Name),
 			exposure.VMID,
 			exposure.Port,
-			orDash(exposure.TargetIP),
 			orDash(exposure.URL),
 			orDash(exposure.State),
 			orDash(exposure.UpdatedAt),

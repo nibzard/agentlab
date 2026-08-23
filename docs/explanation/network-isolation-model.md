@@ -80,15 +80,16 @@ accept a source address as proof of identity.
 - Every bootstrap fetch issues a fresh 256-bit secret for that sandbox. The
   bootstrap response delivers the secret once, and the daemon keeps only its
   SHA-256 hash.
-- Every request to `/metadata/*` and `/proxy/{name}` must carry the secret in
-  the `X-AgentLab-Sandbox-Secret` header. The daemon hashes the presented
-  value and compares the two digests in constant time.
+- Every request to `/metadata/*`, `/proxy/{name}`, and `/v1/runner/*` must
+  carry the secret in the `X-AgentLab-Sandbox-Secret` header. The daemon hashes
+  the presented value and compares the two digests in constant time.
 - The source IP still selects which sandbox row a request maps to. The secret
   decides whether that mapping is trusted.
 
 The guest runner stores the secret at `/run/agentlab/secrets/sandbox-secret`
 with mode `0600`. The `agentlab-guest` helper reads that file and sends the
-header on the caller's behalf.
+header on the caller's behalf. Sandbox images that reach daemon services
+directly, such as the LLM proxy, inject the header the same way.
 
 A sandbox with no stored secret is rejected, not excused. A sandbox that was
 running before the daemon upgrade therefore loses metadata and proxy access

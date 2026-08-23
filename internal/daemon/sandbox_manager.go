@@ -846,6 +846,11 @@ func (m *SandboxManager) Destroy(ctx context.Context, vmid int) (err error) {
 		m.snippetFn(vmid)
 	}
 	m.cleanupExposures(ctx, vmid)
+	// Delete the sandbox secret. Best-effort: a failure here should not
+	// undo the destroy operation.
+	if secretErr := m.store.DeleteSandboxSecret(ctx, vmid); secretErr != nil && m.logger != nil {
+		m.logger.Printf("delete sandbox %d secret: %v", vmid, secretErr)
+	}
 	return nil
 }
 
@@ -897,6 +902,11 @@ func (m *SandboxManager) expireSandbox(ctx context.Context, sandbox models.Sandb
 		m.snippetFn(sandbox.VMID)
 	}
 	m.cleanupExposures(ctx, sandbox.VMID)
+	// Delete the sandbox secret. Best-effort: a failure here should not
+	// undo the destroy operation.
+	if secretErr := m.store.DeleteSandboxSecret(ctx, sandbox.VMID); secretErr != nil && m.logger != nil {
+		m.logger.Printf("delete sandbox %d secret: %v", sandbox.VMID, secretErr)
+	}
 	return nil
 }
 
@@ -995,6 +1005,11 @@ func (m *SandboxManager) ForceDestroy(ctx context.Context, vmid int) (err error)
 		m.snippetFn(vmid)
 	}
 	m.cleanupExposures(ctx, vmid)
+	// Delete the sandbox secret. Best-effort: a failure here should not
+	// undo the destroy operation.
+	if secretErr := m.store.DeleteSandboxSecret(ctx, vmid); secretErr != nil && m.logger != nil {
+		m.logger.Printf("delete sandbox %d secret: %v", vmid, secretErr)
+	}
 	return nil
 }
 
@@ -1032,6 +1047,11 @@ func (m *SandboxManager) PruneOrphans(ctx context.Context) (int, error) {
 				continue
 			}
 			m.cleanupExposures(ctx, sb.VMID)
+			// Delete the sandbox secret. Best-effort: a failure here should not
+			// undo the destroy operation.
+			if secretErr := m.store.DeleteSandboxSecret(ctx, sb.VMID); secretErr != nil && m.logger != nil {
+				m.logger.Printf("delete sandbox %d secret: %v", sb.VMID, secretErr)
+			}
 			count++
 		}
 	}
@@ -1053,9 +1073,10 @@ var startupOrphanStates = map[models.SandboxState]bool{
 //   - its state is a transient provisioning state (REQUESTED/PROVISIONING/BOOTING)
 //   - it is older than the grace period (so legitimate in-flight work is not
 //     disturbed)
-//   - ownership proof: no live VM exists for its VMID in the backend (the clone
-//     never completed, or was destroyed out-of-band). A VM that exists and is
-//     running is left for the reconciler to advance toward READY.
+//   - ownership proof: no VM exists for its VMID in the backend (the clone
+//     never completed, or was destroyed out-of-band). A VM that still exists,
+//     running or stopped, may belong to a later allocation or an untracked
+//     workload, so the sweep leaves it for the reconciler.
 //
 // Reclaimed sandboxes are destroyed (best effort) and marked DESTROYED.
 //
@@ -1080,11 +1101,12 @@ func (m *SandboxManager) SweepStartupOrphans(ctx context.Context, grace time.Dur
 		if age < grace {
 			continue
 		}
-		// Ownership proof: a live VM means provisioning succeeded and the
-		// reconciler can adopt it. Skip those.
+		// Ownership proof: only a VMID with no backend VM is reclaimed.
+		// Destroying by VMID alone could hit an unrelated VM that took
+		// the ID after a failed clone.
 		if m.backend != nil {
 			status, err := m.backend.Status(ctx, proxmox.VMID(sb.VMID))
-			if err == nil && status == proxmox.StatusRunning {
+			if err == nil && status != proxmox.StatusUnknown {
 				continue
 			}
 		}
@@ -1100,6 +1122,11 @@ func (m *SandboxManager) SweepStartupOrphans(ctx context.Context, grace time.Dur
 			continue
 		}
 		m.cleanupExposures(ctx, sb.VMID)
+		// Delete the sandbox secret. Best-effort: a failure here should not
+		// undo the destroy operation.
+		if secretErr := m.store.DeleteSandboxSecret(ctx, sb.VMID); secretErr != nil && m.logger != nil {
+			m.logger.Printf("delete sandbox %d secret: %v", sb.VMID, secretErr)
+		}
 		count++
 	}
 	return count, nil

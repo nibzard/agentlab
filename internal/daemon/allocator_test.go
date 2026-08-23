@@ -43,7 +43,7 @@ func TestCreateSandboxWithRetry_CommitsFinalVMID(t *testing.T) {
 		VMID: 1001, Name: "sandbox-1001", Profile: "small",
 		State: models.SandboxRequested, CreatedAt: time.Now(), LastUpdatedAt: time.Now(),
 	}
-	created, err := createSandboxWithRetry(context.Background(), store, sb, p, profiles)
+	created, err := createSandboxWithRetry(context.Background(), store, sb, p, profiles, nil)
 	if err != nil {
 		t.Fatalf("create: %v", err)
 	}
@@ -76,7 +76,7 @@ func TestCreateSandboxWithRetry_RollbackOnReserveFailure(t *testing.T) {
 		VMID: 2001, Name: "sandbox-2001", Profile: "big", // needs 4 cores > 2 limit
 		State: models.SandboxRequested, CreatedAt: time.Now(), LastUpdatedAt: time.Now(),
 	}
-	_, err := createSandboxWithRetry(context.Background(), store, sb, p, profiles)
+	_, err := createSandboxWithRetry(context.Background(), store, sb, p, profiles, nil)
 	if err == nil {
 		t.Fatal("expected allocation failure, got nil")
 	}

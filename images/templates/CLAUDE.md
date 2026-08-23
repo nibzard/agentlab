@@ -16,6 +16,10 @@ The following environment variables are pre-configured:
 - `CLAUDE_API_BASE_URL` → `http://169.254.169.254/proxy/llm/v1`
 - `ANTHROPIC_BASE_URL` → `http://169.254.169.254/proxy/llm`
 
+The proxy requires the per-sandbox secret in the `X-AgentLab-Sandbox-Secret` header.
+The `agent-claude` image entrypoint reads `/run/agentlab/secrets/sandbox-secret`
+(written by the guest runner at bootstrap) and injects it via `ANTHROPIC_CUSTOM_HEADERS`.
+
 ## Git Access
 
 Git operations against GitHub/GitLab are automatically proxied through the daemon.

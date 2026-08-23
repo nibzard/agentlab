@@ -6,17 +6,19 @@ import (
 	"net/http"
 	"strings"
 
+	"github.com/agentlab/agentlab/internal/db"
 	"github.com/agentlab/agentlab/internal/models"
 )
 
 // RunnerAPI handles guest runner status reports.
 type RunnerAPI struct {
 	orchestrator *JobOrchestrator
+	store        *db.Store
 	agentSubnet  *net.IPNet
 }
 
-func NewRunnerAPI(orchestrator *JobOrchestrator, agentSubnet *net.IPNet) *RunnerAPI {
-	return &RunnerAPI{orchestrator: orchestrator, agentSubnet: agentSubnet}
+func NewRunnerAPI(orchestrator *JobOrchestrator, store *db.Store, agentSubnet *net.IPNet) *RunnerAPI {
+	return &RunnerAPI{orchestrator: orchestrator, store: store, agentSubnet: agentSubnet}
 }
 
 func (api *RunnerAPI) Register(mux *http.ServeMux) {
@@ -40,6 +42,16 @@ func (api *RunnerAPI) handleRunnerReport(w http.ResponseWriter, r *http.Request)
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
+	if req.VMID <= 0 {
+		writeError(w, http.StatusBadRequest, "vmid must be positive")
+		return
+	}
+	// Require the sandbox secret for the VMID in the report.
+	// Source IP alone is insufficient (review F4, T39).
+	if !verifySandboxSecret(r.Context(), api.store, r, req.VMID) {
+		writeError(w, http.StatusForbidden, "invalid or missing sandbox secret")
+		return
+	}
 	status, err := parseJobStatus(req.Status)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
@@ -59,10 +71,6 @@ func (api *RunnerAPI) handleRunnerReport(w http.ResponseWriter, r *http.Request)
 	}
 	if report.JobID == "" {
 		writeError(w, http.StatusBadRequest, "job_id is required")
-		return
-	}
-	if report.VMID <= 0 {
-		writeError(w, http.StatusBadRequest, "vmid must be positive")
 		return
 	}
 	if err := api.orchestrator.HandleReport(r.Context(), report); err != nil {

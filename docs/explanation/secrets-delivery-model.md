@@ -52,6 +52,25 @@ characters, replacing each occurrence with `[REDACTED]` in streamed logs. The
 Secrets API and CLI output redact by default, and a Redactor scrubs staged
 secrets from daemon logs.
 
+## Per-sandbox endpoint secret
+
+The bootstrap fetch issues a 256-bit secret unique to each sandbox. The daemon
+stores only the SHA-256 hash in the `sandbox_secrets` table. Every request to
+`/metadata/*` and `/proxy/{name}` must carry this secret in the
+`X-AgentLab-Sandbox-Secret` header. The daemon validates it in constant time
+and rejects missing or invalid values with HTTP 403.
+
+The source IP still selects which sandbox row a request maps to. The secret is
+what authorizes that mapping. This prevents a sandbox from spoofing another
+sandbox's address to borrow its metadata or credential proxies.
+
+The guest stores the secret at `/run/agentlab/secrets/sandbox-secret` with mode
+`0600`. Sandbox images that reach daemon services, such as the LLM proxy at
+`/proxy/llm`, read that file and inject the header automatically.
+
+For the full isolation model that this secret complements, see
+[Network isolation model](network-isolation-model.md).
+
 ## Per-job artifact tokens
 
 Artifact upload uses a separate credential path. At bootstrap the daemon mints a

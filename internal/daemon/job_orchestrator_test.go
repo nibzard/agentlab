@@ -3,6 +3,7 @@ package daemon
 import (
 	"bytes"
 	"context"
+	"errors"
 	"io"
 	"log"
 	"path/filepath"
@@ -10,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/agentlab/agentlab/internal/db"
 	"github.com/agentlab/agentlab/internal/models"
 	"github.com/agentlab/agentlab/internal/proxmox"
 	"github.com/stretchr/testify/require"
@@ -26,6 +28,8 @@ type orchestratorBackend struct {
 	blockConfigure bool
 	blockStart     bool
 	startHook      func()
+	occupiedVMIDs  map[int]bool // VMIDs that are reported as occupied in ListVMs
+	cloneErr       error        // returned by Clone to model a failed clone
 }
 
 type snapshotCall struct {
@@ -35,6 +39,9 @@ type snapshotCall struct {
 
 func (b *orchestratorBackend) Clone(ctx context.Context, _ proxmox.VMID, target proxmox.VMID, _ string) error {
 	b.cloneCalls = append(b.cloneCalls, target)
+	if b.cloneErr != nil {
+		return b.cloneErr
+	}
 	if b.blockClone {
 		<-ctx.Done()
 		return ctx.Err()
@@ -102,7 +109,14 @@ func (b *orchestratorBackend) Status(context.Context, proxmox.VMID) (proxmox.Sta
 }
 
 func (b *orchestratorBackend) ListVMs(context.Context) ([]proxmox.VMSummary, error) {
-	return nil, nil
+	if b.occupiedVMIDs == nil || len(b.occupiedVMIDs) == 0 {
+		return nil, nil
+	}
+	var vms []proxmox.VMSummary
+	for vmid := range b.occupiedVMIDs {
+		vms = append(vms, proxmox.VMSummary{VMID: proxmox.VMID(vmid)})
+	}
+	return vms, nil
 }
 
 func (b *orchestratorBackend) CurrentStats(context.Context, proxmox.VMID) (proxmox.VMStats, error) {
@@ -1100,4 +1114,145 @@ func TestActiveSandboxWithIPIgnoresInactiveStates(t *testing.T) {
 	conflictVMID, err = orchestrator.activeSandboxWithIP(ctx, 1599, "10.77.0.92")
 	require.NoError(t, err)
 	require.Equal(t, 1506, conflictVMID)
+}
+
+// TestJobOrchestrator_PreCloneFailureDoesNotDestroy verifies that a failure
+// before the VM clone succeeds does not call Destroy, preventing destruction
+// of an unrelated VM that happens to occupy the VMID.
+func TestJobOrchestrator_PreCloneFailureDoesNotDestroy(t *testing.T) {
+	ctx := context.Background()
+	store := newTestStore(t)
+	backend := &orchestratorBackend{guestIP: "10.77.0.93", cloneErr: errors.New("clone failed")}
+	manager := NewSandboxManager(store, backend, log.New(io.Discard, "", 0))
+	profiles := map[string]models.Profile{
+		"yolo": {Name: "yolo", TemplateVM: 9000},
+	}
+	snippetDir := t.TempDir()
+	snippetStore := proxmox.SnippetStore{Storage: "local", Dir: snippetDir}
+	orchestrator := NewJobOrchestrator(store, profiles, backend, manager, nil, snippetStore, "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIBtestkey agent@test", "http://10.77.0.1:8844", log.New(io.Discard, "", 0), nil, nil)
+	orchestrator.rand = bytes.NewReader(bytes.Repeat([]byte{0x01}, 64))
+	now := time.Date(2026, 8, 14, 12, 0, 0, 0, time.UTC)
+	orchestrator.now = func() time.Time { return now }
+
+	job := models.Job{
+		ID:        "job_pre_clone_fail",
+		RepoURL:   "https://example.com/repo.git",
+		Ref:       "main",
+		Profile:   "yolo",
+		Task:      "run tests",
+		Status:    models.JobQueued,
+		CreatedAt: now,
+		UpdatedAt: now,
+	}
+	if err := store.CreateJob(ctx, job); err != nil {
+		t.Fatalf("create job: %v", err)
+	}
+
+	// Run should fail due to blocked clone
+	err := orchestrator.Run(ctx, job.ID)
+	require.Error(t, err, "expected failure from blocked clone")
+
+	// Verify that Destroy was NOT called (no backend.Destroy in failure path before clone)
+	require.Empty(t, backend.destroyCalls, "destroy should not be called for pre-clone failures")
+
+	// Verify the job failed
+	updatedJob, err := store.GetJob(ctx, job.ID)
+	require.NoError(t, err)
+	require.Equal(t, models.JobFailed, updatedJob.Status, "job should be marked as failed")
+}
+
+// TestProxmoxVMIDOccupied verifies the inventory check for auto-allocated VMIDs.
+func TestProxmoxVMIDOccupied(t *testing.T) {
+	ctx := context.Background()
+
+	// Test with nil backend
+	occupied, err := proxmoxVMIDOccupied(ctx, nil, 1005)
+	require.NoError(t, err)
+	require.False(t, occupied, "nil backend should report not occupied")
+
+	// Test with backend that has no occupied VMs
+	emptyBackend := &orchestratorBackend{}
+	occupied, err = proxmoxVMIDOccupied(ctx, emptyBackend, 1005)
+	require.NoError(t, err)
+	require.False(t, occupied, "backend with no VMs should report not occupied")
+
+	// Test with backend that has an occupied VMID
+	occupiedBackend := &orchestratorBackend{
+		occupiedVMIDs: map[int]bool{1005: true},
+	}
+	occupied, err = proxmoxVMIDOccupied(ctx, occupiedBackend, 1005)
+	require.NoError(t, err)
+	require.True(t, occupied, "backend should report VMID 1005 as occupied")
+
+	// Test with backend that has a different VMID occupied
+	occupied, err = proxmoxVMIDOccupied(ctx, occupiedBackend, 1006)
+	require.NoError(t, err)
+	require.False(t, occupied, "backend should report VMID 1006 as not occupied")
+}
+
+// TestSandboxDestroy_DoesNotDestroyUntrackedVM verifies that destroy gracefully
+// handles a VMID that has no corresponding Proxmox VM (ErrVMNotFound case).
+func TestSandboxDestroy_DoesNotDestroyUntrackedVM(t *testing.T) {
+	ctx := context.Background()
+	store := newTestStore(t)
+	backend := &orchestratorBackend{guestIP: "10.77.0.94"}
+	manager := NewSandboxManager(store, backend, log.New(io.Discard, "", 0))
+	now := time.Date(2026, 8, 14, 12, 30, 0, 0, time.UTC)
+
+	sandbox := models.Sandbox{
+		VMID:          2001,
+		Name:          "sandbox-2001",
+		Profile:       "default",
+		State:         models.SandboxStopped,
+		CreatedAt:     now,
+		LastUpdatedAt: now,
+	}
+	require.NoError(t, store.CreateSandbox(ctx, sandbox))
+
+	// Destroy should succeed even if the VM doesn't exist in Proxmox
+	// (backend.Destroy returns ErrVMNotFound which is handled gracefully)
+	err := manager.Destroy(ctx, sandbox.VMID)
+	require.NoError(t, err, "destroy should succeed even when VM not found in Proxmox")
+
+	// Verify sandbox is marked destroyed
+	updated, err := store.GetSandbox(ctx, sandbox.VMID)
+	require.NoError(t, err)
+	require.Equal(t, models.SandboxDestroyed, updated.State)
+}
+
+// TestSandboxDestroy_RemovesSandboxSecret verifies that destroy calls
+// DeleteSandboxSecret to clean up the secret row.
+func TestSandboxDestroy_RemovesSandboxSecret(t *testing.T) {
+	ctx := context.Background()
+	store := newTestStore(t)
+	backend := &orchestratorBackend{guestIP: "10.77.0.95"}
+	manager := NewSandboxManager(store, backend, log.New(io.Discard, "", 0))
+	now := time.Date(2026, 8, 14, 12, 45, 0, 0, time.UTC)
+
+	sandbox := models.Sandbox{
+		VMID:          2002,
+		Name:          "sandbox-2002",
+		Profile:       "default",
+		State:         models.SandboxStopped,
+		CreatedAt:     now,
+		LastUpdatedAt: now,
+	}
+	require.NoError(t, store.CreateSandbox(ctx, sandbox))
+
+	// Create a sandbox secret
+	secretHash, err := db.HashSandboxSecret("test-secret-2002")
+	require.NoError(t, err)
+	require.NoError(t, store.UpsertSandboxSecret(ctx, sandbox.VMID, secretHash))
+
+	// Verify secret exists
+	_, err = store.GetSandboxSecretHash(ctx, sandbox.VMID)
+	require.NoError(t, err, "secret should exist before destroy")
+
+	// Destroy the sandbox
+	err = manager.Destroy(ctx, sandbox.VMID)
+	require.NoError(t, err)
+
+	// Verify secret was removed
+	_, err = store.GetSandboxSecretHash(ctx, sandbox.VMID)
+	require.Error(t, err, "secret should be removed after destroy")
 }

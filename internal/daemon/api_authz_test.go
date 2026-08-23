@@ -4,10 +4,12 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"log"
 	"net/http"
 	"net/http/httptest"
+	"reflect"
 	"strconv"
 	"testing"
 	"time"
@@ -691,4 +693,223 @@ func containsInt(xs []int, v int) bool {
 		}
 	}
 	return false
+}
+
+// registeredPatterns returns the set of patterns registered on mux.
+//
+// net/http ships no public API that enumerates a ServeMux, so this reads
+// the internal pattern index with reflection. If a Go release changes those
+// internals, extraction yields too little and the caller's tripwire fails
+// the test. The guard must never degrade into a silent pass.
+func registeredPatterns(t *testing.T, mux *http.ServeMux) map[string]bool {
+	t.Helper()
+	patterns := make(map[string]bool)
+
+	v := reflect.ValueOf(mux).Elem()
+	indexField := v.FieldByName("index")
+	if !indexField.IsValid() {
+		return patterns
+	}
+
+	collect := func(patternValue reflect.Value) {
+		if patternValue.Kind() == reflect.Pointer {
+			if patternValue.IsNil() {
+				return
+			}
+			patternValue = patternValue.Elem()
+		}
+		strField := patternValue.FieldByName("str")
+		if strField.IsValid() && strField.Kind() == reflect.String && strField.String() != "" {
+			patterns[strField.String()] = true
+		}
+	}
+
+	// Exact-path patterns live in the index's segments map.
+	if segmentsField := indexField.FieldByName("segments"); segmentsField.IsValid() && segmentsField.Kind() == reflect.Map {
+		for _, key := range segmentsField.MapKeys() {
+			values := segmentsField.MapIndex(key)
+			if !values.IsValid() || values.Kind() != reflect.Slice {
+				continue
+			}
+			for i := 0; i < values.Len(); i++ {
+				collect(values.Index(i))
+			}
+		}
+	}
+	// Patterns with wildcards or method prefixes live in the multis slice.
+	if multisField := indexField.FieldByName("multis"); multisField.IsValid() && multisField.Kind() == reflect.Slice {
+		for i := 0; i < multisField.Len(); i++ {
+			collect(multisField.Index(i))
+		}
+	}
+	return patterns
+}
+
+// TestAuthzRouteCoverage mechanically compares the daemon mux registration
+// set against the authorization test matrix (review T41c). A route added to
+// the daemon without a matrix entry, or a matrix entry without a registered
+// route, fails the test. This is the enforcement that prevents routes from
+// escaping authz review.
+func TestAuthzRouteCoverage(t *testing.T) {
+	plane := newAuthzPlane(t)
+
+	type routeKey struct {
+		method  string
+		pattern string
+	}
+	patternSet := registeredPatterns(t, plane.mux)
+	// Tripwire: prove extraction worked before trusting it. A vacuous set
+	// would make direction 1 below pass silently, which is the one failure
+	// mode this guard must not have.
+	if len(patternSet) < 30 || !patternSet["/v1/jobs"] || !patternSet["/v1/secrets"] {
+		t.Fatalf("registeredPatterns extracted %d patterns; the ServeMux internals changed and this guard needs updating for the current Go version", len(patternSet))
+	}
+	// The daemon registers patterns without method prefixes, so every
+	// pattern serves every method. Route keys therefore use the wildcard
+	// method, which the matching below lets pair with any matrix method.
+	muxRoutes := make(map[routeKey]bool)
+	for pattern := range patternSet {
+		muxRoutes[routeKey{method: "*", pattern: pattern}] = true
+	}
+
+	// Build the authorization matrix pattern set. Each matrix entry exercises
+	// a specific mux pattern with a specific method. The pattern is hand-written
+	// to map concrete test paths (e.g., "/v1/sandboxes/1001") to their mux
+	// registration pattern (e.g., "/v1/sandboxes/").
+	//
+	// If you add a route to the daemon, add its pattern here. If you remove a
+	// route, remove its entry. The guard fires on asymmetry.
+	type matrixEntry struct {
+		method  string
+		pattern string // mux pattern this exercises
+		path    string // concrete path used in the test
+	}
+	matrixEntries := []matrixEntry{
+		// ControlAPI routes
+		{"POST", "/v1/jobs", "/v1/jobs"},
+		{"GET", "/v1/jobs/", "/v1/jobs/job-1001"},
+		{"POST", "/v1/jobs/validate-plan", "/v1/jobs/validate-plan"},
+		{"GET", "/v1/profiles", "/v1/profiles"},
+		{"GET", "/v1/schema", "/v1/schema"},
+		{"GET", "/v1/status", "/v1/status"},
+		{"GET", "/v1/host", "/v1/host"},
+		{"POST", "/v1/messages", "/v1/messages"},
+		{"GET", "/v1/messages", "/v1/messages?scope_type=workspace&scope_id=ws-1001"},
+		{"POST", "/v1/sandboxes", "/v1/sandboxes"},
+		{"GET", "/v1/sandboxes/", "/v1/sandboxes/1001"},
+		{"POST", "/v1/sandboxes/", "/v1/sandboxes/1001/destroy"},
+		{"GET", "/v1/sandboxes/inventory", "/v1/sandboxes/inventory"},
+		{"POST", "/v1/sandboxes/validate-plan", "/v1/sandboxes/validate-plan"},
+		{"POST", "/v1/sandboxes/reconcile", "/v1/sandboxes/reconcile"},
+		{"POST", "/v1/sandboxes/stop_all", "/v1/sandboxes/stop_all"},
+		{"POST", "/v1/sandboxes/prune", "/v1/sandboxes/prune"},
+		{"GET", "/v1/workspaces", "/v1/workspaces"},
+		{"POST", "/v1/workspaces", "/v1/workspaces"},
+		{"GET", "/v1/workspaces/", "/v1/workspaces/ws-1001"},
+		{"POST", "/v1/workspaces/", "/v1/workspaces/ws-1001/attach"},
+		{"GET", "/v1/sessions", "/v1/sessions"},
+		{"POST", "/v1/sessions", "/v1/sessions"},
+		{"GET", "/v1/sessions/", "/v1/sessions/sess-1001"},
+		{"GET", "/v1/exposures", "/v1/exposures"},
+		{"POST", "/v1/exposures", "/v1/exposures"},
+		{"DELETE", "/v1/exposures/", "/v1/exposures/exp-1001"},
+		// Standalone APIs
+		{"GET", "/v1/secrets", "/v1/secrets"},
+		{"PUT", "/v1/secrets/env", "/v1/secrets/env"},
+		{"DELETE", "/v1/secrets/env/", "/v1/secrets/env/KEY"},
+		{"PUT", "/v1/secrets/git", "/v1/secrets/git"},
+		{"PUT", "/v1/secrets/tailscale", "/v1/secrets/tailscale"},
+		{"DELETE", "/v1/secrets/tailscale", "/v1/secrets/tailscale"},
+		{"POST", "/v1/secrets/ssh-keys", "/v1/secrets/ssh-keys"},
+		{"DELETE", "/v1/secrets/ssh-keys/", "/v1/secrets/ssh-keys/k"},
+		{"GET", "/v1/integrations", "/v1/integrations"},
+		{"POST", "/v1/integrations", "/v1/integrations"},
+		{"GET", "/v1/integrations/", "/v1/integrations/github"},
+		{"DELETE", "/v1/integrations/", "/v1/integrations/github"},
+		{"GET", "/v1/users", "/v1/users"},
+		{"POST", "/v1/users", "/v1/users"},
+		{"GET", "/v1/users/", "/v1/users/alice"},
+		{"DELETE", "/v1/users/", "/v1/users/alice"},
+		{"POST", "/v1/users/", "/v1/users/alice/keys"},
+		{"DELETE", "/v1/users/", "/v1/users/alice/keys"},
+		{"GET", "/v1/teams", "/v1/teams"},
+		{"POST", "/v1/teams", "/v1/teams"},
+		{"DELETE", "/v1/teams/", "/v1/teams/team-a"},
+		{"GET", "/v1/teams/", "/v1/teams/team-a/members"},
+		{"POST", "/v1/teams/", "/v1/teams/team-a/members"},
+		{"DELETE", "/v1/teams/", "/v1/teams/team-a/members/alice"},
+		{"GET", "/v1/pool/status", "/v1/pool/status"},
+		{"POST", "/v1/exec", "/v1/exec"},
+		{"POST", "/v1/exec/dry-run", "/v1/exec/dry-run"},
+	}
+
+	// Exempted routes: registered on the mux but intentionally outside authz.
+	// The health endpoint requires no authentication.
+	exemptedPatterns := map[string]bool{
+		"/healthz": true,
+	}
+
+	// Build the matrix pattern set for lookup.
+	matrixPatterns := make(map[routeKey]string) // key → concrete path for debugging
+	for _, entry := range matrixEntries {
+		key := routeKey{method: entry.method, pattern: entry.pattern}
+		matrixPatterns[key] = entry.path
+	}
+
+	// Direction 1: every mux route must appear in the matrix (unless exempted).
+	// This catches NEW routes added to the daemon without matrix entries.
+	var missingFromMatrix []string
+	for muxKey := range muxRoutes {
+		// Skip exempted patterns
+		if exemptedPatterns[muxKey.pattern] {
+			continue
+		}
+
+		// Check if this mux route has a corresponding matrix entry.
+		// HandleFunc routes have method "*" and should match any specific method
+		// in the matrix for the same pattern.
+		found := false
+		for matrixKey := range matrixPatterns {
+			if muxKey.pattern == matrixKey.pattern {
+				if muxKey.method == "*" || muxKey.method == matrixKey.method {
+					found = true
+					break
+				}
+			}
+		}
+		if !found {
+			missingFromMatrix = append(missingFromMatrix, fmt.Sprintf("%s %s", muxKey.method, muxKey.pattern))
+		}
+	}
+	if len(missingFromMatrix) > 0 {
+		t.Errorf("mux routes missing from authz matrix:\n  %v", missingFromMatrix)
+		t.Errorf("Every route registered on the daemon mux must have a matrix entry.")
+		t.Errorf("Add the missing patterns to matrixEntries in TestAuthzRouteCoverage.")
+		t.Errorf("Then add the route to the zero-permission test in TestControlAPI_Authorization.")
+	}
+
+	// Direction 2: every matrix pattern must exist in the mux (stale entries).
+	var missingFromMux []string
+	for key := range matrixPatterns {
+		// Check if this matrix entry exists in the mux routes.
+		// A matrix entry with specific method should match either a mux route
+		// with that specific method, or a wildcard method.
+		found := false
+		for muxKey := range muxRoutes {
+			if key.pattern == muxKey.pattern {
+				if muxKey.method == "*" || muxKey.method == key.method {
+					found = true
+					break
+				}
+			}
+		}
+		if !found {
+			missingFromMux = append(missingFromMux, fmt.Sprintf("%s %s (test path: %s)", key.method, key.pattern, matrixPatterns[key]))
+		}
+	}
+	if len(missingFromMux) > 0 {
+		t.Errorf("matrix patterns not registered on daemon mux:\n  %v", missingFromMux)
+		t.Errorf("Remove stale entries from matrixEntries in TestAuthzRouteCoverage.")
+		t.Errorf("Then remove from the zero-permission test in TestControlAPI_Authorization.")
+	}
 }

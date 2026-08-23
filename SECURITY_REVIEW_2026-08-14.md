@@ -28,30 +28,41 @@ packages. Changed shell scripts pass `bash -n`; the network ruleset passes
 `nft -c` template validation and a live namespace lab test; the guest runner
 was exercised against planted hooks, smudge filters, and `insteadOf` traps.
 
-Follow-up backlog found during implementation (not part of the original 35):
+Follow-up backlog found during implementation (not part of the original 35).
+All items are now closed (2026-08-23):
 
-- **T36** — `JobOrchestrator.Run` still destroys on any failure with a live
-  VMID, including pre-clone failures, and the auto-allocated VMID is never
-  checked against the Proxmox inventory (`job_orchestrator.go` around 942;
-  lease GC can also destroy an untracked VM). Same hazard class as F1.
-- **T37** — The sandbox-secret requirement (T12) blocks the documented LLM
-  proxy flow: `images/agent-claude` points `ANTHROPIC_BASE_URL` at
-  `/proxy/llm` but nothing injects `X-AgentLab-Sandbox-Secret` into Claude
-  Code requests, so every LLM call returns 403. Needs a header-injecting
-  wrapper or per-sandbox env wiring. Fail-closed until fixed.
-- **T38** — `addUserKey` in `user_api.go` stores the raw key line as the
-  fingerprint, so added keys cannot be removed by their real SHA256
-  fingerprint. Pre-existing defect.
-- **T39** — `RunnerAPI` (`/v1/runner/*`) on the bootstrap mux still trusts
-  source IP alone. Extend the sandbox-secret check there.
-- **T40** — Document the sandbox-secret header and the new
-  `integration_target_allowlist` key: `docs/reference/configuration.md`,
-  `http-api.md`, `secrets-delivery-model.md`,
-  `control-plane-and-trust-boundaries.md`, and the isolation explainer.
-- **T41** — Cleanups: prune the unused client-side `TargetIP` field in
-  `cmd/agentlab/api.go`; wire `DeleteSandboxSecret` into sandbox destroy; the
-  authz test plane mirrors the daemon registration set by hand, so consider a
-  mechanical parity guard for future routes.
+- **T36** — done. `failJob` takes a `cloned` flag that is set only after
+  `backend.Clone` succeeds, so pre-clone failures never destroy;
+  `createSandboxWithRetry` checks each auto-allocated VMID against the live
+  Proxmox inventory before inserting the row; `SweepStartupOrphans` reclaims
+  a row only when no VM exists for its VMID (a stopped VM is left for the
+  reconciler, so a reused VMID cannot be destroyed). Residual risk: a narrow
+  race where a foreign VM takes the VMID between the inventory check and the
+  clone attempt. The failed clone leaves the row, and the sweep now spares
+  the foreign VM.
+- **T37** — done. `images/agent-claude/claude-entrypoint.sh` reads
+  `/run/agentlab/secrets/sandbox-secret` and exports
+  `ANTHROPIC_CUSTOM_HEADERS` with the `X-AgentLab-Sandbox-Secret` header
+  (Claude Code 2.1.227+, pinned in the Dockerfile). The wrapper fails closed
+  when the secret file is missing or empty.
+- **T38** — done. `addUserKey` parses the key with `ssh.ParseAuthorizedKey`
+  and stores `ssh.FingerprintSHA256`. Unparseable keys get a 400. Keys added
+  before this change remain removable through the stored value that the list
+  endpoint returns.
+- **T39** — done. `/v1/runner/report` requires the sandbox secret for the
+  VMID in the report body, verified with the shared constant-time helper.
+  A wrong or missing secret returns 403, like the metadata API. The guest
+  runner sends the header.
+- **T40** — done. The sandbox-secret header and
+  `integration_target_allowlist` are documented in the configuration
+  reference, the HTTP API reference, the secrets delivery model, the trust
+  boundaries explainer, and the network isolation model.
+- **T41** — done. The client-side `TargetIP` field is pruned;
+  `DeleteSandboxSecret` runs on every destroy path (destroy, lease expiry,
+  force destroy, prune, startup sweep); `TestAuthzRouteCoverage` in
+  `api_authz_test.go` enumerates the plane mux registration set and fails
+  when a registered pattern has no authz matrix entry, or a matrix entry has
+  no registered pattern.
 
 ## Summary
 

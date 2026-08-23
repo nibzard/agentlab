@@ -242,6 +242,20 @@ func TestSweepStartupOrphans_Branches(t *testing.T) {
 		}
 	})
 
+	t.Run("transient past grace with stopped VM is left alone", func(t *testing.T) {
+		store := newTestStore(t)
+		seedOrphanSandbox(t, store, 3007, models.SandboxBooting, 2*grace)
+		backend := &stubBackend{status: proxmox.StatusStopped} // a VM exists; it may not be ours
+		mgr := NewSandboxManager(store, backend, log.New(io.Discard, "", 0))
+		n, err := mgr.SweepStartupOrphans(context.Background(), grace)
+		if err != nil {
+			t.Fatalf("sweep: %v", err)
+		}
+		if n != 0 {
+			t.Fatalf("destroyed %d, want 0 (VM exists, stopped)", n)
+		}
+	})
+
 	t.Run("non-transient states are skipped", func(t *testing.T) {
 		store := newTestStore(t)
 		seedOrphanSandbox(t, store, 3004, models.SandboxRunning, 2*grace)

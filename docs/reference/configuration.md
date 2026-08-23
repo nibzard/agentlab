@@ -122,6 +122,7 @@ Per-source-IP limits on guest-facing endpoints. A QPS or burst of `0` disables t
 | `proxy_tls_mode` | string | `""` | TLS mode for the reverse proxy. Cannot be `letsencrypt` when `offline` is true. |
 | `proxy_domain` | string | `""` | Base domain used by the reverse proxy for sandbox subdomains. |
 | `integrations_enabled` | bool | `false` | Enable the integrations system and its control-plane API routes. |
+| `integration_target_allowlist` | []string | `[]` (empty) | Allowed hosts for integration proxy targets. When empty, proxy targets may be any http or https host that is not loopback, link-local, or unspecified. When set, targets must match an entry. Hostnames and literal IPs are both accepted; ports and schemes are not part of an entry. |
 
 ## Profiles
 

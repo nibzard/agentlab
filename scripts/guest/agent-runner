@@ -206,8 +206,18 @@ post_with_backoff() {
   local delay=1
 
   while true; do
-    if curl -fsS --connect-timeout "$CURL_CONNECT_TIMEOUT" --max-time "$CURL_REPORT_MAX_TIME" \
-      -X POST -H "Content-Type: application/json" -d "$payload" "$url" >/dev/null; then
+    local curl_args=(curl -fsS --connect-timeout "$CURL_CONNECT_TIMEOUT" --max-time "$CURL_REPORT_MAX_TIME")
+    curl_args+=(-X POST -H "Content-Type: application/json")
+    # Add sandbox secret header for runner API auth (T39).
+    if [[ -r "$SECRETS_DIR/sandbox-secret" ]]; then
+      local secret
+      secret="$(cat "$SECRETS_DIR/sandbox-secret")"
+      if [[ -n "$secret" ]]; then
+        curl_args+=(-H "X-AgentLab-Sandbox-Secret: $secret")
+      fi
+    fi
+    curl_args+=(-d "$payload" "$url")
+    if "${curl_args[@]}" >/dev/null; then
       return 0
     fi
     if (( attempt >= max_attempts )); then

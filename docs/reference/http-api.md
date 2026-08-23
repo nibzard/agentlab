@@ -155,11 +155,11 @@ These run on the bootstrap and artifact listeners, are restricted to the agent s
 | --- | --- | --- | --- | --- |
 | POST | `/v1/bootstrap/fetch` | bootstrap | Single-use token plus VMID delivery of the bootstrap payload. Token is consumed on success. | `{"token":"...","vmid":N}` |
 | POST | `/v1/runner/report` | bootstrap | In-guest runner status report. | Runner status event |
-| GET | `/metadata/` | bootstrap | Metadata index. | - |
-| GET | `/metadata/identity` | bootstrap | Sandbox identity. | - |
-| GET | `/metadata/metadata` | bootstrap | Sandbox key-value metadata. | - |
-| GET | `/metadata/secrets/` | bootstrap | Guest secrets metadata. | - |
-| ANY | `/proxy/` | bootstrap | Integration credential proxy for sandboxes. | - |
+| GET | `/metadata/` | bootstrap | Metadata index. Requires `X-AgentLab-Sandbox-Secret` header. | - |
+| GET | `/metadata/identity` | bootstrap | Sandbox identity. Requires `X-AgentLab-Sandbox-Secret` header. | - |
+| GET | `/metadata/metadata` | bootstrap | Sandbox key-value metadata. Requires `X-AgentLab-Sandbox-Secret` header. | - |
+| GET | `/metadata/secrets/` | bootstrap | Guest secrets metadata. Requires `X-AgentLab-Sandbox-Secret` header. | - |
+| ANY | `/proxy/` | bootstrap | Integration credential proxy for sandboxes. Requires `X-AgentLab-Sandbox-Secret` header. | - |
 | POST | `/upload` | artifact | Artifact upload, authenticated by a per-job bearer token. | `application/gzip` body |
 
 ## Operational endpoints
@@ -168,6 +168,22 @@ These run on the bootstrap and artifact listeners, are restricted to the agent s
 | --- | --- | --- | --- |
 | GET | `/healthz` | all | Liveness probe. Registered on the local, control, bootstrap, artifact, and metrics muxes. |
 | GET | `/metrics` | metrics | Prometheus exposition. Only when `metrics_listen` is set. |
+
+## Sandbox secret header
+
+Guest-facing endpoints `/metadata/*`, `/proxy/{name}`, and `/v1/runner/*` require the `X-AgentLab-Sandbox-Secret` header. This header carries a per-sandbox secret that the daemon issues at bootstrap. The daemon stores only the SHA-256 hash of the secret and validates requests with constant-time comparison.
+
+The header prevents a sandbox from spoofing another sandbox's source IP to access its metadata or credential proxies. A request with a valid source IP but an invalid or missing secret is rejected with HTTP 403.
+
+The sandbox image stores the secret at `/run/agentlab/secrets/sandbox-secret` with mode `0600`. Guest code reads that file and sends the header automatically.
+
+Example curl from within a sandbox:
+
+```bash
+SANDBOX_SECRET=$(cat /run/agentlab/secrets/sandbox-secret)
+curl -H "X-AgentLab-Sandbox-Secret: $SANDBOX_SECRET" \
+     http://169.254.169.254/metadata/identity
+```
 
 ## Authentication and errors
 

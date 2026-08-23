@@ -8,7 +8,26 @@ import (
 	"github.com/agentlab/agentlab/internal/db"
 	"github.com/agentlab/agentlab/internal/models"
 	"github.com/agentlab/agentlab/internal/pool"
+	"github.com/agentlab/agentlab/internal/proxmox"
 )
+
+// proxmoxVMIDOccupied reports whether a Proxmox VM already uses vmid.
+// A nil backend cannot reach Proxmox, so the check is skipped and returns false.
+func proxmoxVMIDOccupied(ctx context.Context, backend proxmox.Backend, vmid int) (bool, error) {
+	if backend == nil {
+		return false, nil
+	}
+	vms, err := backend.ListVMs(ctx)
+	if err != nil {
+		return false, err
+	}
+	for _, vm := range vms {
+		if int(vm.VMID) == vmid {
+			return true, nil
+		}
+	}
+	return false, nil
+}
 
 func nextSandboxVMID(ctx context.Context, store *db.Store) (int, error) {
 	if store == nil {
@@ -59,7 +78,7 @@ func releasePoolForSandbox(p *pool.Pool, vmid int) {
 // reservation is released and the next VMID is reserved before retrying. Every
 // failure path rolls the in-flight reservation back, so a failed create cannot
 // leak a phantom allocation (review H3).
-func createSandboxWithRetry(ctx context.Context, store *db.Store, sandbox models.Sandbox, p *pool.Pool, profiles map[string]models.Profile) (models.Sandbox, error) {
+func createSandboxWithRetry(ctx context.Context, store *db.Store, sandbox models.Sandbox, p *pool.Pool, profiles map[string]models.Profile, backend proxmox.Backend) (models.Sandbox, error) {
 	if store == nil {
 		return models.Sandbox{}, errors.New("store is nil")
 	}
@@ -67,6 +86,23 @@ func createSandboxWithRetry(ctx context.Context, store *db.Store, sandbox models
 	reserved := false
 	reservedVMID := 0
 	for i := 0; i < 5; i++ {
+		// Check Proxmox inventory before attempting DB insert. If the VMID
+		// is occupied, skip to the next VMID rather than failing later at clone.
+		if backend != nil {
+			occupied, occupiedErr := proxmoxVMIDOccupied(ctx, backend, attempt.VMID)
+			if occupiedErr != nil {
+				releasePoolForSandbox(p, reservedVMID)
+				return models.Sandbox{}, fmt.Errorf("check vmid %d occupancy: %w", attempt.VMID, occupiedErr)
+			}
+			if occupied {
+				// VMID occupied, increment and retry
+				attempt.VMID++
+				if attempt.Name == sandbox.Name {
+					attempt.Name = fmt.Sprintf("sandbox-%d", attempt.VMID)
+				}
+				continue
+			}
+		}
 		// (Re)reserve for the current attempt's VMID, releasing any reservation
 		// keyed to a collided VMID first.
 		if !reserved || reservedVMID != attempt.VMID {
