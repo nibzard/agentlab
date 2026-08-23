@@ -723,30 +723,6 @@ func printSSHUsage() {
 	fmt.Fprintln(os.Stdout, "Note: --wait polls for SSH readiness before returning.")
 }
 
-func printAliasNewUsage() {
-	printSandboxNewUsage()
-}
-
-func printAliasLsUsage() {
-	printSandboxListUsage()
-}
-
-func printAliasRmUsage() {
-	printSandboxDestroyUsage()
-}
-
-func printAliasShowUsage() {
-	printSandboxShowUsage()
-}
-
-func printAliasStartUsage() {
-	printSandboxStartUsage()
-}
-
-func printAliasStopUsage() {
-	printSandboxStopUsage()
-}
-
 func isHelpToken(value string) bool {
 	switch strings.TrimSpace(value) {
 	case "help", "-h", "--help":

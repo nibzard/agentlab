@@ -1,7 +1,6 @@
 package sandbox
 
 import (
-	"bufio"
 	"bytes"
 	"context"
 	"encoding/json"
@@ -438,19 +437,3 @@ func sanitizeDockerName(s string) string {
 
 // Compile-time check that DockerBackend implements Backend.
 var _ Backend = (*DockerBackend)(nil)
-
-// dockerContainerNotFound checks if an error indicates the container was not found.
-func dockerContainerNotFound(err error) bool {
-	return errors.Is(err, ErrContainerNotFound)
-}
-
-// discardReader reads all data from r and discards it.
-func discardReader(r io.Reader) {
-	buf := bufio.NewReaderSize(r, 4096)
-	for {
-		_, err := buf.ReadString('\n')
-		if err != nil {
-			break
-		}
-	}
-}

@@ -21,8 +21,8 @@ func TestShellBackendCloneDestroysResidualBeforeRetry(t *testing.T) {
 	runner := &fakeRunner{responses: []runnerResponse{
 		{err: errors.New("linked clone not possible: storage does not support snapshots")}, // clone (linked, fails)
 		{stdout: "status: stopped\n"}, // qm status 101 → residual exists
-		{},                           // qm destroy 101 --purge 1
-		{},                           // clone (full, succeeds)
+		{},                            // qm destroy 101 --purge 1
+		{},                            // clone (full, succeeds)
 	}}
 	backend := &ShellBackend{Runner: runner}
 

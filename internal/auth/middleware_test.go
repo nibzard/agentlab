@@ -248,6 +248,8 @@ func TestRequestIdentity_LegacyFullAccess(t *testing.T) {
 }
 
 func TestFromContext_Nil(t *testing.T) {
+	// A nil Context is the case under test: FromContext must not panic.
+	//lint:ignore SA1012 the nil Context here is deliberate
 	assert.Nil(t, FromContext(nil))
 }
 

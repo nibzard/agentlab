@@ -24,12 +24,12 @@ type profileNetworkSpec struct {
 }
 
 type profileResourceSpec struct {
-	Cores          int     `yaml:"cores"`
-	MemoryMB       int     `yaml:"memory_mb"`
-	CPUPinning     string  `yaml:"cpulist"`
-	CPUOverCommit  float64 `yaml:"cpu_over_commit"`
-	MemOverCommit  float64 `yaml:"mem_over_commit"`
-	AllowBurst     *bool   `yaml:"allow_burst"`
+	Cores         int     `yaml:"cores"`
+	MemoryMB      int     `yaml:"memory_mb"`
+	CPUPinning    string  `yaml:"cpulist"`
+	CPUOverCommit float64 `yaml:"cpu_over_commit"`
+	MemOverCommit float64 `yaml:"mem_over_commit"`
+	AllowBurst    *bool   `yaml:"allow_burst"`
 }
 
 type profileStorageSpec struct {

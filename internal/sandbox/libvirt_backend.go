@@ -157,12 +157,12 @@ func (b *LibvirtBackend) Stop(ctx context.Context, id int) error {
 	name := b.domainNameFromID(ctx, id)
 	cmdCtx, cancel := context.WithTimeout(ctx, b.timeout)
 	defer cancel()
-	out, err := b.virsh(cmdCtx, "shutdown", name)
+	_, err := b.virsh(cmdCtx, "shutdown", name)
 	if err != nil {
 		// Try forced shutdown.
 		cmdCtx2, cancel2 := context.WithTimeout(ctx, b.timeout)
 		defer cancel2()
-		out, err = b.virsh(cmdCtx2, "destroy", name)
+		out, err := b.virsh(cmdCtx2, "destroy", name)
 		if err != nil {
 			return fmt.Errorf("stop libvirt domain %s: %w (output: %s)", name, err, string(out))
 		}
@@ -197,7 +197,7 @@ func (b *LibvirtBackend) Destroy(ctx context.Context, id int) error {
 	// Undefine with storage cleanup.
 	cmdCtx, cancel := context.WithTimeout(ctx, b.timeout)
 	defer cancel()
-	out, err := b.virsh(cmdCtx, "undefine", name, "--remove-all-storage", "--snapshots-metadata")
+	_, err := b.virsh(cmdCtx, "undefine", name, "--remove-all-storage", "--snapshots-metadata")
 	if err != nil {
 		// Try destroy first if it's running.
 		cmdCtx2, cancel2 := context.WithTimeout(ctx, b.timeout)
@@ -205,7 +205,7 @@ func (b *LibvirtBackend) Destroy(ctx context.Context, id int) error {
 		_, _ = b.virsh(cmdCtx2, "destroy", name)
 		cmdCtx3, cancel3 := context.WithTimeout(ctx, b.timeout)
 		defer cancel3()
-		out, err = b.virsh(cmdCtx3, "undefine", name, "--remove-all-storage", "--snapshots-metadata")
+		out, err := b.virsh(cmdCtx3, "undefine", name, "--remove-all-storage", "--snapshots-metadata")
 		if err != nil {
 			return fmt.Errorf("destroy libvirt domain %s: %w (output: %s)", name, err, string(out))
 		}

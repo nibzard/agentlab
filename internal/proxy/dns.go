@@ -45,8 +45,8 @@ func NewDNSResolver(filePath string, logger *log.Logger) *DNSResolver {
 
 // dnsEntry represents a single hosts file entry.
 type dnsEntry struct {
-	IP      string
-	Domain  string
+	IP     string
+	Domain string
 }
 
 // AddEntry adds or updates a DNS entry for the given domain.

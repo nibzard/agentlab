@@ -2,7 +2,6 @@ package sandbox
 
 import (
 	"context"
-	"errors"
 	"fmt"
 
 	"github.com/agentlab/agentlab/internal/proxmox"
@@ -50,18 +49,18 @@ func (b *VMBackend) Create(ctx context.Context, cfg CreateConfig) error {
 		return fmt.Errorf("clone vm: %w", err)
 	}
 	vmCfg := proxmox.VMConfig{
-		Name:      cfg.Name,
-		Cores:     cfg.Cores,
-		MemoryMB:  cfg.MemoryMB,
-		Bridge:    cfg.Bridge,
-		NetModel:  cfg.NetModel,
-		CloudInit: cfg.CloudInitSnippet,
-		RootDiskGB: cfg.RootDiskGB,
-		RootDisk:  cfg.RootDisk,
-		SCSIHW:    cfg.SCSIHW,
-		Firewall:  cfg.Firewall,
+		Name:          cfg.Name,
+		Cores:         cfg.Cores,
+		MemoryMB:      cfg.MemoryMB,
+		Bridge:        cfg.Bridge,
+		NetModel:      cfg.NetModel,
+		CloudInit:     cfg.CloudInitSnippet,
+		RootDiskGB:    cfg.RootDiskGB,
+		RootDisk:      cfg.RootDisk,
+		SCSIHW:        cfg.SCSIHW,
+		Firewall:      cfg.Firewall,
 		FirewallGroup: cfg.FirewallGroup,
-		CPUPinning: cfg.CPUPinning,
+		CPUPinning:    cfg.CPUPinning,
 	}
 	if err := b.backend.Configure(ctx, proxmox.VMID(cfg.ID), vmCfg); err != nil {
 		return fmt.Errorf("configure vm: %w", err)
@@ -170,8 +169,3 @@ func (b *VMBackend) ValidateVMTemplate(ctx context.Context, templateVMID int) er
 
 // Compile-time check that VMBackend implements Backend.
 var _ Backend = (*VMBackend)(nil)
-
-// isVMNotFoundError checks if an error indicates the VM/container was not found.
-func isVMNotFoundError(err error) bool {
-	return errors.Is(err, proxmox.ErrVMNotFound)
-}

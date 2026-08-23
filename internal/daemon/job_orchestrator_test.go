@@ -109,7 +109,7 @@ func (b *orchestratorBackend) Status(context.Context, proxmox.VMID) (proxmox.Sta
 }
 
 func (b *orchestratorBackend) ListVMs(context.Context) ([]proxmox.VMSummary, error) {
-	if b.occupiedVMIDs == nil || len(b.occupiedVMIDs) == 0 {
+	if len(b.occupiedVMIDs) == 0 {
 		return nil, nil
 	}
 	var vms []proxmox.VMSummary

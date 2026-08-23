@@ -3,7 +3,6 @@ package daemon
 import (
 	"context"
 	"net/http"
-	"strings"
 
 	"github.com/agentlab/agentlab/internal/auth"
 )
@@ -386,15 +385,4 @@ func sessionActionPermission(parts []string, method string) string {
 		return permSessionDoctor
 	}
 	return ""
-}
-
-// pathTail splits the part of r.URL.Path after prefix into '/'-separated
-// non-empty segments. It returns nil when there is no tail.
-func pathTail(r *http.Request, prefix string) []string {
-	tail := strings.TrimPrefix(r.URL.Path, prefix)
-	parts := strings.Split(strings.Trim(tail, "/"), "/")
-	if len(parts) == 1 && parts[0] == "" {
-		return nil
-	}
-	return parts
 }

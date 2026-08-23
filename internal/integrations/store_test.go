@@ -115,11 +115,11 @@ func TestStoreList(t *testing.T) {
 		AttachMode: AttachAutoAll,
 	}
 	integ2 := &Integration{
-		Name:       "api2",
-		Type:       TypeHTTPProxy,
-		Target:     "https://api2.example.com",
-		Secret:     "sk-2",
-		AttachMode: AttachSandbox,
+		Name:           "api2",
+		Type:           TypeHTTPProxy,
+		Target:         "https://api2.example.com",
+		Secret:         "sk-2",
+		AttachMode:     AttachSandbox,
 		AttachSelector: "mybox",
 	}
 	if err := s.Create(ctx, integ1); err != nil {

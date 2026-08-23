@@ -12,9 +12,9 @@ import (
 // Middleware provides HTTP authentication middleware that accepts both
 // bearer tokens (legacy control token) and SSH-signed API tokens.
 type Middleware struct {
-	keyStore   *KeyStore
+	keyStore    *KeyStore
 	legacyToken string // optional pre-shared bearer token for backward compat
-	allowCIDRs []*net.IPNet
+	allowCIDRs  []*net.IPNet
 }
 
 // MiddlewareConfig holds configuration for creating an auth middleware.

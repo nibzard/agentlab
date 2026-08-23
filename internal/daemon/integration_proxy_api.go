@@ -210,19 +210,6 @@ func (api *IntegrationProxyAPI) remoteAllowed(addr string) bool {
 	return api.agentSubnet.Contains(ip)
 }
 
-// proxyResponseWriter wraps http.ResponseWriter to track bytes written
-// for per-credential-type usage accounting.
-type proxyResponseWriter struct {
-	http.ResponseWriter
-	bytesWritten int
-}
-
-func (pw *proxyResponseWriter) Write(b []byte) (int, error) {
-	n, err := pw.ResponseWriter.Write(b)
-	pw.bytesWritten += n
-	return n, err
-}
-
 // CredentialAuditEntry records a credential proxy access for auditing.
 type CredentialAuditEntry struct {
 	SandboxName    string    `json:"sandbox_name"`

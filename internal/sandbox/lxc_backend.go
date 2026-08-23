@@ -93,15 +93,15 @@ func (b *LXCBackend) Create(ctx context.Context, cfg CreateConfig) error {
 	// Proxmox LXC create API expects a POST to /nodes/{node}/lxc
 	// with JSON body containing the container configuration.
 	body := map[string]any{
-		"vmid":     cfg.ID,
-		"hostname": cfg.Name,
-		"ostemplate": resolveLXCImage(cfg.Image),
-		"rootfs":   "local-lvm:vm-" + strconv.Itoa(cfg.ID) + "-disk-0",
-		"password": cfg.Password,
+		"vmid":            cfg.ID,
+		"hostname":        cfg.Name,
+		"ostemplate":      resolveLXCImage(cfg.Image),
+		"rootfs":          "local-lvm:vm-" + strconv.Itoa(cfg.ID) + "-disk-0",
+		"password":        cfg.Password,
 		"ssh-public-keys": cfg.SSHPublicKey,
-		"unprivileged": 1,
-		"onboot":       0,
-		"start":        0, // Don't auto-start; we'll start explicitly
+		"unprivileged":    1,
+		"onboot":          0,
+		"start":           0, // Don't auto-start; we'll start explicitly
 	}
 	if cfg.Cores > 0 {
 		body["cores"] = cfg.Cores

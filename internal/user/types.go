@@ -37,10 +37,10 @@ func (r Role) IsValid() bool {
 
 // User represents a registered user identified by SSH keys.
 type User struct {
-	ID          string    // Unique identifier (auto-generated)
-	Name        string    // Human-readable name (e.g., "alice")
-	Role        Role      // "admin" or "user"
-	Fingerprint string    // Primary SSH key fingerprint
+	ID          string // Unique identifier (auto-generated)
+	Name        string // Human-readable name (e.g., "alice")
+	Role        Role   // "admin" or "user"
+	Fingerprint string // Primary SSH key fingerprint
 	CreatedAt   time.Time
 	UpdatedAt   time.Time
 }
@@ -57,37 +57,37 @@ type SSHKey struct {
 
 // Team represents a group of users sharing resources.
 type Team struct {
-	ID          string    // Unique identifier
-	Name        string    // Team name
-	Description string    // Optional description
+	ID          string // Unique identifier
+	Name        string // Team name
+	Description string // Optional description
 	CreatedAt   time.Time
 	UpdatedAt   time.Time
 }
 
 // TeamMember represents a user's membership in a team.
 type TeamMember struct {
-	TeamID    string    // Team ID
-	UserID    string    // User ID
-	Role      Role      // Role within the team (admin or user)
-	JoinedAt  time.Time // When the user joined
+	TeamID   string    // Team ID
+	UserID   string    // User ID
+	Role     Role      // Role within the team (admin or user)
+	JoinedAt time.Time // When the user joined
 }
 
 // AuditEntry represents a recorded user action for compliance and debugging.
 type AuditEntry struct {
-	ID          int64     // Auto-increment ID
-	UserID      string    // Who performed the action (empty for system)
-	Action      string    // What was done (e.g., "sandbox.create", "user.add")
-	Resource    string    // Target resource (e.g., "sandbox:1001", "user:alice")
-	Detail      string    // Additional detail (JSON or free text)
-	Timestamp   time.Time // When the action occurred
+	ID        int64     // Auto-increment ID
+	UserID    string    // Who performed the action (empty for system)
+	Action    string    // What was done (e.g., "sandbox.create", "user.add")
+	Resource  string    // Target resource (e.g., "sandbox:1001", "user:alice")
+	Detail    string    // Additional detail (JSON or free text)
+	Timestamp time.Time // When the action occurred
 }
 
 // ResourceQuota represents resource limits for a user or team.
 type ResourceQuota struct {
-	ID            int64  // Auto-increment ID
-	ScopeType     string // "user" or "team"
-	ScopeID       string // User ID or Team ID
-	MaxSandboxes  int    // Maximum concurrent sandboxes (0 = unlimited)
-	MaxCPU        int    // Maximum CPU cores (0 = unlimited)
-	MaxRAMMB      int    // Maximum RAM in MB (0 = unlimited)
+	ID           int64  // Auto-increment ID
+	ScopeType    string // "user" or "team"
+	ScopeID      string // User ID or Team ID
+	MaxSandboxes int    // Maximum concurrent sandboxes (0 = unlimited)
+	MaxCPU       int    // Maximum CPU cores (0 = unlimited)
+	MaxRAMMB     int    // Maximum RAM in MB (0 = unlimited)
 }

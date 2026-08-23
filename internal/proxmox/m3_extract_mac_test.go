@@ -75,7 +75,7 @@ func TestAPIBackendGuestIP_DHCPFallbackResolvesViaVirtioMAC(t *testing.T) {
 		HTTPClient:     srv.Client(),
 		AgentCIDR:      "10.77.0.0/16",
 		DHCPLeasePaths: []string{leasePath},
-		Sleep: func(_ context.Context, _ time.Duration) error { return nil },
+		Sleep:          func(_ context.Context, _ time.Duration) error { return nil },
 	}
 
 	ip, err := backend.GuestIP(context.Background(), 101)

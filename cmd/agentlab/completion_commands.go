@@ -61,7 +61,7 @@ var (
 		"user", "team", "defaults", "version", "completion",
 	}
 
-	jobSubcommands = []string{"run", "validate", "show", "artifacts", "doctor"}
+	jobSubcommands     = []string{"run", "validate", "show", "artifacts", "doctor"}
 	sandboxSubcommands = []string{
 		"new", "validate", "list", "inventory", "reconcile",
 		"show", "update", "start", "stop", "pause", "resume",
@@ -69,24 +69,22 @@ var (
 		"exposed", "unexpose", "doctor",
 	}
 	sandboxSnapshotSubcommands = []string{"save", "list", "restore"}
-	workspaceSubcommands = []string{
+	workspaceSubcommands       = []string{
 		"create", "list", "check", "fsck",
 		"attach", "detach", "lease", "rebind", "fork", "snapshot",
 	}
 	workspaceSnapshotSubcommands = []string{"create", "list", "restore"}
-	sessionSubcommands = []string{
+	sessionSubcommands           = []string{
 		"create", "list", "show", "resume", "stop",
 		"fork", "branch", "doctor",
 	}
-	profileSubcommands = []string{"list"}
-	msgSubcommands = []string{"post", "tail"}
-	tokenSubcommands = []string{"create", "list", "inspect"}
+	tokenSubcommands       = []string{"create", "list", "inspect"}
 	integrationSubcommands = []string{"add", "list", "rm", "status"}
-	userSubcommands = []string{"add", "list", "rm"}
-	teamSubcommands = []string{"add", "members", "rm"}
-	secretsSubcommands = []string{"show", "validate", "add-ssh-key", "remove-ssh-key", "set-tailscale", "clear-tailscale"}
-	defaultsSubcommands = []string{"write", "read", "list", "delete"}
-	completionShells = []string{"bash", "zsh", "fish"}
+	userSubcommands        = []string{"add", "list", "rm"}
+	teamSubcommands        = []string{"add", "members", "rm"}
+	secretsSubcommands     = []string{"show", "validate", "add-ssh-key", "remove-ssh-key", "set-tailscale", "clear-tailscale"}
+	defaultsSubcommands    = []string{"write", "read", "list", "delete"}
+	completionShells       = []string{"bash", "zsh", "fish"}
 )
 
 func writeBashCompletion(w *os.File) error {

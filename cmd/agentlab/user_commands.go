@@ -46,8 +46,8 @@ const teamUsage = `Usage:
   agentlab team member rm --team <name> --user <username>
 `
 
-func printUserUsage()  { fmt.Fprint(os.Stdout, userUsage) }
-func printTeamUsage()  { fmt.Fprint(os.Stdout, teamUsage) }
+func printUserUsage() { fmt.Fprint(os.Stdout, userUsage) }
+func printTeamUsage() { fmt.Fprint(os.Stdout, teamUsage) }
 
 // --- User commands ---
 

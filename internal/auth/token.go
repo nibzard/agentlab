@@ -75,10 +75,10 @@ type TokenClaims struct {
 
 // Token is a parsed and verified API token.
 type Token struct {
-	Header  TokenHeader
-	Claims  TokenClaims
-	Raw     string // The original encoded token string
-	Signer  ssh.PublicKey
+	Header TokenHeader
+	Claims TokenClaims
+	Raw    string // The original encoded token string
+	Signer ssh.PublicKey
 }
 
 // TokenCreateRequest holds the parameters for creating a new token.
@@ -218,10 +218,10 @@ func ParseToken(tokenStr string, keyStore *KeyStore) (*Token, error) {
 	}
 
 	return &Token{
-		Header:  header,
-		Claims:  claims,
-		Raw:     tokenPrefix + tokenStr,
-		Signer:  identity.PublicKey,
+		Header: header,
+		Claims: claims,
+		Raw:    tokenPrefix + tokenStr,
+		Signer: identity.PublicKey,
 	}, nil
 }
 

@@ -16,16 +16,6 @@ import (
 
 const defaultsFile = "defaults.json"
 
-// wellKnownDefaults lists the recognised preference keys and their descriptions.
-var wellKnownDefaults = map[string]string{
-	"default-profile": "Default profile for sandbox new",
-	"default-image":   "Default container image for sandbox new",
-	"default-backend": "Default backend (proxmox, docker, libvirt)",
-	"output-format":   "Default output format (text or json)",
-	"default-timeout": "Default request timeout (e.g. 30s, 2m)",
-	"default-socket":  "Default daemon socket path",
-}
-
 func defaultsFilePath() (string, error) {
 	dir, err := clientConfigBaseDir()
 	if err != nil {
@@ -96,11 +86,6 @@ Examples:
   agentlab defaults read default-profile
   agentlab defaults list
 `
-
-func runDefaultsCommand(_ []string, base commonFlags) error {
-	fmt.Fprint(os.Stdout, defaultsUsage)
-	return errHelp
-}
 
 func runDefaultsDispatch(args []string, base commonFlags) error {
 	if len(args) == 0 || isHelpToken(args[0]) {
@@ -247,18 +232,6 @@ func writeDefaultsJSON(w io.Writer, v interface{}) {
 	}
 	w.Write(data)
 	w.Write([]byte("\n"))
-}
-
-// getDefault reads a single default value, returning fallback if not set.
-func getDefault(key, fallback string) string {
-	m, err := loadDefaults()
-	if err != nil {
-		return fallback
-	}
-	if v, ok := m[key]; ok {
-		return v
-	}
-	return fallback
 }
 
 // GetDefaultOutputFormat returns the preferred output format (json or text).

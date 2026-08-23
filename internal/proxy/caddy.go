@@ -73,11 +73,6 @@ type caddyHeaders struct {
 	Response map[string][]string `json:"response,omitempty"`
 }
 
-// caddyConfigRequest is the body sent to Caddy's config endpoint.
-type caddyConfigRequest struct {
-	Routes []caddyRoute `json:"routes,omitempty"`
-}
-
 // AddRoute creates a reverse proxy route in Caddy.
 // The route maps subdomain to the target address (host:port).
 // It returns an error wrapping ErrRouteExists when a route for the

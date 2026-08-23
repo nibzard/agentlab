@@ -465,11 +465,11 @@ func TestApplyExecTimeout(t *testing.T) {
 		requested int
 		want      time.Duration
 	}{
-		{0, defaultExecTimeout},            // zero → server default
-		{-5, defaultExecTimeout},           // negative → server default
-		{30, 30 * time.Second},             // normal
-		{3600, maxExecTimeout},             // exactly the ceiling
-		{999999, maxExecTimeout},           // above ceiling → clamped
+		{0, defaultExecTimeout},  // zero → server default
+		{-5, defaultExecTimeout}, // negative → server default
+		{30, 30 * time.Second},   // normal
+		{3600, maxExecTimeout},   // exactly the ceiling
+		{999999, maxExecTimeout}, // above ceiling → clamped
 	}
 	for _, tc := range cases {
 		if got := applyExecTimeout(tc.requested); got != tc.want {

@@ -83,8 +83,8 @@ type ExecDryRunResponse struct {
 
 // SSEEvent is a single server-sent event for streaming exec output.
 type SSEEvent struct {
-	Type string `json:"type"` // "stdout", "stderr", "exit"
-	Data string `json:"data"` // base64 or raw text
+	Type string `json:"type"`           // "stdout", "stderr", "exit"
+	Data string `json:"data"`           // base64 or raw text
 	Code int    `json:"code,omitempty"` // exit code (only for type="exit")
 }
 
