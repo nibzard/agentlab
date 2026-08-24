@@ -21,6 +21,10 @@ type FakeBackend struct {
 	nextVolumeSeq   int
 }
 
+// Compile-time check that FakeBackend satisfies Backend. Without it, a
+// missing method only surfaces when the integration-tagged tests compile.
+var _ Backend = (*FakeBackend)(nil)
+
 type fakeVM struct {
 	vmid      VMID
 	name      string
@@ -145,6 +149,27 @@ func (b *FakeBackend) Stop(_ context.Context, vmid VMID) error {
 		return ErrVMNotFound
 	}
 	vm.status = StatusStopped
+	return nil
+}
+
+// Suspend pauses a running VM. A suspended VM is not stopped, so the
+// status stays StatusRunning.
+func (b *FakeBackend) Suspend(_ context.Context, vmid VMID) error {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	if _, ok := b.vms[vmid]; !ok {
+		return ErrVMNotFound
+	}
+	return nil
+}
+
+// Resume continues a suspended VM.
+func (b *FakeBackend) Resume(_ context.Context, vmid VMID) error {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	if _, ok := b.vms[vmid]; !ok {
+		return ErrVMNotFound
+	}
 	return nil
 }
 
