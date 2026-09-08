@@ -339,7 +339,8 @@ func newService(cfg config.Config, profiles map[string]models.Profile, store *db
 		return nil, fmt.Errorf("unknown backend: %s (must be 'proxmox', 'docker', or 'libvirt')", primaryBackend)
 	}
 	workspaceManager := NewWorkspaceManager(store, backend, log.Default())
-	sandboxManager := NewSandboxManager(store, backend, log.Default()).WithWorkspaceManager(workspaceManager).WithMetrics(metrics)
+	sandboxManager := NewSandboxManager(store, backend, log.Default()).WithWorkspaceManager(workspaceManager).WithMetrics(metrics).
+		WithLeaseWarnWindow(cfg.LeaseWarnWindow).WithNotifier(NewNotifier(cfg.NotifyWebhookURL, log.Default()))
 
 	// Set up LXC backend if enabled and using Proxmox API
 	var lxcBackend *sandbox.LXCBackend

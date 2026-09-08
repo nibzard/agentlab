@@ -1027,6 +1027,68 @@ artifact_dir: %q
 	})
 }
 
+func TestLoadConfigLeaseWarnAndNotifier(t *testing.T) {
+	t.Run("defaults", func(t *testing.T) {
+		cfg := DefaultConfig()
+		assert.Equal(t, 24*time.Hour, cfg.LeaseWarnWindow)
+		assert.Empty(t, cfg.NotifyWebhookURL)
+	})
+
+	t.Run("yaml overrides", func(t *testing.T) {
+		root := t.TempDir()
+		configPath := filepath.Join(root, "config.yaml")
+		payload := `lease_warn_window: 4h
+notify_webhook_url: "https://ntfy.example.com/agentlab-alerts"
+data_dir: "` + filepath.Join(root, "data") + `"
+`
+		require.NoError(t, os.WriteFile(configPath, []byte(payload), 0o600))
+
+		cfg, err := Load(configPath)
+		require.NoError(t, err)
+		assert.Equal(t, 4*time.Hour, cfg.LeaseWarnWindow)
+		assert.Equal(t, "https://ntfy.example.com/agentlab-alerts", cfg.NotifyWebhookURL)
+	})
+
+	t.Run("disable with zero window", func(t *testing.T) {
+		root := t.TempDir()
+		configPath := filepath.Join(root, "config.yaml")
+		payload := `lease_warn_window: 0s
+data_dir: "` + filepath.Join(root, "data") + `"
+`
+		require.NoError(t, os.WriteFile(configPath, []byte(payload), 0o600))
+
+		cfg, err := Load(configPath)
+		require.NoError(t, err)
+		assert.Equal(t, time.Duration(0), cfg.LeaseWarnWindow)
+	})
+
+	t.Run("negative window rejected", func(t *testing.T) {
+		root := t.TempDir()
+		configPath := filepath.Join(root, "config.yaml")
+		payload := `lease_warn_window: -1h
+data_dir: "` + filepath.Join(root, "data") + `"
+`
+		require.NoError(t, os.WriteFile(configPath, []byte(payload), 0o600))
+
+		_, err := Load(configPath)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "lease_warn_window")
+	})
+
+	t.Run("invalid webhook url rejected", func(t *testing.T) {
+		root := t.TempDir()
+		configPath := filepath.Join(root, "config.yaml")
+		payload := `notify_webhook_url: "not-a-url"
+data_dir: "` + filepath.Join(root, "data") + `"
+`
+		require.NoError(t, os.WriteFile(configPath, []byte(payload), 0o600))
+
+		_, err := Load(configPath)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "notify_webhook_url")
+	})
+}
+
 func TestValidateOffline(t *testing.T) {
 	tests := []struct {
 		name        string

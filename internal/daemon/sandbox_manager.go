@@ -108,15 +108,17 @@ type lifecycleEventPayload struct {
 //   - Snippet cleaner: For cloud-init snippet cleanup
 //   - Metrics: For Prometheus metrics collection
 type SandboxManager struct {
-	store      *db.Store
-	backend    proxmox.Backend
-	logger     *log.Logger
-	workspace  *WorkspaceManager
-	snippetFn  func(vmid int)
-	exposures  *ExposureCleaner
-	metrics    *Metrics
-	now        func() time.Time
-	gcInterval time.Duration
+	store           *db.Store
+	backend         proxmox.Backend
+	logger          *log.Logger
+	workspace       *WorkspaceManager
+	snippetFn       func(vmid int)
+	exposures       *ExposureCleaner
+	metrics         *Metrics
+	notifier        *Notifier
+	now             func() time.Time
+	gcInterval      time.Duration
+	leaseWarnWindow time.Duration
 }
 
 // NewSandboxManager builds a sandbox manager with defaults.
@@ -142,6 +144,31 @@ func NewSandboxManager(store *db.Store, backend proxmox.Backend, logger *log.Log
 		now:        time.Now,
 		gcInterval: defaultLeaseGCInterval,
 	}
+}
+
+// WithLeaseWarnWindow configures how long before lease expiration a sandbox
+// receives a pre-expiry warning. Zero (the default) disables the warning pass.
+//
+// Returns the manager for method chaining.
+func (m *SandboxManager) WithLeaseWarnWindow(window time.Duration) *SandboxManager {
+	if m == nil {
+		return m
+	}
+	m.leaseWarnWindow = window
+	return m
+}
+
+// WithNotifier sets the webhook notifier used for operational notifications
+// such as lease pre-expiry warnings. A nil or disabled notifier means
+// warnings are recorded as events only.
+//
+// Returns the manager for method chaining.
+func (m *SandboxManager) WithNotifier(notifier *Notifier) *SandboxManager {
+	if m == nil {
+		return m
+	}
+	m.notifier = notifier
+	return m
 }
 
 // WithWorkspaceManager sets the workspace manager for detach-on-destroy.
@@ -204,7 +231,9 @@ func (m *SandboxManager) WithMetrics(metrics *Metrics) *SandboxManager {
 // StartLeaseGC runs lease GC immediately and then on an interval until ctx is done.
 //
 // Garbage collection finds all sandboxes with expired leases and transitions
-// them to TIMEOUT state, then stops and destroys them. The GC runs on the
+// them to TIMEOUT state, then stops and destroys them. When a lease warn
+// window is configured, each cycle first emits pre-expiry warnings (once per
+// lease term) for sandboxes approaching expiration. The GC runs on the
 // configured interval (default 30 seconds) in a separate goroutine.
 //
 // The function returns immediately after starting the GC goroutine. Use context
@@ -855,6 +884,7 @@ func (m *SandboxManager) Destroy(ctx context.Context, vmid int) (err error) {
 }
 
 func (m *SandboxManager) runLeaseGC(ctx context.Context) {
+	m.warnExpiringLeases(ctx)
 	sandboxes, err := m.store.ListExpiredSandboxes(ctx, m.now().UTC())
 	if err != nil {
 		m.logger.Printf("sandbox lease GC error: %v", err)
@@ -863,6 +893,53 @@ func (m *SandboxManager) runLeaseGC(ctx context.Context) {
 	for _, sandbox := range sandboxes {
 		if err := m.expireSandbox(ctx, sandbox); err != nil {
 			m.logger.Printf("sandbox lease GC vmid=%d: %v", sandbox.VMID, err)
+		}
+	}
+}
+
+// warnExpiringLeases emits a one-time pre-expiry warning for every sandbox
+// whose lease expires within the configured warn window and has not been
+// warned yet. A sandbox is marked as warned only after the warning has been
+// recorded; when a webhook notifier is configured, delivery must succeed
+// first, so a temporarily unreachable webhook retries on the next GC cycle
+// instead of silently dropping the alert. Lease renewal clears the warned
+// marker, so a renewed lease warns again near its new expiration.
+func (m *SandboxManager) warnExpiringLeases(ctx context.Context) {
+	if m == nil || m.store == nil || m.leaseWarnWindow <= 0 {
+		return
+	}
+	now := m.now().UTC()
+	sandboxes, err := m.store.ListSandboxesWithLeaseExpiringBefore(ctx, now, now.Add(m.leaseWarnWindow))
+	if err != nil {
+		m.logger.Printf("sandbox lease warn error: %v", err)
+		return
+	}
+	for _, sandbox := range sandboxes {
+		remaining := sandbox.LeaseExpires.Sub(now).Round(time.Minute)
+		if remaining <= 0 {
+			continue
+		}
+		if m.notifier != nil && m.notifier.Enabled() {
+			if err := m.notifier.NotifyLeaseExpiring(ctx, sandbox, remaining); err != nil {
+				m.logger.Printf("sandbox lease warn notify vmid=%d: %v", sandbox.VMID, err)
+				continue
+			}
+		}
+		vmid := sandbox.VMID
+		msg := fmt.Sprintf("lease expires in %s (at %s)", remaining, sandbox.LeaseExpires.UTC().Format(time.RFC3339))
+		payload := struct {
+			ExpiresAt string `json:"expires_at"`
+			Remaining string `json:"remaining"`
+		}{
+			ExpiresAt: sandbox.LeaseExpires.UTC().Format(time.RFC3339),
+			Remaining: remaining.String(),
+		}
+		if err := emitEvent(ctx, NewStoreEventRecorder(m.store), EventKindSandboxLeaseExpiring, &vmid, nil, msg, payload); err != nil {
+			m.logger.Printf("record lease warn event vmid=%d: %v", sandbox.VMID, err)
+			continue
+		}
+		if err := m.store.MarkSandboxLeaseWarned(ctx, sandbox.VMID, now); err != nil {
+			m.logger.Printf("mark lease warned vmid=%d: %v", sandbox.VMID, err)
 		}
 	}
 }
@@ -1226,6 +1303,26 @@ func allowedTransition(from, to models.SandboxState) bool {
 	}
 }
 
+// ghostSandboxTTL is how long a REQUESTED sandbox whose VM does not exist in
+// Proxmox is left alone before reconciliation reaps it as DESTROYED. Cloning
+// plus first boot can take several minutes, so this must comfortably exceed
+// the longest normal provisioning run.
+const ghostSandboxTTL = 30 * time.Minute
+
+// sandboxStaleFor reports how long the sandbox record has gone without a
+// state update, falling back to CreatedAt when LastUpdatedAt is unset. A
+// zero-time record reports zero so unknown-age rows are never reaped.
+func sandboxStaleFor(sb models.Sandbox) time.Duration {
+	ref := sb.LastUpdatedAt
+	if ref.IsZero() || sb.CreatedAt.After(ref) {
+		ref = sb.CreatedAt
+	}
+	if ref.IsZero() {
+		return 0
+	}
+	return time.Since(ref)
+}
+
 func isSnapshotMissing(err error) bool {
 	if err == nil {
 		return false
@@ -1260,6 +1357,7 @@ func isSnapshotMissing(err error) bool {
 //
 // Reconciliation rules:
 //   - VM not found in Proxmox → mark as DESTROYED
+//   - VM not found and REQUESTED → mark as DESTROYED only after ghostSandboxTTL
 //   - VM stopped but RUNNING → mark as FAILED
 //   - VM running but REQUESTED → mark as READY
 //
@@ -1286,7 +1384,19 @@ func (m *SandboxManager) ReconcileState(ctx context.Context) error {
 		status, err := m.backend.Status(ctx, proxmox.VMID(sb.VMID))
 		if err != nil {
 			if errors.Is(err, proxmox.ErrVMNotFound) {
-				if sb.State != models.SandboxDestroyed && sb.State != models.SandboxRequested {
+				switch {
+				case sb.State == models.SandboxDestroyed:
+					// Already terminal; nothing to do.
+				case sb.State == models.SandboxRequested && sandboxStaleFor(sb) <= ghostSandboxTTL:
+					// Provisioning may not have cloned the VM yet; "missing"
+					// is expected for a fresh REQUESTED row, so leave it alone
+					// until it has been stale past the TTL.
+				case sb.State == models.SandboxRequested:
+					m.logger.Printf("reconcile: VM %d absent for %s in %s (no clone in progress), marking as destroyed", sb.VMID, sandboxStaleFor(sb).Round(time.Minute), sb.State)
+					if err := m.Transition(ctx, sb.VMID, models.SandboxDestroyed); err == nil {
+						m.cleanupExposures(ctx, sb.VMID)
+					}
+				default:
 					m.logger.Printf("reconcile: VM %d not found in Proxmox, marking as destroyed", sb.VMID)
 					if err := m.Transition(ctx, sb.VMID, models.SandboxDestroyed); err == nil {
 						m.cleanupExposures(ctx, sb.VMID)

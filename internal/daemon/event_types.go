@@ -35,6 +35,7 @@ const (
 	// Sandbox lifecycle.
 	EventKindSandboxState            EventKind = "sandbox.state"
 	EventKindSandboxLease            EventKind = "sandbox.lease"
+	EventKindSandboxLeaseExpiring    EventKind = "sandbox.lease.expiring"
 	EventKindSandboxIPPending        EventKind = "sandbox.ip_pending"
 	EventKindSandboxIPConflict       EventKind = "sandbox.ip_conflict"
 	EventKindSandboxSLOReady         EventKind = "sandbox.slo.ready"
@@ -107,6 +108,10 @@ var EventCatalog = map[EventKind]EventPayloadSchema{
 	EventKindSandboxLease: {
 		Kind: EventKindSandboxLease, Domain: eventDomainSandbox, Stage: EventStageLease, Schema: eventContractSchemaVersion,
 		Required: []string{"expires_at"}, Description: "Sandbox lease lifecycle updates.",
+	},
+	EventKindSandboxLeaseExpiring: {
+		Kind: EventKindSandboxLeaseExpiring, Domain: eventDomainSandbox, Stage: EventStageLease, Schema: eventContractSchemaVersion,
+		Required: []string{"expires_at", "remaining"}, Description: "Pre-expiry warning: sandbox lease approaches expiration.",
 	},
 	EventKindSandboxIPPending: {
 		Kind: EventKindSandboxIPPending, Domain: eventDomainSandbox, Stage: EventStageNetwork, Schema: eventContractSchemaVersion,

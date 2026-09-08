@@ -237,6 +237,7 @@ type SandboxOpts struct {
 	IP            string
 	Keepalive     bool
 	LeaseExpires  time.Time
+	LeaseWarned   bool
 	LastUsedAt    time.Time
 	CreatedAt     time.Time
 	LastUpdatedAt time.Time
@@ -266,6 +267,10 @@ func NewTestSandbox(opts SandboxOpts) models.Sandbox {
 	if opts.LastUpdatedAt.IsZero() {
 		opts.LastUpdatedAt = FixedTime
 	}
+	var leaseWarnedAt time.Time
+	if opts.LeaseWarned {
+		leaseWarnedAt = FixedTime
+	}
 
 	return models.Sandbox{
 		VMID:          opts.VMID,
@@ -276,6 +281,7 @@ func NewTestSandbox(opts SandboxOpts) models.Sandbox {
 		IP:            opts.IP,
 		Keepalive:     opts.Keepalive,
 		LeaseExpires:  opts.LeaseExpires,
+		LeaseWarnedAt: leaseWarnedAt,
 		LastUsedAt:    opts.LastUsedAt,
 		CreatedAt:     opts.CreatedAt,
 		LastUpdatedAt: opts.LastUpdatedAt,

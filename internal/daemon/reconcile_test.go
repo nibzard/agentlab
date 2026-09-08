@@ -123,6 +123,32 @@ func TestReconcileState_NilBackendIsNoop(t *testing.T) {
 	assertState(t, store, 7108, models.SandboxRunning)
 }
 
+// TestReconcileState_VMNotFoundRequestedStale_MarksDestroyed: a REQUESTED
+// sandbox whose VM is still absent after ghostSandboxTTL is a ghost row from a
+// failed creation (no clone ever ran); reconciliation must reap it as DESTROYED.
+func TestReconcileState_VMNotFoundRequestedStale_MarksDestroyed(t *testing.T) {
+	store := newTestStore(t)
+	backend := &stubBackend{statusErr: proxmox.ErrVMNotFound}
+	mgr := NewSandboxManager(store, backend, log.New(io.Discard, "", 0))
+
+	stale := time.Now().UTC().Add(-2 * time.Hour)
+	if err := store.CreateSandbox(context.Background(), models.Sandbox{
+		VMID:          7109,
+		Name:          "reconcile-ghost",
+		Profile:       "default",
+		State:         models.SandboxRequested,
+		CreatedAt:     stale,
+		LastUpdatedAt: stale,
+	}); err != nil {
+		t.Fatalf("create sandbox 7109: %v", err)
+	}
+
+	if err := mgr.ReconcileState(context.Background()); err != nil {
+		t.Fatalf("ReconcileState: %v", err)
+	}
+	assertState(t, store, 7109, models.SandboxDestroyed)
+}
+
 // --- helpers ---
 
 func requireSandbox(t *testing.T, store *db.Store, vmid int, state models.SandboxState) {
