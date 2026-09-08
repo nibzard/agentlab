@@ -29,6 +29,20 @@ it.
 agentlab sandbox lease renew --ttl 2h 1001
 ```
 
+## Pre-expiry warnings
+
+Expiry is destructive: the lease GC stops and destroys the sandbox with no
+further confirmation. To give you a chance to renew first, each GC cycle also
+emits a pre-expiry warning when a sandbox lease enters the warn window
+(`lease_warn_window`, default 24h). The warning fires **once per lease term**:
+renewal clears the marker, so the renewed lease warns again near its new
+expiration. When `notify_webhook_url` is configured, the warning is also
+POSTed there (plain-text body with the renew command, structured
+`X-Agentlab-*` headers) — point it at an ntfy topic or any HTTP sink to get a
+push on your phone. Delivery is retried every GC cycle until the webhook
+accepts it, so a temporarily unreachable sink does not drop the alert. See
+[configuration.md](../reference/configuration.md) for the exact keys.
+
 ## Idle detection
 
 Idle stop is the second reclaim path. It is enabled by default and watches

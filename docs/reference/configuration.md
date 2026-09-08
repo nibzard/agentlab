@@ -114,6 +114,26 @@ Per-source-IP limits on guest-facing endpoints. A QPS or burst of `0` disables t
 !!! note "Pool admission is not yet documented"
     `pool_total_cores` and `pool_total_memory_mb` are tracked and exposed at `GET /v1/pool/status`, but the admission policy and rejection behavior are not yet documented.
 
+## Lease expiry warnings
+
+| Key | Type | Default | Description |
+| --- | --- | --- | --- |
+| `lease_warn_window` | duration | `24h` | How long before lease expiration a sandbox receives a pre-expiry warning. `0` disables warnings. |
+| `notify_webhook_url` | string | `""` (disabled) | Webhook that receives lease pre-expiry warnings. Must be a valid http(s) URL. |
+
+Each lease-GC cycle (every `30s` by default) inspects leases approaching expiry. When a sandbox
+enters the warn window, AgentLab emits a `sandbox.lease.expiring` event and, when configured,
+POSTs a notification to `notify_webhook_url`. The warning fires once per lease term: renewal
+(`agentlab sandbox lease renew`) clears the marker, so the renewed lease warns again near its new
+expiration. Delivery failures are retried on the next GC cycle; the warning is only marked as
+delivered after the webhook accepted it.
+
+The POST body is plain text (a human-readable one-liner including the renew command), with
+structured headers: `X-Agentlab-Event` (`sandbox.lease.expiring`), `X-Agentlab-VMID`,
+`X-Agentlab-Expires-At`, and a `Title` header (rendered as the title by ntfy-style receivers).
+Any HTTP receiver works: point it at an ntfy topic, a healthchecks-style dead-man switch, or a
+small custom handler.
+
 ## Offline and proxy
 
 | Key | Type | Default | Description |
