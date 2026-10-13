@@ -91,8 +91,12 @@ type JobOrchestrator struct {
 	bootstrapTTL     time.Duration
 	provisionTimeout time.Duration
 	failureTimeout   time.Duration
-	snippetsMu       sync.Mutex
-	snippets         map[int]proxmox.CloudInitSnippet
+	// nativeSSHKeys routes SSH key injection through the Proxmox cloud-init
+	// drive instead of a snippet file. Set for off-host daemons whose snippet
+	// writes are invisible to the Proxmox host.
+	nativeSSHKeys bool
+	snippetsMu    sync.Mutex
+	snippets      map[int]proxmox.CloudInitSnippet
 	// runner registers detached work (job execution, lease renewal) against the
 	// daemon lifecycle so it is cancelled and awaited at shutdown. Defaults to a
 	// detached runner when unset (review H2).
@@ -146,6 +150,15 @@ func NewJobOrchestrator(store *db.Store, profiles map[string]models.Profile, bac
 		snippets:         make(map[int]proxmox.CloudInitSnippet),
 		runner:           DetachedRunner(),
 	}
+}
+
+// WithNativeSSHKeys toggles native cloud-init sshkeys injection (no snippet).
+func (o *JobOrchestrator) WithNativeSSHKeys(enabled bool) *JobOrchestrator {
+	if o == nil {
+		return o
+	}
+	o.nativeSSHKeys = enabled
+	return o
 }
 
 // WithBackgroundRunner sets the daemon lifecycle runner used to register
@@ -482,24 +495,35 @@ func (o *JobOrchestrator) ProvisionSandbox(ctx context.Context, vmid int) (model
 		return fail(err)
 	}
 
-	snippet, err := o.snippetStore.Create(proxmox.SnippetInput{
-		VMID:           proxmox.VMID(sandbox.VMID),
-		Hostname:       sandbox.Name,
-		SSHPublicKey:   o.sshPublicKey,
-		BootstrapToken: token,
-		ControllerURL:  o.controllerURL,
-	})
-	if err != nil {
-		return fail(err)
-	}
-	if o.logger != nil {
-		o.logger.Printf("sandbox %d: cloud-init snippet created at %s", sandbox.VMID, snippet.StoragePath)
-	}
-	o.rememberSnippet(snippet)
-
 	cfg := proxmox.VMConfig{
-		Name:      sandbox.Name,
-		CloudInit: snippet.StoragePath,
+		Name: sandbox.Name,
+	}
+	if o.nativeSSHKeys {
+		// Off-host daemon: snippets written locally are invisible to the
+		// Proxmox host, so inject the SSH key through the cloud-init drive's
+		// native sshkeys parameter and skip cicustom entirely. The guest then
+		// boots with the template's cloud-init plus this key; it does not
+		// register a bootstrap token with the controller.
+		cfg.SSHKeys = o.sshPublicKey
+		if o.logger != nil {
+			o.logger.Printf("sandbox %d: native cloud-init sshkeys enabled, skipping snippet", sandbox.VMID)
+		}
+	} else {
+		snippet, err := o.snippetStore.Create(proxmox.SnippetInput{
+			VMID:           proxmox.VMID(sandbox.VMID),
+			Hostname:       sandbox.Name,
+			SSHPublicKey:   o.sshPublicKey,
+			BootstrapToken: token,
+			ControllerURL:  o.controllerURL,
+		})
+		if err != nil {
+			return fail(err)
+		}
+		if o.logger != nil {
+			o.logger.Printf("sandbox %d: cloud-init snippet created at %s", sandbox.VMID, snippet.StoragePath)
+		}
+		o.rememberSnippet(snippet)
+		cfg.CloudInit = snippet.StoragePath
 	}
 	cfg, err = applyProfileVMConfig(profile, cfg)
 	if err != nil {

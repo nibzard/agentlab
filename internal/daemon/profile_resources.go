@@ -21,11 +21,17 @@ type profileNetworkSpec struct {
 	Mode          *string `yaml:"mode"`
 	Firewall      *bool   `yaml:"firewall"`
 	FirewallGroup *string `yaml:"firewall_group"`
+	// IPConfig0 and Nameserver pin static cloud-init addressing for net0,
+	// avoiding duplicate DHCP identities between linked clones that share a
+	// machine-id (and therefore a DHCP client DUID).
+	IPConfig0  string `yaml:"ip_config0"`
+	Nameserver string `yaml:"nameserver"`
 }
 
 type profileResourceSpec struct {
 	Cores         int     `yaml:"cores"`
 	MemoryMB      int     `yaml:"memory_mb"`
+	BalloonMB     int     `yaml:"balloon_mb"`
 	CPUPinning    string  `yaml:"cpulist"`
 	CPUOverCommit float64 `yaml:"cpu_over_commit"`
 	MemOverCommit float64 `yaml:"mem_over_commit"`
@@ -48,6 +54,9 @@ func applyProfileVMConfig(profile models.Profile, cfg proxmox.VMConfig) (proxmox
 	if spec.Resources.MemoryMB > 0 {
 		cfg.MemoryMB = spec.Resources.MemoryMB
 	}
+	if spec.Resources.BalloonMB > 0 {
+		cfg.BalloonMB = spec.Resources.BalloonMB
+	}
 	if strings.TrimSpace(spec.Resources.CPUPinning) != "" {
 		cfg.CPUPinning = strings.TrimSpace(spec.Resources.CPUPinning)
 	}
@@ -59,6 +68,12 @@ func applyProfileVMConfig(profile models.Profile, cfg proxmox.VMConfig) (proxmox
 	}
 	if strings.TrimSpace(spec.Network.Model) != "" {
 		cfg.NetModel = strings.TrimSpace(spec.Network.Model)
+	}
+	if strings.TrimSpace(spec.Network.IPConfig0) != "" {
+		cfg.IPConfig0 = strings.TrimSpace(spec.Network.IPConfig0)
+	}
+	if strings.TrimSpace(spec.Network.Nameserver) != "" {
+		cfg.Nameserver = strings.TrimSpace(spec.Network.Nameserver)
 	}
 	if spec.Storage.RootSizeGB > 0 {
 		cfg.RootDiskGB = spec.Storage.RootSizeGB

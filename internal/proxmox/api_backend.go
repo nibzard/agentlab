@@ -197,6 +197,26 @@ func (b *APIBackend) Configure(ctx context.Context, vmid VMID, cfg VMConfig) err
 	if cfg.CloudInit != "" {
 		params.Set("cicustom", formatCICustom(cfg.CloudInit))
 	}
+	if cfg.SSHKeys != "" {
+		// PVE validates sshkeys as an already-urlencoded string on top of the
+		// form-encoded transport: spaces must arrive as %20 and base64 '+'
+		// as %2B, or the validator rejects the value. url.Values.Encode then
+		// carries the '%' escapes safely through the form body.
+		escaped := strings.TrimSpace(cfg.SSHKeys)
+		escaped = strings.ReplaceAll(escaped, "+", "%2B")
+		escaped = strings.ReplaceAll(escaped, " ", "%20")
+		escaped = strings.ReplaceAll(escaped, "\n", "%0A")
+		params.Set("sshkeys", escaped)
+	}
+	if cfg.BalloonMB > 0 {
+		params.Set("balloon", strconv.Itoa(cfg.BalloonMB))
+	}
+	if cfg.IPConfig0 != "" {
+		params.Set("ipconfig0", cfg.IPConfig0)
+	}
+	if cfg.Nameserver != "" {
+		params.Set("nameserver", cfg.Nameserver)
+	}
 
 	if len(params) > 0 {
 		endpoint := fmt.Sprintf("/nodes/%s/qemu/%d/config", node, vmid)

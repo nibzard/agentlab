@@ -84,6 +84,19 @@ type VMConfig struct {
 	// RootDisk optionally selects a specific disk to resize (e.g., "scsi0").
 	// ABOUTME: When empty, the backend will auto-detect the boot/root disk.
 	RootDisk string
+	// SSHKeys holds the raw SSH public key line(s) to inject through the
+	// cloud-init drive's native sshkeys parameter. Used by daemons that cannot
+	// write cloud-init snippets where the Proxmox host reads them (remote API
+	// backend). Empty = leave the cloud-init SSH keys unchanged.
+	SSHKeys string
+	// BalloonMB sets the virtio balloon minimum target in MiB (0 = unchanged).
+	// The guest still sees MemoryMB; the host may reclaim down to BalloonMB.
+	BalloonMB int
+	// IPConfig0 sets the cloud-init ipconfig0 line for net0 (e.g.,
+	// "ip=10.77.0.20/24,gw=10.77.0.1"). Empty = leave addressing unchanged.
+	IPConfig0 string
+	// Nameserver sets the cloud-init nameserver line (e.g., "10.77.0.1").
+	Nameserver string
 }
 
 // Backend defines the interface for Proxmox operations.

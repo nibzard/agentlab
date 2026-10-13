@@ -66,8 +66,13 @@ type Config struct {
 	SnippetStorage          string
 	SSHPublicKey            string
 	SSHPublicKeyPath        string
-	ProxmoxCommandTimeout   time.Duration
-	ProvisioningTimeout     time.Duration
+	// ProvisionSSHKeysNative skips the cloud-init snippet and injects the
+	// SSH public key through the Proxmox cloud-init drive's native sshkeys
+	// parameter. Required when the daemon runs off-host with the API backend
+	// and cannot write snippets into a directory the Proxmox host reads.
+	ProvisionSSHKeysNative bool
+	ProxmoxCommandTimeout  time.Duration
+	ProvisioningTimeout    time.Duration
 	// OrphanGracePeriod is how long a sandbox may remain in a transient
 	// provisioning state (REQUESTED/PROVISIONING/BOOTING) after startup before
 	// the startup orphan sweep reclaims it. Defaults to 2x the provisioning
@@ -172,6 +177,7 @@ type FileConfig struct {
 	SnippetStorage             string   `yaml:"snippet_storage"`
 	SSHPublicKey               string   `yaml:"ssh_public_key"`
 	SSHPublicKeyPath           string   `yaml:"ssh_public_key_path"`
+	ProvisionSSHKeysNative     *bool    `yaml:"provision_sshkeys_native"`
 	ProxmoxCommandTimeout      string   `yaml:"proxmox_command_timeout"`
 	ProvisioningTimeout        string   `yaml:"provisioning_timeout"`
 	OrphanGracePeriod          string   `yaml:"orphan_grace_period"`
@@ -444,6 +450,9 @@ func applyFileConfig(cfg *Config, fileCfg FileConfig) error {
 	}
 	if fileCfg.SSHPublicKeyPath != "" {
 		cfg.SSHPublicKeyPath = fileCfg.SSHPublicKeyPath
+	}
+	if fileCfg.ProvisionSSHKeysNative != nil {
+		cfg.ProvisionSSHKeysNative = *fileCfg.ProvisionSSHKeysNative
 	}
 	if fileCfg.ProxmoxCommandTimeout != "" {
 		timeout, err := parseDurationField(fileCfg.ProxmoxCommandTimeout, "proxmox_command_timeout")

@@ -30,6 +30,8 @@ All other fields are stored as raw YAML and interpreted at provisioning time.
 | `mode` | `network` | `off`, `nat` (default), or `allowlist`. |
 | `firewall` | `network` | Boolean; enables the Proxmox NIC firewall flag. |
 | `firewall_group` | `network` | Explicit firewall group. |
+| `ip_config0` | `network` | Cloud-init `ipconfig0` line for net0, for example `ip=10.77.0.20/24,gw=10.77.0.1`. Static addressing avoids duplicate DHCP identities between linked clones that share a machine-id (and therefore one DHCP client DUID). |
+| `nameserver` | `network` | Cloud-init nameserver, for example `10.77.0.1`. |
 
 `network.mode` maps to a Proxmox firewall group:
 
@@ -48,6 +50,7 @@ mode is a validation error.
 | --- | --- |
 | `cores` | vCPU count. |
 | `memory_mb` | Memory in MB. |
+| `balloon_mb` | Virtio balloon minimum target in MB. The guest still sees `memory_mb`; the host may reclaim down to `balloon_mb`. |
 | `cpulist` | CPU pinning (`cpulist` in Proxmox). |
 | `cpu_over_commit` | CPU limit override. |
 | `mem_over_commit` | Memory over-commit factor. |

@@ -1027,6 +1027,29 @@ artifact_dir: %q
 	})
 }
 
+func TestLoadConfigProvisionSSHKeysNative(t *testing.T) {
+	t.Run("defaults to snippet provisioning", func(t *testing.T) {
+		root := t.TempDir()
+		configPath := filepath.Join(root, "config.yaml")
+		require.NoError(t, os.WriteFile(configPath, []byte("backend: proxmox\n"), 0o600))
+
+		cfg, err := Load(configPath)
+		require.NoError(t, err)
+		assert.False(t, cfg.ProvisionSSHKeysNative)
+	})
+
+	t.Run("file enables native sshkeys", func(t *testing.T) {
+		root := t.TempDir()
+		configPath := filepath.Join(root, "config.yaml")
+		payload := "backend: proxmox\nprovision_sshkeys_native: true\n"
+		require.NoError(t, os.WriteFile(configPath, []byte(payload), 0o600))
+
+		cfg, err := Load(configPath)
+		require.NoError(t, err)
+		assert.True(t, cfg.ProvisionSSHKeysNative)
+	})
+}
+
 func TestValidateOffline(t *testing.T) {
 	tests := []struct {
 		name        string

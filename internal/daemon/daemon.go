@@ -420,6 +420,7 @@ func newService(cfg config.Config, profiles map[string]models.Profile, store *db
 	jobOrchestrator := NewJobOrchestrator(store, profiles, backend, sandboxManager, workspaceManager, snippetStore, cfg.SSHPublicKey, controllerURL, log.Default(), redactor, metrics)
 	if jobOrchestrator != nil {
 		jobOrchestrator.WithProvisionTimeout(cfg.ProvisioningTimeout)
+		jobOrchestrator.WithNativeSSHKeys(cfg.ProvisionSSHKeysNative)
 		sandboxManager.WithSnippetCleaner(jobOrchestrator.CleanupSnippet)
 	}
 
