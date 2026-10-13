@@ -6,7 +6,8 @@ Wants=network-online.target
 [Service]
 Type=simple
 User=root
-Group=agentlab
+# Group=agentlab - NOT allowed: a non-root primary group breaks Proxmox IPC
+# (ipcc_send_rec: Unknown error -1 on every qm/pvesh call).
 UMask=0007
 ExecStart=/usr/local/bin/agentlabd --config /etc/agentlab/config.yaml
 Restart=on-failure
@@ -22,7 +23,12 @@ StandardError=append:/var/log/agentlab/agentlabd.log
 # NoNewPrivileges=true - Disabled for Proxmox IPC compatibility (qm clone requires it)
 # PrivateTmp=true - Disabled for Proxmox IPC compatibility
 ProtectSystem=strict
-ReadWritePaths=/etc/pve /var/lib/vz /var/lib/agentlab /var/log/agentlab /run/agentlab
+# /var/log/pve is required: qm/pct task wrappers write to /var/log/pve/tasks,
+# and a read-only path there fails every qm call ("Read-only file system").
+# /run (not just /run/agentlab) is required: Proxmox IPC sockets live in
+# /run/pve and ProtectSystem=strict would otherwise mount them read-only,
+# breaking pmxcfs with ipcc_send_rec: Unknown error -1.
+ReadWritePaths=/etc/pve /var/lib/vz /var/lib/agentlab /var/log/agentlab /var/log/pve /run
 CapabilityBoundingSet=CAP_CHOWN CAP_DAC_OVERRIDE CAP_FOWNER CAP_SETGID CAP_SETUID CAP_NET_ADMIN CAP_SYS_ADMIN
 
 [Install]

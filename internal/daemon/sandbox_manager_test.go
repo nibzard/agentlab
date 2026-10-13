@@ -5,6 +5,8 @@ import (
 	"errors"
 	"io"
 	"log"
+	"net/http"
+	"net/http/httptest"
 	"path/filepath"
 	"sync"
 	"testing"
@@ -335,6 +337,169 @@ func TestSandboxLeaseRenewalRejectsNonRunningState(t *testing.T) {
 	_, err := mgr.RenewLease(ctx, sandbox.VMID, 90*time.Minute)
 	if !errors.Is(err, ErrInvalidTransition) {
 		t.Fatalf("expected invalid transition, got %v", err)
+	}
+}
+
+func TestSandboxLeaseWarnFlow(t *testing.T) {
+	ctx := context.Background()
+	store := newTestStore(t)
+	backend := &stubBackend{}
+	mgr := NewSandboxManager(store, backend, log.New(io.Discard, "", 0))
+	base := time.Date(2026, 1, 29, 11, 0, 0, 0, time.UTC)
+	mgr.now = func() time.Time { return base }
+	mgr.WithLeaseWarnWindow(24 * time.Hour)
+
+	var mu sync.Mutex
+	var deliveries int
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
+		deliveries++
+		mu.Unlock()
+		if r.Header.Get("X-Agentlab-Event") != string(EventKindSandboxLeaseExpiring) {
+			t.Errorf("missing X-Agentlab-Event header")
+		}
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer srv.Close()
+	mgr.WithNotifier(NewNotifier(srv.URL, log.New(io.Discard, "", 0)))
+
+	sandbox := models.Sandbox{
+		VMID:         120,
+		Name:         "expiring",
+		Profile:      "default",
+		State:        models.SandboxRunning,
+		Keepalive:    false,
+		LeaseExpires: base.Add(2 * time.Hour),
+		CreatedAt:    base.Add(-2 * time.Hour),
+	}
+	if err := store.CreateSandbox(ctx, sandbox); err != nil {
+		t.Fatalf("create sandbox: %v", err)
+	}
+
+	// Outside the warn window: no warning yet.
+	updated, err := store.GetSandbox(ctx, sandbox.VMID)
+	if err != nil {
+		t.Fatalf("get sandbox: %v", err)
+	}
+	if !updated.LeaseWarnedAt.IsZero() {
+		t.Fatalf("expected no warning marker initially, got %s", updated.LeaseWarnedAt)
+	}
+
+	// First GC cycle inside the window: warn once (webhook + event + marker).
+	mgr.runLeaseGC(ctx)
+	mu.Lock()
+	got := deliveries
+	mu.Unlock()
+	if got != 1 {
+		t.Fatalf("expected 1 webhook delivery, got %d", got)
+	}
+	updated, err = store.GetSandbox(ctx, sandbox.VMID)
+	if err != nil {
+		t.Fatalf("get sandbox: %v", err)
+	}
+	if updated.LeaseWarnedAt.IsZero() {
+		t.Fatalf("expected warning marker set after delivery")
+	}
+
+	// Second cycle: no duplicate warning.
+	mgr.runLeaseGC(ctx)
+	mu.Lock()
+	got = deliveries
+	mu.Unlock()
+	if got != 1 {
+		t.Fatalf("expected no duplicate delivery, got %d", got)
+	}
+
+	// Renewal clears the marker so the new lease warns again near expiry.
+	renewed := base.Add(25 * time.Hour)
+	if err := store.UpdateSandboxLease(ctx, sandbox.VMID, renewed); err != nil {
+		t.Fatalf("renew lease: %v", err)
+	}
+	mgr.now = func() time.Time { return base.Add(2 * time.Hour) }
+	mgr.runLeaseGC(ctx)
+	updated, err = store.GetSandbox(ctx, sandbox.VMID)
+	if err != nil {
+		t.Fatalf("get sandbox: %v", err)
+	}
+	if updated.LeaseWarnedAt.IsZero() {
+		t.Fatalf("expected warning marker after renewal re-entering window")
+	}
+	mu.Lock()
+	got = deliveries
+	mu.Unlock()
+	if got != 2 {
+		t.Fatalf("expected second delivery after renewal, got %d", got)
+	}
+
+	// The sandbox must survive until its lease actually expires.
+	if updated.State == models.SandboxDestroyed {
+		t.Fatalf("sandbox destroyed before lease expiry")
+	}
+}
+
+func TestSandboxLeaseWarnRetriesFailedWebhook(t *testing.T) {
+	ctx := context.Background()
+	store := newTestStore(t)
+	backend := &stubBackend{}
+	mgr := NewSandboxManager(store, backend, log.New(io.Discard, "", 0))
+	base := time.Date(2026, 1, 29, 12, 0, 0, 0, time.UTC)
+	mgr.now = func() time.Time { return base }
+	mgr.WithLeaseWarnWindow(24 * time.Hour)
+
+	var mu sync.Mutex
+	var attempts, successes int
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
+		attempts++
+		first := attempts == 1
+		mu.Unlock()
+		if first {
+			w.WriteHeader(http.StatusServiceUnavailable)
+			return
+		}
+		mu.Lock()
+		successes++
+		mu.Unlock()
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer srv.Close()
+	mgr.WithNotifier(NewNotifier(srv.URL, log.New(io.Discard, "", 0)))
+
+	sandbox := models.Sandbox{
+		VMID:         121,
+		Name:         "flaky-webhook",
+		Profile:      "default",
+		State:        models.SandboxRunning,
+		LeaseExpires: base.Add(2 * time.Hour),
+		CreatedAt:    base.Add(-1 * time.Hour),
+	}
+	if err := store.CreateSandbox(ctx, sandbox); err != nil {
+		t.Fatalf("create sandbox: %v", err)
+	}
+
+	// First cycle: webhook fails, so no marker is set.
+	mgr.runLeaseGC(ctx)
+	updated, err := store.GetSandbox(ctx, sandbox.VMID)
+	if err != nil {
+		t.Fatalf("get sandbox: %v", err)
+	}
+	if !updated.LeaseWarnedAt.IsZero() {
+		t.Fatalf("failed delivery must not mark lease as warned")
+	}
+
+	// Second cycle: webhook succeeds, marker set.
+	mgr.runLeaseGC(ctx)
+	updated, err = store.GetSandbox(ctx, sandbox.VMID)
+	if err != nil {
+		t.Fatalf("get sandbox: %v", err)
+	}
+	if updated.LeaseWarnedAt.IsZero() {
+		t.Fatalf("expected warning marker after successful delivery")
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	if attempts != 2 || successes != 1 {
+		t.Fatalf("expected 2 attempts / 1 success, got %d/%d", attempts, successes)
 	}
 }
 

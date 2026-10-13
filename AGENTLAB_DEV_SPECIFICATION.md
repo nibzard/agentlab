@@ -575,9 +575,9 @@ This preserves “remote access for humans” without giving sandboxes a free pa
 - **Dependencies:** A2  
 - **Description:**  
   Harden `agentlabd.service` with systemd sandboxing where compatible with Proxmox tooling:
-  - `ProtectSystem=strict` (with required write paths)
-  - `PrivateTmp=true`
-  - `NoNewPrivileges=true`
+  - `ProtectSystem=strict` (with required write paths; `ReadWritePaths` MUST include `/etc/pve` and `/var/log/pve` — `qm`/`pct` write task logs under `/var/log/pve/tasks`)
+  - `PrivateTmp=true` — NOT compatible: breaks Proxmox IPC (`ipcc_send_rec: Unknown error -1`)
+  - `NoNewPrivileges=true` — NOT compatible: breaks Proxmox IPC
   - restrict capabilities to what’s required
 - **Definition of done:**
   - service still provisions VMs

@@ -539,6 +539,103 @@ func TestUpdateSandboxLease(t *testing.T) {
 	})
 }
 
+func TestListSandboxesWithLeaseExpiringBefore(t *testing.T) {
+	ctx := context.Background()
+	now := testutil.FixedTime
+
+	t.Run("warns only unwarned leases inside window", func(t *testing.T) {
+		store := openTestStore(t)
+		inWindow := testutil.NewTestSandbox(testutil.SandboxOpts{
+			VMID:         101,
+			State:        models.SandboxRunning,
+			LeaseExpires: now.Add(2 * time.Hour),
+		})
+		alreadyWarned := testutil.NewTestSandbox(testutil.SandboxOpts{
+			VMID:         102,
+			State:        models.SandboxRunning,
+			LeaseExpires: now.Add(2 * time.Hour),
+			LeaseWarned:  true,
+		})
+		tooFar := testutil.NewTestSandbox(testutil.SandboxOpts{
+			VMID:         103,
+			State:        models.SandboxRunning,
+			LeaseExpires: now.Add(72 * time.Hour),
+		})
+		expired := testutil.NewTestSandbox(testutil.SandboxOpts{
+			VMID:         104,
+			State:        models.SandboxRunning,
+			LeaseExpires: now.Add(-1 * time.Minute),
+		})
+		destroyed := testutil.NewTestSandbox(testutil.SandboxOpts{
+			VMID:         105,
+			State:        models.SandboxDestroyed,
+			LeaseExpires: now.Add(2 * time.Hour),
+		})
+		for _, sb := range []models.Sandbox{inWindow, alreadyWarned, tooFar, expired, destroyed} {
+			require.NoError(t, store.CreateSandbox(ctx, sb))
+		}
+		require.NoError(t, store.MarkSandboxLeaseWarned(ctx, alreadyWarned.VMID, now.Add(-time.Minute)))
+
+		got, err := store.ListSandboxesWithLeaseExpiringBefore(ctx, now, now.Add(24*time.Hour))
+		require.NoError(t, err)
+		assert.Len(t, got, 1)
+		assert.Equal(t, inWindow.VMID, got[0].VMID)
+	})
+
+	t.Run("nil store", func(t *testing.T) {
+		_, err := (*Store)(nil).ListSandboxesWithLeaseExpiringBefore(ctx, time.Now(), time.Now())
+		assert.EqualError(t, err, "db store is nil")
+	})
+}
+
+func TestMarkSandboxLeaseWarned(t *testing.T) {
+	ctx := context.Background()
+
+	t.Run("success", func(t *testing.T) {
+		store := openTestStore(t)
+		sb := testutil.NewTestSandbox(testutil.SandboxOpts{
+			VMID:         testutil.TestVMID,
+			State:        models.SandboxRunning,
+			LeaseExpires: testutil.FixedTime.Add(time.Hour),
+		})
+		require.NoError(t, store.CreateSandbox(ctx, sb))
+
+		warnedAt := testutil.FixedTime.Add(10 * time.Minute)
+		require.NoError(t, store.MarkSandboxLeaseWarned(ctx, testutil.TestVMID, warnedAt))
+
+		got, err := store.GetSandbox(ctx, testutil.TestVMID)
+		require.NoError(t, err)
+		assert.Equal(t, warnedAt, got.LeaseWarnedAt)
+	})
+
+	t.Run("renewal clears warning marker", func(t *testing.T) {
+		store := openTestStore(t)
+		sb := testutil.NewTestSandbox(testutil.SandboxOpts{
+			VMID:         testutil.TestVMID,
+			State:        models.SandboxRunning,
+			LeaseExpires: testutil.FixedTime.Add(time.Hour),
+		})
+		require.NoError(t, store.CreateSandbox(ctx, sb))
+		require.NoError(t, store.MarkSandboxLeaseWarned(ctx, testutil.TestVMID, testutil.FixedTime))
+
+		require.NoError(t, store.UpdateSandboxLease(ctx, testutil.TestVMID, testutil.FixedTime.Add(48*time.Hour)))
+
+		got, err := store.GetSandbox(ctx, testutil.TestVMID)
+		require.NoError(t, err)
+		assert.True(t, got.LeaseWarnedAt.IsZero(), "renewal must clear lease_warned_at")
+
+		due, err := store.ListSandboxesWithLeaseExpiringBefore(ctx, testutil.FixedTime.Add(26*time.Hour), testutil.FixedTime.Add(48*time.Hour))
+		require.NoError(t, err)
+		assert.Len(t, due, 1, "renewed lease must warn again near its new expiry")
+	})
+
+	t.Run("invalid vmid", func(t *testing.T) {
+		store := openTestStore(t)
+		err := store.MarkSandboxLeaseWarned(ctx, 0, time.Now())
+		assert.EqualError(t, err, "vmid must be positive")
+	})
+}
+
 func TestUpdateSandboxLastUsed(t *testing.T) {
 	ctx := context.Background()
 

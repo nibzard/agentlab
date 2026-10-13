@@ -82,6 +82,13 @@ type Config struct {
 	IdleStopInterval       time.Duration
 	IdleStopMinutesDefault int
 	IdleStopCPUThreshold   float64
+	// LeaseWarnWindow is how long before lease expiration a sandbox receives
+	// a pre-expiry warning (event plus optional webhook). Zero disables it.
+	LeaseWarnWindow time.Duration
+	// NotifyWebhookURL is an optional webhook that receives operational
+	// notifications (e.g. lease pre-expiry warnings) as plain-text POSTs
+	// with X-Agentlab-* headers. Empty disables delivery.
+	NotifyWebhookURL string
 	// Proxmox backend configuration
 	ProxmoxBackend          string // "shell" or "api"
 	ProxmoxCloneMode        string // "linked" or "full"
@@ -185,6 +192,8 @@ type FileConfig struct {
 	IdleStopInterval           string   `yaml:"idle_stop_interval"`
 	IdleStopMinutesDefault     *int     `yaml:"idle_stop_minutes_default"`
 	IdleStopCPUThreshold       *float64 `yaml:"idle_stop_cpu_threshold"`
+	LeaseWarnWindow            string   `yaml:"lease_warn_window"`
+	NotifyWebhookURL           string   `yaml:"notify_webhook_url"`
 	ProxmoxBackend             string   `yaml:"proxmox_backend"`
 	ProxmoxCloneMode           string   `yaml:"proxmox_clone_mode"`
 	ProxmoxAPIURL              string   `yaml:"proxmox_api_url"`
@@ -292,6 +301,8 @@ func DefaultConfig() Config {
 		IdleStopInterval:        1 * time.Minute,
 		IdleStopMinutesDefault:  30,
 		IdleStopCPUThreshold:    0.05,
+		LeaseWarnWindow:         24 * time.Hour,
+		NotifyWebhookURL:        "",
 		ProxmoxBackend:          "shell",
 		ProxmoxCloneMode:        "linked",
 		ProxmoxAPIURL:           "https://localhost:8006",
@@ -490,6 +501,16 @@ func applyFileConfig(cfg *Config, fileCfg FileConfig) error {
 	}
 	if fileCfg.IdleStopCPUThreshold != nil {
 		cfg.IdleStopCPUThreshold = *fileCfg.IdleStopCPUThreshold
+	}
+	if fileCfg.LeaseWarnWindow != "" {
+		window, err := parseDurationField(fileCfg.LeaseWarnWindow, "lease_warn_window")
+		if err != nil {
+			return err
+		}
+		cfg.LeaseWarnWindow = window
+	}
+	if fileCfg.NotifyWebhookURL != "" {
+		cfg.NotifyWebhookURL = fileCfg.NotifyWebhookURL
 	}
 	if fileCfg.ProxmoxBackend != "" {
 		cfg.ProxmoxBackend = fileCfg.ProxmoxBackend
@@ -779,6 +800,14 @@ func (c Config) Validate() error {
 	}
 	if c.IdleStopCPUThreshold < 0 || c.IdleStopCPUThreshold > 1 {
 		return fmt.Errorf("idle_stop_cpu_threshold must be between 0 and 1")
+	}
+	if c.LeaseWarnWindow < 0 {
+		return fmt.Errorf("lease_warn_window must be non-negative")
+	}
+	if c.NotifyWebhookURL != "" {
+		if err := validateURL(c.NotifyWebhookURL, "notify_webhook_url"); err != nil {
+			return err
+		}
 	}
 	if c.ProxmoxBackend != "" && c.ProxmoxBackend != "shell" && c.ProxmoxBackend != "api" {
 		return fmt.Errorf("proxmox_backend must be either 'shell' or 'api'")

@@ -83,6 +83,8 @@ WantedBy=multi-user.target
 
 **Important**: The `NoNewPrivileges` and `PrivateTmp` directives MUST be commented out or removed for Proxmox IPC compatibility. The `qm clone` command will fail with `ipcc_send_rec: Unknown error -1` if these are enabled.
 
+**Important**: If you use `ProtectSystem=strict` (as `scripts/systemd/agentlabd.service` does), `ReadWritePaths` MUST include `/etc/pve`, `/var/log/pve`, and `/run`. Every `qm`/`pct` invocation writes a task log under `/var/log/pve/tasks/` (fails with `unable to create output file ... Read-only file system`), and Proxmox IPC sockets live under `/run/pve` (read-only there breaks `qm` with `ipcc_send_rec: Unknown error -1`).
+
 ### 3. Create Configuration
 
 Create `/etc/agentlab/config.yaml`:

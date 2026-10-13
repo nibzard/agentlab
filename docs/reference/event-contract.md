@@ -48,6 +48,7 @@ The event schema version is `1` (`eventContractSchemaVersion`), and the control 
 | --- | --- | --- | --- | --- |
 | `sandbox.state` | lifecycle | `from_state`, `to_state` | `duration_ms` | Sandbox finite-state transition. |
 | `sandbox.lease` | lease | `expires_at` | - | Sandbox lease lifecycle update. |
+| `sandbox.lease.expiring` | lease | `expires_at`, `remaining` | - | Pre-expiry warning: sandbox lease approaches expiration (see [configuration.md](configuration.md) lease warn window). |
 | `sandbox.ip_pending` | network | - | - | No IP observed yet during provisioning. |
 | `sandbox.ip_conflict` | network | `conflicting_vmid`, `ip` | - | IP conflict while assigning a sandbox IP. |
 | `sandbox.slo.ready` | slo | `duration_ms` | `checkpoint` | Time from create to READY. |

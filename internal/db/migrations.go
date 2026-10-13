@@ -385,6 +385,15 @@ var migrations = []migration{
 			)`,
 		},
 	},
+	{
+		version: 20,
+		name:    "add_sandbox_lease_warned",
+		// Set when a pre-expiry warning has been delivered for the current
+		// lease term; cleared on lease renewal so a renewed lease warns again.
+		statements: []string{
+			`ALTER TABLE sandboxes ADD COLUMN lease_warned_at TEXT`,
+		},
+	},
 }
 
 // Migrate runs any pending migrations against the provided database.

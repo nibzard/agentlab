@@ -65,6 +65,8 @@ const (
 //   - Owner: User ID of the sandbox owner (empty for single-user mode)
 //   - Keepalive: Whether the sandbox lease auto-renews
 //   - LeaseExpires: When the sandbox lease expires (zero if no TTL)
+//   - LeaseWarnedAt: When a pre-expiry warning was last emitted for the
+//     current lease term (zero if none; cleared on lease renewal)
 //   - LastUsedAt: When the sandbox was last touched by a user interaction
 //   - CreatedAt: When the sandbox was first created
 //   - LastUpdatedAt: When the sandbox state was last updated
@@ -82,6 +84,7 @@ type Sandbox struct {
 	Owner         string // User ID of the owner (empty in single-user mode)
 	Keepalive     bool
 	LeaseExpires  time.Time
+	LeaseWarnedAt time.Time
 	LastUsedAt    time.Time
 	CreatedAt     time.Time
 	LastUpdatedAt time.Time
