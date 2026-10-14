@@ -61,8 +61,10 @@ full key list, see [Configuration reference](../reference/configuration.md).
     ```
 
     The daemon then injects `ssh_public_key` through the cloud-init drive's
-    native `sshkeys` parameter and skips the snippet. Skip this step when the
-    daemon runs on the Proxmox host itself. See
+    native `sshkeys` parameter for the `agent` account and removes inherited
+    `cicustom` overrides. This mode supports standalone sandboxes only; job
+    submissions are rejected because the runner needs bootstrap credentials.
+    Skip this step when the daemon runs on the Proxmox host itself. See
     [Shell versus API backend](../explanation/shell-vs-api-backend.md) for the
     details, including static addressing for linked clones.
 

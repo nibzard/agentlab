@@ -492,6 +492,7 @@ resources:
 	publicKey := "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIBtestkey agent@test"
 	orchestrator := NewJobOrchestrator(store, profiles, backend, manager, nil, snippetStore, publicKey, "http://10.77.0.1:8844", log.New(io.Discard, "", 0), nil, nil)
 	orchestrator.WithNativeSSHKeys(true)
+	orchestrator.controllerURL = ""
 
 	now := time.Date(2026, 1, 29, 15, 0, 0, 0, time.UTC)
 	sandbox := models.Sandbox{
@@ -518,6 +519,12 @@ resources:
 		t.Fatalf("expected configure called once, got %d", len(backend.configureCalls))
 	}
 	cfg := backend.configureCalls[0]
+	if cfg.CIUser != "agent" || !cfg.ClearCloudInit {
+		t.Fatalf("native keys must target agent and clear template overrides: %+v", cfg)
+	}
+	var tokenCount int
+	require.NoError(t, store.DB.QueryRow("SELECT COUNT(*) FROM bootstrap_tokens").Scan(&tokenCount))
+	require.Zero(t, tokenCount)
 	if cfg.SSHKeys != publicKey {
 		t.Fatalf("expected native sshkeys injection, got %q", cfg.SSHKeys)
 	}

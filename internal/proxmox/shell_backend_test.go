@@ -721,3 +721,86 @@ func TestShellBackendSnapshotOps(t *testing.T) {
 		t.Fatalf("Snapshot calls = %#v, want %#v", runner.calls, want)
 	}
 }
+
+// keyFileRunner verifies qm's file-based key input while the file still exists.
+type keyFileRunner struct {
+	t     *testing.T
+	calls [][]string
+	key   string
+	path  string
+	retry bool
+	fail  bool
+}
+
+func (r *keyFileRunner) Run(_ context.Context, _ string, args ...string) (string, error) {
+	r.calls = append(r.calls, append([]string(nil), args...))
+	for i, arg := range args {
+		if arg != "--sshkeys" {
+			continue
+		}
+		r.path = args[i+1]
+		data, err := os.ReadFile(r.path)
+		if err != nil {
+			r.t.Fatal(err)
+		}
+		if string(data) != r.key+"\n" {
+			r.t.Fatalf("key file content = %q", data)
+		}
+		info, err := os.Stat(r.path)
+		if err != nil {
+			r.t.Fatal(err)
+		}
+		if info.Mode().Perm() != 0600 {
+			r.t.Fatalf("key file mode = %o", info.Mode().Perm())
+		}
+	}
+	if r.fail {
+		return "", errors.New("configure failed")
+	}
+	if r.retry && len(r.calls) == 1 {
+		return "", errors.New("net0.fwgroup: property is not defined in schema and the schema does not allow additional properties")
+	}
+	return "", nil
+}
+func TestShellBackendConfigureNativeCloudInit(t *testing.T) {
+	for _, mode := range []string{"success", "retry", "error"} {
+		t.Run(mode, func(t *testing.T) {
+			runner := &keyFileRunner{t: t, key: "ssh-ed25519 key+1 agent@test\nssh-ed25519 key2 other@test", retry: mode == "retry", fail: mode == "error"}
+			backend := &ShellBackend{Runner: runner}
+			cfg := VMConfig{SSHKeys: runner.key, CIUser: "agent", ClearCloudInit: true, BalloonMB: 512, IPConfig0: "ip=10.77.0.22/24,gw=10.77.0.1", Nameserver: "10.77.0.1"}
+			if mode == "retry" {
+				cfg.FirewallGroup = "agent_nat_default"
+			}
+			err := backend.Configure(context.Background(), 101, cfg)
+			if mode == "error" {
+				if err == nil {
+					t.Fatal("expected error")
+				}
+			} else if err != nil {
+				t.Fatal(err)
+			}
+			if runner.path == "" {
+				t.Fatal("missing key file")
+			}
+			if _, err := os.Stat(runner.path); !os.IsNotExist(err) {
+				t.Fatalf("key file was not removed: %v", err)
+			}
+			for _, args := range runner.calls {
+				for flag, want := range map[string]string{"--ciuser": "agent", "--delete": "cicustom", "--balloon": "512", "--ipconfig0": cfg.IPConfig0, "--nameserver": cfg.Nameserver} {
+					found := false
+					for i, arg := range args {
+						if arg == flag && i+1 < len(args) && args[i+1] == want {
+							found = true
+						}
+					}
+					if !found {
+						t.Fatalf("missing %s=%s in %v", flag, want, args)
+					}
+				}
+			}
+			if mode == "retry" && len(runner.calls) != 2 {
+				t.Fatalf("expected retry, got %v", runner.calls)
+			}
+		})
+	}
+}

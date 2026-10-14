@@ -2,6 +2,7 @@ package daemon
 
 import (
 	"fmt"
+	"net/netip"
 	"strings"
 
 	"github.com/agentlab/agentlab/internal/models"
@@ -155,4 +156,27 @@ func profileResourceAlloc(profile models.Profile) (cores, memoryMB int, allowBur
 		allowBurst = *spec.Resources.AllowBurst
 	}
 	return
+}
+
+// profileStaticIPs validates literal addresses while allowing DHCP and SLAAC.
+func profileStaticIPs(ipconfig string) ([]string, error) {
+	var ips []string
+	for _, field := range strings.Split(ipconfig, ",") {
+		key, value, ok := strings.Cut(strings.TrimSpace(field), "=")
+		if !ok || (key != "ip" && key != "ip6") {
+			continue
+		}
+		if value == "dhcp" || (key == "ip6" && value == "auto") {
+			continue
+		}
+		prefix, err := netip.ParsePrefix(value)
+		if err != nil {
+			return nil, fmt.Errorf("network.ip_config0: invalid %s address %q: %w", key, value, err)
+		}
+		if (key == "ip") != prefix.Addr().Is4() {
+			return nil, fmt.Errorf("network.ip_config0: wrong address family for %s", key)
+		}
+		ips = append(ips, prefix.Addr().Unmap().String())
+	}
+	return ips, nil
 }

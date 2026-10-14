@@ -67,9 +67,10 @@ type Config struct {
 	SSHPublicKey            string
 	SSHPublicKeyPath        string
 	// ProvisionSSHKeysNative skips the cloud-init snippet and injects the
-	// SSH public key through the Proxmox cloud-init drive's native sshkeys
+	// SSH public key for standalone sandboxes through the native sshkeys
 	// parameter. Required when the daemon runs off-host with the API backend
 	// and cannot write snippets into a directory the Proxmox host reads.
+	// Jobs are rejected in this mode because they require bootstrap credentials.
 	ProvisionSSHKeysNative bool
 	ProxmoxCommandTimeout  time.Duration
 	ProvisioningTimeout    time.Duration

@@ -57,10 +57,18 @@ accept snippets at all.
 
 For an off-host daemon, set `provision_sshkeys_native: true`. The daemon then
 injects `ssh_public_key` through the cloud-init drive's native `sshkeys`
-parameter and skips the snippet. Guests provisioned this way do not register
-a bootstrap token with the controller. Pair it with static profile addressing
+parameter and skips the snippet. Both Proxmox backends support this mode.
+It sets `ciuser=agent` and removes inherited `cicustom` overrides, so `agentlab ssh` uses the injected key.
+Guests provisioned this way do not register a bootstrap token with the
+controller. This mode supports standalone sandboxes only; job submissions
+are rejected because the runner requires bootstrap credentials.
+
+Pair it with static profile addressing
 (`network.ip_config0` and `network.nameserver`) when linked clones share a
-machine-id and would draw one DHCP lease.
+machine-id and would draw one DHCP lease. A literal address is reserved
+until the sandbox is destroyed; a stopped sandbox keeps its reservation.
+Give concurrent sandboxes different static-address profiles, or use DHCP
+with a template that generates a unique machine-id for each clone.
 
 ## The default is shell
 

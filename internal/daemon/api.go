@@ -595,6 +595,9 @@ func (api *ControlAPI) handleJobValidatePlan(w http.ResponseWriter, r *http.Requ
 		if api.jobOrchestrator == nil {
 			resp.Errors = append(resp.Errors, V1PreflightIssue{Code: "precondition_missing", Field: "job_orchestrator", Message: "job orchestrator unavailable"})
 		} else {
+			if api.jobOrchestrator.nativeSSHKeys {
+				resp.Errors = append(resp.Errors, V1PreflightIssue{Code: "unsupported_provisioning_mode", Field: "provision_sshkeys_native", Message: "jobs require bootstrap credentials; provision_sshkeys_native supports standalone sandboxes only"})
+			}
 			if api.jobOrchestrator.backend == nil {
 				resp.Errors = append(resp.Errors, V1PreflightIssue{Code: "precondition_missing", Field: "backend", Message: "proxmox backend unavailable"})
 			}
@@ -933,6 +936,10 @@ func (api *ControlAPI) handleJobByID(w http.ResponseWriter, r *http.Request) {
 }
 
 func (api *ControlAPI) handleJobCreate(w http.ResponseWriter, r *http.Request) {
+	if api.jobOrchestrator != nil && api.jobOrchestrator.nativeSSHKeys {
+		writeError(w, http.StatusBadRequest, "jobs require bootstrap credentials; provision_sshkeys_native supports standalone sandboxes only")
+		return
+	}
 	var req V1JobCreateRequest
 	if err := decodeJSON(w, r, &req); err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
@@ -2275,6 +2282,11 @@ func (api *ControlAPI) handleSandboxCreate(w http.ResponseWriter, r *http.Reques
 		}
 		updated, err := api.jobOrchestrator.ProvisionSandbox(provisionCtx, createdSandbox.VMID)
 		if err != nil {
+			var conflict *db.StaticIPConflictError
+			if errors.As(err, &conflict) {
+				writeError(w, http.StatusConflict, conflict.Error())
+				return
+			}
 			// Log the actual error before writing generic response
 			if api.logger != nil {
 				api.logger.Printf("provision sandbox %d failed: %v", createdSandbox.VMID, err)

@@ -158,6 +158,27 @@ func (b *ShellBackend) vmExists(ctx context.Context, vmid VMID) (bool, error) {
 }
 
 func (b *ShellBackend) Configure(ctx context.Context, vmid VMID, cfg VMConfig) error {
+	if cfg.ClearCloudInit && cfg.CloudInit != "" {
+		return errors.New("cannot set and clear cloud-init overrides together")
+	}
+	// qm accepts a key file, whereas the REST API accepts the encoded keys.
+	var keyPath string
+	if strings.TrimSpace(cfg.SSHKeys) != "" {
+		file, err := os.CreateTemp("", "agentlab-sshkeys-*")
+		if err != nil {
+			return fmt.Errorf("create SSH key file: %w", err)
+		}
+		keyPath = file.Name()
+		defer os.Remove(keyPath)
+		_, writeErr := file.WriteString(strings.TrimSpace(cfg.SSHKeys) + "\n")
+		closeErr := file.Close()
+		if writeErr != nil {
+			return fmt.Errorf("write SSH key file: %w", writeErr)
+		}
+		if closeErr != nil {
+			return fmt.Errorf("close SSH key file: %w", closeErr)
+		}
+	}
 	buildConfigureArgs := func(firewallGroup string) []string {
 		args := []string{"set", strconv.Itoa(int(vmid))}
 		if cfg.Name != "" {
@@ -184,6 +205,24 @@ func (b *ShellBackend) Configure(ctx context.Context, vmid VMID, cfg VMConfig) e
 		}
 		if cfg.CloudInit != "" {
 			args = append(args, "--cicustom", formatCICustom(cfg.CloudInit))
+		}
+		if keyPath != "" {
+			args = append(args, "--sshkeys", keyPath)
+		}
+		if cfg.CIUser != "" {
+			args = append(args, "--ciuser", cfg.CIUser)
+		}
+		if cfg.ClearCloudInit {
+			args = append(args, "--delete", "cicustom")
+		}
+		if cfg.BalloonMB > 0 {
+			args = append(args, "--balloon", strconv.Itoa(cfg.BalloonMB))
+		}
+		if cfg.IPConfig0 != "" {
+			args = append(args, "--ipconfig0", cfg.IPConfig0)
+		}
+		if cfg.Nameserver != "" {
+			args = append(args, "--nameserver", cfg.Nameserver)
 		}
 		return args
 	}

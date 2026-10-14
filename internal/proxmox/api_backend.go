@@ -8,6 +8,7 @@ import (
 	"crypto/tls"
 	"crypto/x509"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -198,16 +199,19 @@ func (b *APIBackend) Configure(ctx context.Context, vmid VMID, cfg VMConfig) err
 		params.Set("cicustom", formatCICustom(cfg.CloudInit))
 	}
 	if cfg.SSHKeys != "" {
-		// PVE validates sshkeys as an already-urlencoded string on top of the
-		// form-encoded transport: spaces must arrive as %20 and base64 '+'
-		// as %2B, or the validator rejects the value. url.Values.Encode then
-		// carries the '%' escapes safely through the form body.
-		escaped := strings.TrimSpace(cfg.SSHKeys)
-		escaped = strings.ReplaceAll(escaped, "+", "%2B")
-		escaped = strings.ReplaceAll(escaped, " ", "%20")
-		escaped = strings.ReplaceAll(escaped, "\n", "%0A")
-		params.Set("sshkeys", escaped)
+		// PVE expects a URI-encoded key inside the form-encoded transport.
+		params.Set("sshkeys", strings.ReplaceAll(url.QueryEscape(strings.TrimSpace(cfg.SSHKeys)), "+", "%20"))
 	}
+	if cfg.CIUser != "" {
+		params.Set("ciuser", cfg.CIUser)
+	}
+	if cfg.ClearCloudInit {
+		if cfg.CloudInit != "" {
+			return errors.New("cannot set and clear cloud-init overrides together")
+		}
+		params.Set("delete", "cicustom")
+	}
+
 	if cfg.BalloonMB > 0 {
 		params.Set("balloon", strconv.Itoa(cfg.BalloonMB))
 	}

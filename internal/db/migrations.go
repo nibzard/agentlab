@@ -394,6 +394,17 @@ var migrations = []migration{
 			`ALTER TABLE sandboxes ADD COLUMN lease_warned_at TEXT`,
 		},
 	},
+	{
+		version: 21,
+		name:    "add_sandbox_static_ips",
+		statements: []string{
+			`CREATE TABLE sandbox_static_ips (
+				ip TEXT PRIMARY KEY,
+				vmid INTEGER NOT NULL REFERENCES sandboxes(vmid) ON DELETE CASCADE
+			)`,
+			`CREATE INDEX idx_sandbox_static_ips_vmid ON sandbox_static_ips(vmid)`,
+		},
+	},
 }
 
 // Migrate runs any pending migrations against the provided database.

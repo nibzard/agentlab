@@ -89,6 +89,10 @@ type VMConfig struct {
 	// write cloud-init snippets where the Proxmox host reads them (remote API
 	// backend). Empty = leave the cloud-init SSH keys unchanged.
 	SSHKeys string
+	// CIUser selects the cloud-init account receiving native keys.
+	CIUser string
+	// ClearCloudInit removes inherited cicustom overrides before native injection.
+	ClearCloudInit bool
 	// BalloonMB sets the virtio balloon minimum target in MiB (0 = unchanged).
 	// The guest still sees MemoryMB; the host may reclaim down to BalloonMB.
 	BalloonMB int
