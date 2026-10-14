@@ -465,3 +465,72 @@ func TestSandboxTouchHandler(t *testing.T) {
 		t.Fatalf("expected last_used_at %s, got %s", expected, got.LastUsedAt.UTC().Format(time.RFC3339Nano))
 	}
 }
+
+// DELETE on the sandbox resource is an alias of POST /destroy: cleanup
+// scripts that issue `curl -X DELETE /v1/sandboxes/<vmid>` used to read a
+// 405 while curl still exited 0, silently skipping destruction (T156's
+// leaked pair). The empty body of a bodyless DELETE means non-force.
+func TestSandboxDeleteDestroyHandler(t *testing.T) {
+	store := newTestStore(t)
+	backend := &stubBackend{}
+	manager := NewSandboxManager(store, backend, log.New(io.Discard, "", 0))
+	api := NewControlAPI(store, map[string]models.Profile{}, manager, nil, nil, "", log.New(io.Discard, "", 0))
+
+	stopped := models.Sandbox{
+		VMID:      210,
+		Name:      "delete-stopped",
+		Profile:   "default",
+		State:     models.SandboxStopped,
+		CreatedAt: time.Now().UTC(),
+	}
+	if err := store.CreateSandbox(context.Background(), stopped); err != nil {
+		t.Fatalf("create stopped sandbox: %v", err)
+	}
+	running := models.Sandbox{
+		VMID:      211,
+		Name:      "delete-running",
+		Profile:   "default",
+		State:     models.SandboxRunning,
+		CreatedAt: time.Now().UTC(),
+	}
+	if err := store.CreateSandbox(context.Background(), running); err != nil {
+		t.Fatalf("create running sandbox: %v", err)
+	}
+
+	delReq := httptest.NewRequest(http.MethodDelete, "/v1/sandboxes/210", nil)
+	delRec := httptest.NewRecorder()
+	api.handleSandboxByID(delRec, delReq)
+	if delRec.Code != http.StatusOK {
+		t.Fatalf("DELETE stopped sandbox: status %d, body %s", delRec.Code, delRec.Body.String())
+	}
+	got, err := store.GetSandbox(context.Background(), 210)
+	if err != nil || got.State != models.SandboxDestroyed {
+		t.Fatalf("sandbox 210 after DELETE: state %v err %v, want DESTROYED", got.State, err)
+	}
+
+	forceReq := httptest.NewRequest(http.MethodDelete, "/v1/sandboxes/211", bytes.NewBufferString(`{"force":true}`))
+	forceRec := httptest.NewRecorder()
+	api.handleSandboxByID(forceRec, forceReq)
+	if forceRec.Code != http.StatusOK {
+		t.Fatalf("DELETE force running sandbox: status %d, body %s", forceRec.Code, forceRec.Body.String())
+	}
+
+	patchReq := httptest.NewRequest(http.MethodPatch, "/v1/sandboxes/210", nil)
+	patchRec := httptest.NewRecorder()
+	api.handleSandboxByID(patchRec, patchReq)
+	if patchRec.Code != http.StatusMethodNotAllowed {
+		t.Fatalf("PATCH status = %d, want 405", patchRec.Code)
+	}
+	if allow := patchRec.Header().Get("Allow"); allow != "GET, DELETE" {
+		t.Fatalf("Allow header = %q, want %q", allow, "GET, DELETE")
+	}
+}
+
+func TestSandboxDeletePermissionMapping(t *testing.T) {
+	if got := sandboxActionPermission([]string{"210"}, http.MethodDelete); got != permSandboxDestroy {
+		t.Fatalf("sandboxActionPermission DELETE = %q, want %q", got, permSandboxDestroy)
+	}
+	if got := sandboxActionPermission([]string{"210"}, http.MethodPut); got != "" {
+		t.Fatalf("sandboxActionPermission PUT = %q, want empty", got)
+	}
+}

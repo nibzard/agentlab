@@ -378,6 +378,7 @@ func TestControlAPI_Authorization(t *testing.T) {
 			{http.MethodPost, "/v1/sandboxes/1001/touch", ""},
 			{http.MethodPost, "/v1/sandboxes/1001/revert", ""},
 			{http.MethodPost, "/v1/sandboxes/1001/destroy", ""},
+			{http.MethodDelete, "/v1/sandboxes/1001", ""},
 			{http.MethodGet, "/v1/sandboxes/1001/snapshots", ""},
 			{http.MethodPost, "/v1/sandboxes/1001/snapshots", `{"name":"snap"}`},
 			{http.MethodPost, "/v1/sandboxes/1001/snapshots/snap/restore", ""},

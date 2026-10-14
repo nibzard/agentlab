@@ -246,8 +246,11 @@ func (api *ControlAPI) exposureSandboxVMID(ctx context.Context, name string) int
 func sandboxActionPermission(parts []string, method string) string {
 	switch len(parts) {
 	case 1:
-		if method == http.MethodGet {
+		switch method {
+		case http.MethodGet:
 			return permSandboxRead
+		case http.MethodDelete:
+			return permSandboxDestroy
 		}
 	case 2:
 		return sandboxSubPermission(parts[1], method)
