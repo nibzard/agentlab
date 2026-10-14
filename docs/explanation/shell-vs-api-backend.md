@@ -47,6 +47,29 @@ snapshot, restore, and clone, the API backend uses REST endpoints as the
 primary path. It falls back to `pvesm` only on API error when
 `proxmox_api_shell_fallback` is true.
 
+One gap is cloud-init snippets. By default the daemon delivers the guest SSH
+key and bootstrap token through a snippet file it writes under `snippets_dir`.
+That file must land on storage the Proxmox host reads. When the daemon runs on
+the Proxmox host itself, a local directory works. When the daemon runs
+off-host, its snippet writes are invisible to the Proxmox host, the `local`
+storage often lacks the `snippets` content type, and the upload API does not
+accept snippets at all.
+
+For an off-host daemon, set `provision_sshkeys_native: true`. The daemon then
+injects `ssh_public_key` through the cloud-init drive's native `sshkeys`
+parameter and skips the snippet. Both Proxmox backends support this mode.
+It sets `ciuser=agent` and removes inherited `cicustom` overrides, so `agentlab ssh` uses the injected key.
+Guests provisioned this way do not register a bootstrap token with the
+controller. This mode supports standalone sandboxes only; job submissions
+are rejected because the runner requires bootstrap credentials.
+
+Pair it with static profile addressing
+(`network.ip_config0` and `network.nameserver`) when linked clones share a
+machine-id and would draw one DHCP lease. A literal address is reserved
+until the sandbox is destroyed; a stopped sandbox keeps its reservation.
+Give concurrent sandboxes different static-address profiles, or use DHCP
+with a template that generates a unique machine-id for each clone.
+
 ## The default is shell
 
 This is the part that trips people up. The default value of

@@ -2,6 +2,7 @@ package daemon
 
 import (
 	"fmt"
+	"net/netip"
 	"strings"
 
 	"github.com/agentlab/agentlab/internal/models"
@@ -21,11 +22,17 @@ type profileNetworkSpec struct {
 	Mode          *string `yaml:"mode"`
 	Firewall      *bool   `yaml:"firewall"`
 	FirewallGroup *string `yaml:"firewall_group"`
+	// IPConfig0 and Nameserver pin static cloud-init addressing for net0,
+	// avoiding duplicate DHCP identities between linked clones that share a
+	// machine-id (and therefore a DHCP client DUID).
+	IPConfig0  string `yaml:"ip_config0"`
+	Nameserver string `yaml:"nameserver"`
 }
 
 type profileResourceSpec struct {
 	Cores         int     `yaml:"cores"`
 	MemoryMB      int     `yaml:"memory_mb"`
+	BalloonMB     int     `yaml:"balloon_mb"`
 	CPUPinning    string  `yaml:"cpulist"`
 	CPUOverCommit float64 `yaml:"cpu_over_commit"`
 	MemOverCommit float64 `yaml:"mem_over_commit"`
@@ -48,6 +55,9 @@ func applyProfileVMConfig(profile models.Profile, cfg proxmox.VMConfig) (proxmox
 	if spec.Resources.MemoryMB > 0 {
 		cfg.MemoryMB = spec.Resources.MemoryMB
 	}
+	if spec.Resources.BalloonMB > 0 {
+		cfg.BalloonMB = spec.Resources.BalloonMB
+	}
 	if strings.TrimSpace(spec.Resources.CPUPinning) != "" {
 		cfg.CPUPinning = strings.TrimSpace(spec.Resources.CPUPinning)
 	}
@@ -59,6 +69,12 @@ func applyProfileVMConfig(profile models.Profile, cfg proxmox.VMConfig) (proxmox
 	}
 	if strings.TrimSpace(spec.Network.Model) != "" {
 		cfg.NetModel = strings.TrimSpace(spec.Network.Model)
+	}
+	if strings.TrimSpace(spec.Network.IPConfig0) != "" {
+		cfg.IPConfig0 = strings.TrimSpace(spec.Network.IPConfig0)
+	}
+	if strings.TrimSpace(spec.Network.Nameserver) != "" {
+		cfg.Nameserver = strings.TrimSpace(spec.Network.Nameserver)
 	}
 	if spec.Storage.RootSizeGB > 0 {
 		cfg.RootDiskGB = spec.Storage.RootSizeGB
@@ -140,4 +156,27 @@ func profileResourceAlloc(profile models.Profile) (cores, memoryMB int, allowBur
 		allowBurst = *spec.Resources.AllowBurst
 	}
 	return
+}
+
+// profileStaticIPs validates literal addresses while allowing DHCP and SLAAC.
+func profileStaticIPs(ipconfig string) ([]string, error) {
+	var ips []string
+	for _, field := range strings.Split(ipconfig, ",") {
+		key, value, ok := strings.Cut(strings.TrimSpace(field), "=")
+		if !ok || (key != "ip" && key != "ip6") {
+			continue
+		}
+		if value == "dhcp" || (key == "ip6" && value == "auto") {
+			continue
+		}
+		prefix, err := netip.ParsePrefix(value)
+		if err != nil {
+			return nil, fmt.Errorf("network.ip_config0: invalid %s address %q: %w", key, value, err)
+		}
+		if (key == "ip") != prefix.Addr().Is4() {
+			return nil, fmt.Errorf("network.ip_config0: wrong address family for %s", key)
+		}
+		ips = append(ips, prefix.Addr().Unmap().String())
+	}
+	return ips, nil
 }

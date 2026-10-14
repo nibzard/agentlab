@@ -91,8 +91,12 @@ type JobOrchestrator struct {
 	bootstrapTTL     time.Duration
 	provisionTimeout time.Duration
 	failureTimeout   time.Duration
-	snippetsMu       sync.Mutex
-	snippets         map[int]proxmox.CloudInitSnippet
+	// nativeSSHKeys routes SSH key injection through the Proxmox cloud-init
+	// drive instead of a snippet file. Set for off-host daemons whose snippet
+	// writes are invisible to the Proxmox host.
+	nativeSSHKeys bool
+	snippetsMu    sync.Mutex
+	snippets      map[int]proxmox.CloudInitSnippet
 	// runner registers detached work (job execution, lease renewal) against the
 	// daemon lifecycle so it is cancelled and awaited at shutdown. Defaults to a
 	// detached runner when unset (review H2).
@@ -146,6 +150,15 @@ func NewJobOrchestrator(store *db.Store, profiles map[string]models.Profile, bac
 		snippets:         make(map[int]proxmox.CloudInitSnippet),
 		runner:           DetachedRunner(),
 	}
+}
+
+// WithNativeSSHKeys toggles native cloud-init sshkeys injection (no snippet).
+func (o *JobOrchestrator) WithNativeSSHKeys(enabled bool) *JobOrchestrator {
+	if o == nil {
+		return o
+	}
+	o.nativeSSHKeys = enabled
+	return o
 }
 
 // WithBackgroundRunner sets the daemon lifecycle runner used to register
@@ -218,6 +231,9 @@ func (o *JobOrchestrator) Run(ctx context.Context, jobID string) error {
 	if job.Status != models.JobQueued {
 		return nil
 	}
+	if o.nativeSSHKeys {
+		return o.failJob(job, 0, false, errors.New("jobs require bootstrap credentials; provision_sshkeys_native supports standalone sandboxes only"))
+	}
 	profile, ok := o.profile(job.Profile)
 	if !ok {
 		return o.failJob(job, 0, false, fmt.Errorf("unknown profile %q", job.Profile))
@@ -260,6 +276,26 @@ func (o *JobOrchestrator) Run(ctx context.Context, jobID string) error {
 		return o.failJob(job, sandbox.VMID, false, err)
 	}
 
+	cloned := false
+	cfg, err := applyProfileVMConfig(profile, proxmox.VMConfig{Name: sandbox.Name})
+	if err != nil {
+		return o.failJob(job, sandbox.VMID, false, err)
+	}
+	ips, err := profileStaticIPs(cfg.IPConfig0)
+	if err != nil {
+		return o.failJob(job, sandbox.VMID, false, err)
+	}
+	if err := o.store.ReserveSandboxStaticIPs(ctx, sandbox.VMID, ips); err != nil {
+		return o.failJob(job, sandbox.VMID, false, err)
+	}
+	defer func() {
+		if !cloned && len(ips) > 0 {
+			releaseCtx, cancel := o.withFailureTimeout()
+			defer cancel()
+			_ = o.store.ReleaseSandboxStaticIPs(releaseCtx, sandbox.VMID)
+		}
+	}()
+
 	if err := o.sandboxManager.Transition(ctx, sandbox.VMID, models.SandboxProvisioning); err != nil {
 		return o.failJob(job, sandbox.VMID, false, err)
 	}
@@ -267,7 +303,7 @@ func (o *JobOrchestrator) Run(ctx context.Context, jobID string) error {
 	if err := o.backend.Clone(ctx, proxmox.VMID(profile.TemplateVM), proxmox.VMID(sandbox.VMID), sandbox.Name); err != nil {
 		return o.failJob(job, sandbox.VMID, false, err)
 	}
-	cloned := true
+	cloned = true
 
 	token, tokenHash, expiresAt, err := o.bootstrapToken()
 	if err != nil {
@@ -289,15 +325,7 @@ func (o *JobOrchestrator) Run(ctx context.Context, jobID string) error {
 	}
 	o.rememberSnippet(snippet)
 
-	cfg := proxmox.VMConfig{
-		Name:      sandbox.Name,
-		CloudInit: snippet.StoragePath,
-	}
-	cfg, err = applyProfileVMConfig(profile, cfg)
-	if err != nil {
-		o.cleanupSnippet(sandbox.VMID)
-		return o.failJob(job, sandbox.VMID, cloned, err)
-	}
+	cfg.CloudInit = snippet.StoragePath
 	if err := o.backend.Configure(ctx, proxmox.VMID(sandbox.VMID), cfg); err != nil {
 		o.cleanupSnippet(sandbox.VMID)
 		return o.failJob(job, sandbox.VMID, cloned, err)
@@ -425,7 +453,7 @@ func (o *JobOrchestrator) ProvisionSandbox(ctx context.Context, vmid int) (model
 	if o.sshPublicKey == "" {
 		return models.Sandbox{}, errors.New("ssh public key unavailable")
 	}
-	if o.controllerURL == "" {
+	if !o.nativeSSHKeys && o.controllerURL == "" {
 		return models.Sandbox{}, errors.New("controller URL unavailable")
 	}
 
@@ -460,6 +488,25 @@ func (o *JobOrchestrator) ProvisionSandbox(ctx context.Context, vmid int) (model
 		return models.Sandbox{}, err
 	}
 
+	cfg, err := applyProfileVMConfig(profile, proxmox.VMConfig{Name: sandbox.Name})
+	if err != nil {
+		return fail(err)
+	}
+	ips, err := profileStaticIPs(cfg.IPConfig0)
+	if err != nil {
+		return fail(err)
+	}
+	if err := o.store.ReserveSandboxStaticIPs(ctx, sandbox.VMID, ips); err != nil {
+		return fail(err)
+	}
+	defer func() {
+		if !cloned && len(ips) > 0 {
+			releaseCtx, cancel := o.withFailureTimeout()
+			defer cancel()
+			_ = o.store.ReleaseSandboxStaticIPs(releaseCtx, sandbox.VMID)
+		}
+	}()
+
 	if err := o.sandboxManager.Transition(ctx, sandbox.VMID, models.SandboxProvisioning); err != nil {
 		return fail(err)
 	}
@@ -474,36 +521,42 @@ func (o *JobOrchestrator) ProvisionSandbox(ctx context.Context, vmid int) (model
 		o.logger.Printf("sandbox %d: cloned from template %d", sandbox.VMID, profile.TemplateVM)
 	}
 
-	token, tokenHash, expiresAt, err := o.bootstrapToken()
-	if err != nil {
-		return fail(err)
-	}
-	if err := o.store.CreateBootstrapToken(ctx, tokenHash, sandbox.VMID, expiresAt); err != nil {
-		return fail(err)
-	}
+	if o.nativeSSHKeys {
+		// Off-host daemon: snippets written locally are invisible to the
+		// Proxmox host, so inject the SSH key through the cloud-init drive's
+		// native sshkeys parameter and skip cicustom entirely. The guest then
+		// boots with the template's cloud-init plus this key; it does not
+		// register a bootstrap token with the controller.
+		cfg.SSHKeys = o.sshPublicKey
+		cfg.CIUser = "agent"
+		cfg.ClearCloudInit = true
+		if o.logger != nil {
+			o.logger.Printf("sandbox %d: native cloud-init sshkeys enabled, skipping snippet", sandbox.VMID)
+		}
+	} else {
+		token, tokenHash, expiresAt, err := o.bootstrapToken()
+		if err != nil {
+			return fail(err)
+		}
+		if err := o.store.CreateBootstrapToken(ctx, tokenHash, sandbox.VMID, expiresAt); err != nil {
+			return fail(err)
+		}
 
-	snippet, err := o.snippetStore.Create(proxmox.SnippetInput{
-		VMID:           proxmox.VMID(sandbox.VMID),
-		Hostname:       sandbox.Name,
-		SSHPublicKey:   o.sshPublicKey,
-		BootstrapToken: token,
-		ControllerURL:  o.controllerURL,
-	})
-	if err != nil {
-		return fail(err)
-	}
-	if o.logger != nil {
-		o.logger.Printf("sandbox %d: cloud-init snippet created at %s", sandbox.VMID, snippet.StoragePath)
-	}
-	o.rememberSnippet(snippet)
-
-	cfg := proxmox.VMConfig{
-		Name:      sandbox.Name,
-		CloudInit: snippet.StoragePath,
-	}
-	cfg, err = applyProfileVMConfig(profile, cfg)
-	if err != nil {
-		return fail(err)
+		snippet, err := o.snippetStore.Create(proxmox.SnippetInput{
+			VMID:           proxmox.VMID(sandbox.VMID),
+			Hostname:       sandbox.Name,
+			SSHPublicKey:   o.sshPublicKey,
+			BootstrapToken: token,
+			ControllerURL:  o.controllerURL,
+		})
+		if err != nil {
+			return fail(err)
+		}
+		if o.logger != nil {
+			o.logger.Printf("sandbox %d: cloud-init snippet created at %s", sandbox.VMID, snippet.StoragePath)
+		}
+		o.rememberSnippet(snippet)
+		cfg.CloudInit = snippet.StoragePath
 	}
 	if err := o.backend.Configure(ctx, proxmox.VMID(sandbox.VMID), cfg); err != nil {
 		return fail(err)

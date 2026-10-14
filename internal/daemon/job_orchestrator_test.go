@@ -464,6 +464,88 @@ resources:
 	}
 }
 
+func TestJobOrchestratorProvisionSandboxNativeSSHKeys(t *testing.T) {
+	ctx := context.Background()
+	store := newTestStore(t)
+	backend := &orchestratorBackend{guestIP: "10.77.0.42"}
+	manager := NewSandboxManager(store, backend, log.New(io.Discard, "", 0))
+	profiles := map[string]models.Profile{
+		"yolo": {
+			Name:       "yolo",
+			TemplateVM: 9000,
+			RawYAML: `
+name: yolo
+template_vmid: 9000
+network:
+  bridge: vmbr1
+  model: virtio
+  ip_config0: "ip=10.77.0.22/24,gw=10.77.0.1"
+  nameserver: "10.77.0.1"
+resources:
+  cores: 1
+  memory_mb: 1024
+`,
+		},
+	}
+	snippetDir := t.TempDir()
+	snippetStore := proxmox.SnippetStore{Storage: "local", Dir: snippetDir}
+	publicKey := "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIBtestkey agent@test"
+	orchestrator := NewJobOrchestrator(store, profiles, backend, manager, nil, snippetStore, publicKey, "http://10.77.0.1:8844", log.New(io.Discard, "", 0), nil, nil)
+	orchestrator.WithNativeSSHKeys(true)
+	orchestrator.controllerURL = ""
+
+	now := time.Date(2026, 1, 29, 15, 0, 0, 0, time.UTC)
+	sandbox := models.Sandbox{
+		VMID:          1201,
+		Name:          "sandbox-1201",
+		Profile:       "yolo",
+		State:         models.SandboxRequested,
+		Keepalive:     true,
+		CreatedAt:     now,
+		LastUpdatedAt: now,
+	}
+	if err := store.CreateSandbox(ctx, sandbox); err != nil {
+		t.Fatalf("create sandbox: %v", err)
+	}
+
+	updated, err := orchestrator.ProvisionSandbox(ctx, sandbox.VMID)
+	if err != nil {
+		t.Fatalf("provision sandbox: %v", err)
+	}
+	if updated.State != models.SandboxRunning {
+		t.Fatalf("expected sandbox RUNNING, got %s", updated.State)
+	}
+	if len(backend.configureCalls) != 1 {
+		t.Fatalf("expected configure called once, got %d", len(backend.configureCalls))
+	}
+	cfg := backend.configureCalls[0]
+	if cfg.CIUser != "agent" || !cfg.ClearCloudInit {
+		t.Fatalf("native keys must target agent and clear template overrides: %+v", cfg)
+	}
+	var tokenCount int
+	require.NoError(t, store.DB.QueryRow("SELECT COUNT(*) FROM bootstrap_tokens").Scan(&tokenCount))
+	require.Zero(t, tokenCount)
+	if cfg.SSHKeys != publicKey {
+		t.Fatalf("expected native sshkeys injection, got %q", cfg.SSHKeys)
+	}
+	if cfg.CloudInit != "" {
+		t.Fatalf("expected no cicustom snippet, got %q", cfg.CloudInit)
+	}
+	if cfg.IPConfig0 != "ip=10.77.0.22/24,gw=10.77.0.1" {
+		t.Fatalf("expected static ipconfig0, got %q", cfg.IPConfig0)
+	}
+	if cfg.Nameserver != "10.77.0.1" {
+		t.Fatalf("expected nameserver, got %q", cfg.Nameserver)
+	}
+	matches, err := filepath.Glob(filepath.Join(snippetDir, "agentlab-*.yaml"))
+	if err != nil {
+		t.Fatalf("snippet glob: %v", err)
+	}
+	if len(matches) != 0 {
+		t.Fatalf("expected no snippet file in native mode, found %v", matches)
+	}
+}
+
 func TestJobOrchestratorRejectsHostMountProfile(t *testing.T) {
 	ctx := context.Background()
 	store := newTestStore(t)

@@ -49,7 +49,26 @@ full key list, see [Configuration reference](../reference/configuration.md).
     You cannot combine `proxmox_tls_insecure: true` with `proxmox_tls_ca_path`.
     The daemon rejects that combination at config load.
 
-4. Restart the daemon so it picks up the new backend.
+4. Enable native SSH key injection when the daemon runs off-host.
+
+    The default provisioning path writes a cloud-init snippet under
+    `snippets_dir` and references it through `cicustom`. The Proxmox host must
+    be able to read that file. A daemon on another machine writes snippets the
+    host never sees, so provisioning fails.
+
+    ```yaml
+    provision_sshkeys_native: true
+    ```
+
+    The daemon then injects `ssh_public_key` through the cloud-init drive's
+    native `sshkeys` parameter for the `agent` account and removes inherited
+    `cicustom` overrides. This mode supports standalone sandboxes only; job
+    submissions are rejected because the runner needs bootstrap credentials.
+    Skip this step when the daemon runs on the Proxmox host itself. See
+    [Shell versus API backend](../explanation/shell-vs-api-backend.md) for the
+    details, including static addressing for linked clones.
+
+5. Restart the daemon so it picks up the new backend.
 
     ```bash
     agentlabd -config /etc/agentlab/config.yaml

@@ -8,6 +8,7 @@ import (
 	"crypto/tls"
 	"crypto/x509"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -196,6 +197,29 @@ func (b *APIBackend) Configure(ctx context.Context, vmid VMID, cfg VMConfig) err
 	}
 	if cfg.CloudInit != "" {
 		params.Set("cicustom", formatCICustom(cfg.CloudInit))
+	}
+	if cfg.SSHKeys != "" {
+		// PVE expects a URI-encoded key inside the form-encoded transport.
+		params.Set("sshkeys", strings.ReplaceAll(url.QueryEscape(strings.TrimSpace(cfg.SSHKeys)), "+", "%20"))
+	}
+	if cfg.CIUser != "" {
+		params.Set("ciuser", cfg.CIUser)
+	}
+	if cfg.ClearCloudInit {
+		if cfg.CloudInit != "" {
+			return errors.New("cannot set and clear cloud-init overrides together")
+		}
+		params.Set("delete", "cicustom")
+	}
+
+	if cfg.BalloonMB > 0 {
+		params.Set("balloon", strconv.Itoa(cfg.BalloonMB))
+	}
+	if cfg.IPConfig0 != "" {
+		params.Set("ipconfig0", cfg.IPConfig0)
+	}
+	if cfg.Nameserver != "" {
+		params.Set("nameserver", cfg.Nameserver)
 	}
 
 	if len(params) > 0 {

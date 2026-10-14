@@ -9,7 +9,7 @@ DOCS_TOOLS_SCRIPT := scripts/dev/install_docs_tools.sh
 DOCS_MD := $(shell find docs -type f -name '*.md' 2>/dev/null) README.md CONTRIBUTING.md AGENTLAB_DEV_SPECIFICATION.md PROXMOX_SPECS.md
 STATICCHECK_VERSION ?= v0.6.1
 GOVULNCHECK_VERSION ?= v1.7.0
-GOVULNCHECK_GOTOOLCHAIN ?= go1.26.7
+GOVULNCHECK_GOTOOLCHAIN ?= go1.26.9
 FUZZ_TIME ?= 10s
 GORELEASER ?= goreleaser
 STATICCHECK_BIN := $(TOOLS_DIR)/staticcheck
@@ -117,7 +117,12 @@ test-integration:
 test-all: test test-race test-coverage
 
 fuzz:
-	$(GO) test ./cmd/agentlab -run=^$ -fuzz=Fuzz -fuzztime=$(FUZZ_TIME)
+	@set -euo pipefail; \
+	targets="$$( $(GO) test ./cmd/agentlab -list '^Fuzz' | sed -n '/^Fuzz/p' )"; \
+	test -n "$$targets"; \
+	for target in $$targets; do \
+		$(GO) test ./cmd/agentlab -run='^$$' -fuzz="^$$target$$" -fuzztime=$(FUZZ_TIME); \
+	done
 
 docs-tools:
 	$(DOCS_TOOLS_SCRIPT)

@@ -278,6 +278,112 @@ func TestAPIBackendConfigure(t *testing.T) {
 	}
 }
 
+func TestAPIBackendConfigureCloudInitNativeParams(t *testing.T) {
+	var calls []apiRequest
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, _ := io.ReadAll(r.Body)
+		_ = r.Body.Close()
+		form, _ := url.ParseQuery(string(body))
+		calls = append(calls, apiRequest{
+			method: r.Method,
+			path:   r.URL.Path,
+			form:   form,
+		})
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"data":{}}`))
+	}))
+	defer srv.Close()
+
+	backend := &APIBackend{
+		BaseURL:    srv.URL + "/api2/json",
+		Node:       "pve",
+		HTTPClient: srv.Client(),
+	}
+
+	cfg := VMConfig{
+		Name:           "sandbox-103",
+		CIUser:         "agent",
+		ClearCloudInit: true,
+		SSHKeys:        "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAI+Example+ agent@test",
+		BalloonMB:      1024,
+		IPConfig0:      "ip=10.77.0.22/24,gw=10.77.0.1",
+		Nameserver:     "10.77.0.1",
+	}
+
+	if err := backend.Configure(context.Background(), 103, cfg); err != nil {
+		t.Fatalf("Configure() error = %v", err)
+	}
+
+	if len(calls) != 1 {
+		t.Fatalf("expected 1 API call, got %d", len(calls))
+	}
+	form := calls[0].form
+	if form.Get("ciuser") != "agent" || form.Get("delete") != "cicustom" {
+		t.Fatalf("native cloud-init settings = %v", form)
+	}
+	// PVE validates sshkeys as an already-urlencoded string: spaces must
+	// arrive as %20 and base64 '+' as %2B.
+	wantKey := "ssh-ed25519%20AAAAC3NzaC1lZDI1NTE5AAAAI%2BExample%2B%20agent%40test"
+	if got := form.Get("sshkeys"); got != wantKey {
+		t.Fatalf("sshkeys = %q, want %q", got, wantKey)
+	}
+	if got := form.Get("balloon"); got != "1024" {
+		t.Fatalf("balloon = %q, want %q", got, "1024")
+	}
+	if got := form.Get("ipconfig0"); got != "ip=10.77.0.22/24,gw=10.77.0.1" {
+		t.Fatalf("ipconfig0 = %q", got)
+	}
+	if got := form.Get("nameserver"); got != "10.77.0.1" {
+		t.Fatalf("nameserver = %q", got)
+	}
+	if _, ok := form["cicustom"]; ok {
+		t.Fatalf("cicustom = %q, want unset", form.Get("cicustom"))
+	}
+}
+
+func TestAPIBackendConfigureMultiKeySSHKeysEscapesNewlines(t *testing.T) {
+	var calls []apiRequest
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, _ := io.ReadAll(r.Body)
+		_ = r.Body.Close()
+		form, _ := url.ParseQuery(string(body))
+		calls = append(calls, apiRequest{
+			method: r.Method,
+			path:   r.URL.Path,
+			form:   form,
+		})
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"data":{}}`))
+	}))
+	defer srv.Close()
+
+	backend := &APIBackend{
+		BaseURL:    srv.URL + "/api2/json",
+		Node:       "pve",
+		HTTPClient: srv.Client(),
+	}
+
+	cfg := VMConfig{
+		Name:    "sandbox-104",
+		SSHKeys: "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIExample agent@test\nssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOther other@test",
+	}
+
+	if err := backend.Configure(context.Background(), 104, cfg); err != nil {
+		t.Fatalf("Configure() error = %v", err)
+	}
+
+	if len(calls) != 1 {
+		t.Fatalf("expected 1 API call, got %d", len(calls))
+	}
+	want := "ssh-ed25519%20AAAAC3NzaC1lZDI1NTE5AAAAIExample%20agent%40test%0A" +
+		"ssh-ed25519%20AAAAC3NzaC1lZDI1NTE5AAAAIOther%20other%40test"
+	if got := calls[0].form.Get("sshkeys"); got != want {
+		t.Fatalf("sshkeys = %q, want %q", got, want)
+	}
+}
+
 func TestAPIBackendConfigureRetriesWithoutFWGroup(t *testing.T) {
 	var calls []apiRequest
 	callCount := 0
@@ -731,5 +837,25 @@ func TestNewAPIHTTPClientInsecureOverride(t *testing.T) {
 	}
 	if !transport.TLSClientConfig.InsecureSkipVerify {
 		t.Fatalf("expected TLS verification disabled when insecure override is set")
+	}
+}
+
+func TestAPIBackendConfigureSSHKeysRoundTrip(t *testing.T) {
+	key := "ssh-ed25519 AAAA+test agent%20name@example.com\nssh-ed25519 BBBB+test second@test"
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if err := r.ParseForm(); err != nil {
+			t.Error(err)
+		}
+		got, err := url.QueryUnescape(r.Form.Get("sshkeys"))
+		if err != nil || got != key {
+			t.Errorf("key round trip = %q, %v", got, err)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"data":{}}`))
+	}))
+	defer srv.Close()
+	backend := &APIBackend{BaseURL: srv.URL + "/api2/json", Node: "pve", HTTPClient: srv.Client()}
+	if err := backend.Configure(context.Background(), 101, VMConfig{SSHKeys: key}); err != nil {
+		t.Fatal(err)
 	}
 }
