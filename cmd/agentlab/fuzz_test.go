@@ -149,6 +149,7 @@ func FuzzParseAPIError(f *testing.F) {
 	f.Add(400, []byte(`{"error":"boom"}`))
 	f.Add(500, []byte(`{}`))
 	f.Add(418, []byte("not-json"))
+	f.Add(175, []byte(`{"error":" "}`))
 	f.Fuzz(func(t *testing.T, status int, payload []byte) {
 		if status < 100 || status > 999 {
 			return
@@ -158,7 +159,10 @@ func FuzzParseAPIError(f *testing.F) {
 			t.Fatalf("expected error for status %d", status)
 		}
 		var apiErr apiError
-		if json.Unmarshal(payload, &apiErr) == nil && apiErr.Error != "" {
+		// A whitespace-only error field carries no message: parseAPIError
+		// answers the generic status text, so it belongs to the fallthrough
+		// branch below, not the payload-message branch.
+		if json.Unmarshal(payload, &apiErr) == nil && strings.TrimSpace(apiErr.Error) != "" {
 			msg := strings.TrimSpace(apiErr.Message)
 			if msg == "" {
 				msg = strings.TrimSpace(apiErr.Error)

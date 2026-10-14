@@ -100,6 +100,7 @@ var (
 //   - GET    /v1/sandboxes/inventory  - List live Proxmox VM inventory annotated with AgentLab state
 //   - POST   /v1/sandboxes/reconcile  - Detect or apply sandbox state reconciliation
 //   - GET    /v1/sandboxes/{vmid}     - Get sandbox details
+//   - DELETE /v1/sandboxes/{vmid}     - Destroy a sandbox (alias of POST /destroy; empty body allowed)
 //   - POST   /v1/sandboxes/{vmid}/start     - Start a stopped sandbox
 //   - POST   /v1/sandboxes/{vmid}/stop      - Stop a running sandbox
 //   - POST   /v1/sandboxes/{vmid}/pause     - Pause a running sandbox
@@ -1654,8 +1655,12 @@ func (api *ControlAPI) handleSandboxByID(w http.ResponseWriter, r *http.Request)
 
 	switch len(parts) {
 	case 1:
+		if r.Method == http.MethodDelete {
+			api.handleSandboxDestroy(w, r, vmid)
+			return
+		}
 		if r.Method != http.MethodGet {
-			writeMethodNotAllowed(w, []string{http.MethodGet})
+			writeMethodNotAllowed(w, []string{http.MethodGet, http.MethodDelete})
 			return
 		}
 		api.handleSandboxGet(w, r, vmid)
@@ -3690,7 +3695,7 @@ func (api *ControlAPI) handleSandboxDestroy(w http.ResponseWriter, r *http.Reque
 		return
 	}
 	var req V1SandboxDestroyRequest
-	if err := decodeJSON(w, r, &req); err != nil {
+	if err := decodeOptionalJSON(w, r, &req); err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
