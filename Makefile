@@ -117,7 +117,12 @@ test-integration:
 test-all: test test-race test-coverage
 
 fuzz:
-	$(GO) test ./cmd/agentlab -run=^$ -fuzz=Fuzz -fuzztime=$(FUZZ_TIME)
+	@set -euo pipefail; \
+	targets="$$( $(GO) test ./cmd/agentlab -list '^Fuzz' | sed -n '/^Fuzz/p' )"; \
+	test -n "$$targets"; \
+	for target in $$targets; do \
+		$(GO) test ./cmd/agentlab -run='^$$' -fuzz="^$$target$$" -fuzztime=$(FUZZ_TIME); \
+	done
 
 docs-tools:
 	$(DOCS_TOOLS_SCRIPT)
