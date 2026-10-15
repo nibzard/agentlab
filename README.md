@@ -407,9 +407,15 @@ Notes:
 ```bash
 agentlab sandbox list
 
+# Include destroyed sandboxes
+agentlab ls --all
+
 # JSON output
 agentlab sandbox list --json
 ```
+
+Destroyed sandboxes are hidden by default in both table and JSON output.
+Use `--all` (or `-a`) to include them.
 
 Output:
 ```

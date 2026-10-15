@@ -602,7 +602,7 @@ func TestCLIReadOnly_DifferentStates(t *testing.T) {
 
 	t.Run("list all sandboxes", func(t *testing.T) {
 		out := captureStdout(t, func() {
-			err := runSandboxList(ctx, nil, base)
+			err := runSandboxList(ctx, []string{"--all"}, base)
 			require.NoError(t, err)
 		})
 		for _, state := range states {

@@ -1572,6 +1572,9 @@ func runSandboxList(ctx context.Context, args []string, base commonFlags) error 
 	fs := newFlagSet("sandbox list")
 	opts := base
 	opts.bind(fs)
+	var all bool
+	fs.BoolVar(&all, "all", false, "include destroyed sandboxes")
+	fs.BoolVar(&all, "a", false, "include destroyed sandboxes")
 	help := bindHelpFlag(fs)
 	if err := parseFlags(fs, args, printSandboxListUsage, help, opts.jsonOutput); err != nil {
 		return err
@@ -1585,12 +1588,26 @@ func runSandboxList(ctx context.Context, args []string, base commonFlags) error 
 	if err != nil {
 		return err
 	}
-	if opts.jsonOutput {
+	if opts.jsonOutput && all {
 		return prettyPrintJSON(os.Stdout, payload)
 	}
 	var resp sandboxesResponse
 	if err := json.Unmarshal(payload, &resp); err != nil {
 		return err
+	}
+	if !all {
+		visible := make([]sandboxResponse, 0, len(resp.Sandboxes))
+		for _, sb := range resp.Sandboxes {
+			if sb.State != "DESTROYED" {
+				visible = append(visible, sb)
+			}
+		}
+		resp.Sandboxes = visible
+	}
+	if opts.jsonOutput {
+		enc := json.NewEncoder(os.Stdout)
+		enc.SetIndent("", "  ")
+		return enc.Encode(resp)
 	}
 	printSandboxList(resp.Sandboxes)
 	return nil

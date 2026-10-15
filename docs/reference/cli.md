@@ -10,7 +10,7 @@ agentlab is the CLI for agentlabd.
 
 Quick commands (aliases for common operations):
   agentlab new [--name <name>] [--prompt <text>] (--profile <profile> | +mod [+mod...])   Create a sandbox (alias: sandbox new)
-  agentlab ls                                                             List sandboxes (alias: sandbox list)
+  agentlab ls [--all|-a]                                                   List current sandboxes (alias: sandbox list)
   agentlab show <vmid>                                                    Show sandbox details (alias: sandbox show)
   agentlab ssh <vmid>                                                     SSH into a sandbox
   agentlab start <vmid>                                                   Start a sandbox (alias: sandbox start)
@@ -32,7 +32,7 @@ Usage:
   agentlab [--endpoint URL] [--token TOKEN] [--socket PATH] [--json] [--timeout DURATION] job doctor <job_id> [--out <path>]
   agentlab [--endpoint URL] [--token TOKEN] [--socket PATH] [--json] [--timeout DURATION] sandbox new [--name <name>] [--ttl <ttl>] [--keepalive] [--workspace <id>] [--vmid <vmid>] [--job <id>] [--and-ssh] [--type <type>] [--image <image>] [--prompt <text>] [--tag <tag>...] (--profile <profile> | +mod [+mod...])
   agentlab [--endpoint URL] [--token TOKEN] [--socket PATH] [--json] [--timeout DURATION] sandbox validate [--name <name>] [--ttl <ttl>] [--keepalive] [--workspace <id>] [--vmid <vmid>] [--job <id>] (+mod [+mod...] | --profile <profile>)
-  agentlab [--endpoint URL] [--token TOKEN] [--socket PATH] [--json] [--timeout DURATION] sandbox list
+  agentlab [--endpoint URL] [--token TOKEN] [--socket PATH] [--json] [--timeout DURATION] sandbox list [--all|-a]
   agentlab [--endpoint URL] [--token TOKEN] [--socket PATH] [--json] [--timeout DURATION] sandbox inventory
   agentlab [--endpoint URL] [--token TOKEN] [--socket PATH] [--json] [--timeout DURATION] sandbox reconcile [--apply]
   agentlab [--endpoint URL] [--token TOKEN] [--socket PATH] [--json] [--timeout DURATION] sandbox show <vmid>

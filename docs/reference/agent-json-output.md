@@ -233,7 +233,9 @@ marked. Optional keys may be omitted when empty.
 
 ### Sandbox (`sandbox new`, `sandbox show`, `sandbox list`)
 
-`sandbox list` returns `{"sandboxes": [ ... ]}`. Each item and each
+`sandbox list` returns `{"sandboxes": [ ... ]}`, excluding destroyed sandboxes
+by default. Use `sandbox list --all --json` to include destroyed records.
+Each item and each
 `sandbox new` or `sandbox show` response uses this shape.
 
 | Key | Type | Notes |

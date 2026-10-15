@@ -212,7 +212,7 @@ the message log together.
 
 ## Expected result
 
-`agentlab sandbox list --json` shows the worker sandbox destroyed and the
+`agentlab sandbox list --all --json` shows the worker sandbox destroyed and the
 workspace attached to the human sandbox. `agentlab msg tail --session
 worker-session` shows the `task`, `result`, and `handoff` messages in order. The
 worker `/work` contents are intact on the new VM, because they lived on the
