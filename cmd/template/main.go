@@ -16,7 +16,7 @@ func (c *TemplateCreateCommand) Synopsis() string {
 }
 
 func (c *TemplateCreateCommand) Usage() string {
-	return "agentlab template create <description>"
+	return "template <description> (instruction generator; use agentlab template create --help for remote builds)"
 }
 
 func (c *TemplateCreateCommand) Execute(args []string) error {
@@ -32,6 +32,8 @@ func (c *TemplateCreateCommand) Execute(args []string) error {
 	imageURL := defaultImageURL
 
 	fmt.Println("# AgentLab Template Creation Instructions")
+	fmt.Println("Instruction generator only; no build is submitted.")
+	fmt.Println("For remote builds, run: agentlab template create --help")
 	fmt.Println("")
 	fmt.Println("You are helping create an AgentLab template.")
 	fmt.Println("")
@@ -223,7 +225,7 @@ func (c *TemplateCreateCommand) Execute(args []string) error {
 	fmt.Println("- [ ] Network bridge is appropriate for use case")
 	fmt.Println("- [ ] Package names are valid Ubuntu packages")
 	fmt.Println("- [ ] YAML uses 2-space indentation")
-	fmt.Println("- [ ] Template can be validated with: agentlab template validate <name>")
+	fmt.Printf("- [ ] Remote build plan can be validated with: agentlab template validate --name %s --storage local-zfs\n", name)
 	fmt.Println("")
 	fmt.Println("NOTES:")
 	fmt.Println("- Assumed Ubuntu 24.04 LTS (most common for dev templates)")

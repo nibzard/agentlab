@@ -60,6 +60,7 @@ Quick commands (aliases for common operations):
   agentlab logs <vmid> [--follow]                                         View sandbox logs
 
 Usage:
+  agentlab template <capabilities|validate|create|list|show|activate|build>
   agentlab --version
   agentlab [--endpoint URL] [--token TOKEN] [--socket PATH] [--json] [--timeout DURATION] status
   agentlab [--endpoint URL] [--token TOKEN] [--socket PATH] [--json] [--timeout DURATION] schema
@@ -311,6 +312,8 @@ func dispatch(ctx context.Context, args []string, base commonFlags) error {
 		return withDefaultNext(runInitCommand(ctx, args[1:], base), "agentlab init --help")
 	case "bootstrap":
 		return withDefaultNext(runBootstrapCommand(ctx, args[1:], base), "agentlab bootstrap --help")
+	case "template":
+		return runTemplateCommand(ctx, args[1:], base)
 	case "job":
 		return withDefaultNext(runJobCommand(ctx, args[1:], base), "agentlab job --help")
 	case "sandbox":

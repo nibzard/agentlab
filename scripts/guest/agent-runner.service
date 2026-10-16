@@ -1,7 +1,9 @@
 [Unit]
 Description=Agent Runner
-After=network-online.target agentlab-workspace-setup.service
+After=network-online.target cloud-final.service agentlab-workspace-setup.service
 Wants=network-online.target agentlab-workspace-setup.service
+
+ConditionPathExists=/etc/agentlab/bootstrap.json
 
 [Service]
 Type=simple

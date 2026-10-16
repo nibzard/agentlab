@@ -55,7 +55,7 @@ var (
 	topLevelCommands = []string{
 		"new", "ls", "rm", "show", "start", "stop",
 		"status", "schema", "init", "bootstrap",
-		"job", "sandbox", "workspace", "session",
+		"job", "sandbox", "workspace", "session", "template",
 		"profile", "secrets", "msg", "ssh", "logs",
 		"connect", "disconnect", "token", "integration",
 		"user", "team", "defaults", "version", "completion",

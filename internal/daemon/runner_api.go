@@ -26,6 +26,7 @@ func (api *RunnerAPI) Register(mux *http.ServeMux) {
 		return
 	}
 	mux.HandleFunc("/v1/runner/report", api.handleRunnerReport)
+	mux.HandleFunc("/v1/sandbox/bootstrap-status", api.handleSandboxBootstrapStatus)
 }
 
 func (api *RunnerAPI) handleRunnerReport(w http.ResponseWriter, r *http.Request) {

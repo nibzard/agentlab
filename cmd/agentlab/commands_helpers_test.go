@@ -495,3 +495,14 @@ func TestPrintEvents(t *testing.T) {
 		t.Fatalf("expected json output, got %q", jsonOut)
 	}
 }
+
+func TestSandboxPrintSeparatesGuestAndTailnetReadiness(t *testing.T) {
+	out := captureStdout(t, func() {
+		printSandbox(sandboxResponse{VMID: 1234, State: "RUNNING", Health: &sandboxHealthResponse{Healthy: true, Guest: &sandboxGuestReadiness{Ready: true}, RunnerReady: true, TailscaleState: "FAILED", BootstrapError: "tailscale_enrollment_failed"}})
+	})
+	for _, expected := range []string{"Guest Ready: true", "Runner Initialized: true", "Tailscale: FAILED", "Bootstrap Diagnostic: tailscale_enrollment_failed"} {
+		if !strings.Contains(out, expected) {
+			t.Fatalf("missing %q in diagnostics: %s", expected, out)
+		}
+	}
+}

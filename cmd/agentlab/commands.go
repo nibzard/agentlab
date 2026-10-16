@@ -3959,6 +3959,21 @@ func printSandbox(sb sandboxResponse) {
 		fmt.Printf("Tags: %s\n", strings.Join(sb.Tags, ", "))
 	}
 	fmt.Printf("State: %s\n", sb.State)
+	if sb.Health != nil {
+		if sb.Health.Guest != nil {
+			fmt.Printf("Guest Ready: %t\n", sb.Health.Guest.Ready)
+			if sb.Health.Guest.ErrorCode != "" {
+				fmt.Printf("Guest Diagnostic: %s\n", sb.Health.Guest.ErrorCode)
+			}
+		}
+		fmt.Printf("Runner Initialized: %t\n", sb.Health.RunnerReady)
+		if sb.Health.TailscaleState != "" {
+			fmt.Printf("Tailscale: %s\n", sb.Health.TailscaleState)
+		}
+		if sb.Health.BootstrapError != "" {
+			fmt.Printf("Bootstrap Diagnostic: %s\n", sb.Health.BootstrapError)
+		}
+	}
 	fmt.Printf("IP: %s\n", orDash(sb.IP))
 	fmt.Printf("Workspace: %s\n", orDashPtr(sb.WorkspaceID))
 	mode := "-"

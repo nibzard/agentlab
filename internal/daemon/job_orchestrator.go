@@ -75,6 +75,7 @@ type sloEventPayload struct {
 // The orchestrator maintains in-memory state for active cloud-init snippets
 // to enable cleanup on sandbox destroy.
 type JobOrchestrator struct {
+	profileStore     *ProfileStore
 	store            *db.Store
 	profiles         map[string]models.Profile
 	backend          proxmox.Backend
@@ -369,6 +370,13 @@ func (o *JobOrchestrator) Run(ctx context.Context, jobID string) error {
 			o.logger.Printf("sandbox %d: ignoring duplicate IP candidate %s", sandbox.VMID, candidateIP)
 		}
 	}
+	if readyIP, readyErr := o.sandboxManager.WaitGuestReady(ctx, sandbox.VMID); readyErr != nil {
+		return o.failJob(job, sandbox.VMID, cloned, readyErr)
+	} else if readyIP != "" {
+		if ip, err = o.persistDiscoveredSandboxIP(ctx, sandbox.VMID, readyIP, &job.ID); err != nil {
+			return o.failJob(job, sandbox.VMID, cloned, err)
+		}
+	}
 	o.observeSandboxSSH(sandbox, ip)
 
 	if err := o.sandboxManager.Transition(ctx, sandbox.VMID, models.SandboxReady); err != nil {
@@ -606,6 +614,13 @@ func (o *JobOrchestrator) ProvisionSandbox(ctx context.Context, vmid int) (model
 			o.logger.Printf("sandbox %d: obtained IP %s", sandbox.VMID, ip)
 		}
 	}
+	if readyIP, readyErr := o.sandboxManager.WaitGuestReady(ctx, sandbox.VMID); readyErr != nil {
+		return fail(readyErr)
+	} else if readyIP != "" {
+		if ip, err = o.persistDiscoveredSandboxIP(ctx, sandbox.VMID, readyIP, nil); err != nil {
+			return fail(err)
+		}
+	}
 	o.observeSandboxSSH(sandbox, ip)
 
 	if err := o.sandboxManager.Transition(ctx, sandbox.VMID, models.SandboxReady); err != nil {
@@ -797,7 +812,7 @@ func (o *JobOrchestrator) ensureSandbox(ctx context.Context, job models.Job) (mo
 		workspaceID := strings.TrimSpace(*job.WorkspaceID)
 		sandbox.WorkspaceID = &workspaceID
 	}
-	created, err := createSandboxWithRetry(ctx, o.store, sandbox, o.resourcePool, o.profiles, o.backend)
+	created, err := createSandboxWithRetry(ctx, o.store, sandbox, o.resourcePool, o.profileSnapshot(), o.backend)
 	if err != nil {
 		return models.Sandbox{}, false, err
 	}
@@ -1017,10 +1032,10 @@ func (o *JobOrchestrator) profile(name string) (models.Profile, bool) {
 	if name == "" {
 		return models.Profile{}, false
 	}
-	if o.profiles == nil {
+	if o.profileSnapshot() == nil {
 		return models.Profile{}, false
 	}
-	profile, ok := o.profiles[name]
+	profile, ok := o.profileSnapshot()[name]
 	return profile, ok
 }
 

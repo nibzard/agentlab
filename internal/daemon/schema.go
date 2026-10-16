@@ -39,6 +39,15 @@ func buildSchemaResponse() schemaResponse {
 
 func schemaResources() []schemaResource {
 	resources := []schemaResource{
+		resourceSchema("/v1/templates/capabilities", methods("GET"), "Inspect local template build support", "", "templatebuild.Capabilities", "Host-wide; sandbox-scoped tokens are denied."),
+		resourceSchema("/v1/templates/validate-plan", methods("POST"), "Validate without allocating or downloading", "templatebuild.Plan", "templatebuild.Validation", ""),
+		resourceSchema("/v1/template-builds", methods("GET", "POST"), "List or submit durable template builds", "templatebuild.Plan", "templatebuild.Build", "POST returns 202; Idempotency-Key must match request_id UUID."),
+		resourceSchema("/v1/template-builds/{id}", methods("GET"), "Read durable build state", "", "templatebuild.Build", ""),
+		resourceSchema("/v1/template-builds/{id}/logs", methods("GET"), "Read ordered build logs", "", "templatebuild.Logs", "after is exclusive; limit is at most 500."),
+		resourceSchema("/v1/template-builds/{id}/cancel", methods("POST"), "Request build cancellation", "", "templatebuild.Build", "Idempotent."),
+		resourceSchema("/v1/templates", methods("GET"), "List successful managed templates", "", "templatebuild.Manifest", "Paginated with offset and limit."),
+		resourceSchema("/v1/templates/{vmid}", methods("GET"), "Inspect manifest and live template drift", "", "templatebuild.Manifest", ""),
+		resourceSchema("/v1/templates/{vmid}/activate", methods("POST"), "Activate a template for an existing profile", "", "ProfileActivation", "Requires profile and expected_template_vmid."),
 		resourceSchema("/v1/exposures", methods("GET", "POST"), "List/create exposures", "V1ExposureCreateRequest", "V1ExposuresResponse", ""),
 		resourceSchema("/v1/exposures/{name}", methods("DELETE"), "Delete exposure", "", "V1Exposure", ""),
 		resourceSchema("/v1/host", methods("GET"), "Fetch host metadata", "", "V1HostResponse", "Includes daemon version, configured subnet, and tailscale hostname when available."),

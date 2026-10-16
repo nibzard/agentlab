@@ -470,6 +470,11 @@ install -d -o root -g agentlab -m 0750 \
   /var/lib/agentlab \
   /var/log/agentlab \
   /run/agentlab
+# Template recipes are embedded in agentlabd; no source checkout is required.
+# Host prerequisites are installed explicitly by the operator, never by the API.
+install -d -o root -g root -m 0700 \
+  /var/lib/agentlab/template-assets \
+  /var/lib/agentlab/template-builds
 install -d -o root -g root -m 0700 \
   /etc/agentlab/secrets \
   /etc/agentlab/keys

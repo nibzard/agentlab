@@ -70,3 +70,43 @@ agentlab status
 ## Next
 
 The host is ready for a cloneable template. Continue to [Build a VM template](build-a-vm-template.md), then [Create your first sandbox](create-first-sandbox.md). For network isolation details, see [Network isolation model](../explanation/network-isolation-model.md), and for backend choice see [Shell versus API backend](../explanation/shell-vs-api-backend.md).
+
+## Prerequisites for remote template builds
+
+Install the build prerequisites explicitly on the Proxmox node:
+
+```bash
+apt-get update
+apt-get install -y libguestfs-tools qemu-utils curl ca-certificates jq
+```
+
+The existing Proxmox `qm`, `pvesh`, `pvesm`, systemd, Bash, and SHA-256 tools
+must be available. The build node must run Linux amd64 with usable `/dev/kvm`,
+libguestfs, local disk storage, a configured bridge, and enough space for the
+working image and imported disk. `agentlab template capabilities` and
+`agentlab template validate` report missing prerequisites without installing
+packages or changing networking.
+The recipe uses `virt-resize` to expand the Ubuntu root filesystem to the
+requested disk size before installing packages and agent tools, then refreshes
+GRUB's partition references so the resized image can boot with Proxmox's BIOS.
+
+Workers run as root with root's primary group in separate
+`agentlab-template-tb_*.service` transient units. They need KVM/device access,
+Proxmox IPC under `/run`, pmxcfs under `/etc/pve`, local storage under
+`/var/lib/vz` (including ZFS devices), task logs under `/var/log/pve/tasks`, and
+private build/cache data under `/var/lib/agentlab`. The unit sets
+`ProtectSystem=strict`, explicit writable paths, `UMask=0077`, a fixed
+environment, 8 GiB memory and 512-task limits, a runtime bound, and process-group
+cancellation. Custom directory storage outside the writable paths requires a
+reviewed host-service policy change before use. Do not disable daemon filesystem
+protection globally. Missing path/device access appears in capability errors or
+build logs. Verify this policy on a designated test node before production use.
+
+Worker commands set `TMPDIR`, `LIBGUESTFS_TMPDIR`, `LIBGUESTFS_CACHEDIR`, and
+`XDG_RUNTIME_DIR` to private directories inside that build's writable state
+directory. This keeps libguestfs appliance/cache files and temporary sockets
+within the existing write policy; see the [libguestfs environment variables](https://libguestfs.org/guestfs.3.html#environment-variables).
+Debian's libguestfs 1.48 still creates short appliance socket paths under `/tmp`,
+so the worker unit also permits writes there. This exception applies only to
+workers; the API daemon retains its existing filesystem protection.
+The worker removes these temporary directories when completion or cleanup succeeds.

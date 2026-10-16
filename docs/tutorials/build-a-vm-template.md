@@ -2,6 +2,73 @@
 
 Goal: create a cloneable cloud-init VM template on Proxmox and register a profile so the daemon can clone sandboxes from it.
 
+## Build remotely with AgentLab
+
+Connect using your saved endpoint and token (`agentlab connect`). The laptop
+needs only the AgentLab CLI; image download, customization and import run on
+the local Proxmox daemon host. Install the explicit host prerequisites in
+[Set up the Proxmox host](set-up-proxmox-host.md#prerequisites-for-remote-template-builds).
+
+```bash
+agentlab template capabilities
+agentlab template validate --name ubuntu-2404-agentlab --storage local-zfs
+agentlab template create --name ubuntu-2404-agentlab --storage local-zfs --wait
+agentlab template build list
+agentlab template build show tb_example
+agentlab template build logs tb_example --follow
+agentlab template build wait tb_example --timeout 45m
+```
+
+Use the actual build ID printed by create. Disconnecting does not cancel the
+build. Ctrl-C prints a reconnect command. For a lost submission response, retry
+with the printed `--request-id` and exactly the same inputs. To stop work, use
+`agentlab template build cancel BUILD_ID`. A retry after failure is a new build
+with a fresh VMID. Existing resources are never overwritten.
+
+The build reserves a second unused VMID for a disposable smoke clone. It boots
+that clone and verifies guest-agent access, networking, SSH, the runner and
+unenrolled Tailscale before reporting success. The clone receives no credentials
+and is removed after verification. `template show` includes `boot_verified` and
+its timestamp. Historical manifests without this evidence must be rebuilt
+before activation.
+
+Inspect and activate a successful managed template explicitly:
+
+```bash
+agentlab template list
+agentlab template show 9010
+agentlab template activate 9010 --profile ubuntu-24-04-ai --expected-template-vmid 9999
+```
+
+Replace those IDs and profile with your actual values. The target profile must
+already exist. Activation checks the old VMID and template drift, preserves the
+other YAML fields/documents, and reloads future sandbox requests without a
+restart. Existing sandboxes retain their original disks/template.
+
+The manifest reports installed Tailscale, runner, SSH, guest agent and optional
+pinned CLI versions. Base templates have no Tailscale identity or enrollment
+state. The [sandbox bootstrap](../specs/standalone-sandbox-tailscale-bootstrap.md)
+attempts enrollment for fresh standalone guests when a valid credential is
+configured. Check `sandbox show` for the independent Tailscale state and
+bootstrap diagnostics; installation alone is not evidence of connectivity. Test a dedicated sandbox for DHCP, SSH, guest-agent access,
+runner availability and `tailscale version` before activating production profiles.
+
+An unacknowledged worker launch may remain in preflight for up to one minute
+while the daemon checks whether systemd accepted it.
+
+If a worker disappears during a daemon restart, the daemon marks an uncertain
+result `template_build_interrupted` and never reruns import blindly. Inspect
+`cleanup_required`, recorded resources and the worker unit with `systemctl
+status`. Remove only resources with the matching build ownership tag after
+Proxmox tasks settle; retain unrelated VMs. Submit a fresh build to retry.
+
+## Manual host workflow
+
+The existing `scripts/create_template.sh` interface remains available to host
+operators. The steps below are also useful for understanding the underlying
+Proxmox operations. Templates made manually are unmanaged and cannot be activated
+through the managed-template API in this release.
+
 ## Prerequisites
 
 - A Proxmox host set up as described in [Set up the Proxmox host](set-up-proxmox-host.md), including the `vmbr1` bridge and DHCP.

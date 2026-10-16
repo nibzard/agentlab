@@ -19,6 +19,7 @@ Quick commands (aliases for common operations):
   agentlab logs <vmid> [--follow]                                         View sandbox logs
 
 Usage:
+  agentlab template <capabilities|validate|create|list|show|activate|build>
   agentlab --version
   agentlab [--endpoint URL] [--token TOKEN] [--socket PATH] [--json] [--timeout DURATION] status
   agentlab [--endpoint URL] [--token TOKEN] [--socket PATH] [--json] [--timeout DURATION] schema

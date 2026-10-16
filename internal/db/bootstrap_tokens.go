@@ -130,3 +130,10 @@ func (s *Store) ConsumeBootstrapToken(ctx context.Context, tokenHash string, vmi
 	}
 	return affected > 0, nil
 }
+
+// ReleaseBootstrapToken makes an undelivered, failed bootstrap claim retryable.
+// The claim timestamp prevents releasing a token consumed by another request.
+func (s *Store) ReleaseBootstrapToken(ctx context.Context, hash string, vmid int, claimedAt time.Time) error {
+	_, err := s.DB.ExecContext(ctx, `UPDATE bootstrap_tokens SET consumed_at=NULL WHERE token=? AND vmid=? AND consumed_at=?`, hash, vmid, formatTime(claimedAt))
+	return err
+}

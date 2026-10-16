@@ -30,6 +30,8 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
+var ErrBundleNotFound = errors.New("bundle not found")
+
 const (
 	// BundleVersion is the current bundle format version.
 	BundleVersion = 1
@@ -292,14 +294,14 @@ func (s Store) resolvePath(name string) (string, error) {
 				return candidate, nil
 			}
 		}
-		return "", fmt.Errorf("bundle %s not found", name)
+		return "", fmt.Errorf("%w: %s", ErrBundleNotFound, name)
 	}
 	for _, candidate := range candidates {
 		if path, ok := findBundleFile(candidate, s.AllowPlaintext); ok {
 			return path, nil
 		}
 	}
-	return "", fmt.Errorf("bundle %s not found", name)
+	return "", fmt.Errorf("%w: %s", ErrBundleNotFound, name)
 }
 
 func (s Store) decrypt(ctx context.Context, path string) ([]byte, error) {

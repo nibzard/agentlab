@@ -311,6 +311,7 @@ func renderCloudInitUserData(hostname, sshKey, token, controller string, vmid in
 		"    content: |",
 		"      " + string(jsonBytes),
 		"runcmd:",
+		"  - [systemctl, --no-block, start, agent-runner.service]",
 		// Install qemu-guest-agent so AgentLab can discover guest IPs reliably.
 		// Prefer runcmd+apt-get over cloud-init's packages module: some templates disable modules.
 		"  - bash -lc 'if ! command -v qemu-guest-agent >/dev/null 2>&1; then (apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y qemu-guest-agent) || true; fi'",

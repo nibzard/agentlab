@@ -1,6 +1,9 @@
 package daemon
 
-import "encoding/json"
+import (
+	"encoding/json"
+	"github.com/agentlab/agentlab/internal/templatebuild"
+)
 
 type V1ErrorResponse struct {
 	Error   string `json:"error"`
@@ -53,17 +56,27 @@ type V1FailureDigest struct {
 	Message     string `json:"message,omitempty"`
 }
 
+type V1GuestReadiness struct {
+	Ready     bool   `json:"ready"`
+	CheckedAt string `json:"checked_at"`
+	ErrorCode string `json:"error_code,omitempty"`
+}
+
 type V1SandboxLifecycleSummary struct {
-	VMID               int    `json:"vmid"`
-	State              string `json:"state"`
-	Healthy            bool   `json:"healthy"`
-	LastEventID        int64  `json:"last_event_id"`
-	LastEventKind      string `json:"last_event_kind,omitempty"`
-	LastEventAt        string `json:"last_event_at,omitempty"`
-	FailureCount       int    `json:"failure_count"`
-	LastFailureAt      string `json:"last_failure_at,omitempty"`
-	LastFailureKind    string `json:"last_failure_kind,omitempty"`
-	LastFailureMessage string `json:"last_failure_message,omitempty"`
+	Guest              *V1GuestReadiness `json:"guest,omitempty"`
+	RunnerReady        bool              `json:"runner_ready"`
+	TailscaleState     string            `json:"tailscale_state,omitempty"`
+	BootstrapError     string            `json:"bootstrap_error,omitempty"`
+	VMID               int               `json:"vmid"`
+	State              string            `json:"state"`
+	Healthy            bool              `json:"healthy"`
+	LastEventID        int64             `json:"last_event_id"`
+	LastEventKind      string            `json:"last_event_kind,omitempty"`
+	LastEventAt        string            `json:"last_event_at,omitempty"`
+	FailureCount       int               `json:"failure_count"`
+	LastFailureAt      string            `json:"last_failure_at,omitempty"`
+	LastFailureKind    string            `json:"last_failure_kind,omitempty"`
+	LastFailureMessage string            `json:"last_failure_message,omitempty"`
 }
 
 type V1JobTimelineSummary struct {
@@ -133,7 +146,14 @@ type V1BootstrapTailscale struct {
 	ExtraArgs []string `json:"extra_args,omitempty"`
 }
 
+type V1BootstrapSandbox struct {
+	VMID    int    `json:"vmid"`
+	Name    string `json:"name"`
+	Profile string `json:"profile"`
+}
+
 type V1BootstrapFetchResponse struct {
+	Sandbox            *V1BootstrapSandbox   `json:"sandbox,omitempty"`
 	Job                V1BootstrapJob        `json:"job"`
 	Git                *V1BootstrapGit       `json:"git,omitempty"`
 	Env                map[string]string     `json:"env,omitempty"`
@@ -803,3 +823,11 @@ type MetadataSecretResponse struct {
 	Name  string `json:"name"`
 	Value string `json:"value"`
 }
+
+// Remote template contracts are shared with the CLI and trusted worker.
+type V1TemplateBuildRequest = templatebuild.Plan
+type V1TemplateBuild = templatebuild.Build
+type V1TemplateManifest = templatebuild.Manifest
+type V1TemplateCapabilities = templatebuild.Capabilities
+type V1TemplateValidation = templatebuild.Validation
+type V1TemplateLogs = templatebuild.Logs

@@ -328,11 +328,6 @@ JOB_MODE="$(jq -r '.job.mode // empty' "$BOOTSTRAP_RESPONSE")"
 JOB_PROFILE="$(jq -r '.job.profile // empty' "$BOOTSTRAP_RESPONSE")"
 JOB_TTL_MINUTES="$(jq -r '.job.ttl_minutes // empty' "$BOOTSTRAP_RESPONSE")"
 
-if [[ -z "$JOB_ID" || -z "$JOB_REPO" ]]; then
-  die "bootstrap payload missing job id or repo_url"
-  exit 1
-fi
-
 if [[ -z "$JOB_REF" || "$JOB_REF" == "null" ]]; then
   JOB_REF="main"
 fi
@@ -347,6 +342,7 @@ report_status() {
   local artifacts_json="${3:-[]}"
   local result_json="${4:-null}"
 
+  [[ -n "$JOB_ID" ]] || return 0
   local payload
   payload=$(jq -n \
     --arg job_id "$JOB_ID" \
@@ -364,7 +360,7 @@ report_status() {
   post_with_backoff "$REPORT_URL" "$payload" "report status" || true
 }
 
-log "bootstrap ok for job $JOB_ID"
+log "sandbox bootstrap fetched"
 report_status "RUNNING" "bootstrap fetched"
 
 ENV_FILE="$SECRETS_DIR/env.sh"
@@ -422,6 +418,24 @@ ASKPASS
 # bundle's hostname template) using the auth key delivered in the bootstrap
 # response. The auth key is never logged; on failure the job continues with a
 # warning rather than aborting, since the agent subnet still reaches the daemon.
+TAILSCALE_STATE="$(jq -r '.sandbox_bootstrap_status.tailscale_state // "UNCONFIGURED"' "$BOOTSTRAP_RESPONSE")"
+BOOTSTRAP_ERROR="$(jq -r '.sandbox_bootstrap_status.error_code // ""' "$BOOTSTRAP_RESPONSE")"
+report_bootstrap_status() {
+  local payload
+  payload=$(jq -n --argjson vmid "$VMID" --arg state "$TAILSCALE_STATE" --arg code "$BOOTSTRAP_ERROR" '{vmid:$vmid,runner_ready:true,tailscale_state:$state,error_code:$code}')
+  post_with_backoff "$CONTROLLER/v1/sandbox/bootstrap-status" "$payload" "report sandbox bootstrap" || true
+}
+refresh_tailscale_status() {
+  local status
+  if ! command -v tailscale >/dev/null 2>&1; then return 0; fi
+  status="$(sudo tailscale status --json 2>/dev/null || true)"
+  if jq -e '.BackendState == "Running" and .Self.Online == true' <<<"$status" >/dev/null 2>&1; then
+    TAILSCALE_STATE="CONNECTED"; BOOTSTRAP_ERROR=""
+  elif [[ "$TAILSCALE_STATE" == "CONNECTED" || "$TAILSCALE_STATE" == "PENDING" ]]; then
+    TAILSCALE_STATE="PENDING"; BOOTSTRAP_ERROR="tailscale_pending"
+  fi
+}
+
 setup_tailscale() {
   local authkey hostname tags_csv out_file err ts_status
   authkey="$(jq -r '.tailscale.authkey // empty' "$BOOTSTRAP_RESPONSE")"
@@ -430,15 +444,18 @@ setup_tailscale() {
     return 0
   fi
   if ! command -v tailscale >/dev/null 2>&1; then
-    log "tailscale CLI not installed; skipping enrollment"
+    log "tailscale CLI not installed; enrollment unavailable"
+    TAILSCALE_STATE="FAILED"; BOOTSTRAP_ERROR="tailscale_cli_missing"
     return 0
   fi
 
+  TAILSCALE_STATE="PENDING"; BOOTSTRAP_ERROR="tailscale_pending"
+  report_bootstrap_status
   hostname="$(jq -r '.tailscale.hostname // empty' "$BOOTSTRAP_RESPONSE")"
   tags_csv="$(jq -r '.tailscale.tags // [] | join(",")' "$BOOTSTRAP_RESPONSE")"
   sudo systemctl start tailscaled.service >/dev/null 2>&1 || true
 
-  local -a ts_args=(--authkey="$authkey")
+  local -a ts_args=(--timeout=60s --authkey="$authkey")
   if [[ -n "$hostname" && "$hostname" != "null" ]]; then
     ts_args+=(--hostname="$hostname")
   fi
@@ -453,18 +470,40 @@ setup_tailscale() {
   out_file="$(mktemp)"
   if sudo tailscale up "${ts_args[@]}" >"$out_file" 2>&1; then
     rm -f "$out_file"
-    ts_status="$(sudo tailscale status 2>/dev/null | head -n1 || true)"
-    log "tailscale up complete: ${ts_status:-status unavailable}"
+    TAILSCALE_STATE="PENDING"; BOOTSTRAP_ERROR="tailscale_pending"
+    refresh_tailscale_status
+    log "tailscale enrollment state: $TAILSCALE_STATE"
   else
     err="$(redact_stream <"$out_file" | head -c 200 || true)"
     rm -f "$out_file"
+    TAILSCALE_STATE="FAILED"; BOOTSTRAP_ERROR="tailscale_enrollment_failed"
     log "tailscale up failed: ${err:-unknown error}"
     report_status "RUNNING" "warning: tailscale enrollment failed (job continues)"
   fi
 }
 
-setup_git_auth
 setup_tailscale
+refresh_tailscale_status
+report_bootstrap_status
+# Discard enrollment credentials after the attempt; never re-enroll a clone
+# from cached keys when the runner restarts. The endpoint secret stays in tmpfs.
+jq --arg state "$TAILSCALE_STATE" --arg code "$BOOTSTRAP_ERROR" 'del(.tailscale.authkey) | .sandbox_bootstrap_status={tailscale_state:$state,error_code:$code}' "$BOOTSTRAP_RESPONSE" > "$BOOTSTRAP_RESPONSE.clean"
+mv "$BOOTSTRAP_RESPONSE.clean" "$BOOTSTRAP_RESPONSE"
+if [[ -z "$JOB_ID" && -z "$JOB_REPO" ]]; then
+  log "standalone sandbox initialized; no job assigned"
+  trap 'exit 0' TERM INT
+  while sleep 60; do
+    previous_state="$TAILSCALE_STATE"
+    refresh_tailscale_status
+    if [[ "$previous_state" != "$TAILSCALE_STATE" ]]; then report_bootstrap_status; fi
+  done
+  exit 0
+fi
+if [[ -z "$JOB_ID" || -z "$JOB_REPO" ]]; then
+  die "incomplete job in bootstrap payload"
+  exit 1
+fi
+setup_git_auth
 
 if [[ -z "$REPO_DIR" ]]; then
   if [[ -d /work && -w /work ]]; then

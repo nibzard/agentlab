@@ -321,6 +321,18 @@ func (m *SandboxManager) Transition(ctx context.Context, vmid int, target models
 	if !allowedTransition(current, target) {
 		return fmt.Errorf("%w: %s -> %s", ErrInvalidTransition, current, target)
 	}
+	guestVerified := false
+	if target == models.SandboxReady || (target == models.SandboxRunning && current != models.SandboxReady) {
+		if probe, ok := m.backend.(proxmox.GuestReadiness); ok {
+			checkCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+			_, checkErr := probe.ProbeGuest(checkCtx, proxmox.VMID(vmid))
+			cancel()
+			if checkErr != nil {
+				return fmt.Errorf("guest_not_ready: %w", checkErr)
+			}
+			guestVerified = true
+		}
+	}
 	updated, err := m.store.UpdateSandboxState(ctx, vmid, current, target)
 	if err != nil {
 		return err
@@ -329,6 +341,9 @@ func (m *SandboxManager) Transition(ctx context.Context, vmid int, target models
 		return fmt.Errorf("%w: %s -> %s", ErrInvalidTransition, current, target)
 	}
 	m.recordStateEvent(ctx, vmid, current, target)
+	if guestVerified {
+		m.recordGuestReadiness(ctx, vmid, true)
+	}
 	// Retire the address association on destruction so a later reuse of the
 	// address cannot resolve to this row (review H4). Best-effort: a failure
 	// here does not undo the state transition.
@@ -445,6 +460,9 @@ func (m *SandboxManager) Start(ctx context.Context, vmid int) (err error) {
 		return fmt.Errorf("start vmid %d: %w", vmid, err)
 	}
 	if err = m.Transition(ctx, vmid, models.SandboxBooting); err != nil {
+		return err
+	}
+	if _, err = m.WaitGuestReady(ctx, vmid); err != nil {
 		return err
 	}
 	if err = m.Transition(ctx, vmid, models.SandboxReady); err != nil {
@@ -628,6 +646,9 @@ func (m *SandboxManager) Resume(ctx context.Context, vmid int) (err error) {
 			return ErrSandboxNotFound
 		}
 		return fmt.Errorf("resume vmid %d: %w", vmid, err)
+	}
+	if _, err = m.WaitGuestReady(ctx, vmid); err != nil {
+		return err
 	}
 	target := models.SandboxReady
 	job, jobErr := m.store.GetJobBySandboxVMID(ctx, vmid)
@@ -1411,6 +1432,14 @@ func (m *SandboxManager) ReconcileState(ctx context.Context) error {
 			_ = m.Transition(ctx, sb.VMID, models.SandboxFailed)
 		}
 
+		if status == proxmox.StatusRunning && (sb.State == models.SandboxReady || sb.State == models.SandboxRunning) {
+			if probe, ok := m.backend.(proxmox.GuestReadiness); ok {
+				checkCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+				_, err := probe.ProbeGuest(checkCtx, proxmox.VMID(sb.VMID))
+				cancel()
+				m.recordGuestReadiness(ctx, sb.VMID, err == nil)
+			}
+		}
 		if status == proxmox.StatusRunning {
 			// If AgentLab crashed mid-provisioning, the VM can be running while the DB state
 			// is stuck earlier in the state machine. Advance toward RUNNING step-by-step.
@@ -1458,4 +1487,50 @@ func (m *SandboxManager) cleanupExposures(ctx context.Context, vmid int) {
 			m.logger.Printf("sandbox %d: exposure cleanup failed: %v", vmid, err)
 		}
 	}
+}
+
+// WaitGuestReady keeps provisioning in BOOTING until the agent, networking and
+// SSH banner are usable. Backends without this optional VM capability retain
+// their own readiness mechanism (e.g. container backends).
+func (m *SandboxManager) WaitGuestReady(ctx context.Context, vmid int) (string, error) {
+	probe, ok := m.backend.(proxmox.GuestReadiness)
+	if !ok {
+		return "", nil
+	}
+	ctx, cancel := context.WithTimeout(ctx, defaultSSHProbeTimeout)
+	defer cancel()
+	var last error
+	for {
+		checkCtx, done := context.WithTimeout(ctx, 5*time.Second)
+		ip, err := probe.ProbeGuest(checkCtx, proxmox.VMID(vmid))
+		done()
+		if err == nil {
+			return ip, nil
+		}
+		last = err
+		select {
+		case <-ctx.Done():
+			return "", fmt.Errorf("guest_not_ready: boot readiness deadline reached (%v): %w", last, ctx.Err())
+		case <-time.After(2 * time.Second):
+		}
+	}
+}
+
+// Persist only readiness changes, avoiding a heartbeat event per VM per poll.
+func (m *SandboxManager) recordGuestReadiness(ctx context.Context, vmid int, ready bool) {
+	var previous string
+	err := m.store.DB.QueryRowContext(ctx, `SELECT json FROM events WHERE sandbox_vmid=? AND kind=? ORDER BY id DESC LIMIT 1`, vmid, string(EventKindSandboxGuestReadiness)).Scan(&previous)
+	if err == nil {
+		_, _, fields, parsed := parseEventProjectionPayload(previous)
+		if parsed {
+			if old, ok := fields["ready"].(bool); ok && old == ready {
+				return
+			}
+		}
+	}
+	payload := map[string]any{"ready": ready, "checked_at": time.Now().UTC().Format(time.RFC3339Nano)}
+	if !ready {
+		payload["error_code"] = "guest_not_ready"
+	}
+	_ = emitEvent(ctx, NewStoreEventRecorder(m.store), EventKindSandboxGuestReadiness, &vmid, nil, "guest readiness observed", payload)
 }

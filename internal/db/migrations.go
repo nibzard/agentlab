@@ -405,6 +405,15 @@ var migrations = []migration{
 			`CREATE INDEX idx_sandbox_static_ips_vmid ON sandbox_static_ips(vmid)`,
 		},
 	},
+	{version: 22, name: "remote_template_builds", statements: []string{
+		`CREATE TABLE template_builds (id TEXT PRIMARY KEY, request_id TEXT NOT NULL UNIQUE, request_json TEXT NOT NULL, vmid INTEGER NOT NULL UNIQUE, state TEXT NOT NULL, record_json TEXT NOT NULL)`,
+		`CREATE TABLE template_build_logs (build_id TEXT NOT NULL REFERENCES template_builds(id), sequence INTEGER NOT NULL, timestamp TEXT NOT NULL, stage TEXT NOT NULL, message TEXT NOT NULL, PRIMARY KEY(build_id, sequence))`,
+		`CREATE TABLE template_manifests (vmid INTEGER PRIMARY KEY, build_id TEXT NOT NULL UNIQUE REFERENCES template_builds(id), record_json TEXT NOT NULL)`,
+		`CREATE TABLE vmid_reservations (vmid INTEGER PRIMARY KEY, owner TEXT NOT NULL)`,
+		`CREATE TRIGGER sandbox_template_reservation BEFORE INSERT ON sandboxes WHEN EXISTS(SELECT 1 FROM vmid_reservations WHERE vmid=NEW.vmid) BEGIN SELECT RAISE(ABORT, 'UNIQUE constraint failed: vmid_reservations.vmid'); END`,
+		`CREATE INDEX template_builds_state ON template_builds(state)`,
+		`CREATE UNIQUE INDEX template_builds_single_worker ON template_builds(state) WHERE state='RUNNING'`,
+	}},
 }
 
 // Migrate runs any pending migrations against the provided database.

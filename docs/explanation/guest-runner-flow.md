@@ -26,12 +26,28 @@ POSTs the token and VMID to `POST /v1/bootstrap/fetch` on the bootstrap
 listener.
 
 The fetch is retried up to `AGENTLAB_BOOTSTRAP_RETRY_MAX`, which defaults to 10,
-with exponential backoff capped at 30 seconds. A special case applies: an HTTP
-404 with the message `job not found` makes the runner exit `0` cleanly, because
-the sandbox was created without a job to run. On success the daemon validates
-the single-use token, returns the decrypted payload, and consumes the token.
+with exponential backoff capped at 30 seconds. Bootstrap authenticates a sandbox
+independently of any assigned job. The payload includes sandbox identity and an
+endpoint secret; job and artifact data are provided only when a job exists.
+A successful fetch consumes the token once. An undelivered server failure
+releases its claim for retry, without allowing a concurrent fetch to rotate the
+winning guest's credential. The runner retains compatibility with older daemons
+that return `404 job not found` for standalone sandboxes.
 What that payload contains, and why it is delivered this way, is covered in
 [Secrets delivery model](secrets-delivery-model.md).
+
+The service starts after cloud-init finishes and requires a bootstrap descriptor.
+The runner initializes redaction and tmpfs secrets before attempting Tailscale
+setup. Enrollment has a bounded timeout, and its credential is removed from the
+cached payload after the attempt. Authenticated `sandbox.bootstrap` reports
+expose `CONNECTED`, `PENDING`, `FAILED`, or `UNCONFIGURED` separately from guest
+readiness. Invalid keys produce `tailscale_enrollment_failed`; they do not mark
+an otherwise usable VM as unhealthy.
+
+With no job assigned, the runner stays alive, monitors enrollment state, and
+skips repository preparation and agent execution. Normal service cleanup removes
+its transient secrets on termination. Job-bound guests continue through the
+remaining phases below.
 
 ## Repository preparation
 

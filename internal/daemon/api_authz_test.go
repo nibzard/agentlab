@@ -350,6 +350,11 @@ func TestControlAPI_Authorization(t *testing.T) {
 	// the daemon registers it.
 	t.Run("deny-by-default: zero-permission token is refused everywhere", func(t *testing.T) {
 		routes := []struct{ method, path, body string }{
+			{"GET", "/v1/templates", ""}, {"GET", "/v1/templates/capabilities", ""},
+			{"POST", "/v1/templates/validate-plan", "{}"}, {"POST", "/v1/template-builds", "{}"},
+			{"GET", "/v1/template-builds", ""}, {"GET", "/v1/template-builds/tb_example", ""},
+			{"GET", "/v1/template-builds/tb_example/logs", ""}, {"POST", "/v1/template-builds/tb_example/cancel", "{}"},
+			{"GET", "/v1/templates/9000", ""}, {"POST", "/v1/templates/9000/activate", "{}"},
 			{http.MethodPost, "/v1/jobs", `{"repo_url":"https://example.com/r.git","profile":"default","task":"t"}`},
 			{http.MethodPost, "/v1/jobs/validate-plan", `{"repo_url":"https://example.com/r.git","profile":"default","task":"t"}`},
 			{http.MethodGet, "/v1/jobs/job-1001", ""},
@@ -786,6 +791,10 @@ func TestAuthzRouteCoverage(t *testing.T) {
 		path    string // concrete path used in the test
 	}
 	matrixEntries := []matrixEntry{
+		{"GET", "/v1/templates", "/v1/templates"},
+		{"GET", "/v1/templates/", "/v1/templates/capabilities"},
+		{"POST", "/v1/template-builds", "/v1/template-builds"},
+		{"GET", "/v1/template-builds/", "/v1/template-builds/tb_example"},
 		// ControlAPI routes
 		{"POST", "/v1/jobs", "/v1/jobs"},
 		{"GET", "/v1/jobs/", "/v1/jobs/job-1001"},

@@ -28,7 +28,9 @@ ProtectSystem=strict
 # /run (not just /run/agentlab) is required: Proxmox IPC sockets live in
 # /run/pve and ProtectSystem=strict would otherwise mount them read-only,
 # breaking pmxcfs with ipcc_send_rec: Unknown error -1.
-ReadWritePaths=/etc/pve /var/lib/vz /var/lib/agentlab /var/log/agentlab /var/log/pve /run
+# The secrets API writes encrypted bundles in this directory.
+# Managed-template activation atomically replaces files in the profiles directory.
+ReadWritePaths=/etc/agentlab/secrets /etc/agentlab/profiles /etc/pve /var/lib/vz /var/lib/agentlab /var/log/agentlab /var/log/pve /run
 CapabilityBoundingSet=CAP_CHOWN CAP_DAC_OVERRIDE CAP_FOWNER CAP_SETGID CAP_SETUID CAP_NET_ADMIN CAP_SYS_ADMIN
 
 [Install]

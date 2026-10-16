@@ -25,6 +25,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	tb "github.com/agentlab/agentlab/internal/templatebuild"
 	"io"
 	"net"
 	"net/http"
@@ -250,7 +251,20 @@ type sandboxResourcesResponse struct {
 }
 
 // sandboxResponse represents a sandbox returned from the API.
+type sandboxGuestReadiness struct {
+	Ready     bool   `json:"ready"`
+	CheckedAt string `json:"checked_at"`
+	ErrorCode string `json:"error_code,omitempty"`
+}
+type sandboxHealthResponse struct {
+	Healthy        bool                   `json:"healthy"`
+	Guest          *sandboxGuestReadiness `json:"guest,omitempty"`
+	RunnerReady    bool                   `json:"runner_ready"`
+	TailscaleState string                 `json:"tailscale_state,omitempty"`
+	BootstrapError string                 `json:"bootstrap_error,omitempty"`
+}
 type sandboxResponse struct {
+	Health        *sandboxHealthResponse    `json:"health,omitempty"`
 	VMID          int                       `json:"vmid"`
 	Name          string                    `json:"name"`
 	Profile       string                    `json:"profile"`
@@ -343,15 +357,18 @@ type statusSkillBundleResponse struct {
 
 // statusResponse represents the control plane status summary.
 type statusResponse struct {
-	APISchemaVersion   int                       `json:"api_schema_version"`
-	EventSchemaVersion int                       `json:"event_schema_version"`
-	Sandboxes          map[string]int            `json:"sandboxes"`
-	Jobs               map[string]int            `json:"jobs"`
-	NetworkModes       map[string]int            `json:"network_modes,omitempty"`
-	Artifacts          statusArtifactsResponse   `json:"artifacts"`
-	Metrics            statusMetricsResponse     `json:"metrics"`
-	SkillBundle        statusSkillBundleResponse `json:"skill_bundle"`
-	RecentFailures     []eventResponse           `json:"recent_failures"`
+	SandboxHealth       map[string]json.RawMessage `json:"sandbox_health,omitempty"`
+	JobTimelines        map[string]json.RawMessage `json:"job_timelines,omitempty"`
+	RecentFailureDigest []json.RawMessage          `json:"recent_failure_digest,omitempty"`
+	APISchemaVersion    int                        `json:"api_schema_version"`
+	EventSchemaVersion  int                        `json:"event_schema_version"`
+	Sandboxes           map[string]int             `json:"sandboxes"`
+	Jobs                map[string]int             `json:"jobs"`
+	NetworkModes        map[string]int             `json:"network_modes,omitempty"`
+	Artifacts           statusArtifactsResponse    `json:"artifacts"`
+	Metrics             statusMetricsResponse      `json:"metrics"`
+	SkillBundle         statusSkillBundleResponse  `json:"skill_bundle"`
+	RecentFailures      []eventResponse            `json:"recent_failures"`
 }
 
 type hostResponse struct {
@@ -766,6 +783,11 @@ func (c *apiClient) doJSON(ctx context.Context, method, path string, payload any
 		return nil, err
 	}
 	req.Header.Set("Accept", "application/json")
+	if method == http.MethodPost && path == "/v1/template-builds" {
+		if p, ok := payload.(tb.Plan); ok {
+			req.Header.Set("Idempotency-Key", p.RequestID)
+		}
+	}
 	if payload != nil {
 		req.Header.Set("Content-Type", "application/json")
 	}

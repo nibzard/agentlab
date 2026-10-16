@@ -98,6 +98,14 @@ func (p *EventProjection) applySandboxProjection(vmid int, ev db.Event, ts strin
 	summary.LastEventAt = ts
 
 	switch EventKind(ev.Kind) {
+	case EventKindSandboxGuestReadiness:
+		ready, _ := payload["ready"].(bool)
+		summary.Guest = &V1GuestReadiness{Ready: ready, CheckedAt: stringFromEventPayload(payload, "checked_at"), ErrorCode: stringFromEventPayload(payload, "error_code")}
+		summary.Healthy = ready && isHealthySandboxState(summary.State)
+	case EventKindSandboxBootstrap:
+		summary.RunnerReady, _ = payload["runner_ready"].(bool)
+		summary.TailscaleState = stringFromEventPayload(payload, "tailscale_state")
+		summary.BootstrapError = stringFromEventPayload(payload, "error_code")
 	case EventKindSandboxState:
 		toState := strings.ToUpper(strings.TrimSpace(stringFromEventPayload(payload, "to_state")))
 		fromState := strings.ToUpper(strings.TrimSpace(stringFromEventPayload(payload, "from_state")))
@@ -108,6 +116,12 @@ func (p *EventProjection) applySandboxProjection(vmid int, ev db.Event, ts strin
 		if state != "" {
 			summary.State = state
 			summary.Healthy = isHealthySandboxState(state)
+			if state == string(models.SandboxReady) || state == string(models.SandboxRunning) {
+				summary.Healthy = summary.Guest != nil && summary.Guest.Ready
+			}
+			if state == string(models.SandboxBooting) || state == string(models.SandboxStopped) || state == string(models.SandboxDestroyed) {
+				summary.Guest = nil
+			}
 		}
 		if state == string(models.SandboxFailed) || state == string(models.SandboxTimeout) {
 			summary.FailureCount++

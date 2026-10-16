@@ -7,6 +7,7 @@ type EventDomain string
 type EventStage string
 
 const (
+	eventDomainTemplate  EventDomain = "template"
 	eventDomainSandbox   EventDomain = "sandbox"
 	eventDomainJob       EventDomain = "job"
 	eventDomainWorkspace EventDomain = "workspace"
@@ -33,6 +34,8 @@ const (
 
 const (
 	// Sandbox lifecycle.
+	EventKindSandboxGuestReadiness   EventKind = "sandbox.guest_readiness"
+	EventKindSandboxBootstrap        EventKind = "sandbox.bootstrap"
 	EventKindSandboxState            EventKind = "sandbox.state"
 	EventKindSandboxLease            EventKind = "sandbox.lease"
 	EventKindSandboxLeaseExpiring    EventKind = "sandbox.lease.expiring"
@@ -99,7 +102,24 @@ type EventPayloadSchema struct {
 	Description string      `json:"description"`
 }
 
+const (
+	EventKindTemplateSubmitted EventKind = "template.build.submitted"
+	EventKindTemplateStage     EventKind = "template.build.stage_changed"
+	EventKindTemplateCompleted EventKind = "template.build.completed"
+	EventKindTemplateCancelled EventKind = "template.build.cancel_requested"
+	EventKindTemplateCleanup   EventKind = "template.build.cleanup_failed"
+	EventKindTemplateActivated EventKind = "template.activated"
+)
+
 var EventCatalog = map[EventKind]EventPayloadSchema{
+	EventKindSandboxGuestReadiness: {Kind: EventKindSandboxGuestReadiness, Domain: eventDomainSandbox, Stage: EventStageSLO, Schema: 1, Required: []string{"ready", "checked_at"}, Optional: []string{"error_code"}, Description: "Observed guest-agent, network and SSH readiness."},
+	EventKindSandboxBootstrap:      {Kind: EventKindSandboxBootstrap, Domain: eventDomainSandbox, Stage: EventStageReport, Schema: 1, Required: []string{"vmid", "runner_ready", "tailscale_state"}, Optional: []string{"error_code"}, Description: "Authenticated guest bootstrap and independent tailnet state."},
+	EventKindTemplateSubmitted:     {Kind: EventKindTemplateSubmitted, Domain: eventDomainTemplate, Stage: EventStageLifecycle, Schema: 1, Required: []string{"build_id"}, Optional: []string{"vmid"}, Description: "Durable template build submission."},
+	EventKindTemplateStage:         {Kind: EventKindTemplateStage, Domain: eventDomainTemplate, Stage: EventStageLifecycle, Schema: 1, Required: []string{"build_id"}, Optional: []string{"stage", "state", "cleanup_required"}, Description: "Template build progress."},
+	EventKindTemplateCompleted:     {Kind: EventKindTemplateCompleted, Domain: eventDomainTemplate, Stage: EventStageLifecycle, Schema: 1, Required: []string{"build_id"}, Optional: []string{"stage", "state", "cleanup_required"}, Description: "Terminal template build result."},
+	EventKindTemplateCancelled:     {Kind: EventKindTemplateCancelled, Domain: eventDomainTemplate, Stage: EventStageLifecycle, Schema: 1, Required: []string{"build_id"}, Description: "Template cancellation requested."},
+	EventKindTemplateCleanup:       {Kind: EventKindTemplateCleanup, Domain: eventDomainTemplate, Stage: EventStageLifecycle, Schema: 1, Required: []string{"build_id"}, Description: "Template owned-resource cleanup needs operator attention."},
+	EventKindTemplateActivated:     {Kind: EventKindTemplateActivated, Domain: eventDomainTemplate, Stage: EventStageLifecycle, Schema: 1, Required: []string{"build_id", "profile", "old_vmid", "new_vmid"}, Description: "Profile template compare-and-swap activation."},
 	EventKindSandboxState: {
 		Kind: EventKindSandboxState, Domain: eventDomainSandbox, Stage: EventStageLifecycle, Schema: eventContractSchemaVersion,
 		Required: []string{"from_state", "to_state"}, Optional: []string{"duration_ms"},

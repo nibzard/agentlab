@@ -11,6 +11,7 @@ import (
 
 func TestEventCatalogKindsAreCanonical(t *testing.T) {
 	knownDomains := map[EventDomain]struct{}{
+		eventDomainTemplate:  {},
 		eventDomainArtifact:  {},
 		eventDomainExposure:  {},
 		eventDomainJob:       {},

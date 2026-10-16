@@ -16,6 +16,7 @@ import (
 	"strings"
 	"time"
 
+	tb "github.com/agentlab/agentlab/internal/templatebuild"
 	"gopkg.in/yaml.v3"
 )
 
@@ -35,6 +36,7 @@ import (
 //	    log.Fatal(err)
 //	}
 type Config struct {
+	TemplateBuildLimits     tb.Limits
 	ConfigPath              string
 	ProfilesDir             string
 	DataDir                 string
@@ -155,6 +157,8 @@ type Config struct {
 // configuration overrides. Duration fields accept Go duration format
 // strings (e.g., "30s", "5m", "1h").
 type FileConfig struct {
+	TemplateBuildLimits tb.Limits `yaml:"template_builds"`
+
 	ProfilesDir                string   `yaml:"profiles_dir"`
 	DataDir                    string   `yaml:"data_dir"`
 	LogDir                     string   `yaml:"log_dir"`
@@ -373,6 +377,7 @@ func Load(path string) (Config, error) {
 }
 
 func applyFileConfig(cfg *Config, fileCfg FileConfig) error {
+	cfg.TemplateBuildLimits = fileCfg.TemplateBuildLimits.Defaults()
 	if fileCfg.ProfilesDir != "" {
 		cfg.ProfilesDir = fileCfg.ProfilesDir
 	}
@@ -674,6 +679,11 @@ func (c Config) OrphanGracePeriodOrDefault() time.Duration {
 }
 
 func (c Config) Validate() error {
+	l := c.TemplateBuildLimits.Defaults()
+	if l.VMIDMin <= 0 || l.VMIDMax < l.VMIDMin || l.VMIDMax > 999999999 || l.MemoryMB <= 0 || l.Cores <= 0 || l.DiskSizeGB <= 0 || l.TimeoutSeconds <= 0 || l.TimeoutSeconds > 7200 || l.Pending <= 0 || l.Pending > 1000 {
+		return fmt.Errorf("invalid template_builds limits")
+	}
+
 	if c.ConfigPath == "" {
 		return fmt.Errorf("config_path is required")
 	}

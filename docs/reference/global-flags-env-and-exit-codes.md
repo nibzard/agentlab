@@ -103,3 +103,12 @@ agentlab completion fish
 - [CLI reference](cli.md) for the full command and per-command flag list.
 - [Configuration reference](configuration.md) for daemon-side configuration.
 - [Listeners and ports](listeners-and-ports.md) for the socket and TCP addresses the CLI connects to.
+
+Template commands use the saved endpoint/token and global connection flags.
+`template create` submits immediately; `--wait` follows state with a separate
+`--wait-timeout` (default 45m). `template build wait ID --timeout 45m` bounds
+client waiting; the daemon enforces `--timeout-seconds` independently. Ctrl-C
+stops waiting/following and prints a reconnect command. Success exits 0;
+failed/cancelled builds or wait timeouts exit 1; invalid arguments exit 2.
+JSON create/show/list/wait output is one document. JSON log output is NDJSON,
+one record per sequence, UTC timestamp, stage, and message.

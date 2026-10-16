@@ -14,6 +14,8 @@ import (
 	"strings"
 	"time"
 
+	"gopkg.in/yaml.v3"
+
 	"github.com/agentlab/agentlab/internal/db"
 	"github.com/agentlab/agentlab/internal/models"
 	"github.com/agentlab/agentlab/internal/secrets"
@@ -37,6 +39,7 @@ const (
 
 // BootstrapAPI serves guest bootstrap payloads on the agent subnet.
 type BootstrapAPI struct {
+	profileStore     *ProfileStore
 	store            *db.Store
 	profiles         map[string]models.Profile
 	secretsStore     secrets.Store
@@ -119,15 +122,6 @@ func (api *BootstrapAPI) handleBootstrapFetch(w http.ResponseWriter, r *http.Req
 		writeError(w, http.StatusServiceUnavailable, "bootstrap service unavailable")
 		return
 	}
-	job, err := api.store.GetJobBySandboxVMID(r.Context(), req.VMID)
-	if err != nil {
-		if err == sql.ErrNoRows {
-			writeError(w, http.StatusNotFound, "job not found")
-			return
-		}
-		writeError(w, http.StatusInternalServerError, "failed to load job")
-		return
-	}
 	tokenHash, err := db.HashBootstrapToken(req.Token)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, "invalid token")
@@ -142,8 +136,43 @@ func (api *BootstrapAPI) handleBootstrapFetch(w http.ResponseWriter, r *http.Req
 		writeError(w, http.StatusForbidden, "invalid or expired bootstrap token")
 		return
 	}
-	bundle, err := api.secretsStore.Load(r.Context(), api.secretsBundle)
+	sandbox, err := api.store.GetSandbox(r.Context(), req.VMID)
+	if err != nil || sandbox.State == models.SandboxDestroyed {
+		writeError(w, http.StatusNotFound, "sandbox not found")
+		return
+	}
+	job, err := api.store.GetJobBySandboxVMID(r.Context(), req.VMID)
+	if err != nil && !errors.Is(err, sql.ErrNoRows) {
+		writeError(w, http.StatusInternalServerError, "failed to load job")
+		return
+	}
+	hasJob := err == nil
+	profiles := api.profiles
+	if api.profileStore != nil {
+		profiles = api.profileStore.Snapshot()
+	}
+	var profile *models.Profile
+	bundleName := api.secretsBundle
+	if stored, ok := profiles[sandbox.Profile]; ok {
+		profile = &stored
+		var config struct {
+			SecretsBundle string `yaml:"secrets_bundle"`
+		}
+		if err = yaml.Unmarshal([]byte(stored.RawYAML), &config); err != nil {
+			writeError(w, 500, "invalid profile bootstrap policy")
+			return
+		}
+		if strings.TrimSpace(config.SecretsBundle) != "" {
+			bundleName = strings.TrimSpace(config.SecretsBundle)
+		}
+	}
+	bundle, err := api.secretsStore.Load(r.Context(), bundleName)
+	if errors.Is(err, secrets.ErrBundleNotFound) && !hasJob && bundleName == api.secretsBundle {
+		bundle = secrets.Bundle{Version: secrets.BundleVersion}
+		err = nil
+	}
 	if err != nil {
+		api.recordBootstrapFailure(r.Context(), req.VMID, "bootstrap_secrets_unavailable")
 		writeError(w, http.StatusInternalServerError, "failed to load secrets bundle")
 		return
 	}
@@ -162,9 +191,26 @@ func (api *BootstrapAPI) handleBootstrapFetch(w http.ResponseWriter, r *http.Req
 		return
 	}
 
-	resp := V1BootstrapFetchResponse{
-		Job: bootstrapJobFromModel(job),
+	resp := V1BootstrapFetchResponse{Sandbox: &V1BootstrapSandbox{VMID: sandbox.VMID, Name: sandbox.Name, Profile: sandbox.Profile}}
+	if hasJob {
+		resp.Job = bootstrapJobFromModel(job)
 	}
+	// Claim before any credential rotation or key mint. A concurrent loser must
+	// not invalidate the sandbox secret delivered by the winning request.
+	claimedAt := api.now().UTC()
+	consumed, err := api.store.ConsumeBootstrapToken(r.Context(), tokenHash, req.VMID, claimedAt)
+	if err != nil || !consumed {
+		writeError(w, http.StatusForbidden, "invalid or expired bootstrap token")
+		return
+	}
+	delivered := false
+	defer func() {
+		if !delivered {
+			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancel()
+			_ = api.store.ReleaseBootstrapToken(ctx, tokenHash, req.VMID, claimedAt)
+		}
+	}()
 	if git := bootstrapGitFromBundle(bundle); git != nil {
 		resp.Git = git
 	}
@@ -174,7 +220,7 @@ func (api *BootstrapAPI) handleBootstrapFetch(w http.ResponseWriter, r *http.Req
 	if claudeSettings != "" {
 		resp.ClaudeSettingsJSON = claudeSettings
 	}
-	if api.artifactEndpoint != "" {
+	if api.artifactEndpoint != "" && hasJob {
 		token, err := api.issueArtifactToken(r.Context(), job.ID, req.VMID)
 		if err != nil {
 			writeError(w, http.StatusInternalServerError, "failed to issue artifact token")
@@ -184,7 +230,7 @@ func (api *BootstrapAPI) handleBootstrapFetch(w http.ResponseWriter, r *http.Req
 			Endpoint: api.artifactEndpoint,
 			Token:    token,
 		}
-	} else if artifact := bootstrapArtifactFromBundle(bundle); artifact != nil {
+	} else if artifact := bootstrapArtifactFromBundle(bundle); hasJob && artifact != nil {
 		resp.Artifact = artifact
 	}
 	// Issue the per-sandbox endpoint secret before the single-use token is
@@ -196,11 +242,8 @@ func (api *BootstrapAPI) handleBootstrapFetch(w http.ResponseWriter, r *http.Req
 		return
 	}
 	resp.SandboxSecret = sandboxSecret
-	var profile *models.Profile
-	if api.profiles != nil {
-		if stored, ok := api.profiles[job.Profile]; ok {
-			profile = &stored
-		}
+	if !hasJob {
+		job.Profile = sandbox.Profile
 	}
 	policy, err := bootstrapPolicyFromJobAndProfile(job, profile)
 	if err != nil {
@@ -211,21 +254,12 @@ func (api *BootstrapAPI) handleBootstrapFetch(w http.ResponseWriter, r *http.Req
 		resp.Policy = policy
 	}
 
-	consumed, err := api.store.ConsumeBootstrapToken(r.Context(), tokenHash, req.VMID, api.now().UTC())
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, "failed to consume token")
-		return
-	}
-	if !consumed {
-		writeError(w, http.StatusForbidden, "invalid or expired bootstrap token")
-		return
-	}
-
 	// Mint/deliver Tailscale enrollment AFTER the single-use token is consumed,
 	// so a per-VM key is only ever created for a token that was actually
 	// delivered to this guest (no orphaned keys on a lost consume race).
 	ts, err := api.tailscaleForBootstrap(r.Context(), bundle, req.VMID)
 	if err != nil {
+		api.recordBootstrapFailure(r.Context(), req.VMID, "tailscale_key_mint_failed")
 		writeError(w, http.StatusServiceUnavailable, "failed to provision tailscale enrollment")
 		return
 	}
@@ -233,6 +267,7 @@ func (api *BootstrapAPI) handleBootstrapFetch(w http.ResponseWriter, r *http.Req
 		resp.Tailscale = ts
 	}
 
+	delivered = true
 	writeJSON(w, http.StatusOK, resp)
 }
 
@@ -446,6 +481,9 @@ func (api *BootstrapAPI) tailscaleForBootstrap(ctx context.Context, bundle secre
 		Tags:        bundle.GetTailscaleTags(),
 		Description: fmt.Sprintf("agentlab vmid=%d", vmid),
 	})
+	if err == nil && strings.TrimSpace(result.Key) == "" {
+		err = errors.New("tailscale returned no enrollment key")
+	}
 	if err == nil {
 		if api.redactor != nil {
 			api.redactor.AddValues(result.Key)
@@ -546,4 +584,8 @@ func (api *BootstrapAPI) randReader() io.Reader {
 		return api.rand
 	}
 	return rand.Reader
+}
+
+func (api *BootstrapAPI) recordBootstrapFailure(ctx context.Context, vmid int, code string) {
+	_ = emitEvent(ctx, NewStoreEventRecorder(api.store), EventKindSandboxBootstrap, &vmid, nil, "sandbox bootstrap failed", sandboxBootstrapStatus{VMID: vmid, TailscaleState: "FAILED", ErrorCode: code})
 }

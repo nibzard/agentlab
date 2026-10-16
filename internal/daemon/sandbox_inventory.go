@@ -211,6 +211,16 @@ func (api *ControlAPI) adoptRestoredSandbox(ctx context.Context, record sandboxI
 		return nil
 	}
 	targetState := sandboxStateFromProxmoxStatus(record.vm.Status)
+	if targetState == models.SandboxRunning {
+		if probe, ok := api.backend.(proxmox.GuestReadiness); ok {
+			checkCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+			_, err := probe.ProbeGuest(checkCtx, proxmox.VMID(record.sandbox.VMID))
+			cancel()
+			if err != nil {
+				targetState = models.SandboxBooting
+			}
+		}
+	}
 	if err := api.store.ForceSetSandboxState(ctx, record.sandbox.VMID, targetState); err != nil {
 		return fmt.Errorf("adopt restored sandbox %d: %w", record.sandbox.VMID, err)
 	}

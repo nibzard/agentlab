@@ -155,6 +155,7 @@ These run on the bootstrap and artifact listeners, are restricted to the agent s
 | --- | --- | --- | --- | --- |
 | POST | `/v1/bootstrap/fetch` | bootstrap | Single-use token plus VMID delivery of the bootstrap payload. Token is consumed on success. | `{"token":"...","vmid":N}` |
 | POST | `/v1/runner/report` | bootstrap | In-guest runner status report. | Runner status event |
+| POST | `/v1/sandbox/bootstrap-status` | bootstrap | Authenticated sandbox initialization and independent Tailscale diagnostics. | `vmid`, `runner_ready`, `tailscale_state`, optional fixed `error_code` |
 | GET | `/metadata/` | bootstrap | Metadata index. Requires `X-AgentLab-Sandbox-Secret` header. | - |
 | GET | `/metadata/identity` | bootstrap | Sandbox identity. Requires `X-AgentLab-Sandbox-Secret` header. | - |
 | GET | `/metadata/metadata` | bootstrap | Sandbox key-value metadata. Requires `X-AgentLab-Sandbox-Secret` header. | - |
@@ -171,7 +172,7 @@ These run on the bootstrap and artifact listeners, are restricted to the agent s
 
 ## Sandbox secret header
 
-Guest-facing endpoints `/metadata/*`, `/proxy/{name}`, and `/v1/runner/*` require the `X-AgentLab-Sandbox-Secret` header. This header carries a per-sandbox secret that the daemon issues at bootstrap. The daemon stores only the SHA-256 hash of the secret and validates requests with constant-time comparison.
+Guest-facing endpoints `/metadata/*`, `/proxy/{name}`, `/v1/sandbox/bootstrap-status`, and `/v1/runner/*` require the `X-AgentLab-Sandbox-Secret` header. This header carries a per-sandbox secret that the daemon issues at bootstrap. The daemon stores only the SHA-256 hash of the secret and validates requests with constant-time comparison.
 
 The header prevents a sandbox from spoofing another sandbox's source IP to access its metadata or credential proxies. A request with a valid source IP but an invalid or missing secret is rejected with HTTP 403.
 
@@ -198,3 +199,86 @@ For the trust model behind these rules, see [security.md](security.md) and [../e
 - [Event contract](event-contract.md) for the event envelope and kinds.
 - [Configuration reference](configuration.md) for the keys that enable each listener.
 - [Listeners and ports](listeners-and-ports.md) for bind addresses and defaults.
+
+## Managed templates and durable builds
+
+All template routes use control-plane authentication and reject sandbox-scoped
+credentials. Permissions are `template.read`, `template.validate`,
+`template.create`, `template.cancel`, and `template.activate`; the `template`
+namespace grants all five. Trusted Unix-socket and legacy bearer access remain
+supported.
+
+| Route | Method | Permission | Response |
+| --- | --- | --- | --- |
+| `/v1/templates/capabilities` | GET | template.read | Recipes, defaults, limits, prerequisite failures |
+| `/v1/templates/validate-plan` | POST | template.validate | Normalized plan, errors and warnings; 422 if invalid |
+| `/v1/template-builds` | POST | template.create | 202 build record with ID, VMID and Location |
+| `/v1/template-builds` | GET | template.read | `builds`, `next_offset`; optional state filter |
+| `/v1/template-builds/{id}` | GET | template.read | Durable build record |
+| `/v1/template-builds/{id}/logs` | GET | template.read | `records`, `next_cursor` |
+| `/v1/template-builds/{id}/cancel` | POST | template.cancel | Idempotent cancellation request |
+| `/v1/templates` | GET | template.read | Successful managed manifests, `next_offset` |
+| `/v1/templates/{vmid}` | GET | template.read | Manifest, live existence and drift |
+| `/v1/templates/{vmid}/activate` | POST | template.activate | Compare-and-swap profile update |
+
+Create and validate accept `name`, `storage`, optional `vmid`, `recipe`,
+`cloudinit_storage`, `bridge`, `memory_mb`, `cores`, `disk_size_gb`, `agent_tools`,
+`timeout_seconds`, and the paired `image_url`/`image_sha256` override. Create also
+requires a UUID `request_id` and an identical `Idempotency-Key` header. Retrying
+that normalized request returns the original record; different input returns
+409. No overwrite flag or caller-provided scripts are accepted.
+
+List pagination uses `offset` and `limit` (default 100, maximum 500). Logs use
+exclusive `after` sequence and `limit`, returning ascending UTC-timestamped
+records. Poll until terminal state, then drain the remaining cursor. Client
+request timeouts and disconnects leave execution running in systemd.
+
+States are `QUEUED`, `RUNNING`, `SUCCEEDED`, `FAILED`, `CANCELLED`. Stages are
+`preflight`, `download`, `customize`, `import`, `verify`, `finalize`.
+`cancel_requested` is separate durable metadata. Only verified success creates
+a manifest. `cleanup_required` and `resources` preserve uncertain ownership or
+cleanup failures for manual inspection. An interrupted unit is never rerun.
+
+Activation requires `profile` and `expected_template_vmid`. It validates the
+managed template on the local node, rejects configuration drift and incompatible
+profile disks, validates the complete YAML profile set, atomically replaces the
+file, and publishes a new snapshot. External edits or stale expected VMIDs
+return 409. Creation alone never changes profiles.
+
+Stable diagnostics include `template_build_unsupported`,
+`template_prerequisite_missing`, `template_vmid_conflict`,
+`template_storage_unavailable`, `template_checksum_mismatch`,
+`template_build_failed`, `template_build_timeout`, `template_build_interrupted`,
+`template_profile_conflict`, and `template_capability_missing`. Queue saturation
+returns 503 and `Retry-After: 10`. Validation performs no downloads or writes.
+
+## Guest readiness and enrollment diagnostics
+
+On Proxmox backends, `READY` requires a responding guest agent, a usable guest
+IP, and an SSH protocol banner. A running QEMU process or a DHCP lease alone is
+insufficient. Provisioning waits up to three minutes within its overall timeout;
+recovery also checks before promoting a booting guest. `sandbox show` probes
+current readiness and reports `health.guest.ready`, `checked_at`, and an
+`error_code` when unavailable. A guest that loses its agent reports
+`healthy=false` even while Proxmox still reports the VM running. Readiness
+changes are persisted as `sandbox.guest_readiness` events and sampled during
+reconciliation, so aggregate status does not infer guest health from QEMU state.
+A running guest with no readiness evidence is not reported healthy.
+
+`health.runner_ready` means the runner reported initialization, not continuous
+process liveness. `health.tailscale_state` and `health.bootstrap_error` describe
+its last authenticated enrollment report. These are independent of VM readiness.
+Guest reports accept only fixed diagnostic codes; arbitrary text and enrollment
+keys are not persisted. Server-side secret-loading or key-mint failures also
+produce bootstrap diagnostics. Missing default bundles are treated as
+unconfigured for standalone guests; missing explicit profile bundles remain
+errors. Successful enrollment requires an actually valid Tailscale credential.
+
+New template builds reserve two VMIDs atomically: the template and its isolated
+boot-verification clone. Stage `boot_verify` checks the guest agent, network,
+SSH, runner availability, and unenrolled Tailscale before deleting the clone.
+Only then is `manifest.boot_verified=true` recorded with `boot_verified_at`.
+Activation rejects historical manifests lacking this evidence; rebuild those
+templates. Errors include `template_boot_failed`. Cleanup checks ownership tags,
+recorded disks and active tasks, and retains identifiers when manual recovery
+is required. No credentials are injected into smoke clones.

@@ -61,6 +61,7 @@ const (
 // The Service coordinates the lifecycle of all daemon components and ensures
 // graceful shutdown on context cancellation.
 type Service struct {
+	templateBuilds    *TemplateBuildManager
 	cfg               config.Config
 	profiles          map[string]models.Profile
 	store             *db.Store
@@ -158,6 +159,10 @@ func NewServiceWithBackend(cfg config.Config, profiles map[string]models.Profile
 }
 
 func newService(cfg config.Config, profiles map[string]models.Profile, store *db.Store, backendOverride proxmox.Backend) (*Service, error) {
+	profileStore, err := NewProfileStore(cfg.ProfilesDir, profiles)
+	if err != nil {
+		return nil, err
+	}
 	if cfg.Offline {
 		log.Printf("offline mode enabled: all external network calls are blocked")
 	}
@@ -452,6 +457,14 @@ func newService(cfg config.Config, profiles map[string]models.Profile, store *db
 		WithTailscaleStatus(defaultTailscaleDNSName).
 		WithTailscalePeerInventory(defaultTailscalePeerInventory).
 		WithResourcePool(resourcePool)
+	templateBuilds := NewTemplateBuildManager(store, cfg.TemplateBuildLimits)
+	templateBuilds.offline = cfg.Offline
+	if redactor != nil {
+		templateBuilds.redact = func(s string) string { return redactor.Redact(s) }
+	}
+	controlAPI.templateBuilds = templateBuilds
+	controlAPI.profileStore = profileStore
+	jobOrchestrator.profileStore = profileStore
 	controlAPI.Register(localMux)
 
 	// Register pool status endpoint.
@@ -537,7 +550,9 @@ func newService(cfg config.Config, profiles map[string]models.Profile, store *db
 	}
 	bootstrapLimiter := NewIPRateLimiter(cfg.BootstrapRateLimitQPS, cfg.BootstrapRateLimitBurst)
 	artifactLimiter := NewIPRateLimiter(cfg.ArtifactRateLimitQPS, cfg.ArtifactRateLimitBurst)
-	NewBootstrapAPI(store, profiles, secretsStore, cfg.SecretsBundle, agentSubnet, artifactEndpoint, time.Duration(cfg.ArtifactTokenTTLMinutes)*time.Minute, redactor, bootstrapLimiter).Register(bootstrapMux)
+	bootstrapAPI := NewBootstrapAPI(store, profiles, secretsStore, cfg.SecretsBundle, agentSubnet, artifactEndpoint, time.Duration(cfg.ArtifactTokenTTLMinutes)*time.Minute, redactor, bootstrapLimiter)
+	bootstrapAPI.profileStore = profileStore
+	bootstrapAPI.Register(bootstrapMux)
 	NewRunnerAPI(jobOrchestrator, store, agentSubnet).Register(bootstrapMux)
 	NewMetadataAPI(store, secretsStore, cfg.SecretsBundle, agentSubnet, bootstrapLimiter, log.Default()).Register(bootstrapMux)
 
@@ -633,6 +648,7 @@ func newService(cfg config.Config, profiles map[string]models.Profile, store *db
 	}
 
 	s := &Service{
+		templateBuilds:    templateBuilds,
 		cfg:               cfg,
 		profiles:          profiles,
 		store:             store,
@@ -692,6 +708,9 @@ func (s *Service) Serve(ctx context.Context) error {
 	s.lifecycleCancel = lifecycleCancel
 	s.tasks = &taskTracker{}
 
+	if s.templateBuilds != nil {
+		s.Go("template-builds", s.templateBuilds.Run)
+	}
 	serverCount := 3
 	if s.controlServer != nil {
 		serverCount++

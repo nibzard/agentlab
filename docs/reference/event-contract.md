@@ -46,6 +46,8 @@ The event schema version is `1` (`eventContractSchemaVersion`), and the control 
 
 | Kind | Stage | Required | Optional | Description |
 | --- | --- | --- | --- | --- |
+| `sandbox.guest_readiness` | slo | `ready`, `checked_at` | `error_code` | Observed guest-agent, network, and SSH readiness changes. |
+| `sandbox.bootstrap` | report | `vmid`, `runner_ready`, `tailscale_state` | `error_code` | Authenticated initialization and independent enrollment diagnostics. |
 | `sandbox.state` | lifecycle | `from_state`, `to_state` | `duration_ms` | Sandbox finite-state transition. |
 | `sandbox.lease` | lease | `expires_at` | - | Sandbox lease lifecycle update. |
 | `sandbox.lease.expiring` | lease | `expires_at`, `remaining` | - | Pre-expiry warning: sandbox lease approaches expiration (see [configuration.md](configuration.md) lease warn window). |
@@ -140,3 +142,13 @@ The event schema version is `1` (`eventContractSchemaVersion`), and the control 
 - [HTTP API reference](http-api.md) for the routes that read events.
 - [State machine reference](state-machine.md) for the transitions that `sandbox.state` records.
 - [Prometheus metrics](metrics.md) for the `agentlab_sandbox_transitions_total` counter that mirrors state transitions.
+
+## Template events
+
+The `template` domain uses the version 1 lifecycle envelope with a required
+`build_id` payload field. Events are `template.build.submitted`,
+`template.build.stage_changed`, `template.build.cancel_requested`,
+`template.build.completed`, `template.build.cleanup_failed`, and
+`template.activated`. Completion includes state, stage, and cleanup status.
+Activation includes profile, old VMID, and new VMID. No enrollment credentials
+are part of these events.

@@ -144,6 +144,8 @@ var (
 //   - GET    /v1/exposures            - List exposures
 //   - DELETE /v1/exposures/{name}     - Delete exposure
 type ControlAPI struct {
+	templateBuilds     *TemplateBuildManager
+	profileStore       *ProfileStore
 	store              *db.Store
 	profiles           map[string]models.Profile
 	backend            proxmox.Backend
@@ -366,6 +368,7 @@ func (api *ControlAPI) Register(mux *http.ServeMux) {
 	if mux == nil {
 		return
 	}
+	api.registerTemplates(mux)
 	mux.HandleFunc("/v1/jobs/validate-plan", api.handleJobValidatePlan)
 	mux.HandleFunc("/v1/jobs", api.handleJobs)
 	mux.HandleFunc("/v1/jobs/", api.handleJobByID)
@@ -1396,18 +1399,18 @@ func (api *ControlAPI) handleProfiles(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	resp := V1ProfilesResponse{Profiles: []V1Profile{}}
-	if api.profiles == nil {
+	if api.profileSnapshot() == nil {
 		writeJSON(w, http.StatusOK, resp)
 		return
 	}
-	names := make([]string, 0, len(api.profiles))
-	for name := range api.profiles {
+	names := make([]string, 0, len(api.profileSnapshot()))
+	for name := range api.profileSnapshot() {
 		names = append(names, name)
 	}
 	sort.Strings(names)
 	resp.Profiles = make([]V1Profile, 0, len(names))
 	for _, name := range names {
-		profile, ok := api.profiles[name]
+		profile, ok := api.profileSnapshot()[name]
 		if !ok {
 			continue
 		}
@@ -2059,12 +2062,29 @@ func (api *ControlAPI) handleSandboxGet(w http.ResponseWriter, r *http.Request, 
 	}
 	projection.Replay(sandboxEvents)
 	if summary, ok := projection.SandboxHealth[vmid]; ok {
+		if probe, ok := api.backend.(proxmox.GuestReadiness); ok && (sandbox.State == models.SandboxReady || sandbox.State == models.SandboxRunning || sandbox.State == models.SandboxBooting) {
+			checkCtx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
+			_, checkErr := probe.ProbeGuest(checkCtx, proxmox.VMID(vmid))
+			cancel()
+			if api.sandboxManager != nil {
+				api.sandboxManager.recordGuestReadiness(r.Context(), vmid, checkErr == nil)
+			}
+			summary.Guest = &V1GuestReadiness{Ready: checkErr == nil, CheckedAt: time.Now().UTC().Format(time.RFC3339Nano)}
+			summary.Healthy = checkErr == nil && isHealthySandboxState(string(sandbox.State))
+			if checkErr != nil {
+				summary.Guest.ErrorCode = "guest_not_ready"
+			}
+		}
 		resp.Health = &summary
 	}
 	writeJSON(w, http.StatusOK, resp)
 }
 
 func (api *ControlAPI) handleSandboxCreate(w http.ResponseWriter, r *http.Request) {
+	if api.profileStore != nil {
+		api.profileStore.mu.RLock()
+		defer api.profileStore.mu.RUnlock()
+	}
 	var req V1SandboxCreateRequest
 	if err := decodeJSON(w, r, &req); err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
@@ -2238,7 +2258,7 @@ func (api *ControlAPI) handleSandboxCreate(w http.ResponseWriter, r *http.Reques
 	if req.VMID != nil {
 		// Reserve pool resources for the explicit VMID; roll back on any failure
 		// so a dropped row cannot leak a phantom allocation (review H3).
-		if err := reservePoolForSandbox(api.resourcePool, sandbox.VMID, sandbox.Name, req.Profile, api.profiles); err != nil {
+		if err := reservePoolForSandbox(api.resourcePool, sandbox.VMID, sandbox.Name, req.Profile, api.profileSnapshot()); err != nil {
 			writeError(w, http.StatusConflict, err.Error())
 			return
 		}
@@ -2257,7 +2277,7 @@ func (api *ControlAPI) handleSandboxCreate(w http.ResponseWriter, r *http.Reques
 		// (successfully created) VMID and rolls back on every failure path,
 		// including VMID collisions (review H3).
 		var err error
-		createdSandbox, err = createSandboxWithRetry(ctx, api.store, sandbox, api.resourcePool, api.profiles, api.backend)
+		createdSandbox, err = createSandboxWithRetry(ctx, api.store, sandbox, api.resourcePool, api.profileSnapshot(), api.backend)
 		if err != nil {
 			writeError(w, http.StatusInternalServerError, "failed to create sandbox")
 			return
@@ -4380,10 +4400,10 @@ func (api *ControlAPI) profileExists(name string) bool {
 	if name == "" {
 		return false
 	}
-	if api.profiles == nil {
+	if api.profileSnapshot() == nil {
 		return true
 	}
-	_, ok := api.profiles[name]
+	_, ok := api.profileSnapshot()[name]
 	return ok
 }
 
@@ -4391,10 +4411,10 @@ func (api *ControlAPI) profile(name string) (models.Profile, bool) {
 	if name == "" {
 		return models.Profile{}, false
 	}
-	if api.profiles == nil {
+	if api.profileSnapshot() == nil {
 		return models.Profile{}, false
 	}
-	profile, ok := api.profiles[name]
+	profile, ok := api.profileSnapshot()[name]
 	return profile, ok
 }
 
@@ -4818,7 +4838,7 @@ func (api *ControlAPI) buildNetworkModeCounts(ctx context.Context) map[string]in
 		api.logger.Printf("status: list sandboxes for network modes: %v", err)
 		return out
 	}
-	profileModes := buildProfileNetworkModes(api.profiles)
+	profileModes := buildProfileNetworkModes(api.profileSnapshot())
 	for _, sb := range sandboxes {
 		mode := profileModes[sb.Profile]
 		if mode == "" {

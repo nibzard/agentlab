@@ -116,7 +116,7 @@ func (o *JobOrchestrator) RebindWorkspace(ctx context.Context, workspaceID, prof
 		LastUpdatedAt: now,
 	}
 
-	created, err := createSandboxWithRetry(ctx, o.store, sandbox, o.resourcePool, o.profiles, o.backend)
+	created, err := createSandboxWithRetry(ctx, o.store, sandbox, o.resourcePool, o.profileSnapshot(), o.backend)
 	if err != nil {
 		if released, _ := o.store.ReleaseWorkspaceLease(ctx, workspace.ID, leaseOwner, leaseNonce); released {
 			vmid := newVMID
@@ -241,6 +241,9 @@ func (o *JobOrchestrator) RebindWorkspace(ctx context.Context, workspaceID, prof
 		}
 	}
 
+	if _, err = o.sandboxManager.WaitGuestReady(ctx, created.VMID); err != nil {
+		return result, err
+	}
 	if err = o.sandboxManager.Transition(ctx, created.VMID, models.SandboxReady); err != nil {
 		return result, err
 	}

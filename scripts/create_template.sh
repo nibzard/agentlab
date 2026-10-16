@@ -59,10 +59,12 @@ IMAGE_FILE=""
 IMAGE_SHA256=""
 IMAGE_SHA256_URL=""
 CACHE_DIR="/var/lib/agentlab/images"
-PACKAGES="qemu-guest-agent,git,curl,ca-certificates,jq,e2fsprogs,bubblewrap"
+PACKAGES="openssh-server,qemu-guest-agent,git,curl,ca-certificates,jq,e2fsprogs,bubblewrap"
 CLAUDE_CODE_VERSION="1.0.100"
 CODEX_VERSION="0.28.0"
 OPENCODE_VERSION="0.6.4"
+CUSTOMIZE_ONLY=0
+CUSTOM_WORK_IMAGE=""
 SKIP_CUSTOMIZE=0
 SKIP_AGENT_TOOLS=0
 REFRESH=0
@@ -76,6 +78,8 @@ AGENTLAB_WORKSPACE_SETUP_SCRIPT="${SCRIPT_DIR}/guest/agentlab-workspace-setup"
 AGENTLAB_WORKSPACE_SETUP_SERVICE="${SCRIPT_DIR}/guest/agentlab-workspace-setup.service"
 AGENTLAB_WORK_MOUNT_UNIT="${SCRIPT_DIR}/guest/work.mount"
 AGENT_TOOLS_ENV=""
+RESIZE_DIR=""
+trap 'rm -f "$AGENT_TOOLS_ENV"; if [[ -n "$RESIZE_DIR" ]]; then rm -rf "$RESIZE_DIR"; fi' EXIT
 
 ensure_package() {
   local pkg="$1"
@@ -88,6 +92,15 @@ ensure_package() {
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
+    --customize-only)
+      CUSTOMIZE_ONLY=1
+      shift
+      ;;
+    --work-image)
+      [[ $# -lt 2 ]] && die "--work-image requires a value"
+      CUSTOM_WORK_IMAGE="$2"
+      shift 2
+      ;;
     --vmid)
       [[ $# -lt 2 ]] && die "--vmid requires a value"
       VMID="$2"
@@ -237,7 +250,6 @@ CODEX_VERSION="${CODEX_VERSION}"
 OPENCODE_VERSION="${OPENCODE_VERSION}"
 BUILT_AT="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 EOF
-  trap 'rm -f "$AGENT_TOOLS_ENV"' EXIT
 fi
 
 if [[ "$SKIP_CUSTOMIZE" == "0" ]]; then
@@ -340,6 +352,7 @@ if [[ -n "$IMAGE_SHA256" || -n "$IMAGE_SHA256_URL" ]]; then
 fi
 
 WORK_IMAGE="${CACHE_DIR}/agentlab-${VMID}-$(basename "$IMAGE_FILE")"
+if [[ -n "$CUSTOM_WORK_IMAGE" ]]; then WORK_IMAGE="$CUSTOM_WORK_IMAGE"; fi
 rm -f "$WORK_IMAGE"
 if cp --reflink=auto "$IMAGE_FILE" "$WORK_IMAGE" 2>/dev/null; then
   log "Copied image with reflink to $WORK_IMAGE"
@@ -352,10 +365,26 @@ if [[ "$SKIP_CUSTOMIZE" == "0" ]]; then
   if ! command -v virt-customize >/dev/null 2>&1; then
     die "virt-customize not found; install libguestfs-tools or use --skip-customize"
   fi
+  # The published cloud image has only a small root filesystem. Expand it
+  # before installing packages; resizing the imported VM disk is too late.
+  if [[ -n "$DISK_SIZE" && "$DISK_SIZE" != "0" ]]; then
+    command -v virt-resize >/dev/null || die "virt-resize not found; install libguestfs-tools"
+    command -v qemu-img >/dev/null || die "qemu-img not found; install qemu-utils"
+    RESIZE_DIR="$(mktemp -d)"
+    log "Expanding image root filesystem to $DISK_SIZE before customization"
+    qemu-img create -f qcow2 "$RESIZE_DIR/work.img" "$DISK_SIZE"
+    virt-resize --expand /dev/sda1 "$WORK_IMAGE" "$RESIZE_DIR/work.img"
+    mv "$RESIZE_DIR/work.img" "$WORK_IMAGE"
+    rmdir "$RESIZE_DIR"
+    RESIZE_DIR=""
+  fi
   pkg_list="${PACKAGES// /,}"
   log "Customizing image with packages: $pkg_list"
   virt_args=(
     -a "$WORK_IMAGE"
+    # virt-resize may renumber Ubuntu's GPT partitions. Refresh GRUB's embedded
+    # partition references before publishing an image intended for BIOS boot.
+    --run-command "grub-install --target=i386-pc /dev/sda && update-grub"
     --install "$pkg_list"
     --run-command "install -d -m 0755 /etc/agentlab"
     --run-command "id -u agent >/dev/null 2>&1 || useradd -m -s /bin/bash agent"
@@ -366,7 +395,7 @@ if [[ "$SKIP_CUSTOMIZE" == "0" ]]; then
     --run-command "chmod 0440 /etc/sudoers.d/90-agentlab"
     --run-command "install -d -m 0755 /etc/ssh/sshd_config.d"
     --run-command "printf 'PasswordAuthentication no\\nPermitRootLogin prohibit-password\\n' > /etc/ssh/sshd_config.d/99-agentlab.conf"
-    --run-command "systemctl enable qemu-guest-agent"
+    --run-command "systemctl enable qemu-guest-agent ssh"
     --upload "${AGENTLAB_RUNNER_SCRIPT}:/usr/local/bin/agent-runner"
     --upload "${AGENTLAB_RUNNER_SERVICE}:/etc/systemd/system/agent-runner.service"
     --upload "${AGENTLAB_RUNNER_ENV}:/etc/agentlab/agent-runner.env"
@@ -383,11 +412,11 @@ if [[ "$SKIP_CUSTOMIZE" == "0" ]]; then
     --run-command "systemctl enable agent-runner.service"
     --run-command "systemctl enable agentlab-workspace-setup.service"
     --run-command "systemctl enable work.mount"
-    --run-command "curl -fsSL https://deb.nodesource.com/setup_20.x | bash -"
+    --run-command "curl --retry 3 --retry-all-errors --connect-timeout 15 --max-time 120 -fsSL -o /tmp/agentlab-nodesource-setup.sh https://deb.nodesource.com/setup_20.x && bash /tmp/agentlab-nodesource-setup.sh && rm -f /tmp/agentlab-nodesource-setup.sh"
     --run-command "DEBIAN_FRONTEND=noninteractive apt-get install -y nodejs"
     --run-command "install -d -m 0755 /usr/share/keyrings"
-    --run-command "curl -fsSL https://pkgs.tailscale.com/stable/ubuntu/noble.noarmor.gpg | tee /usr/share/keyrings/tailscale-archive-keyring.gpg >/dev/null"
-    --run-command "curl -fsSL https://pkgs.tailscale.com/stable/ubuntu/noble.tailscale-keyring.list | tee /etc/apt/sources.list.d/tailscale.list"
+    --run-command "curl --retry 3 --retry-all-errors --connect-timeout 15 --max-time 120 -fsSL -o /usr/share/keyrings/tailscale-archive-keyring.gpg https://pkgs.tailscale.com/stable/ubuntu/noble.noarmor.gpg"
+    --run-command "curl --retry 3 --retry-all-errors --connect-timeout 15 --max-time 120 -fsSL -o /etc/apt/sources.list.d/tailscale.list https://pkgs.tailscale.com/stable/ubuntu/noble.tailscale-keyring.list"
     --run-command "DEBIAN_FRONTEND=noninteractive apt-get update && apt-get install -y tailscale"
     --run-command "systemctl enable tailscaled"
     --run-command "node --version | grep -q '^v2[0-9]\\.'"
@@ -398,7 +427,6 @@ if [[ "$SKIP_CUSTOMIZE" == "0" ]]; then
     virt_args+=(
       --run-command "npm config set fund false"
       --run-command "npm config set update-notifier false"
-      --run-command "npm config set unsafe-perm true"
       --run-command "npm install -g @anthropic-ai/claude-code@${CLAUDE_CODE_VERSION}"
       --run-command "npm install -g @openai/codex@${CODEX_VERSION}"
       --run-command "npm install -g opencode-ai@${OPENCODE_VERSION}"
@@ -407,16 +435,23 @@ if [[ "$SKIP_CUSTOMIZE" == "0" ]]; then
       --upload "${AGENT_TOOLS_ENV}:/etc/agentlab/agent-tools.env"
       --run-command "chmod 0755 /usr/local/bin/agentlab-agent"
       --run-command "chmod 0644 /etc/agentlab/agent-tools.env"
-      --run-command "command -v claude codex opencode >/dev/null"
+      --run-command 'set -e; for executable in claude codex opencode; do command -v "$executable" >/dev/null; done'
     )
   else
     log "Skipping agent CLI install"
   fi
 
+  virt_args+=(
+    --run-command 'export PATH="/usr/local/sbin:/usr/local/bin:$PATH"; set -e; for executable in tailscale agent-runner sshd qemu-ga jq curl; do command -v "$executable" >/dev/null || { echo "Missing required executable: $executable" >&2; exit 1; }; done; for service in tailscaled agent-runner qemu-guest-agent ssh; do systemctl is-enabled "$service" >/dev/null || { echo "Required service is not enabled: $service" >&2; exit 1; }; done; test ! -e /var/lib/tailscale/tailscaled.state || { echo "Unexpected Tailscale enrollment state" >&2; exit 1; }'
+    --run-command "jq -n --arg tailscale \"\$(tailscale version | head -1)\" --arg ssh \"\$(/usr/sbin/sshd -V 2>&1)\" --arg qga \"\$(qemu-ga --version | head -1)\" --arg claude \"\$(command -v claude >/dev/null && claude --version || true)\" --arg codex \"\$(command -v codex >/dev/null && codex --version || true)\" --arg opencode \"\$(command -v opencode >/dev/null && opencode --version || true)\" '{tailscale:\$tailscale,agent_runner:\"v1\",ssh:\$ssh,qemu_guest_agent:\$qga,claude:\$claude,codex:\$codex,opencode:\$opencode}' > /etc/agentlab/template-capabilities.json"
+    --run-command 'rm -f /etc/ssh/ssh_host_* /var/lib/dbus/machine-id; truncate -s 0 /etc/machine-id; rm -rf /var/lib/cloud/* /var/lib/tailscale/*; cloud-init clean --logs'
+  )
   virt-customize "${virt_args[@]}"
 else
   log "Skipping image customization; ensure qemu-guest-agent and base packages are installed"
 fi
+
+if [[ "$CUSTOMIZE_ONLY" == "1" ]]; then exit 0; fi
 
 log "Creating VM $VMID ($NAME)"
 qm create "$VMID" \

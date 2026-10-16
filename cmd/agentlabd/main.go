@@ -6,6 +6,7 @@ import (
 	"context"
 	"flag"
 	"fmt"
+	tb "github.com/agentlab/agentlab/internal/templatebuild"
 	"log"
 	"os"
 	"os/signal"
@@ -29,6 +30,19 @@ import (
 // The daemon will exit with status 1 if configuration fails to load or if
 // the daemon encounters a fatal error during execution.
 func main() {
+	if len(os.Args) > 1 && os.Args[1] == "template-worker" {
+		fs := flag.NewFlagSet("template-worker", flag.ExitOnError)
+		path := fs.String("config", "", "private worker configuration")
+		_ = fs.Parse(os.Args[2:])
+		ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+		defer stop()
+		if err := tb.RunWorker(ctx, *path); err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			os.Exit(1)
+		}
+		return
+	}
+
 	var showVersion bool
 	var configPath string
 	var offline bool

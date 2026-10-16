@@ -16,8 +16,8 @@ in `internal/models/models.go`.
 | `REQUESTED` | Sandbox record created; VM not yet created. |
 | `PROVISIONING` | VM is being cloned and configured in Proxmox. |
 | `BOOTING` | VM created and booting; waiting for the guest-agent IP. |
-| `READY` | VM is running and ready to accept a job. |
-| `RUNNING` | A job is actively executing in the sandbox. |
+| `READY` | Proxmox guest agent, network address, and SSH banner are verified; VM can accept work. |
+| `RUNNING` | Sandbox is usable; a job may be assigned. Standalone sandboxes also use this state. |
 | `SUSPENDED` | VM suspended (paused) but not destroyed. |
 | `COMPLETED` | Job finished successfully. |
 | `FAILED` | Job failed. |
@@ -133,7 +133,7 @@ A reconciler syncs the database with live Proxmox VMs. Rules:
 
 - VM not found in Proxmox -> mark `DESTROYED`.
 - VM stopped but recorded `RUNNING` -> mark `FAILED`.
-- VM running but recorded `REQUESTED` -> mark `READY`.
+- VM running but recorded `REQUESTED` -> advance through `BOOTING`; require guest-agent and SSH checks before `READY`.
 
 See ../explanation/reconciliation-and-shutdown.md for the loop and the shutdown
 drain. For idle-stop and lease behavior, see

@@ -191,3 +191,42 @@ The `AGENTLAB_*` environment variables drive CLI and client connection behavior 
 - [agentlabd flags](agentlabd-flags.md) for the `-config` and `-offline` overrides.
 - [Listeners and ports](listeners-and-ports.md) for what each listener address binds.
 - [HTTP API reference](http-api.md) for the routes the config controls.
+
+## Remote template builds
+
+The daemon accepts the following optional limits. They apply to local Ubuntu
+24.04 amd64 builds, including when sandbox operations use the API backend.
+Local Proxmox/libguestfs access is still required.
+
+```yaml
+template_builds:
+  vmid_min: 9000
+  vmid_max: 9999
+  memory_mb: 65536
+  cores: 32
+  disk_size_gb: 1024
+  timeout_seconds: 7200
+  pending: 10
+  image_hosts:
+    - cloud-images.ubuntu.com
+```
+
+One worker runs per host, enforced by an atomic database claim. Build defaults are 4096 MiB, 2 cores, 40 GiB,
+`vmbr1`, recipe `ubuntu-24.04-agentlab-v1`, agent tools enabled, and a 3600-second
+execution timeout. Lower limits also restrict default-valued requests. Offline
+mode disables builds. HTTPS overrides require a SHA-256 digest and an allowed
+hostname; private, loopback, link-local, metadata, and unsafe redirect destinations
+are rejected. Downloads never use environment proxy settings.
+
+Recipes and guest assets are embedded in `agentlabd` and extracted to immutable
+SHA-256-addressed directories under `/var/lib/agentlab/template-assets`. Builds
+pin that digest before queueing. Working data is private under
+`/var/lib/agentlab/template-builds`; verified shared images are cached by digest
+under `/var/lib/agentlab/images`. Logs are capped at 50 MiB with a truncation
+marker and removed after 30 days for terminal builds. Retention preserves
+manifests, reservations, recovery metadata, and Proxmox resources.
+
+The supplied daemon service explicitly permits writes to
+`/etc/agentlab/profiles` for activation. If `profiles_dir` changes, update that
+specific `ReadWritePaths` entry in a systemd override. Keep
+`ProtectSystem=strict` enabled.
