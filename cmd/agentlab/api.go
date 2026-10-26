@@ -261,6 +261,7 @@ type sandboxHealthResponse struct {
 	Guest          *sandboxGuestReadiness `json:"guest,omitempty"`
 	RunnerReady    bool                   `json:"runner_ready"`
 	TailscaleState string                 `json:"tailscale_state,omitempty"`
+	RecoveryCode   string                 `json:"recovery_code,omitempty"`
 	BootstrapError string                 `json:"bootstrap_error,omitempty"`
 }
 type sandboxResponse struct {
@@ -372,9 +373,10 @@ type statusResponse struct {
 }
 
 type hostResponse struct {
-	Version      string `json:"version"`
-	AgentSubnet  string `json:"agent_subnet,omitempty"`
-	TailscaleDNS string `json:"tailscale_dns,omitempty"`
+	GuestRecovery json.RawMessage `json:"guest_recovery,omitempty"`
+	Version       string          `json:"version"`
+	AgentSubnet   string          `json:"agent_subnet,omitempty"`
+	TailscaleDNS  string          `json:"tailscale_dns,omitempty"`
 }
 
 // sandboxRevertResponse contains the result of a revert operation.

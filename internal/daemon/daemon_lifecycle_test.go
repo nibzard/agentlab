@@ -27,7 +27,11 @@ func waitForServeReady(t *testing.T, service *Service) {
 		t.Fatal("daemon bootstrap listener not configured")
 	}
 	url := "http://" + service.bootstrapListener.Addr().String() + "/healthz"
-	client := &http.Client{Timeout: time.Second}
+	// Scope readiness connections to this poll and close them before shutdown;
+	// the process-wide default transport can retain unrelated pooled connections.
+	transport := &http.Transport{DisableKeepAlives: true}
+	defer transport.CloseIdleConnections()
+	client := &http.Client{Timeout: time.Second, Transport: transport}
 	deadline := time.Now().Add(5 * time.Second)
 	for {
 		resp, err := client.Get(url)
@@ -426,7 +430,9 @@ func TestServe_GracefulShutdown(t *testing.T) {
 	waitForServeReady(t, service)
 
 	// Verify servers are running by making a request
-	client := &http.Client{Timeout: time.Second}
+	transport := &http.Transport{DisableKeepAlives: true}
+	defer transport.CloseIdleConnections()
+	client := &http.Client{Timeout: time.Second, Transport: transport}
 	resp, err := client.Get("http://" + service.bootstrapListener.Addr().String() + "/healthz")
 	require.NoError(t, err)
 	resp.Body.Close()

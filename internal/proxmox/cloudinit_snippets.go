@@ -24,6 +24,7 @@ const (
 
 // SnippetInput describes the minimal data needed to build a cloud-init snippet.
 type SnippetInput struct {
+	Incarnation    string
 	VMID           VMID   // Target VM identifier
 	Hostname       string // VM hostname (defaults to "sandbox-{vmid}" if empty)
 	SSHPublicKey   string // SSH public key for agent user (required)
@@ -44,9 +45,11 @@ type CloudInitSnippet struct {
 // ABOUTME: Snippets are stored as YAML files in Proxmox's snippets directory and
 // referenced during VM cloning via the cicustom parameter.
 type SnippetStore struct {
-	Storage string    // Proxmox storage name for snippets (defaults to "local")
-	Dir     string    // Filesystem directory for snippet files (defaults to "/var/lib/vz/snippets")
-	Rand    io.Reader // Random source for unique filename generation (defaults to crypto/rand)
+	RecoveryURL string
+	RecoveryCA  string
+	Storage     string    // Proxmox storage name for snippets (defaults to "local")
+	Dir         string    // Filesystem directory for snippet files (defaults to "/var/lib/vz/snippets")
+	Rand        io.Reader // Random source for unique filename generation (defaults to crypto/rand)
 }
 
 // Create writes a cloud-init user-data snippet and returns its storage reference.
@@ -88,7 +91,7 @@ func (s SnippetStore) Create(input SnippetInput) (CloudInitSnippet, error) {
 		return CloudInitSnippet{}, err
 	}
 
-	content, err := renderCloudInitUserData(hostname, sshKey, token, controller, int(input.VMID))
+	content, err := renderCloudInitUserDataRecovery(hostname, sshKey, token, controller, int(input.VMID), input.Incarnation, s.RecoveryURL, s.RecoveryCA)
 	if err != nil {
 		return CloudInitSnippet{}, err
 	}
@@ -272,11 +275,19 @@ func isStorageNameChar(r rune) bool {
 }
 
 func renderCloudInitUserData(hostname, sshKey, token, controller string, vmid int) (string, error) {
+	return renderCloudInitUserDataRecovery(hostname, sshKey, token, controller, vmid, "", "", "")
+}
+
+func renderCloudInitUserDataRecovery(hostname, sshKey, token, controller string, vmid int, incarnation, recoveryURL, recoveryCA string) (string, error) {
 	payload := struct {
-		Token      string `json:"token"`
-		Controller string `json:"controller"`
-		VMID       int    `json:"vmid"`
+		Incarnation string `json:"incarnation,omitempty"`
+		RecoveryURL string `json:"recovery_url,omitempty"`
+		RecoveryCA  string `json:"recovery_ca,omitempty"`
+		Token       string `json:"token"`
+		Controller  string `json:"controller"`
+		VMID        int    `json:"vmid"`
 	}{
+		Incarnation: incarnation, RecoveryURL: recoveryURL, RecoveryCA: recoveryCA,
 		Token:      token,
 		Controller: controller,
 		VMID:       vmid,
@@ -286,14 +297,20 @@ func renderCloudInitUserData(hostname, sshKey, token, controller string, vmid in
 		return "", fmt.Errorf("marshal bootstrap payload: %w", err)
 	}
 
+	sudoPolicy := "ALL=(ALL) NOPASSWD:ALL"
+	owner := "agent:agent"
+	if recoveryURL != "" {
+		owner = "root:root"
+		sudoPolicy = "false"
+	}
 	content := strings.Join([]string{
 		"#cloud-config",
 		"hostname: " + hostname,
 		"ssh_pwauth: false",
 		"users:",
 		"  - name: agent",
-		"    groups: [sudo]",
-		"    sudo: ALL=(ALL) NOPASSWD:ALL",
+		"    groups: []",
+		"    sudo: " + sudoPolicy,
 		"    shell: /bin/bash",
 		"    lock_passwd: true",
 		"    ssh_authorized_keys:",
@@ -306,7 +323,7 @@ func renderCloudInitUserData(hostname, sshKey, token, controller string, vmid in
 		"resize_rootfs: true",
 		"write_files:",
 		"  - path: /etc/agentlab/bootstrap.json",
-		"    owner: agent:agent",
+		"    owner: " + owner,
 		"    permissions: \"0600\"",
 		"    content: |",
 		"      " + string(jsonBytes),

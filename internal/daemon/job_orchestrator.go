@@ -314,7 +314,7 @@ func (o *JobOrchestrator) Run(ctx context.Context, jobID string) error {
 		return o.failJob(job, sandbox.VMID, cloned, err)
 	}
 
-	snippet, err := o.snippetStore.Create(proxmox.SnippetInput{
+	snippet, err := o.createGuestSnippet(ctx, proxmox.SnippetInput{
 		VMID:           proxmox.VMID(sandbox.VMID),
 		Hostname:       sandbox.Name,
 		SSHPublicKey:   o.sshPublicKey,
@@ -538,6 +538,7 @@ func (o *JobOrchestrator) ProvisionSandbox(ctx context.Context, vmid int) (model
 		cfg.SSHKeys = o.sshPublicKey
 		cfg.CIUser = "agent"
 		cfg.ClearCloudInit = true
+		_ = emitEvent(ctx, NewStoreEventRecorder(o.store), EventKindSandboxRecovery, &sandbox.VMID, nil, "native SSH provisioning has no bootstrap recovery", map[string]string{"code": "guest_recovery_unsupported_native_ssh"})
 		if o.logger != nil {
 			o.logger.Printf("sandbox %d: native cloud-init sshkeys enabled, skipping snippet", sandbox.VMID)
 		}
@@ -550,7 +551,7 @@ func (o *JobOrchestrator) ProvisionSandbox(ctx context.Context, vmid int) (model
 			return fail(err)
 		}
 
-		snippet, err := o.snippetStore.Create(proxmox.SnippetInput{
+		snippet, err := o.createGuestSnippet(ctx, proxmox.SnippetInput{
 			VMID:           proxmox.VMID(sandbox.VMID),
 			Hostname:       sandbox.Name,
 			SSHPublicKey:   o.sshPublicKey,
@@ -1407,4 +1408,37 @@ func nullableVMID(vmid int) *int {
 	}
 	value := vmid
 	return &value
+}
+
+// Recovery descriptors require a verified v2 template. Older templates retain
+// their original enrollment path and explicitly advertise the upgrade limit.
+func (o *JobOrchestrator) createGuestSnippet(ctx context.Context, input proxmox.SnippetInput) (proxmox.CloudInitSnippet, error) {
+	snippetStore := o.snippetStore
+	if snippetStore.RecoveryURL != "" {
+		sb, err := o.store.GetSandbox(ctx, int(input.VMID))
+		if err != nil {
+			return proxmox.CloudInitSnippet{}, err
+		}
+		profile, ok := o.profile(sb.Profile)
+		if !ok {
+			return proxmox.CloudInitSnippet{}, fmt.Errorf("unknown profile %q", sb.Profile)
+		}
+		manifest, err := o.store.TemplateManifest(ctx, profile.TemplateVM)
+		if err != nil && !errors.Is(err, sql.ErrNoRows) {
+			return proxmox.CloudInitSnippet{}, err
+		}
+		if err == nil && manifest.BootVerified && manifest.Capabilities["agent_runner"] == "v2" {
+			inc, err := o.store.GetSandboxIncarnation(ctx, int(input.VMID))
+			if err != nil {
+				return proxmox.CloudInitSnippet{}, err
+			}
+			input.Incarnation = inc
+		} else {
+			snippetStore.RecoveryURL = ""
+			snippetStore.RecoveryCA = ""
+			vmid := int(input.VMID)
+			_ = emitEvent(ctx, NewStoreEventRecorder(o.store), EventKindSandboxRecovery, &vmid, nil, "guest recovery requires updated template", map[string]string{"code": "guest_recovery_unsupported_reprovision_required"})
+		}
+	}
+	return snippetStore.Create(input)
 }

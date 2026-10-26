@@ -1,0 +1,8 @@
+[Unit]
+Description=Renew AgentLab guest runtime credentials before expiry
+[Timer]
+OnBootSec=20min
+OnUnitActiveSec=20min
+Unit=agent-bootstrap-refresh.service
+[Install]
+WantedBy=timers.target

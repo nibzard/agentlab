@@ -49,6 +49,7 @@ subnet.
 | Endpoint | Default address | Authentication | Rate limit |
 | --- | --- | --- | --- |
 | `POST /v1/bootstrap/fetch` | `10.77.0.1:8844` | One-time bootstrap token plus vmid | `bootstrap_rate_limit_qps` / `burst` |
+| `POST /v1/bootstrap/{register,challenge,recover,execution/start}` | Optional `guest_recovery_listen` (recommended `10.77.0.1:8847`) | Pinned TLS plus initial one-use token or incarnation-bound Ed25519 proof; execution start also requires endpoint secret | Bootstrap per-IP limits |
 | `POST /upload` | `10.77.0.1:8846` | Per-job artifact bearer token | `artifact_rate_limit_qps` / `burst` |
 
 - Requests from outside `agent_subnet` get HTTP 403.
@@ -160,3 +161,14 @@ Destroyed sandboxes clean up their own snippets.
 addresses, allowing only loopback, link-local, RFC1918, and `fc00::/7`
 destinations. It disables the Tailscale exposure publisher and rejects
 `proxy_tls_mode: letsencrypt`. See ../how-to/run-air-gapped-offline.md.
+
+## Durable guest recovery identity
+
+Verified v2 templates generate a root-only Ed25519 identity before enrollment.
+It is scoped to one sandbox incarnation and recovery only; it cannot enroll a
+new VMID incarnation. Normal, forced, lease and SQL destruction paths revoke
+identities and delete pending challenges, cached deliveries, tokens and endpoint
+credentials. VMID insertion generates a fresh incarnation. Templates and smoke
+clones must have no identity material. The agent has no unrestricted sudo and
+does not receive the signing key. See [recovery rollout](../how-to/upgrade-guest-recovery.md)
+for migration, expiry, legacy guest limitations and rollback.

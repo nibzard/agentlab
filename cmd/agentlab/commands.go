@@ -3970,6 +3970,9 @@ func printSandbox(sb sandboxResponse) {
 		if sb.Health.TailscaleState != "" {
 			fmt.Printf("Tailscale: %s\n", sb.Health.TailscaleState)
 		}
+		if sb.Health.RecoveryCode != "" {
+			fmt.Printf("Recovery: %s\n", sb.Health.RecoveryCode)
+		}
 		if sb.Health.BootstrapError != "" {
 			fmt.Printf("Bootstrap Diagnostic: %s\n", sb.Health.BootstrapError)
 		}

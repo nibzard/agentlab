@@ -71,3 +71,5 @@ up, or understanding.
     [Reference](reference/cli.md). Contributors head to
     [Contributing](meta/contributing.md) and the
     [Documentation style guide](meta/style-guide.md).
+
+- [Enable guest restart and reboot recovery](how-to/upgrade-guest-recovery.md)

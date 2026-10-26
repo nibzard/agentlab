@@ -1,6 +1,8 @@
 # Guest bootstrap recovery after restart and reboot
 
-Status: planned; implementation has not started.
+Status: implemented and verified on `pve2`, 2026-10-16. See
+[acceptance evidence](guest-bootstrap-recovery-acceptance.md) and the
+[upgrade procedure](../how-to/upgrade-guest-recovery.md).
 
 Baseline: `3d39d9e` on `main`, 2026-10-16.
 
@@ -13,10 +15,10 @@ A reboot also clears `/run`. The next runner invocation attempts bootstrap
 again with the descriptor's original token, which the daemon already consumed.
 `SandboxManager.Start` starts the VM without replacing that descriptor.
 
-This failure path is source-confirmed. Fresh standalone enrollment and daemon
-restart recovery were live-tested in the preceding work; guest runner restart
-and guest reboot recovery were not. First add a regression that reproduces the
-problem instead of treating the earlier acceptance as evidence for this path.
+Before implementation, this failure path was source-confirmed. Earlier live
+tests covered fresh enrollment and daemon restart, but did not establish guest
+restart/reboot recovery. The new integration fixtures and live acceptance now
+cover those paths explicitly.
 
 The outcome is that an existing sandbox can recover authenticated reporting and
 metadata access after a runner restart, guest reboot, or daemon restart, while
@@ -175,3 +177,26 @@ service ordering/permission checks, and documentation checks. Live acceptance
 must verify authenticated metadata/report requests, identity stability, and
 cleanup of test resources and tailnet devices. Record the resulting build ID,
 template VMID, and evidence before declaring this fix complete.
+
+## Implemented decisions
+
+Migration 23 adds incarnation-bound public identities, nonce generations,
+encrypted deliveries and durable execution attempts. An opt-in TLS 1.3 listener
+keeps legacy HTTP installations compatible while verified v2 descriptors pin
+the controller certificate. Runtime endpoint credentials last one hour; a root
+timer refreshes them every 20 minutes. Challenges expire after one minute and
+encrypted idempotent deliveries after five minutes. Same-generation concurrent
+proofs cannot both rotate credentials.
+
+The root OpenSSL helper generates and uses the Ed25519 key, performs initial
+Tailscale enrollment, and hands only tmpfs runtime data to the agent. The agent
+has no unrestricted sudo. Runtime cleanup remains enabled; key material is
+removed from templates and absent from smoke clones. `recover` interrupts an
+unfinished job; `refresh` preserves a running job. Execution requires a separate
+one-time durable attempt claim and fails closed on an ambiguous acknowledgement.
+
+Legacy consumed-token guests require reprovisioning from an updated template.
+There is no token reset, HTTP downgrade, or unauthenticated in-place recovery.
+Host capability discovery and separate recovery diagnostics expose this limit.
+Acceptance also fixed an Ubuntu boot ordering cycle and stale-IP metadata
+resolution; details and validation are recorded in the acceptance evidence.

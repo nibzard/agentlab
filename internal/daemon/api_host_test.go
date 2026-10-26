@@ -19,6 +19,7 @@ func TestHostHandler(t *testing.T) {
 	store := newTestStore(t)
 	api := NewControlAPI(store, map[string]models.Profile{}, nil, nil, nil, "", log.New(io.Discard, "", 0)).
 		WithAgentSubnet("10.77.0.0/16").
+		WithGuestRecovery(true).
 		WithTailscaleStatus(func(context.Context) (string, error) {
 			return "host.tailnet.ts.net", nil
 		})
@@ -31,6 +32,9 @@ func TestHostHandler(t *testing.T) {
 	body := rec.Body.Bytes()
 	var resp V1HostResponse
 	require.NoError(t, json.Unmarshal(body, &resp))
+	assert.True(t, resp.GuestRecovery.Enabled)
+	assert.Equal(t, "agentlab-guest-recovery-v1", resp.GuestRecovery.Protocol)
+	assert.Equal(t, "reprovision", resp.GuestRecovery.LegacyRecovery)
 	assert.Equal(t, buildinfo.Version, resp.Version)
 	assert.Equal(t, "10.77.0.0/16", resp.AgentSubnet)
 	assert.Equal(t, "host.tailnet.ts.net", resp.TailscaleDNS)

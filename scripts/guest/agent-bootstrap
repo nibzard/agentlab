@@ -1,0 +1,131 @@
+#!/usr/bin/env bash
+# Fixed root helper. No runner-controlled files are sourced or executed.
+set -euo pipefail
+umask 077
+export PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+# Overrides are for root-owned service configuration and isolated fixtures only.
+BOOTSTRAP="${AGENTLAB_BOOTSTRAP_SOURCE:-/etc/agentlab/bootstrap.json}"
+IDENTITY="${AGENTLAB_IDENTITY_DIR:-/var/lib/agentlab/identity}"
+RUNTIME="${AGENTLAB_BOOTSTRAP_RUNTIME:-/run/agentlab-bootstrap}"
+OWNER="${AGENTLAB_RUNTIME_OWNER:-agent:agent}"
+fail() { printf '[agent-bootstrap] %s\n' "$1" >&2; exit 1; }
+[[ $EUID == 0 || ${AGENTLAB_BOOTSTRAP_TEST:-0} == 1 ]] || fail guest_recovery_root_required
+[[ -f "$BOOTSTRAP" ]] || exit 0 # Native SSH-only / smoke clone: no registration.
+for dep in openssl curl jq flock; do command -v "$dep" >/dev/null || fail guest_recovery_dependency_missing; done
+URL="$(jq -r '.recovery_url // empty' "$BOOTSTRAP")"
+[[ "$URL" == https://* ]] || fail guest_recovery_unsupported_reprovision_required
+VMID="$(jq -r '.vmid' "$BOOTSTRAP")"; INC="$(jq -r '.incarnation // empty' "$BOOTSTRAP")"
+[[ "$VMID" =~ ^[0-9]+$ && "$INC" =~ ^[a-f0-9]{32,64}$ ]] || fail guest_recovery_invalid_descriptor
+mkdir -p "$(dirname "$IDENTITY")" "$IDENTITY" "$RUNTIME"
+chmod 700 "$IDENTITY"; chmod 755 "$RUNTIME"
+exec 9>"$IDENTITY/lock"; flock -x 9
+if [[ "${1:-}" == --cleanup ]]; then rm -f "$RUNTIME/secrets/bootstrap.json" "$RUNTIME/secrets/sandbox-secret"; exit 0; fi
+OPERATION=recover
+if [[ "${1:-}" == --refresh ]]; then
+ systemctl is-active --quiet agent-runner.service || exit 0
+ [[ -s "$RUNTIME/secrets/bootstrap.json" ]] || exit 0
+ OPERATION=refresh
+fi
+if [[ -f "$IDENTITY/incarnation" ]]; then
+ [[ "$(cat "$IDENTITY/incarnation")" == "$INC" ]] || fail guest_identity_descriptor_mismatch
+else
+ # Do not adopt a key that escaped its original incarnation metadata.
+ [[ ! -e "$IDENTITY/private.pem" ]] || fail guest_identity_descriptor_mismatch
+ printf '%s' "$INC" > "$IDENTITY/incarnation"
+fi
+if [[ ! -s "$IDENTITY/private.pem" ]]; then
+ openssl genpkey -algorithm ED25519 -out "$IDENTITY/private.pem.new" 2>/dev/null
+ chmod 600 "$IDENTITY/private.pem.new"; mv "$IDENTITY/private.pem.new" "$IDENTITY/private.pem"
+fi
+WORK="$(mktemp -d "$RUNTIME/.acquire.XXXXXX")"; chmod 700 "$WORK"
+trap 'rm -rf "$WORK"' EXIT
+jq -r '.recovery_ca // empty' "$BOOTSTRAP" > "$WORK/ca.pem"
+[[ -s "$WORK/ca.pem" ]] || fail guest_controller_trust_missing
+# Stable until successful installation; a new proof can retrieve a lost response.
+if [[ ! -s "$IDENTITY/request-id" ]]; then openssl rand -hex 32 > "$IDENTITY/request-id"; fi
+REQUEST="$(cat "$IDENTITY/request-id")"
+[[ "$REQUEST" =~ ^[a-f0-9]{64}$ ]] || fail guest_identity_request_invalid
+BASE="$(jq -n --argjson vmid "$VMID" --arg inc "$INC" --arg request "$REQUEST" '{vmid:$vmid,incarnation:$inc,request_id:$request}')"
+LAST_ERROR=guest_controller_unavailable
+post() {
+ local operation="$1" payload="$2" code
+ code="$(curl --silent --show-error --proto '=https' --tlsv1.3 --cacert "$WORK/ca.pem" --connect-timeout 5 --max-time 30 -H 'Content-Type: application/json' --data-binary "@$payload" -o "$WORK/response" -w '%{http_code}' "$URL/v1/bootstrap/$operation" 2>/dev/null)" || { LAST_ERROR=guest_controller_unavailable_or_tls_failed; return 1; }
+ if [[ "$code" != 200 ]]; then
+  case "$(jq -r '.error // empty' "$WORK/response" 2>/dev/null || true)" in
+   guest_identity_invalid_or_revoked) LAST_ERROR=guest_identity_invalid_or_revoked;;
+   guest_challenge_expired_or_replayed) LAST_ERROR=guest_challenge_expired_or_replayed;;
+   *) LAST_ERROR=guest_controller_unavailable;;
+  esac
+  return 1
+ fi
+}
+SUCCESS=0
+for ((attempt=0;attempt<6;attempt++)); do
+ printf '%s' "$BASE" > "$WORK/request"
+ if post challenge "$WORK/request"; then
+  CHALLENGE="$(jq -r '.challenge_id' "$WORK/response")"; NONCE="$(jq -r '.nonce' "$WORK/response")"
+  [[ "$CHALLENGE" =~ ^[a-f0-9]{64}$ && "$NONCE" =~ ^[a-f0-9]{64}$ ]] || fail guest_recovery_invalid_challenge
+  printf 'agentlab-guest-recovery-v1\n%s\n%s\n%s\n%s\n%s\n%s\n' "$VMID" "$INC" "$CHALLENGE" "$NONCE" "$OPERATION" "$REQUEST" > "$WORK/message"
+  openssl pkeyutl -sign -rawin -inkey "$IDENTITY/private.pem" -in "$WORK/message" -out "$WORK/signature" 2>/dev/null
+  SIG="$(openssl base64 -A -in "$WORK/signature")"
+  jq --arg operation "$OPERATION" --arg challenge "$CHALLENGE" --arg nonce "$NONCE" --arg sig "$SIG" '.+{operation:$operation,challenge_id:$challenge,nonce:$nonce,signature:$sig}' <<<"$BASE" > "$WORK/request"
+  if post recover "$WORK/request"; then SUCCESS=1; break; fi
+ else
+  # Only the initial token can register. A failed transport never implies the
+  # server committed: next iteration probes registration using the existing key.
+  TOKEN="$(jq -r '.token // empty' "$BOOTSTRAP")"
+  PUBLIC="$(openssl pkey -in "$IDENTITY/private.pem" -pubout -outform DER 2>/dev/null | tail -c 32 | openssl base64 -A)"
+  jq --arg token "$TOKEN" --arg public "$PUBLIC" '.+{operation:"register",token:$token,public_key:$public}' <<<"$BASE" > "$WORK/request"
+  if post register "$WORK/request"; then SUCCESS=1; break; fi
+ fi
+ sleep "$((attempt+1))"
+done
+[[ "$SUCCESS" == 1 ]] || fail "$LAST_ERROR"
+jq -e --arg inc "$INC" '.incarnation==$inc and (.sandbox_secret|type=="string" and length==64) and (.job_disposition|IN("none","execute","interrupted","terminal"))' "$WORK/response" >/dev/null || fail guest_recovery_invalid_response
+# Enrollment is a root operation, performed only for a delivered initial key.
+# Never re-enroll connected devices, and discard the key before agent handoff.
+if jq -e '.tailscale.authkey // "" | length>0' "$WORK/response" >/dev/null; then
+ printf '1' > "$IDENTITY/tailscale-configured"
+elif [[ ! -e "$IDENTITY/tailscale-configured" ]]; then printf '0' > "$IDENTITY/tailscale-configured"; fi
+STATE=UNCONFIGURED; CODE=""
+if command -v tailscale >/dev/null 2>&1; then
+ STATUS="$(tailscale status --json 2>/dev/null || true)"
+ if jq -e '.BackendState=="Running" and .Self.Online==true' <<<"$STATUS" >/dev/null 2>&1; then
+  STATE=CONNECTED
+ elif jq -e '.tailscale.authkey // "" | length>0' "$WORK/response" >/dev/null; then
+  systemctl start tailscaled.service >/dev/null 2>&1 || true
+  AUTH="$(jq -r '.tailscale.authkey' "$WORK/response")"
+  TS_HOSTNAME="$(jq -r '.tailscale.hostname // empty' "$WORK/response")"
+  TAGS="$(jq -r '.tailscale.tags // [] | join(",")' "$WORK/response")"
+  ARGS=(--timeout=60s --authkey="$AUTH")
+  [[ -z "$TS_HOSTNAME" ]] || ARGS+=(--hostname="$TS_HOSTNAME")
+  [[ -z "$TAGS" ]] || ARGS+=(--advertise-tags="$TAGS")
+  while IFS= read -r arg; do [[ -z "$arg" ]] || ARGS+=("$arg"); done < <(jq -r '.tailscale.extra_args[]?' "$WORK/response")
+  if tailscale up "${ARGS[@]}" >/dev/null 2>&1; then
+   STATE=PENDING; CODE=tailscale_pending
+   STATUS="$(tailscale status --json 2>/dev/null || true)"
+   if jq -e '.BackendState=="Running" and .Self.Online==true' <<<"$STATUS" >/dev/null 2>&1; then STATE=CONNECTED;CODE="";fi
+  else STATE=FAILED;CODE=tailscale_enrollment_failed;fi
+  unset AUTH ARGS
+ elif [[ "$(cat "$IDENTITY/tailscale-configured")" == 0 ]]; then
+  STATE=UNCONFIGURED;CODE=""
+ elif jq -e '.BackendState=="NeedsLogin"' <<<"$STATUS" >/dev/null 2>&1; then
+  STATE=FAILED;CODE=tailscale_explicit_reenrollment_required
+ else STATE=PENDING;CODE=tailscale_pending
+ fi
+fi
+jq --arg state "$STATE" --arg code "$CODE" 'del(.tailscale.authkey) | .sandbox_bootstrap_status={tailscale_state:$state,error_code:$code}' "$WORK/response" > "$WORK/clean"
+mv "$WORK/clean" "$WORK/response"
+# /run/agentlab-bootstrap is root-owned: the agent cannot replace this directory.
+mkdir -p "$RUNTIME/secrets"; chmod 700 "$RUNTIME/secrets"; chown "$OWNER" "$RUNTIME/secrets"
+jq -r '.sandbox_secret' "$WORK/response" > "$WORK/sandbox-secret"
+# Public descriptor has no enrollment token or private material.
+jq --arg url "$URL" '. | {vmid,incarnation,recovery_url,controller:$url,token:"runtime",recovery_ca}' "$BOOTSTRAP" > "$WORK/descriptor.json"
+for file in response sandbox-secret; do chmod 600 "$WORK/$file"; chown "$OWNER" "$WORK/$file"; done
+# Atomic file replacement never follows a guest-supplied destination symlink.
+mv -fT "$WORK/sandbox-secret" "$RUNTIME/secrets/sandbox-secret"
+mv -fT "$WORK/response" "$RUNTIME/secrets/bootstrap.json"
+chmod 644 "$WORK/descriptor.json" "$WORK/ca.pem"
+mv -fT "$WORK/descriptor.json" "$RUNTIME/descriptor.json"; mv -fT "$WORK/ca.pem" "$RUNTIME/controller-ca.pem"
+rm -f "$IDENTITY/request-id"
+printf '[agent-bootstrap] guest_recovery_ready\n' >&2

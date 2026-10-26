@@ -87,7 +87,8 @@ func verifySandboxSecret(ctx context.Context, store *db.Store, r *http.Request, 
 // requireSandboxSecret resolves the caller by source IP and then verifies the
 // endpoint secret. It writes the error response and returns nil when the
 // caller is not a sandbox with a valid secret. The source IP alone selects the
-// candidate row; the secret is what authorizes it (review F4).
+// unique live candidate row; stale or ambiguous addresses fail closed. The
+// secret is what authorizes that row (review F4).
 func (api *MetadataAPI) requireSandboxSecret(w http.ResponseWriter, r *http.Request) (*models.Sandbox, bool) {
 	sandbox, err := api.sandboxByRemoteIP(r)
 	if err != nil {
@@ -267,7 +268,7 @@ func (api *MetadataAPI) sandboxByRemoteIP(r *http.Request) (*models.Sandbox, err
 	if ip == nil || ip.IsUnspecified() {
 		return nil, sql.ErrNoRows
 	}
-	sb, err := api.store.GetSandboxByIP(r.Context(), ip.String())
+	sb, err := api.store.GetLiveSandboxByIP(r.Context(), ip.String())
 	if err != nil {
 		return nil, err
 	}

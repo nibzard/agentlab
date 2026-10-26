@@ -153,6 +153,10 @@ These run on the bootstrap and artifact listeners, are restricted to the agent s
 
 | Method | Path | Mux | Purpose | Request |
 | --- | --- | --- | --- | --- |
+| POST | `/v1/bootstrap/register` | recovery (TLS required) | Atomically consume initial token and register unique Ed25519 public key for current incarnation. | `vmid`, `incarnation`, `request_id`, `operation: register`, `token`, base64 raw `public_key` |
+| POST | `/v1/bootstrap/challenge` | recovery (TLS required) | Issue random one-minute challenge, bounded per incarnation. | `vmid`, `incarnation`, `request_id` |
+| POST | `/v1/bootstrap/recover` | recovery (TLS required) | Consume a signed proof and atomically rotate/retry runtime credentials. | Same scope plus `operation: recover` (or `refresh`), `challenge_id`, `nonce`, base64 `signature` |
+| POST | `/v1/bootstrap/execution/start` | recovery (TLS required) | Claim an initial execution attempt exactly once; requires endpoint-secret header. Ambiguous delivery fails closed. | `vmid`, `incarnation`, `request_id` containing the issued `attempt_id` |
 | POST | `/v1/bootstrap/fetch` | bootstrap | Single-use token plus VMID delivery of the bootstrap payload. Token is consumed on success. | `{"token":"...","vmid":N}` |
 | POST | `/v1/runner/report` | bootstrap | In-guest runner status report. | Runner status event |
 | POST | `/v1/sandbox/bootstrap-status` | bootstrap | Authenticated sandbox initialization and independent Tailscale diagnostics. | `vmid`, `runner_ready`, `tailscale_state`, optional fixed `error_code` |
@@ -282,3 +286,42 @@ Activation rejects historical manifests lacking this evidence; rebuild those
 templates. Errors include `template_boot_failed`. Cleanup checks ownership tags,
 recorded disks and active tasks, and retains identifiers when manual recovery
 is required. No credentials are injected into smoke clones.
+
+## Recovery proof and delivery
+
+Recovery endpoints exist when `guest_recovery_listen` is configured. Requests on
+plain HTTP are rejected. They share guest subnet, JSON size, and IP rate limits.
+The canonical Ed25519 message is UTF-8 with a trailing newline:
+
+```text
+agentlab-guest-recovery-v1
+<decimal VMID>
+<incarnation>
+<challenge ID>
+<nonce>
+<operation>
+<request ID>
+```
+
+IDs/nonces are lowercase hex, operations are `recover` or `refresh`, and keys
+are base64-encoded raw 32-byte Ed25519 public keys. Generate a new proof for each
+attempt. Retrying the same request ID with a fresh challenge returns the same
+credential for five minutes, provided no later request superseded it. Cached
+responses use AES-GCM with incarnation/request ID as associated data. Expired
+rows are pruned on exchanges; neither plaintext credentials nor private guest
+keys are stored in SQLite. Concurrent proofs issued for the same credential
+generation cannot both rotate it. Same-request retries can recover the winner.
+
+Responses contain `incarnation`, `sandbox_secret`, `credential_expires_at`, and
+`job_disposition` (`none`, `execute`, `terminal`, `interrupted`). Only initial
+authorized execution carries job execution credentials and an `attempt_id`;
+recovery omits git, environment, LLM, artifact, and enrollment credentials.
+`refresh` renews authentication without interrupting an active job. A service
+restart's `recover` records an unfinished job as failed with
+`guest_job_interrupted` and requires an explicit new job. A lost initial response
+can be recovered with the guest key registered in that same transaction.
+
+`GET /v1/host` advertises `guest_recovery.enabled`, protocol
+`agentlab-guest-recovery-v1`, required template runner `v2`, legacy recovery
+`reprovision`, and `native_ssh: false`. This capability does not imply that
+existing legacy guests have been migrated.

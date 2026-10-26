@@ -106,3 +106,21 @@ Restrict Proxmox access and treat the snippet directory as sensitive.
   [Rotate secrets and age keys](../how-to/rotate-secrets-and-age-keys.md).
 - For the guest side of the fetch:
   [Guest runner flow](guest-runner-flow.md).
+
+## Restart recovery in verified v2 templates
+
+The flow above describes the legacy single-fetch runner. Recovery-enabled
+templates instead let a fixed root helper enroll a unique Ed25519 public key
+atomically with the one-use token over pinned TLS. After restart or reboot,
+fresh signed challenges recover only an expiring endpoint credential. The
+private key and non-secret incarnation/enrollment metadata persist under
+`/var/lib/agentlab/identity`; decrypted job and enrollment credentials do not.
+Runtime files are under `/run/agentlab-bootstrap/secrets` and are still removed
+on service stop. A root timer refreshes endpoint credentials while the runner
+is active. Completed/interrupted jobs receive no new execution credentials.
+
+Only initial authorized execution receives git, environment/LLM and artifact
+material. A short-lived AES-GCM response cache permits authenticated lost-response
+retry; SQLite never stores that response in plaintext. Destruction revokes the
+identity and pending deliveries. See the [recovery protocol](../reference/http-api.md#recovery-proof-and-delivery)
+and [upgrade procedure](../how-to/upgrade-guest-recovery.md).

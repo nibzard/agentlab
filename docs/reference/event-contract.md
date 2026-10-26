@@ -47,6 +47,7 @@ The event schema version is `1` (`eventContractSchemaVersion`), and the control 
 | Kind | Stage | Required | Optional | Description |
 | --- | --- | --- | --- | --- |
 | `sandbox.guest_readiness` | slo | `ready`, `checked_at` | `error_code` | Observed guest-agent, network, and SSH readiness changes. |
+| `sandbox.recovery` | report | `code` | - | Fixed recovery outcome, separate from VM readiness and enrollment. Interrupted jobs also carry the job scope. |
 | `sandbox.bootstrap` | report | `vmid`, `runner_ready`, `tailscale_state` | `error_code` | Authenticated initialization and independent enrollment diagnostics. |
 | `sandbox.state` | lifecycle | `from_state`, `to_state` | `duration_ms` | Sandbox finite-state transition. |
 | `sandbox.lease` | lease | `expires_at` | - | Sandbox lease lifecycle update. |

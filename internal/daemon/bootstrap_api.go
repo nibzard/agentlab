@@ -141,6 +141,11 @@ func (api *BootstrapAPI) handleBootstrapFetch(w http.ResponseWriter, r *http.Req
 		writeError(w, http.StatusNotFound, "sandbox not found")
 		return
 	}
+	incarnation, err := api.store.GetSandboxIncarnation(r.Context(), req.VMID)
+	if err != nil {
+		writeError(w, http.StatusForbidden, "sandbox identity revoked")
+		return
+	}
 	job, err := api.store.GetJobBySandboxVMID(r.Context(), req.VMID)
 	if err != nil && !errors.Is(err, sql.ErrNoRows) {
 		writeError(w, http.StatusInternalServerError, "failed to load job")
@@ -233,10 +238,9 @@ func (api *BootstrapAPI) handleBootstrapFetch(w http.ResponseWriter, r *http.Req
 	} else if artifact := bootstrapArtifactFromBundle(bundle); hasJob && artifact != nil {
 		resp.Artifact = artifact
 	}
-	// Issue the per-sandbox endpoint secret before the single-use token is
-	// consumed. A failure here leaves the token unconsumed, so the guest can
-	// retry the whole fetch.
-	sandboxSecret, err := api.issueSandboxSecret(r.Context(), req.VMID)
+	// Issue only for the incarnation observed before claiming the token. A
+	// delayed fetch must not restore access after destruction or VMID reuse.
+	sandboxSecret, err := api.issueSandboxSecret(r.Context(), req.VMID, incarnation)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to issue sandbox secret")
 		return
@@ -554,7 +558,7 @@ func (api *BootstrapAPI) newArtifactToken() (string, string, time.Time, error) {
 // hash, and returns the plaintext for the bootstrap response. The rotation on
 // every fetch means the guest that bootstrapped most recently holds the only
 // valid secret (review F4).
-func (api *BootstrapAPI) issueSandboxSecret(ctx context.Context, vmid int) (string, error) {
+func (api *BootstrapAPI) issueSandboxSecret(ctx context.Context, vmid int, incarnation string) (string, error) {
 	if api == nil || api.store == nil {
 		return "", errors.New("sandbox secret store unavailable")
 	}
@@ -570,7 +574,7 @@ func (api *BootstrapAPI) issueSandboxSecret(ctx context.Context, vmid int) (stri
 	if err != nil {
 		return "", err
 	}
-	if err := api.store.UpsertSandboxSecret(ctx, vmid, hash); err != nil {
+	if err := api.store.UpsertSandboxSecretForIncarnation(ctx, vmid, hash, incarnation); err != nil {
 		return "", err
 	}
 	if api.redactor != nil {

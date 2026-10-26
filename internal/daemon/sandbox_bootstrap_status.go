@@ -39,7 +39,7 @@ func (api *RunnerAPI) handleSandboxBootstrapStatus(w http.ResponseWriter, r *htt
 		return
 	}
 	switch req.ErrorCode {
-	case "", "tailscale_enrollment_failed", "tailscale_cli_missing", "tailscale_pending":
+	case "", "tailscale_enrollment_failed", "tailscale_cli_missing", "tailscale_pending", "tailscale_explicit_reenrollment_required":
 	default:
 		writeError(w, 400, "invalid bootstrap diagnostic code")
 		return

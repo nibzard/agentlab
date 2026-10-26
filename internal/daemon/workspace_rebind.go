@@ -175,7 +175,7 @@ func (o *JobOrchestrator) RebindWorkspace(ctx context.Context, workspaceID, prof
 		return result, err
 	}
 
-	snippet, err = o.snippetStore.Create(proxmox.SnippetInput{
+	snippet, err = o.createGuestSnippet(ctx, proxmox.SnippetInput{
 		VMID:           proxmox.VMID(created.VMID),
 		Hostname:       created.Name,
 		SSHPublicKey:   o.sshPublicKey,

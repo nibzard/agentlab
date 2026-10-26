@@ -144,27 +144,28 @@ var (
 //   - GET    /v1/exposures            - List exposures
 //   - DELETE /v1/exposures/{name}     - Delete exposure
 type ControlAPI struct {
-	templateBuilds     *TemplateBuildManager
-	profileStore       *ProfileStore
-	store              *db.Store
-	profiles           map[string]models.Profile
-	backend            proxmox.Backend
-	sandboxManager     *SandboxManager
-	workspaceMgr       *WorkspaceManager
-	jobOrchestrator    *JobOrchestrator
-	exposurePublisher  ExposurePublisher
-	artifactRoot       string
-	metrics            *Metrics
-	metricsEnabled     bool
-	agentSubnet        string
-	tailscaleStatus    func(context.Context) (string, error)
-	tailscalePeers     func(context.Context) (map[string]tailnetPeer, error)
-	logger             *log.Logger
-	redactor           *Redactor
-	skillBundleName    string
-	skillBundleVersion string
-	now                func() time.Time
-	resourcePool       *pool.Pool
+	templateBuilds       *TemplateBuildManager
+	profileStore         *ProfileStore
+	store                *db.Store
+	profiles             map[string]models.Profile
+	backend              proxmox.Backend
+	sandboxManager       *SandboxManager
+	workspaceMgr         *WorkspaceManager
+	jobOrchestrator      *JobOrchestrator
+	exposurePublisher    ExposurePublisher
+	artifactRoot         string
+	metrics              *Metrics
+	metricsEnabled       bool
+	guestRecoveryEnabled bool
+	agentSubnet          string
+	tailscaleStatus      func(context.Context) (string, error)
+	tailscalePeers       func(context.Context) (map[string]tailnetPeer, error)
+	logger               *log.Logger
+	redactor             *Redactor
+	skillBundleName      string
+	skillBundleVersion   string
+	now                  func() time.Time
+	resourcePool         *pool.Pool
 	// workspaceWaitPoll overrides the initial backoff between lease-acquire
 	// attempts during a workspace wait (0 => package default). Tests set this
 	// small so the wait path runs deterministically fast.
@@ -242,6 +243,14 @@ func (api *ControlAPI) WithSkillBundle(name string, version string) *ControlAPI 
 	}
 	api.skillBundleName = strings.TrimSpace(name)
 	api.skillBundleVersion = strings.TrimSpace(version)
+	return api
+}
+
+// WithGuestRecovery advertises the pinned TLS recovery capability.
+func (api *ControlAPI) WithGuestRecovery(enabled bool) *ControlAPI {
+	if api != nil {
+		api.guestRecoveryEnabled = enabled
+	}
 	return api
 }
 
@@ -1484,8 +1493,9 @@ func (api *ControlAPI) handleHost(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	resp := V1HostResponse{
-		Version:     buildinfo.Version,
-		AgentSubnet: strings.TrimSpace(api.agentSubnet),
+		GuestRecovery: V1GuestRecoveryCapability{Enabled: api.guestRecoveryEnabled, Protocol: "agentlab-guest-recovery-v1", TemplateRunner: "v2", LegacyRecovery: "reprovision", NativeSSH: false},
+		Version:       buildinfo.Version,
+		AgentSubnet:   strings.TrimSpace(api.agentSubnet),
 	}
 	if api.tailscaleStatus != nil {
 		if dns, err := api.tailscaleStatus(r.Context()); err == nil {

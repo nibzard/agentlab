@@ -47,6 +47,7 @@ type Config struct {
 	ControlAuthToken        string
 	ControlAllowCIDRs       []string
 	DBPath                  string
+	GuestRecoveryListen     string
 	BootstrapListen         string
 	ArtifactListen          string
 	MetricsListen           string
@@ -168,6 +169,7 @@ type FileConfig struct {
 	ControlAuthToken           string   `yaml:"control_auth_token"`
 	ControlAllowCIDRs          []string `yaml:"control_allow_cidrs"`
 	DBPath                     string   `yaml:"db_path"`
+	GuestRecoveryListen        string   `yaml:"guest_recovery_listen"`
 	BootstrapListen            string   `yaml:"bootstrap_listen"`
 	ArtifactListen             string   `yaml:"artifact_listen"`
 	MetricsListen              string   `yaml:"metrics_listen"`
@@ -405,6 +407,7 @@ func applyFileConfig(cfg *Config, fileCfg FileConfig) error {
 	if fileCfg.DBPath != "" {
 		cfg.DBPath = fileCfg.DBPath
 	}
+	cfg.GuestRecoveryListen = fileCfg.GuestRecoveryListen
 	if fileCfg.BootstrapListen != "" {
 		cfg.BootstrapListen = fileCfg.BootstrapListen
 	}
@@ -771,6 +774,15 @@ func (c Config) Validate() error {
 	}
 	if artifactWildcard && strings.TrimSpace(c.ArtifactUploadURL) == "" {
 		return fmt.Errorf("artifact_upload_url is required when artifact_listen binds to wildcard")
+	}
+	if c.GuestRecoveryListen != "" {
+		host, port, err := net.SplitHostPort(c.GuestRecoveryListen)
+		if err != nil || port == "" || isWildcardHost(host) {
+			return fmt.Errorf("guest_recovery_listen requires a concrete host:port")
+		}
+		if c.GuestRecoveryListen == c.BootstrapListen || c.GuestRecoveryListen == c.ArtifactListen || c.GuestRecoveryListen == c.ControlListen {
+			return fmt.Errorf("guest_recovery_listen must use a dedicated address")
+		}
 	}
 	if strings.TrimSpace(c.ControllerURL) != "" {
 		if err := validateURL(c.ControllerURL, "controller_url"); err != nil {

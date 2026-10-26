@@ -41,6 +41,7 @@ Bound to the agent subnet by default and reachable only by guests.
 | Key | Type | Default | Description |
 | --- | --- | --- | --- |
 | `bootstrap_listen` | string | `10.77.0.1:8844` | Bootstrap and metadata API listen address. |
+| `guest_recovery_listen` | string | `""` (disabled) | Dedicated TLS 1.3 guest recovery address; concrete `host:port`, distinct from other listeners. Generates pinned certificate and delivery encryption key under `data_dir/guest-recovery`. See [upgrade procedure](../how-to/upgrade-guest-recovery.md). |
 | `artifact_listen` | string | `10.77.0.1:8846` | Artifact upload API listen address. |
 | `agent_subnet` | string | `""` (auto) | CIDR of the agent VM network. Required when a guest listener binds to a wildcard. |
 | `controller_url` | string | `""` (auto) | External URL of the bootstrap API. Required when `bootstrap_listen` is a wildcard. Must include an `http(s)` scheme. |

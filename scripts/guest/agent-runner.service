@@ -9,14 +9,18 @@ ConditionPathExists=/etc/agentlab/bootstrap.json
 Type=simple
 User=agent
 Group=agent
-Environment=AGENTLAB_BOOTSTRAP=/etc/agentlab/bootstrap.json
+Environment=AGENTLAB_BOOTSTRAP=/run/agentlab-bootstrap/descriptor.json
+Environment=AGENTLAB_SECRETS_DIR=/run/agentlab-bootstrap/secrets
+Environment=AGENTLAB_CONTROLLER_CA=/run/agentlab-bootstrap/controller-ca.pem
 EnvironmentFile=-/etc/agentlab/agent-runner.env
+ExecStartPre=+/usr/local/bin/agent-bootstrap
 ExecStart=/usr/local/bin/agent-runner
 ExecStopPost=/usr/local/bin/agent-secrets-cleanup
+ExecStopPost=+/usr/local/bin/agent-bootstrap --cleanup
 Restart=on-failure
 RestartSec=10
 RuntimeDirectory=agentlab
 RuntimeDirectoryMode=0700
 
 [Install]
-WantedBy=multi-user.target
+WantedBy=cloud-init.target

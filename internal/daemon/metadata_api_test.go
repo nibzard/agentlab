@@ -446,3 +446,40 @@ func TestMetadataRegister_NilMux(t *testing.T) {
 	api := NewMetadataAPI(nil, secrets.Store{}, "", nil, nil, nil)
 	api.Register(nil) // should not panic
 }
+
+func TestMetadataIdentityReusedAddressAndAmbiguity(t *testing.T) {
+	ctx := context.Background()
+	store := newTestStore(t)
+	for _, sb := range []models.Sandbox{
+		{VMID: 7001, Name: "old-incarnation", Profile: "default", State: models.SandboxDestroyed, IP: "10.77.1.42"},
+		{VMID: 7002, Name: "current-incarnation", Profile: "default", State: models.SandboxRunning, IP: "10.77.1.42"},
+	} {
+		if e := store.CreateSandbox(ctx, sb); e != nil {
+			t.Fatal(e)
+		}
+	}
+	secret := seedSandboxSecret(t, store, 7002)
+	api := NewMetadataAPI(store, secrets.Store{}, "", mustParseCIDR(t, "10.77.0.0/16"), nil, nil)
+	call := func() *httptest.ResponseRecorder {
+		req := httptest.NewRequest("GET", "/metadata/identity", nil)
+		req.RemoteAddr = "10.77.1.42:1234"
+		withSandboxSecret(req, secret)
+		resp := httptest.NewRecorder()
+		api.handleIdentity(resp, req)
+		return resp
+	}
+	resp := call()
+	if resp.Code != 200 {
+		t.Fatalf("reused IP selected stale identity: %d %s", resp.Code, resp.Body)
+	}
+	var identity MetadataIdentityResponse
+	if e := json.Unmarshal(resp.Body.Bytes(), &identity); e != nil || identity.VMID != 7002 {
+		t.Fatal("wrong live incarnation", e, identity.VMID)
+	}
+	if e := store.CreateSandbox(ctx, models.Sandbox{VMID: 7003, Name: "ambiguous", Profile: "default", State: models.SandboxRunning, IP: "10.77.1.42"}); e != nil {
+		t.Fatal(e)
+	}
+	if resp = call(); resp.Code != 404 {
+		t.Fatal("ambiguous identity did not fail closed", resp.Code)
+	}
+}

@@ -207,6 +207,7 @@ post_with_backoff() {
 
   while true; do
     local curl_args=(curl -fsS --connect-timeout "$CURL_CONNECT_TIMEOUT" --max-time "$CURL_REPORT_MAX_TIME")
+    if [[ -n "${AGENTLAB_CONTROLLER_CA:-}" ]]; then curl_args+=(--cacert "$AGENTLAB_CONTROLLER_CA" --proto "=https"); fi
     curl_args+=(-X POST -H "Content-Type: application/json")
     # Add sandbox secret header for runner API auth (T39).
     if [[ -r "$SECRETS_DIR/sandbox-secret" ]]; then
@@ -360,6 +361,22 @@ report_status() {
   post_with_backoff "$REPORT_URL" "$payload" "report status" || true
 }
 
+# A recovered terminal/interrupted job is never authorized for execution.
+DISPOSITION="$(jq -r '.job_disposition // "legacy"' "$BOOTSTRAP_RESPONSE")"
+if [[ "$DISPOSITION" == execute ]]; then
+ ATTEMPT="$(jq -r '.attempt_id' "$BOOTSTRAP_RESPONSE")"
+ INCARNATION="$(jq -r '.incarnation' "$BOOTSTRAP_RESPONSE")"
+ CLAIM="$(jq -n --argjson vmid "$VMID" --arg inc "$INCARNATION" --arg request "$ATTEMPT" '{vmid:$vmid,incarnation:$inc,request_id:$request}')"
+ # Deliberately no retry: an ambiguous execution claim must fail closed.
+ if ! curl -fsS --proto '=https' --cacert "$AGENTLAB_CONTROLLER_CA" --connect-timeout 5 --max-time 30 -H 'Content-Type: application/json' -H "X-AgentLab-Sandbox-Secret: $(cat "$SECRETS_DIR/sandbox-secret")" -d "$CLAIM" "$CONTROLLER/v1/bootstrap/execution/start" >/dev/null; then
+  log "guest_execution_already_claimed_or_unavailable; explicit retry required"
+  report_status "FAILED" "guest_execution_claim_unavailable; explicit new job required"
+  JOB_ID=""; JOB_REPO=""
+ fi
+elif [[ "$DISPOSITION" == terminal || "$DISPOSITION" == interrupted ]]; then
+ log "guest_job_$DISPOSITION; explicit new job required"
+ JOB_ID=""; JOB_REPO=""
+fi
 log "sandbox bootstrap fetched"
 report_status "RUNNING" "bootstrap fetched"
 
@@ -428,7 +445,7 @@ report_bootstrap_status() {
 refresh_tailscale_status() {
   local status
   if ! command -v tailscale >/dev/null 2>&1; then return 0; fi
-  status="$(sudo tailscale status --json 2>/dev/null || true)"
+  status="$(tailscale status --json 2>/dev/null || true)"
   if jq -e '.BackendState == "Running" and .Self.Online == true' <<<"$status" >/dev/null 2>&1; then
     TAILSCALE_STATE="CONNECTED"; BOOTSTRAP_ERROR=""
   elif [[ "$TAILSCALE_STATE" == "CONNECTED" || "$TAILSCALE_STATE" == "PENDING" ]]; then
@@ -438,6 +455,8 @@ refresh_tailscale_status() {
 
 setup_tailscale() {
   local authkey hostname tags_csv out_file err ts_status
+  refresh_tailscale_status
+  if [[ "$TAILSCALE_STATE" == "CONNECTED" ]]; then log "tailscale already connected; keeping existing device"; return 0; fi
   authkey="$(jq -r '.tailscale.authkey // empty' "$BOOTSTRAP_RESPONSE")"
   if [[ -z "$authkey" || "$authkey" == "null" ]]; then
     log "no tailscale authkey in bootstrap payload; skipping enrollment"

@@ -9,7 +9,7 @@ define bridge_addr = 10.77.0.1
 define tailscale_if = "tailscale0"
 define tailnet_v4 = 100.64.0.0/10
 define tailnet_v6 = fd7a:115c:a1e0::/48
-define guest_tcp_ports = { 8844, 8846 }
+define guest_tcp_ports = { 8844, 8846, 8847 }
 define metadata_ip = 169.254.169.254
 
 table inet agentlab {
@@ -47,7 +47,7 @@ table inet agentlab {
 
     ct state established,related return
 
-    # Guest-facing listeners: bootstrap/metadata (8844) and artifacts (8846).
+    # Guest-facing listeners: bootstrap/metadata (8844) artifacts (8846), and TLS recovery (8847).
     ip saddr $agent_subnet tcp dport $guest_tcp_ports accept
 
     # Metadata endpoint when 169.254.169.254 is configured on the bridge

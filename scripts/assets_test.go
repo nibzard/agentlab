@@ -65,7 +65,7 @@ func TestGuestRecipeChecksEveryExecutableAndService(t *testing.T) {
 		name, missing, disabled string
 		state                   bool
 	}{{name: "valid"}}
-	for _, executable := range []string{"tailscale", "agent-runner", "sshd", "qemu-ga", "jq", "curl"} {
+	for _, executable := range []string{"tailscale", "agent-bootstrap", "agent-runner", "sshd", "qemu-ga", "jq", "curl", "openssl", "flock"} {
 		tests = append(tests, struct {
 			name, missing, disabled string
 			state                   bool
@@ -84,7 +84,7 @@ func TestGuestRecipeChecksEveryExecutableAndService(t *testing.T) {
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			dir := t.TempDir()
-			for _, executable := range []string{"tailscale", "agent-runner", "sshd", "qemu-ga", "jq", "curl"} {
+			for _, executable := range []string{"tailscale", "agent-bootstrap", "agent-runner", "sshd", "qemu-ga", "jq", "curl", "openssl", "flock"} {
 				if executable == test.missing {
 					continue
 				}
@@ -144,5 +144,21 @@ func TestGuestRepositoryDownloadsPropagateTransportFailure(t *testing.T) {
 	}
 	if count != 3 {
 		t.Fatalf("expected all three repository downloads to be exercised, got %d", count)
+	}
+}
+
+// Ubuntu's cloud-final is After=multi-user.target. Wanting a service that is
+// After=cloud-final from multi-user creates a cycle and drops its boot job.
+func TestRunnerBootOrderingHasNoCloudFinalCycle(t *testing.T) {
+	unit, err := Files.ReadFile("guest/agent-runner.service")
+	if err != nil {
+		t.Fatal(err)
+	}
+	content := string(unit)
+	if !strings.Contains(content, "After=network-online.target cloud-final.service") || !strings.Contains(content, "WantedBy=cloud-init.target") || strings.Contains(content, "WantedBy=multi-user.target") {
+		t.Fatal("runner must start from cloud-init.target after cloud-final")
+	}
+	if !strings.Contains(content, "ExecStartPre=+/usr/local/bin/agent-bootstrap") || !strings.Contains(content, "ExecStopPost=/usr/local/bin/agent-secrets-cleanup") {
+		t.Fatal("root acquisition and runtime cleanup must surround the runner")
 	}
 }

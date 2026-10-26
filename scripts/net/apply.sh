@@ -14,7 +14,7 @@ usage() {
   cat <<'USAGE'
 Usage: scripts/net/apply.sh [--bridge vmbr1] [--wan vmbr0] [--subnet 10.77.0.0/16] [--apply] [--force]
                           [--tailscale-if tailscale0] [--tailnet-v4 100.64.0.0/10] [--tailnet-v6 fd7a:115c:a1e0::/48]
-                          [--bridge-addr 10.77.0.1] [--guest-ports 8844,8846]
+                          [--bridge-addr 10.77.0.1] [--guest-ports 8844,8846,8847]
                           [--bind-tap PORT MAC IP | --unbind-tap PORT MAC IP | --sync-taps]
 
 Options:
@@ -23,7 +23,7 @@ Options:
   --subnet   Agent subnet CIDR (default: 10.77.0.0/16)
   --bridge-addr  Host address on the agent bridge (default: 10.77.0.1)
   --guest-ports  Comma-separated guest-facing TCP ports the host keeps
-                 reachable from the agent bridge (default: 8844,8846)
+                 reachable from the agent bridge (default: 8844,8846,8847)
   --tailscale-if  Tailscale interface name (default: tailscale0)
   --tailnet-v4    Tailnet IPv4 CIDR to block from sandbox (default: 100.64.0.0/10)
   --tailnet-v6    Tailnet IPv6 CIDR to block from sandbox (default: fd7a:115c:a1e0::/48)
@@ -44,7 +44,7 @@ BRIDGE="vmbr1"
 WAN="vmbr0"
 SUBNET="10.77.0.0/16"
 BRIDGE_ADDR="10.77.0.1"
-GUEST_PORTS="8844,8846"
+GUEST_PORTS="8844,8846,8847"
 TAILSCALE_IF="tailscale0"
 TAILNET_V4="100.64.0.0/10"
 TAILNET_V6="fd7a:115c:a1e0::/48"

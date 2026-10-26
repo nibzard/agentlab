@@ -102,6 +102,8 @@ func (p *EventProjection) applySandboxProjection(vmid int, ev db.Event, ts strin
 		ready, _ := payload["ready"].(bool)
 		summary.Guest = &V1GuestReadiness{Ready: ready, CheckedAt: stringFromEventPayload(payload, "checked_at"), ErrorCode: stringFromEventPayload(payload, "error_code")}
 		summary.Healthy = ready && isHealthySandboxState(summary.State)
+	case EventKindSandboxRecovery:
+		summary.RecoveryCode = stringFromEventPayload(payload, "code")
 	case EventKindSandboxBootstrap:
 		summary.RunnerReady, _ = payload["runner_ready"].(bool)
 		summary.TailscaleState = stringFromEventPayload(payload, "tailscale_state")
@@ -154,6 +156,15 @@ func (p *EventProjection) applyJobProjection(jobID string, ev db.Event, ts strin
 	summary.LastEventAt = ts
 	summary.EventCount++
 	switch EventKind(ev.Kind) {
+	case EventKindSandboxRecovery:
+		if stringFromEventPayload(payload, "code") == "guest_job_interrupted" {
+			summary.Status = string(models.JobFailed)
+			summary.CompletedAt = ts
+			summary.FailureCount++
+			summary.LastFailureAt = ts
+			summary.LastFailureKind = "sandbox.recovery"
+			summary.LastFailureMessage = "guest_job_interrupted: explicit new job required"
+		}
 	case EventKindJobCreated:
 		status := strings.ToUpper(strings.TrimSpace(stringFromEventPayload(payload, "status")))
 		summary.Status = firstNonEmpty(status, string(models.JobQueued))

@@ -59,7 +59,7 @@ IMAGE_FILE=""
 IMAGE_SHA256=""
 IMAGE_SHA256_URL=""
 CACHE_DIR="/var/lib/agentlab/images"
-PACKAGES="openssh-server,qemu-guest-agent,git,curl,ca-certificates,jq,e2fsprogs,bubblewrap"
+PACKAGES="openssh-server,qemu-guest-agent,git,curl,ca-certificates,jq,e2fsprogs,bubblewrap,openssl,util-linux"
 CLAUDE_CODE_VERSION="1.0.100"
 CODEX_VERSION="0.28.0"
 OPENCODE_VERSION="0.6.4"
@@ -70,6 +70,7 @@ SKIP_AGENT_TOOLS=0
 REFRESH=0
 
 AGENTLAB_AGENT_WRAPPER="${SCRIPT_DIR}/guest/agentlab-agent"
+AGENTLAB_BOOTSTRAP_SCRIPT="${SCRIPT_DIR}/guest/agent-bootstrap"
 AGENTLAB_RUNNER_SCRIPT="${SCRIPT_DIR}/guest/agent-runner"
 AGENTLAB_RUNNER_SERVICE="${SCRIPT_DIR}/guest/agent-runner.service"
 AGENTLAB_RUNNER_ENV="${SCRIPT_DIR}/guest/agent-runner.env"
@@ -388,14 +389,18 @@ if [[ "$SKIP_CUSTOMIZE" == "0" ]]; then
     --install "$pkg_list"
     --run-command "install -d -m 0755 /etc/agentlab"
     --run-command "id -u agent >/dev/null 2>&1 || useradd -m -s /bin/bash agent"
-    --run-command "id -u agent >/dev/null 2>&1 && usermod -aG sudo agent"
+    --run-command "id -u agent >/dev/null 2>&1 && gpasswd -d agent sudo >/dev/null 2>&1 || true"
     --run-command "id -u agent >/dev/null 2>&1 && passwd -l agent"
     --run-command "install -d -m 0755 /etc/sudoers.d"
-    --run-command "printf 'agent ALL=(ALL) NOPASSWD:ALL\\n' > /etc/sudoers.d/90-agentlab"
-    --run-command "chmod 0440 /etc/sudoers.d/90-agentlab"
+    --run-command "rm -f /etc/sudoers.d/90-agentlab"
     --run-command "install -d -m 0755 /etc/ssh/sshd_config.d"
     --run-command "printf 'PasswordAuthentication no\\nPermitRootLogin prohibit-password\\n' > /etc/ssh/sshd_config.d/99-agentlab.conf"
     --run-command "systemctl enable qemu-guest-agent ssh"
+    --upload "${AGENTLAB_BOOTSTRAP_SCRIPT}:/usr/local/bin/agent-bootstrap"
+    --upload "${SCRIPT_DIR}/guest/agent-bootstrap-refresh.service:/etc/systemd/system/agent-bootstrap-refresh.service"
+    --upload "${SCRIPT_DIR}/guest/agent-bootstrap-refresh.timer:/etc/systemd/system/agent-bootstrap-refresh.timer"
+    --run-command "chmod 0755 /usr/local/bin/agent-bootstrap"
+    --run-command "systemctl enable agent-bootstrap-refresh.timer"
     --upload "${AGENTLAB_RUNNER_SCRIPT}:/usr/local/bin/agent-runner"
     --upload "${AGENTLAB_RUNNER_SERVICE}:/etc/systemd/system/agent-runner.service"
     --upload "${AGENTLAB_RUNNER_ENV}:/etc/agentlab/agent-runner.env"
@@ -403,6 +408,7 @@ if [[ "$SKIP_CUSTOMIZE" == "0" ]]; then
     --upload "${AGENTLAB_WORKSPACE_SETUP_SCRIPT}:/usr/local/bin/agentlab-workspace-setup"
     --upload "${AGENTLAB_WORKSPACE_SETUP_SERVICE}:/etc/systemd/system/agentlab-workspace-setup.service"
     --upload "${AGENTLAB_WORK_MOUNT_UNIT}:/etc/systemd/system/work.mount"
+    --run-command "chmod 0644 /etc/systemd/system/agent-runner.service /etc/systemd/system/agent-bootstrap-refresh.service /etc/systemd/system/agent-bootstrap-refresh.timer"
     --run-command "chmod 0755 /usr/local/bin/agent-runner"
     --run-command "chmod 0755 /usr/local/bin/agent-secrets-cleanup"
     --run-command "chmod 0755 /usr/local/bin/agentlab-workspace-setup"
@@ -442,9 +448,9 @@ if [[ "$SKIP_CUSTOMIZE" == "0" ]]; then
   fi
 
   virt_args+=(
-    --run-command 'export PATH="/usr/local/sbin:/usr/local/bin:$PATH"; set -e; for executable in tailscale agent-runner sshd qemu-ga jq curl; do command -v "$executable" >/dev/null || { echo "Missing required executable: $executable" >&2; exit 1; }; done; for service in tailscaled agent-runner qemu-guest-agent ssh; do systemctl is-enabled "$service" >/dev/null || { echo "Required service is not enabled: $service" >&2; exit 1; }; done; test ! -e /var/lib/tailscale/tailscaled.state || { echo "Unexpected Tailscale enrollment state" >&2; exit 1; }'
-    --run-command "jq -n --arg tailscale \"\$(tailscale version | head -1)\" --arg ssh \"\$(/usr/sbin/sshd -V 2>&1)\" --arg qga \"\$(qemu-ga --version | head -1)\" --arg claude \"\$(command -v claude >/dev/null && claude --version || true)\" --arg codex \"\$(command -v codex >/dev/null && codex --version || true)\" --arg opencode \"\$(command -v opencode >/dev/null && opencode --version || true)\" '{tailscale:\$tailscale,agent_runner:\"v1\",ssh:\$ssh,qemu_guest_agent:\$qga,claude:\$claude,codex:\$codex,opencode:\$opencode}' > /etc/agentlab/template-capabilities.json"
-    --run-command 'rm -f /etc/ssh/ssh_host_* /var/lib/dbus/machine-id; truncate -s 0 /etc/machine-id; rm -rf /var/lib/cloud/* /var/lib/tailscale/*; cloud-init clean --logs'
+    --run-command 'export PATH="/usr/local/sbin:/usr/local/bin:$PATH"; set -e; for executable in tailscale agent-bootstrap agent-runner sshd qemu-ga jq curl openssl flock; do command -v "$executable" >/dev/null || { echo "Missing required executable: $executable" >&2; exit 1; }; done; for service in tailscaled agent-runner qemu-guest-agent ssh; do systemctl is-enabled "$service" >/dev/null || { echo "Required service is not enabled: $service" >&2; exit 1; }; done; test ! -e /var/lib/agentlab/identity || { echo "Unexpected guest recovery identity" >&2; exit 1; }; test ! -e /var/lib/tailscale/tailscaled.state || { echo "Unexpected Tailscale enrollment state" >&2; exit 1; }'
+    --run-command "jq -n --arg tailscale \"\$(tailscale version | head -1)\" --arg ssh \"\$(/usr/sbin/sshd -V 2>&1)\" --arg qga \"\$(qemu-ga --version | head -1)\" --arg claude \"\$(command -v claude >/dev/null && claude --version || true)\" --arg codex \"\$(command -v codex >/dev/null && codex --version || true)\" --arg opencode \"\$(command -v opencode >/dev/null && opencode --version || true)\" '{tailscale:\$tailscale,agent_runner:\"v2\",ssh:\$ssh,qemu_guest_agent:\$qga,claude:\$claude,codex:\$codex,opencode:\$opencode}' > /etc/agentlab/template-capabilities.json"
+    --run-command 'rm -f /etc/ssh/ssh_host_* /var/lib/dbus/machine-id; truncate -s 0 /etc/machine-id; rm -rf /var/lib/cloud/* /var/lib/tailscale/* /var/lib/agentlab/identity /run/agentlab-bootstrap /etc/agentlab/bootstrap.json; cloud-init clean --logs'
   )
   virt-customize "${virt_args[@]}"
 else

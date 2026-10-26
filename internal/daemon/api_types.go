@@ -66,6 +66,7 @@ type V1SandboxLifecycleSummary struct {
 	Guest              *V1GuestReadiness `json:"guest,omitempty"`
 	RunnerReady        bool              `json:"runner_ready"`
 	TailscaleState     string            `json:"tailscale_state,omitempty"`
+	RecoveryCode       string            `json:"recovery_code,omitempty"`
 	BootstrapError     string            `json:"bootstrap_error,omitempty"`
 	VMID               int               `json:"vmid"`
 	State              string            `json:"state"`
@@ -94,10 +95,18 @@ type V1JobTimelineSummary struct {
 	LastFailureMessage string `json:"last_failure_message,omitempty"`
 }
 
+type V1GuestRecoveryCapability struct {
+	Enabled        bool   `json:"enabled"`
+	Protocol       string `json:"protocol"`
+	TemplateRunner string `json:"template_runner"`
+	LegacyRecovery string `json:"legacy_recovery"`
+	NativeSSH      bool   `json:"native_ssh"`
+}
 type V1HostResponse struct {
-	Version      string `json:"version"`
-	AgentSubnet  string `json:"agent_subnet,omitempty"`
-	TailscaleDNS string `json:"tailscale_dns,omitempty"`
+	GuestRecovery V1GuestRecoveryCapability `json:"guest_recovery"`
+	Version       string                    `json:"version"`
+	AgentSubnet   string                    `json:"agent_subnet,omitempty"`
+	TailscaleDNS  string                    `json:"tailscale_dns,omitempty"`
 }
 
 type V1BootstrapFetchRequest struct {

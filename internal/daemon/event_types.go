@@ -35,6 +35,7 @@ const (
 const (
 	// Sandbox lifecycle.
 	EventKindSandboxGuestReadiness   EventKind = "sandbox.guest_readiness"
+	EventKindSandboxRecovery         EventKind = "sandbox.recovery"
 	EventKindSandboxBootstrap        EventKind = "sandbox.bootstrap"
 	EventKindSandboxState            EventKind = "sandbox.state"
 	EventKindSandboxLease            EventKind = "sandbox.lease"
@@ -113,6 +114,7 @@ const (
 
 var EventCatalog = map[EventKind]EventPayloadSchema{
 	EventKindSandboxGuestReadiness: {Kind: EventKindSandboxGuestReadiness, Domain: eventDomainSandbox, Stage: EventStageSLO, Schema: 1, Required: []string{"ready", "checked_at"}, Optional: []string{"error_code"}, Description: "Observed guest-agent, network and SSH readiness."},
+	EventKindSandboxRecovery:       {Kind: EventKindSandboxRecovery, Domain: eventDomainSandbox, Stage: EventStageReport, Schema: 1, Required: []string{"code"}, Description: "Guest identity recovery outcome, independent of VM and tailnet readiness."},
 	EventKindSandboxBootstrap:      {Kind: EventKindSandboxBootstrap, Domain: eventDomainSandbox, Stage: EventStageReport, Schema: 1, Required: []string{"vmid", "runner_ready", "tailscale_state"}, Optional: []string{"error_code"}, Description: "Authenticated guest bootstrap and independent tailnet state."},
 	EventKindTemplateSubmitted:     {Kind: EventKindTemplateSubmitted, Domain: eventDomainTemplate, Stage: EventStageLifecycle, Schema: 1, Required: []string{"build_id"}, Optional: []string{"vmid"}, Description: "Durable template build submission."},
 	EventKindTemplateStage:         {Kind: EventKindTemplateStage, Domain: eventDomainTemplate, Stage: EventStageLifecycle, Schema: 1, Required: []string{"build_id"}, Optional: []string{"stage", "state", "cleanup_required"}, Description: "Template build progress."},

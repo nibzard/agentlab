@@ -13,47 +13,47 @@ work begins. `agentlab-workspace-setup.service` looks for a secondary disk
 labeled `AGENTLAB_WORK`, formats it as ext4 if needed, and starts `work.mount`
 at `/work`. The mount only activates when
 `/dev/disk/by-label/AGENTLAB_WORK` exists, so an ephemeral sandbox with no
-workspace disk simply skips it. The workspace volume is the only durable
-filesystem state inside the sandbox; everything else is ephemeral. See
+workspace disk simply skips it. The workspace volume preserves project data across replacement sandboxes.
+The guest OS disk also retains its recovery identity across stop/start and reboot. See
 [Workspaces, sessions, and sandboxes](workspaces-sessions-sandboxes.md).
 
 ## Bootstrap fetch
 
-The `agent-runner.service` then starts as user `agent` with
-`AGENTLAB_BOOTSTRAP` pointing at `/etc/agentlab/bootstrap.json`. The descriptor
-holds the one-time bootstrap token, the controller URL, and the VMID. The runner
-POSTs the token and VMID to `POST /v1/bootstrap/fetch` on the bootstrap
-listener.
+Verified v2 templates run the fixed root `agent-bootstrap` helper before the
+unprivileged runner, after cloud-init. The root-only descriptor supplies a
+single-use token, sandbox incarnation, TLS controller address and pinned CA.
+The helper creates a root-only Ed25519 key under `/var/lib/agentlab/identity`
+before registering it. It installs the response into protected tmpfs and gives
+the runner a public descriptor under `/run/agentlab-bootstrap`.
 
-The fetch is retried up to `AGENTLAB_BOOTSTRAP_RETRY_MAX`, which defaults to 10,
-with exponential backoff capped at 30 seconds. Bootstrap authenticates a sandbox
-independently of any assigned job. The payload includes sandbox identity and an
-endpoint secret; job and artifact data are provided only when a job exists.
-A successful fetch consumes the token once. An undelivered server failure
-releases its claim for retry, without allowing a concurrent fetch to rotate the
-winning guest's credential. The runner retains compatibility with older daemons
-that return `404 job not found` for standalone sandboxes.
-What that payload contains, and why it is delivered this way, is covered in
-[Secrets delivery model](secrets-delivery-model.md).
+After cleanup or reboot, the helper signs a fresh one-minute challenge to recover
+an expiring endpoint credential. The initial token stays consumed. Encrypted
+idempotent delivery permits retry after a lost initial or recovery response.
+A root timer renews credentials every 20 minutes without restarting a running
+job. [Upgrade guest recovery](../how-to/upgrade-guest-recovery.md) describes the
+explicit TLS migration and legacy guest limitations.
 
-The service starts after cloud-init finishes and requires a bootstrap descriptor.
-The runner initializes redaction and tmpfs secrets before attempting Tailscale
-setup. Enrollment has a bounded timeout, and its credential is removed from the
-cached payload after the attempt. Authenticated `sandbox.bootstrap` reports
-expose `CONNECTED`, `PENDING`, `FAILED`, or `UNCONFIGURED` separately from guest
-readiness. Invalid keys produce `tailscale_enrollment_failed`; they do not mark
-an otherwise usable VM as unhealthy.
+Initial Tailscale enrollment runs in the root helper, with a bounded timeout,
+and its key is discarded before the agent receives runtime data. Connected
+devices keep the same node. Recovery never mints another enrollment key or
+reenrolls a logged-out device. Authenticated bootstrap reports expose Tailscale
+state independently of VM readiness and recovery diagnostics.
 
-With no job assigned, the runner stays alive, monitors enrollment state, and
-skips repository preparation and agent execution. Normal service cleanup removes
-its transient secrets on termination. Job-bound guests continue through the
-remaining phases below.
+The response's job disposition gates execution. An initial `execute` disposition
+requires a separate durable, one-time attempt claim before any repository or
+agent work. A restarted interrupted job becomes `FAILED`, with
+`guest_job_interrupted` and `retry_required: true`; completed jobs remain
+terminal. Submit an explicit new job to retry. Standalone and recovered guests
+keep reporting readiness without preparing a repository or starting an agent.
+
+Legacy templates still fetch their original token from `/v1/bootstrap/fetch`;
+a consumed legacy token cannot recover after its cache is removed. Reprovision
+from a verified v2 template rather than retaining decrypted secrets on disk.
 
 ## Repository preparation
 
 With the payload in hand, the runner writes `env.sh`, git credentials, and the
-Claude settings into `/run/agentlab/secrets`, enrolls Tailscale if the payload
-asks for it, and clones or updates the job repository into `REPO_DIR`. The
+Claude settings into `/run/agentlab-bootstrap/secrets`, and clones or updates the job repository into `REPO_DIR`. The
 default `REPO_DIR` is `/work/repo` when `/work` is writable, otherwise
 `/tmp/repo`, and the git ref defaults to `main` when unset. Git auth uses either
 an SSH key with `IdentitiesOnly` or a token through a `GIT_ASKPASS` helper with

@@ -8,6 +8,7 @@ Reference for every network listener `agentlabd` opens, its default address, the
 | --- | --- | --- | --- | --- |
 | Local control socket | `socket_path` | `/run/agentlab/agentlabd.sock` | `/v1/*`, `/healthz` | Trusted full access. Bypasses network auth. |
 | Remote control (TCP) | `control_listen` | `""` (disabled) | `/v1/*`, `/healthz` | Network boundary. Requires bearer token. |
+| Recovery (guest TLS) | `guest_recovery_listen` | Disabled; opt in with `10.77.0.1:8847` | Registration, proof-based recovery, execution claims, authenticated runner and metadata routes | Pinned TLS 1.3, guest subnet, rate limits. |
 | Bootstrap (guest) | `bootstrap_listen` | `10.77.0.1:8844` | `/v1/bootstrap/fetch`, `/v1/runner/report`, `/metadata/*`, `/proxy/`, `/healthz` | Agent subnet only. Rate-limited. |
 | Artifact (guest) | `artifact_listen` | `10.77.0.1:8846` | `/upload`, `/healthz` | Agent subnet only. Rate-limited. |
 | Metrics | `metrics_listen` | `""` (disabled) | `/metrics`, `/healthz` | Loopback only. |

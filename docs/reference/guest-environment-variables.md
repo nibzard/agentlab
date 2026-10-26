@@ -59,7 +59,7 @@ exit `0` cleanly. Other failures retry with exponential backoff capped at 30s.
 | `AGENTLAB_RUN_DIR` | `/run/agentlab` | Runtime directory for state and logs. |
 | `AGENTLAB_REPO_DIR` | (unset) | Where the job repo is cloned. When unset, `/work/repo` if `/work` is writable, else `$AGENTLAB_WORK_DIR_BASE/repo`. |
 | `AGENTLAB_WORK_DIR_BASE` | `/tmp` | Base directory for the repo when `/work` is absent. |
-| `AGENTLAB_SECRETS_DIR` | `/run/agentlab/secrets` | Directory for per-job secrets. Must be under `/run` or `/dev/shm` for cleanup. |
+| `AGENTLAB_SECRETS_DIR` | `/run/agentlab/secrets` | Script default; v2 systemd service uses `/run/agentlab-bootstrap/secrets`. Must be under `/run` or `/dev/shm` for cleanup. |
 | `AGENTLAB_ARTIFACTS_DIR` | `$AGENTLAB_RUN_DIR/artifacts` | Directory where the artifact tarball is staged before upload. |
 | `AGENTLAB_CLEANUP_SECRETS` | `1` | When `1`, `agent-secrets-cleanup` wipes the secrets dir on service stop. |
 | `AGENTLAB_CLEANUP_REPO` | `1` | When `1`, `agent-secrets-cleanup` removes the repo dir on service stop. Never removes `/work/*`. |
@@ -99,3 +99,14 @@ The runner exports these seven variables into the agent process environment:
 helper script, not a configuration surface. See
 reference/profile-and-template-schema.md for the profile fields that seed the
 guest environment.
+
+## Recovery-enabled service
+
+The v2 service runs a fixed root acquisition helper before starting the agent.
+The runner receives `AGENTLAB_BOOTSTRAP=/run/agentlab-bootstrap/descriptor.json`,
+`AGENTLAB_SECRETS_DIR=/run/agentlab-bootstrap/secrets`, and
+`AGENTLAB_CONTROLLER_CA=/run/agentlab-bootstrap/controller-ca.pem`. That CA is
+used for authenticated HTTPS reports and execution claims. The descriptor has
+no initial enrollment token. Root helper configuration must remain root-owned;
+agent job environment variables do not configure the helper. See
+[upgrade guest recovery](../how-to/upgrade-guest-recovery.md).

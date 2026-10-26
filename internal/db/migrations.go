@@ -414,6 +414,36 @@ var migrations = []migration{
 		`CREATE INDEX template_builds_state ON template_builds(state)`,
 		`CREATE UNIQUE INDEX template_builds_single_worker ON template_builds(state) WHERE state='RUNNING'`,
 	}},
+	{version: 23, name: "guest_recovery_identity", statements: []string{
+		`CREATE TABLE guest_identities (vmid INTEGER PRIMARY KEY, incarnation TEXT NOT NULL UNIQUE, public_key TEXT UNIQUE, revoked INTEGER NOT NULL DEFAULT 0)`,
+		`INSERT INTO guest_identities(vmid,incarnation,revoked) SELECT vmid,lower(hex(randomblob(16))),CASE WHEN state='DESTROYED' THEN 1 ELSE 0 END FROM sandboxes`,
+		`CREATE TABLE guest_challenges (id TEXT PRIMARY KEY, incarnation TEXT NOT NULL, nonce_hash TEXT NOT NULL, generation TEXT NOT NULL, expires_at TEXT NOT NULL, consumed INTEGER NOT NULL DEFAULT 0)`,
+		`CREATE TABLE guest_deliveries (incarnation TEXT NOT NULL, request_id TEXT NOT NULL, ciphertext BLOB NOT NULL, expires_at TEXT NOT NULL, PRIMARY KEY(incarnation,request_id))`,
+		`CREATE TABLE guest_attempts (incarnation TEXT NOT NULL, job_id TEXT NOT NULL, attempt_id TEXT NOT NULL UNIQUE, started INTEGER NOT NULL DEFAULT 0, PRIMARY KEY(incarnation,job_id))`,
+		`ALTER TABLE bootstrap_tokens ADD COLUMN incarnation TEXT NOT NULL DEFAULT ''`,
+		`UPDATE bootstrap_tokens SET incarnation=COALESCE((SELECT incarnation FROM guest_identities g WHERE g.vmid=bootstrap_tokens.vmid),'')`,
+		`ALTER TABLE sandbox_secrets ADD COLUMN expires_at TEXT`,
+		`CREATE TRIGGER guest_incarnation_insert AFTER INSERT ON sandboxes BEGIN
+ DELETE FROM guest_challenges WHERE incarnation IN (SELECT incarnation FROM guest_identities WHERE vmid=NEW.vmid);
+ DELETE FROM guest_deliveries WHERE incarnation IN (SELECT incarnation FROM guest_identities WHERE vmid=NEW.vmid);
+ DELETE FROM guest_attempts WHERE incarnation IN (SELECT incarnation FROM guest_identities WHERE vmid=NEW.vmid);
+ DELETE FROM sandbox_secrets WHERE vmid=NEW.vmid;
+ DELETE FROM bootstrap_tokens WHERE vmid=NEW.vmid;
+ INSERT OR REPLACE INTO guest_identities(vmid,incarnation) VALUES(NEW.vmid,lower(hex(randomblob(16)))); END`,
+		`CREATE TRIGGER guest_token_incarnation AFTER INSERT ON bootstrap_tokens BEGIN UPDATE bootstrap_tokens SET incarnation=COALESCE((SELECT incarnation FROM guest_identities WHERE vmid=NEW.vmid),'') WHERE token=NEW.token; END`,
+		`CREATE TRIGGER guest_revoke_destroy AFTER UPDATE OF state ON sandboxes WHEN NEW.state='DESTROYED' BEGIN
+ UPDATE guest_identities SET revoked=1,public_key=NULL WHERE vmid=NEW.vmid;
+ DELETE FROM guest_challenges WHERE incarnation IN (SELECT incarnation FROM guest_identities WHERE vmid=NEW.vmid);
+ DELETE FROM guest_deliveries WHERE incarnation IN (SELECT incarnation FROM guest_identities WHERE vmid=NEW.vmid);
+ DELETE FROM sandbox_secrets WHERE vmid=NEW.vmid;
+ DELETE FROM bootstrap_tokens WHERE vmid=NEW.vmid; END`,
+		`CREATE TRIGGER guest_revoke_delete BEFORE DELETE ON sandboxes BEGIN
+ UPDATE guest_identities SET revoked=1,public_key=NULL WHERE vmid=OLD.vmid;
+ DELETE FROM guest_challenges WHERE incarnation IN (SELECT incarnation FROM guest_identities WHERE vmid=OLD.vmid);
+ DELETE FROM guest_deliveries WHERE incarnation IN (SELECT incarnation FROM guest_identities WHERE vmid=OLD.vmid);
+ DELETE FROM sandbox_secrets WHERE vmid=OLD.vmid;
+ DELETE FROM bootstrap_tokens WHERE vmid=OLD.vmid; END`,
+	}},
 }
 
 // Migrate runs any pending migrations against the provided database.

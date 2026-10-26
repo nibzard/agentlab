@@ -1,0 +1,8 @@
+[Unit]
+Description=Refresh AgentLab guest endpoint credential
+After=network-online.target cloud-final.service
+ConditionPathExists=/etc/agentlab/bootstrap.json
+ConditionPathExists=/run/agentlab-bootstrap/secrets/bootstrap.json
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/agent-bootstrap --refresh

@@ -67,6 +67,8 @@ type Service struct {
 	store             *db.Store
 	unixListener      net.Listener
 	controlListener   net.Listener
+	recoveryListener  net.Listener
+	recoveryServer    *http.Server
 	bootstrapListener net.Listener
 	artifactListener  net.Listener
 	metricsListener   net.Listener
@@ -415,9 +417,36 @@ func newService(cfg config.Config, profiles map[string]models.Profile, store *db
 
 	sandboxManager.WithExposureCleaner(NewExposureCleaner(store, exposurePublisher, log.Default()))
 	redactor := NewRedactor(nil)
+	var recoveryListener net.Listener
+	var recoveryCA string
+	recoveryOK := false
+	if cfg.GuestRecoveryListen != "" {
+		recoveryListener, recoveryCA, err = guestTLS(filepath.Join(cfg.DataDir, "guest-recovery"), cfg.GuestRecoveryListen)
+		if err != nil {
+			_ = bootstrapListener.Close()
+			_ = artifactListener.Close()
+			_ = unixListener.Close()
+			if controlListener != nil {
+				_ = controlListener.Close()
+			}
+			if metricsListener != nil {
+				_ = metricsListener.Close()
+			}
+			return nil, err
+		}
+		defer func() {
+			if !recoveryOK {
+				_ = recoveryListener.Close()
+			}
+		}()
+	}
 	snippetStore := proxmox.SnippetStore{
-		Storage: cfg.SnippetStorage,
-		Dir:     cfg.SnippetsDir,
+		RecoveryCA: recoveryCA,
+		Storage:    cfg.SnippetStorage,
+		Dir:        cfg.SnippetsDir,
+	}
+	if recoveryListener != nil {
+		snippetStore.RecoveryURL = "https://" + cfg.GuestRecoveryListen
 	}
 	controllerURL := strings.TrimSpace(cfg.ControllerURL)
 	if controllerURL == "" {
@@ -454,6 +483,7 @@ func newService(cfg config.Config, profiles map[string]models.Profile, store *db
 		WithRedactor(redactor).
 		WithSkillBundle(cfg.ClaudeSkillBundleName, cfg.ClaudeSkillBundleVersion).
 		WithAgentSubnet(agentCIDR).
+		WithGuestRecovery(recoveryListener != nil).
 		WithTailscaleStatus(defaultTailscaleDNSName).
 		WithTailscalePeerInventory(defaultTailscalePeerInventory).
 		WithResourcePool(resourcePool)
@@ -553,6 +583,15 @@ func newService(cfg config.Config, profiles map[string]models.Profile, store *db
 	bootstrapAPI := NewBootstrapAPI(store, profiles, secretsStore, cfg.SecretsBundle, agentSubnet, artifactEndpoint, time.Duration(cfg.ArtifactTokenTTLMinutes)*time.Minute, redactor, bootstrapLimiter)
 	bootstrapAPI.profileStore = profileStore
 	bootstrapAPI.Register(bootstrapMux)
+	var recoveryServer *http.Server
+	if recoveryListener != nil {
+		recoveryAPI, e := newGuestRecoveryAPI(bootstrapAPI, filepath.Join(cfg.DataDir, "guest-recovery"))
+		if e != nil {
+			return nil, e
+		}
+		recoveryAPI.Register(bootstrapMux)
+		recoveryServer = &http.Server{Handler: bootstrapMux, ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 90 * time.Second, WriteTimeout: 90 * time.Second, IdleTimeout: 2 * time.Minute}
+	}
 	NewRunnerAPI(jobOrchestrator, store, agentSubnet).Register(bootstrapMux)
 	NewMetadataAPI(store, secretsStore, cfg.SecretsBundle, agentSubnet, bootstrapLimiter, log.Default()).Register(bootstrapMux)
 
@@ -648,12 +687,13 @@ func newService(cfg config.Config, profiles map[string]models.Profile, store *db
 	}
 
 	s := &Service{
-		templateBuilds:    templateBuilds,
-		cfg:               cfg,
-		profiles:          profiles,
-		store:             store,
-		unixListener:      unixListener,
-		controlListener:   controlListener,
+		templateBuilds:   templateBuilds,
+		cfg:              cfg,
+		profiles:         profiles,
+		store:            store,
+		unixListener:     unixListener,
+		controlListener:  controlListener,
+		recoveryListener: recoveryListener, recoveryServer: recoveryServer,
 		bootstrapListener: bootstrapListener,
 		artifactListener:  artifactListener,
 		metricsListener:   metricsListener,
@@ -685,6 +725,7 @@ func newService(cfg config.Config, profiles map[string]models.Profile, store *db
 	if controlAPI != nil {
 		controlAPI.WithBackgroundRunner(s)
 	}
+	recoveryOK = true
 	return s, nil
 }
 
@@ -754,10 +795,16 @@ func (s *Service) Serve(ctx context.Context) error {
 		s.startPoolReclaimer(lifecycleCtx)
 	}
 
+	if s.recoveryServer != nil {
+		serverCount++
+	}
 	errCh := make(chan error, serverCount)
 	go func() { errCh <- s.unixServer.Serve(s.unixListener) }()
 	if s.controlServer != nil {
 		go func() { errCh <- s.controlServer.Serve(s.controlListener) }()
+	}
+	if s.recoveryServer != nil {
+		go func() { errCh <- s.recoveryServer.Serve(s.recoveryListener) }()
 	}
 	go func() { errCh <- s.bootstrapServer.Serve(s.bootstrapListener) }()
 	go func() { errCh <- s.artifactServer.Serve(s.artifactListener) }()
@@ -850,6 +897,9 @@ func (s *Service) shutdown() {
 	_ = s.unixServer.Shutdown(ctx)
 	if s.controlServer != nil {
 		_ = s.controlServer.Shutdown(ctx)
+	}
+	if s.recoveryServer != nil {
+		_ = s.recoveryServer.Shutdown(ctx)
 	}
 	_ = s.bootstrapServer.Shutdown(ctx)
 	_ = s.artifactServer.Shutdown(ctx)
