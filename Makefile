@@ -46,7 +46,7 @@ $(TOOLS_DIR):
 	mkdir -p $(TOOLS_DIR)
 
 $(STATICCHECK_BIN): | $(TOOLS_DIR)
-	GOBIN=$(abspath $(TOOLS_DIR)) $(GO) install honnef.co/go/tools/cmd/staticcheck@$(STATICCHECK_VERSION)
+	GOTOOLCHAIN=$(GOVULNCHECK_GOTOOLCHAIN) GOBIN=$(abspath $(TOOLS_DIR)) $(GO) install honnef.co/go/tools/cmd/staticcheck@$(STATICCHECK_VERSION)
 
 $(GOVULNCHECK_BIN): | $(TOOLS_DIR)
 	GOTOOLCHAIN=$(GOVULNCHECK_GOTOOLCHAIN) GOBIN=$(abspath $(TOOLS_DIR)) $(GO) install golang.org/x/vuln/cmd/govulncheck@$(GOVULNCHECK_VERSION)
