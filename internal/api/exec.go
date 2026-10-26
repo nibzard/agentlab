@@ -24,9 +24,11 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode/utf8"
 
 	"github.com/agentlab/agentlab/internal/argv"
 	"github.com/agentlab/agentlab/internal/auth"
+	"github.com/agentlab/agentlab/internal/clicontract"
 )
 
 const (
@@ -68,24 +70,45 @@ type ExecRequest struct {
 
 // ExecResponse is the JSON response for POST /v1/exec (non-streaming).
 type ExecResponse struct {
-	ExitCode int    `json:"exit_code"`
-	Stdout   string `json:"stdout"`
-	Stderr   string `json:"stderr"`
+	ExitCode                int    `json:"exit_code"`
+	Stdout                  string `json:"stdout"`
+	Stderr                  string `json:"stderr"`
+	TimedOut                bool   `json:"timed_out"`
+	Cancelled               bool   `json:"cancelled"`
+	EffectiveTimeoutSeconds int    `json:"effective_timeout_seconds"`
+	StdoutTruncated         bool   `json:"stdout_truncated"`
+	StderrTruncated         bool   `json:"stderr_truncated"`
+	StdoutCapturedBytes     int64  `json:"stdout_captured_bytes"`
+	StderrCapturedBytes     int64  `json:"stderr_captured_bytes"`
+	StdoutDroppedBytes      int64  `json:"stdout_dropped_bytes"`
+	StderrDroppedBytes      int64  `json:"stderr_dropped_bytes"`
+}
+
+type ExecErrorResponse struct {
+	Error string `json:"error"`
 }
 
 // ExecDryRunResponse is the JSON response for POST /v1/exec/dry-run.
 type ExecDryRunResponse struct {
-	OK      bool     `json:"ok"`
-	Command string   `json:"command"`
-	Args    []string `json:"args"`
-	Errors  []string `json:"errors,omitempty"`
+	Deferred   []string `json:"deferred"`
+	OK         bool     `json:"ok"`
+	Validation string   `json:"validation"`
+	Command    string   `json:"command"`
+	Args       []string `json:"args"`
+	Errors     []string `json:"errors,omitempty"`
 }
 
 // SSEEvent is a single server-sent event for streaming exec output.
 type SSEEvent struct {
-	Type string `json:"type"`           // "stdout", "stderr", "exit"
-	Data string `json:"data"`           // base64 or raw text
-	Code int    `json:"code,omitempty"` // exit code (only for type="exit")
+	TimedOut                bool   `json:"timed_out,omitempty"`
+	Cancelled               bool   `json:"cancelled,omitempty"`
+	EffectiveTimeoutSeconds int    `json:"effective_timeout_seconds,omitempty"`
+	Stream                  string `json:"stream,omitempty"`
+	CapturedBytes           int64  `json:"captured_bytes,omitempty"`
+	DroppedBytes            int64  `json:"dropped_bytes,omitempty"`
+	Type                    string `json:"type"`           // "stdout", "stderr", "exit"
+	Data                    string `json:"data"`           // base64 or raw text
+	Code                    int    `json:"code,omitempty"` // exit code (only for type="exit")
 }
 
 // ExecAPI handles POST /v1/exec and POST /v1/exec/dry-run.
@@ -175,28 +198,23 @@ func (api *ExecAPI) handleExecCapture(w http.ResponseWriter, r *http.Request, ar
 
 	proc := exec.CommandContext(ctx, api.cliPath, args...)
 	var stdout, stderr bytes.Buffer
-	proc.Stdout = newLimitWriter(&stdout, maxOutputBytes)
-	proc.Stderr = newLimitWriter(&stderr, maxOutputBytes)
+	outWriter, errWriter := newLimitWriter(&stdout, maxOutputBytes), newLimitWriter(&stderr, maxOutputBytes)
+	proc.Stdout, proc.Stderr = outWriter, errWriter
 
-	exitCode := 0
-	if err := proc.Run(); err != nil {
-		var exitErr *exec.ExitError
-		if errors.As(err, &exitErr) {
-			exitCode = exitErr.ExitCode()
-			if exitCode < 0 {
-				exitCode = 1
-			}
-		} else if errors.Is(ctx.Err(), context.DeadlineExceeded) {
-			exitCode = 124
-		} else {
-			exitCode = 1
-		}
-	}
+	exitCode := execExitCode(ctx, proc.Run())
+	trimCapturedUTF8(&stdout, outWriter)
+	trimCapturedUTF8(&stderr, errWriter)
 
 	writeExecJSON(w, http.StatusOK, ExecResponse{
-		ExitCode: exitCode,
-		Stdout:   stdout.String(),
-		Stderr:   stderr.String(),
+		ExitCode:                exitCode,
+		Stdout:                  stdout.String(),
+		Stderr:                  stderr.String(),
+		TimedOut:                errors.Is(ctx.Err(), context.DeadlineExceeded),
+		Cancelled:               errors.Is(ctx.Err(), context.Canceled),
+		EffectiveTimeoutSeconds: int(applyExecTimeout(req.Timeout) / time.Second),
+		StdoutTruncated:         outWriter.dropped > 0, StderrTruncated: errWriter.dropped > 0,
+		StdoutCapturedBytes: outWriter.written, StderrCapturedBytes: errWriter.written,
+		StdoutDroppedBytes: outWriter.dropped, StderrDroppedBytes: errWriter.dropped,
 	})
 }
 
@@ -258,15 +276,22 @@ func (api *ExecAPI) handleExecStream(w http.ResponseWriter, r *http.Request, arg
 	readPipe := func(label string, pipe io.Reader) {
 		defer readers.Done()
 		buf := make([]byte, 4096)
+		pending := make([]byte, 0, utf8.UTFMax)
 		for {
 			n, readErr := pipe.Read(buf)
-			if n > 0 {
+			data := append(pending, buf[:n]...)
+			length := len(data)
+			if readErr == nil {
+				length = completeUTF8Prefix(data)
+			}
+			if length > 0 {
 				select {
-				case chunks <- streamChunk{label, string(buf[:n])}:
+				case chunks <- streamChunk{label, string(data[:length])}:
 				case <-ctx.Done():
 					return
 				}
 			}
+			pending = append(pending[:0], data[length:]...)
 			if readErr != nil {
 				return
 			}
@@ -279,18 +304,30 @@ func (api *ExecAPI) handleExecStream(w http.ResponseWriter, r *http.Request, arg
 	go func() {
 		defer close(writerDone)
 		var written int64
+		captured, dropped := map[string]int64{}, map[string]int64{}
 		capped := false
 		for ch := range chunks {
-			if capped {
-				continue
+			remaining := int64(maxOutputBytes) - written
+			data := ch.data
+			if int64(len(data)) > remaining {
+				data = data[:remaining]
+				data = data[:completeUTF8Prefix([]byte(data))]
+				if !capped {
+					api.writeSSE(w, SSEEvent{Type: "stderr", Data: "output limit exceeded"}, canFlush, flusher)
+					capped = true
+				}
 			}
-			written += int64(len(ch.data))
-			if written > maxOutputBytes {
-				capped = true
-				api.writeSSE(w, SSEEvent{Type: "stderr", Data: "output limit exceeded"}, canFlush, flusher)
-				continue
+			captured[ch.label] += int64(len(data))
+			dropped[ch.label] += int64(len(ch.data) - len(data))
+			written += int64(len(data))
+			if data != "" {
+				api.writeSSE(w, SSEEvent{Type: ch.label, Data: data}, canFlush, flusher)
 			}
-			api.writeSSE(w, SSEEvent{Type: ch.label, Data: ch.data}, canFlush, flusher)
+		}
+		for _, label := range []string{"stdout", "stderr"} {
+			if dropped[label] > 0 {
+				api.writeSSE(w, SSEEvent{Type: "truncation", Stream: label, CapturedBytes: captured[label], DroppedBytes: dropped[label]}, canFlush, flusher)
+			}
 		}
 	}()
 
@@ -298,22 +335,11 @@ func (api *ExecAPI) handleExecStream(w http.ResponseWriter, r *http.Request, arg
 	close(chunks)
 	<-writerDone
 
-	exitCode := 0
-	if err := proc.Wait(); err != nil {
-		var exitErr *exec.ExitError
-		if errors.As(err, &exitErr) {
-			exitCode = exitErr.ExitCode()
-			if exitCode < 0 {
-				exitCode = 1
-			}
-		} else {
-			exitCode = 1
-		}
-	}
+	exitCode := execExitCode(ctx, proc.Wait())
 
 	// Sole remaining writer (the writer goroutine has exited): safe to emit the
 	// terminal event.
-	api.writeSSE(w, SSEEvent{Type: "exit", Code: exitCode}, canFlush, flusher)
+	api.writeSSE(w, SSEEvent{Type: "exit", Code: exitCode, TimedOut: errors.Is(ctx.Err(), context.DeadlineExceeded), Cancelled: errors.Is(ctx.Err(), context.Canceled), EffectiveTimeoutSeconds: int(applyExecTimeout(req.Timeout) / time.Second)}, canFlush, flusher)
 }
 
 // handleDryRun validates a command without executing it.
@@ -345,15 +371,17 @@ func (api *ExecAPI) handleDryRun(w http.ResponseWriter, r *http.Request) {
 	resolved := args[2:]
 
 	resp := ExecDryRunResponse{
-		OK:      true,
-		Command: req.Command,
-		Args:    resolved,
+		OK:         true,
+		Validation: "syntax",
+		Deferred:   []string{"saved preferences and default-dependent required options", "daemon profile/storage/policy preflight", "resource existence and execution authorization", "interactive terminal requirements"},
+		Command:    req.Command,
+		Args:       resolved,
 	}
 
-	// Basic validation: check that the first arg is a known command.
-	if len(resolved) > 0 && !isValidCLICommand(resolved[0]) {
+	// Validate shared command syntax without resolving defaults or performing operations.
+	if err := clicontract.Validate(resolved); err != nil {
 		resp.OK = false
-		resp.Errors = append(resp.Errors, fmt.Sprintf("unknown command: %q", resolved[0]))
+		resp.Errors = append(resp.Errors, err.Error())
 	}
 
 	writeExecJSON(w, http.StatusOK, resp)
@@ -468,11 +496,10 @@ func applyExecTimeout(requested int) time.Duration {
 	if requested <= 0 {
 		return defaultExecTimeout
 	}
-	d := time.Duration(requested) * time.Second
-	if d > maxExecTimeout {
+	if requested > int(maxExecTimeout/time.Second) {
 		return maxExecTimeout
 	}
-	return d
+	return time.Duration(requested) * time.Second
 }
 
 // buildExecArgsFromCLI prepends --socket to an already-tokenized argv.
@@ -481,38 +508,11 @@ func buildExecArgsFromCLI(socketPath string, cliArgs []string) []string {
 	return append(args, cliArgs...)
 }
 
-// isValidCLICommand checks whether the first token is a known agentlab command.
-func isValidCLICommand(first string) bool {
-	known := map[string]bool{
-		// Top-level aliases (from IMPL-6)
-		"new": true, "ls": true, "ssh": true, "rm": true,
-		// Core commands
-		"status": true, "schema": true, "init": true, "bootstrap": true,
-		"job": true, "sandbox": true, "workspace": true, "session": true,
-		"profile": true, "secrets": true, "msg": true,
-		"logs": true, "connect": true, "disconnect": true,
-		"expose": true, "unexpose": true,
-		"lease": true, "token": true, "defaults": true,
-		"version": true, "help": true, "doctor": true,
-		"events": true, "artifacts": true,
-		"snapshot": true, "snapshots": true,
-		"integration": true, "credential": true,
-		"daemon": true,
-	}
-	if known[first] {
-		return true
-	}
-	// Global flags (--json, --socket, etc.) are valid starts.
-	if strings.HasPrefix(first, "-") {
-		return true
-	}
-	return false
-}
-
 // limitWriter wraps a writer and stops writing after maxBytes.
 type limitWriter struct {
 	w       io.Writer
 	written int64
+	dropped int64
 	max     int64
 }
 
@@ -522,10 +522,12 @@ func newLimitWriter(w io.Writer, max int64) *limitWriter {
 
 func (lw *limitWriter) Write(p []byte) (int, error) {
 	if lw.written >= lw.max {
+		lw.dropped += int64(len(p))
 		return len(p), nil
 	}
 	remaining := lw.max - lw.written
 	if int64(len(p)) > remaining {
+		lw.dropped += int64(len(p)) - remaining
 		n, err := lw.w.Write(p[:remaining])
 		lw.written += int64(n)
 		if err != nil {
@@ -563,7 +565,7 @@ func writeExecJSON(w http.ResponseWriter, status int, payload any) {
 
 // writeExecError writes a JSON error response.
 func writeExecError(w http.ResponseWriter, status int, msg string) {
-	writeExecJSON(w, status, map[string]string{"error": msg})
+	writeExecJSON(w, status, ExecErrorResponse{Error: msg})
 }
 
 // ResolveCLIPath finds the agentlab CLI binary.
@@ -583,4 +585,48 @@ func ResolveCLIPath(explicit string) (string, error) {
 		return "", fmt.Errorf("agentlab binary not found in PATH; set cli_path in config")
 	}
 	return path, nil
+}
+
+// execExitCode classifies the context before the killed process exit status.
+func execExitCode(ctx context.Context, err error) int {
+	if errors.Is(ctx.Err(), context.DeadlineExceeded) {
+		return 124
+	}
+	if errors.Is(ctx.Err(), context.Canceled) {
+		return 130
+	}
+	if err == nil {
+		return 0
+	}
+	var exitErr *exec.ExitError
+	if errors.As(err, &exitErr) && exitErr.ExitCode() >= 0 {
+		return exitErr.ExitCode()
+	}
+	return 1
+}
+
+// completeUTF8Prefix withholds only an incomplete final rune. Invalid complete
+// bytes retain the JSON encoder's normal replacement behavior.
+func completeUTF8Prefix(data []byte) int {
+	if len(data) == 0 {
+		return 0
+	}
+	start := len(data) - 1
+	for start >= 0 && !utf8.RuneStart(data[start]) {
+		start--
+	}
+	if start >= 0 && !utf8.FullRune(data[start:]) {
+		return start
+	}
+	return len(data)
+}
+func trimCapturedUTF8(buf *bytes.Buffer, writer *limitWriter) {
+	if writer.dropped == 0 {
+		return
+	}
+	length := completeUTF8Prefix(buf.Bytes())
+	removed := buf.Len() - length
+	buf.Truncate(length)
+	writer.written -= int64(removed)
+	writer.dropped += int64(removed)
 }

@@ -365,23 +365,15 @@ Each stdout line is one message object.
 | --- | --- | --- |
 | `error` | Always | Short error string. |
 | `message` | Always | Human-readable detail. |
-| `code` | Optional | Machine code from the daemon. |
+| `code` | Always | Stable daemon code, or local `invalid_arguments`, `transport_error`, or `operation_failed`. |
 | `details` | Optional | Extra context. |
+| `next` / `hints` | Optional | Suggested next command and structured recovery hints. |
 
 ## Pitfalls
 
-- **The `output-format` default is never applied.** You can write
-  `defaults write output-format json`, but the CLI never reads it back. The
-  global `--json` flag always defaults to `false`. Pass `--json` on every
-  invocation.
-
-  ```bash
-  agentlab defaults write output-format json
-  ```
-
-  This stores the value, but the next command without `--json` still prints
-  text. See
-  [Global flags, environment, and exit codes](global-flags-env-and-exit-codes.md).
+- Saved `output-format=json` applies unless overridden by `--json=false`.
+  Preferences follow explicit flags, existing environment overrides, saved values,
+  then built-in defaults. `defaults effective` reports values and origins.
 
 - **`--and-ssh` is rejected with `--json`.** Create the sandbox with `--json`
   first, then run `agentlab ssh` separately with the returned `vmid`.
@@ -406,3 +398,23 @@ Each stdout line is one message object.
 - For the route table behind these commands: [HTTP API reference](http-api.md).
 - For state strings: [State machine](state-machine.md).
 - For the event contract: [Event contract](event-contract.md).
+
+## Wait results and recovery
+
+`agentlab job wait ID --json` and `agentlab sandbox wait VMID --json` emit
+one resource object when observation reaches a terminal state. Original fields,
+including unknown fields and large integers, remain intact. The added
+`observation` object contains `resource_type`, `id`, `state`, `successful`,
+`elapsed_seconds`, `cancelled_work: false`, and `next_commands` for inspection,
+artifact collection and diagnostics. A successful terminal state exits 0;
+`FAILED`, `TIMEOUT`, `DESTROYED` and `STOPPED` exit 1 with the resource JSON.
+Jobs succeed at `COMPLETED`; sandboxes succeed at `READY` or `RUNNING`.
+Other states continue observation until the configured timeout.
+
+Timeouts, interrupts and transport failures return a structured error with the
+same resource ID in resume guidance. Stopping the client stops observation;
+it does not cancel remote work. `operation wait ID` likewise preserves the
+operation identifier and, on a failed or unknown outcome, points to its allocated
+VMID when known. Inspect that allocation before creating with a new key.
+Text mode reports stage changes and elapsed time to stderr and prints recovery
+commands with the final state. JSON mode emits no progress text.

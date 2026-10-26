@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"sort"
 	"strings"
 	"time"
 
@@ -807,7 +808,7 @@ func (m *SandboxManager) Revert(ctx context.Context, vmid int, opts RevertOption
 // Destroy transitions a sandbox to destroyed after issuing a backend destroy.
 //
 // This is the normal destroy path that enforces state transitions. The sandbox
-// must be in a state that allows transition to DESTROYED (typically STOPPED).
+// may be running; it is stopped before its persistent workspace is detached.
 //
 // The destroy process:
 //  1. Detach any attached workspace (if configured)
@@ -836,6 +837,7 @@ func (m *SandboxManager) Destroy(ctx context.Context, vmid int) (err error) {
 	if sandbox.State == models.SandboxDestroyed {
 		return nil
 	}
+	leases := m.workspaceLeasesForSandbox(ctx, vmid)
 	startedAt := m.now().UTC()
 	defer func() {
 		duration := m.now().UTC().Sub(startedAt)
@@ -864,13 +866,13 @@ func (m *SandboxManager) Destroy(ctx context.Context, vmid int) (err error) {
 			return fmt.Errorf("detach workspace for vmid %d: %w", vmid, err)
 		}
 	}
-	m.releaseWorkspaceLeases(ctx, vmid)
 	if err = m.destroySandbox(ctx, vmid); err != nil {
 		return err
 	}
 	if err = m.Transition(ctx, vmid, models.SandboxDestroyed); err != nil {
 		return err
 	}
+	m.releaseWorkspaceLeaseSnapshots(ctx, vmid, leases)
 	if m.snippetFn != nil {
 		m.snippetFn(vmid)
 	}
@@ -1013,81 +1015,11 @@ func (m *SandboxManager) destroySandbox(ctx context.Context, vmid int) error {
 	return nil
 }
 
-// ForceDestroy destroys a sandbox regardless of its current state.
-//
-// Unlike Destroy(), this method bypasses state transition validation and forces
-// destruction of the VM. Use this for recovery operations when a sandbox is in
-// an inconsistent state.
-//
-// The force destroy process:
-//  1. Detach any attached workspace (if configured)
-//  2. Destroy the VM in Proxmox (no stop first)
-//  3. Transition state to DESTROYED
-//  4. Clean up cloud-init snippets (if configured)
-//
-// Parameters:
-//   - ctx: Context for cancellation
-//   - vmid: The VM ID of the sandbox to destroy
-//
-// Returns an error if the sandbox doesn't exist or if backend operations fail.
-func (m *SandboxManager) ForceDestroy(ctx context.Context, vmid int) (err error) {
-	if m == nil || m.store == nil {
-		return errors.New("sandbox manager not configured")
-	}
-	sandbox, err := m.store.GetSandbox(ctx, vmid)
-	if err != nil {
-		if errors.Is(err, sql.ErrNoRows) {
-			return ErrSandboxNotFound
-		}
-		return fmt.Errorf("load sandbox %d: %w", vmid, err)
-	}
-	if sandbox.State == models.SandboxDestroyed {
-		return nil
-	}
-	startedAt := m.now().UTC()
-	defer func() {
-		duration := m.now().UTC().Sub(startedAt)
-		if err != nil {
-			m.recordLifecycleEvent(ctx, vmid, EventKindSandboxDestroyFailed, fmt.Sprintf("force destroy failed: %s", err.Error()), lifecycleEventPayload{
-				DurationMS: duration.Milliseconds(),
-				Error:      err.Error(),
-			})
-			if m.metrics != nil {
-				m.metrics.ObserveSandboxDestroy("failed", duration)
-			}
-			return
-		}
-		m.recordLifecycleEvent(ctx, vmid, EventKindSandboxDestroyCompleted, fmt.Sprintf("force destroy completed in %s", duration), lifecycleEventPayload{
-			DurationMS: duration.Milliseconds(),
-		})
-		if m.metrics != nil {
-			m.metrics.ObserveSandboxDestroy("success", duration)
-		}
-	}()
-	if err := m.stopSandbox(ctx, vmid); err != nil {
-		return err
-	}
-	if m.workspace != nil {
-		if err = m.workspace.DetachFromVM(ctx, vmid); err != nil {
-			return fmt.Errorf("detach workspace for vmid %d: %w", vmid, err)
-		}
-	}
-	if err = m.destroySandbox(ctx, vmid); err != nil {
-		return err
-	}
-	if err = m.Transition(ctx, vmid, models.SandboxDestroyed); err != nil {
-		return err
-	}
-	if m.snippetFn != nil {
-		m.snippetFn(vmid)
-	}
-	m.cleanupExposures(ctx, vmid)
-	// Delete the sandbox secret. Best-effort: a failure here should not
-	// undo the destroy operation.
-	if secretErr := m.store.DeleteSandboxSecret(ctx, vmid); secretErr != nil && m.logger != nil {
-		m.logger.Printf("delete sandbox %d secret: %v", vmid, secretErr)
-	}
-	return nil
+// ForceDestroy is the recovery alias for Destroy. Both paths stop the VM,
+// detach persistent storage, validate the transition, and release owned leases.
+// All supported sandbox states permit destruction.
+func (m *SandboxManager) ForceDestroy(ctx context.Context, vmid int) error {
+	return m.Destroy(ctx, vmid)
 }
 
 // PruneOrphans destroys VMs for sandboxes stuck in TIMEOUT state.
@@ -1102,37 +1034,71 @@ func (m *SandboxManager) ForceDestroy(ctx context.Context, vmid int) (err error)
 // Returns the count of sandboxes that were successfully pruned.
 //
 // This is typically called manually during maintenance operations.
+type PruneOutcome struct {
+	VMID      int    `json:"vmid"`
+	Name      string `json:"name"`
+	Outcome   string `json:"outcome"`
+	Error     string `json:"error,omitempty"`
+	Retryable bool   `json:"retryable"`
+}
+type PruneResult struct {
+	Count    int            `json:"count"`
+	DryRun   bool           `json:"dry_run"`
+	Outcomes []PruneOutcome `json:"outcomes"`
+}
+
 func (m *SandboxManager) PruneOrphans(ctx context.Context) (int, error) {
+	result, err := m.PruneTimedOut(ctx, false, nil)
+	return result.Count, err
+}
+
+// PruneTimedOut never broadens its target set to stopped sandboxes. An optional
+// target list lets callers execute exactly the resources shown in a preview.
+func (m *SandboxManager) PruneTimedOut(ctx context.Context, dryRun bool, targets map[int]bool) (PruneResult, error) {
+	result := PruneResult{DryRun: dryRun, Outcomes: make([]PruneOutcome, 0)}
 	if m == nil || m.store == nil {
-		return 0, errors.New("sandbox manager not configured")
+		return result, errors.New("sandbox manager not configured")
 	}
 	sandboxes, err := m.store.ListSandboxes(ctx)
 	if err != nil {
-		return 0, fmt.Errorf("list sandboxes: %w", err)
+		return result, err
 	}
-	count := 0
+	seen := map[int]bool{}
 	for _, sb := range sandboxes {
-		if sb.State == models.SandboxTimeout {
-			if err := m.destroySandbox(ctx, sb.VMID); err != nil {
-				if !errors.Is(err, proxmox.ErrVMNotFound) {
-					m.logger.Printf("prune: failed to destroy sandbox %d: %v", sb.VMID, err)
-					continue
-				}
+		if targets != nil && !targets[sb.VMID] {
+			continue
+		}
+		seen[sb.VMID] = true
+		if sb.State != models.SandboxTimeout {
+			if targets != nil {
+				result.Outcomes = append(result.Outcomes, PruneOutcome{VMID: sb.VMID, Name: sb.Name, Outcome: "skipped", Error: "state changed to " + string(sb.State)})
 			}
-			if err := m.Transition(ctx, sb.VMID, models.SandboxDestroyed); err != nil {
-				m.logger.Printf("prune: failed to mark sandbox %d as destroyed: %v", sb.VMID, err)
-				continue
+			continue
+		}
+		outcome := PruneOutcome{VMID: sb.VMID, Name: sb.Name, Outcome: "preview"}
+		if !dryRun {
+			if err := m.Destroy(ctx, sb.VMID); err != nil {
+				outcome.Outcome = "failed"
+				outcome.Retryable = true
+				outcome.Error = err.Error()
+			} else {
+				outcome.Outcome = "destroyed"
+				result.Count++
 			}
-			m.cleanupExposures(ctx, sb.VMID)
-			// Delete the sandbox secret. Best-effort: a failure here should not
-			// undo the destroy operation.
-			if secretErr := m.store.DeleteSandboxSecret(ctx, sb.VMID); secretErr != nil && m.logger != nil {
-				m.logger.Printf("delete sandbox %d secret: %v", sb.VMID, secretErr)
-			}
-			count++
+		}
+		result.Outcomes = append(result.Outcomes, outcome)
+	}
+	missing := make([]int, 0)
+	for vmid, selected := range targets {
+		if selected && !seen[vmid] {
+			missing = append(missing, vmid)
 		}
 	}
-	return count, nil
+	sort.Ints(missing)
+	for _, vmid := range missing {
+		result.Outcomes = append(result.Outcomes, PruneOutcome{VMID: vmid, Outcome: "not_found", Error: "sandbox no longer exists"})
+	}
+	return result, nil
 }
 
 // startupOrphanStates are the transient provisioning states a sandbox can be
@@ -1229,35 +1195,68 @@ func (m *SandboxManager) recordLeaseEvent(ctx context.Context, vmid int, expires
 	_ = emitEvent(ctx, NewStoreEventRecorder(m.store), EventKindSandboxLease, &vmid, nil, msg, payload)
 }
 
-func (m *SandboxManager) releaseWorkspaceLeases(ctx context.Context, vmid int) {
+type workspaceLeaseSnapshot struct {
+	ID, Owner, Nonce string
+	JobID            *string
+}
+
+// Capture the lease before backend work. Cleanup must compare that exact nonce,
+// including when another task reacquires a lease under the same owner string.
+func (m *SandboxManager) workspaceLeasesForSandbox(ctx context.Context, vmid int) []workspaceLeaseSnapshot {
 	if m == nil || m.store == nil || vmid <= 0 {
-		return
+		return nil
 	}
-	if job, err := m.store.GetJobBySandboxVMID(ctx, vmid); err == nil {
-		if job.WorkspaceID != nil && strings.TrimSpace(*job.WorkspaceID) != "" {
-			workspace, err := m.store.GetWorkspace(ctx, *job.WorkspaceID)
-			if err == nil && workspace.LeaseOwner == workspaceLeaseOwnerForJob(job.ID) && strings.TrimSpace(workspace.LeaseNonce) != "" {
-				if released, err := m.store.ReleaseWorkspaceLease(ctx, workspace.ID, workspace.LeaseOwner, workspace.LeaseNonce); err == nil && released {
-					jobID := job.ID
-					recordWorkspaceLeaseEvent(ctx, m.store, "workspace.lease.released", &vmid, &jobID, workspace.ID, workspace.LeaseOwner, time.Time{})
-				}
+	leases := make([]workspaceLeaseSnapshot, 0)
+	seen := map[string]bool{}
+	add := func(workspace models.Workspace, owner string, jobID *string) {
+		if !seen[workspace.ID] && workspace.LeaseOwner == owner && strings.TrimSpace(workspace.LeaseNonce) != "" {
+			leases = append(leases, workspaceLeaseSnapshot{ID: workspace.ID, Owner: owner, Nonce: workspace.LeaseNonce, JobID: jobID})
+			seen[workspace.ID] = true
+		}
+	}
+	if job, err := m.store.GetJobBySandboxVMID(ctx, vmid); err == nil && job.WorkspaceID != nil {
+		if workspace, err := m.store.GetWorkspace(ctx, *job.WorkspaceID); err == nil {
+			id := job.ID
+			add(workspace, workspaceLeaseOwnerForJob(id), &id)
+		}
+	}
+	if owner := workspaceLeaseOwnerForSandbox(vmid); owner != "" {
+		if workspace, err := m.store.GetWorkspaceByLeaseOwner(ctx, owner); err == nil {
+			add(workspace, owner, nil)
+		}
+	}
+	// Sessions can own a workspace independently of a job. A re-bound session is
+	// excluded so destruction of its former sandbox cannot release its new lease.
+	if sessions, err := m.store.ListSessions(ctx); err == nil {
+		for _, session := range sessions {
+			if session.CurrentVMID == nil || *session.CurrentVMID != vmid {
+				continue
+			}
+			if workspace, err := m.store.GetWorkspace(ctx, session.WorkspaceID); err == nil {
+				add(workspace, workspaceLeaseOwnerForSession(session.ID), nil)
 			}
 		}
 	}
-	owner := workspaceLeaseOwnerForSandbox(vmid)
-	if owner == "" {
-		return
+	return leases
+}
+
+func (m *SandboxManager) releaseWorkspaceLeaseSnapshots(ctx context.Context, vmid int, leases []workspaceLeaseSnapshot) {
+	for _, lease := range leases {
+		released, err := m.store.ReleaseWorkspaceLeaseForSandbox(ctx, lease.ID, lease.Owner, lease.Nonce, vmid)
+		if err != nil {
+			if m.logger != nil {
+				m.logger.Printf("release workspace lease vmid=%d workspace=%s: %v", vmid, lease.ID, err)
+			}
+			continue
+		}
+		if released {
+			recordWorkspaceLeaseEvent(ctx, m.store, "workspace.lease.released", &vmid, lease.JobID, lease.ID, lease.Owner, time.Time{})
+		}
 	}
-	workspace, err := m.store.GetWorkspaceByLeaseOwner(ctx, owner)
-	if err != nil {
-		return
-	}
-	if strings.TrimSpace(workspace.LeaseNonce) == "" {
-		return
-	}
-	if released, err := m.store.ReleaseWorkspaceLease(ctx, workspace.ID, owner, workspace.LeaseNonce); err == nil && released {
-		recordWorkspaceLeaseEvent(ctx, m.store, "workspace.lease.released", &vmid, nil, workspace.ID, owner, time.Time{})
-	}
+}
+
+func (m *SandboxManager) releaseWorkspaceLeases(ctx context.Context, vmid int) {
+	m.releaseWorkspaceLeaseSnapshots(ctx, vmid, m.workspaceLeasesForSandbox(ctx, vmid))
 }
 
 func (m *SandboxManager) recordRevertEvent(ctx context.Context, vmid int, kind EventKind, msg string, payload revertEventPayload) {

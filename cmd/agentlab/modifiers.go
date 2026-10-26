@@ -7,25 +7,16 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/agentlab/agentlab/internal/clicontract"
 	"net/http"
 	"sort"
 	"strings"
 )
 
 func parseSandboxModifiers(args []string) ([]string, error) {
-	if len(args) == 0 {
-		return nil, nil
-	}
-	mods := make([]string, 0, len(args))
-	for _, arg := range args {
-		if !strings.HasPrefix(arg, "+") {
-			return nil, fmt.Errorf("unexpected argument %q (modifiers must come after flags and start with '+')", arg)
-		}
-		mod := strings.TrimSpace(strings.TrimPrefix(arg, "+"))
-		if mod == "" {
-			return nil, fmt.Errorf("modifier %q is empty", arg)
-		}
-		mods = append(mods, mod)
+	mods, err := clicontract.ParseModifiers(args)
+	if err != nil {
+		return nil, newUsageError(err, false)
 	}
 	return mods, nil
 }

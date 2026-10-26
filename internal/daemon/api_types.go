@@ -285,6 +285,7 @@ type V1JobValidatePlanResponse struct {
 }
 
 type V1JobResponse struct {
+	Outcome     *V1JobOutcomeResponse `json:"outcome,omitempty"`
 	ID          string                `json:"id"`
 	RepoURL     string                `json:"repo_url"`
 	Ref         string                `json:"ref"`
@@ -380,6 +381,8 @@ type V1SandboxResources struct {
 }
 
 type V1SandboxResponse struct {
+	JobID         *string                    `json:"job_id,omitempty"`
+	SessionID     *string                    `json:"session_id,omitempty"`
 	VMID          int                        `json:"vmid"`
 	Name          string                     `json:"name"`
 	Profile       string                     `json:"profile"`
@@ -521,6 +524,8 @@ type V1WorkspaceRebindRequest struct {
 }
 
 type V1WorkspaceResponse struct {
+	LeaseOwner   string `json:"lease_owner,omitempty"`
+	LeaseExpires string `json:"lease_expires_at,omitempty"`
 	ID           string `json:"id"`
 	Name         string `json:"name"`
 	Storage      string `json:"storage"`

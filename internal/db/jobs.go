@@ -295,3 +295,21 @@ func scanJobRow(scanner interface{ Scan(dest ...any) error }) (models.Job, error
 	}
 	return job, nil
 }
+
+// ListJobsPage uses an immutable ID cursor, so newly inserted rows cannot shift pages.
+func (s *Store) ListJobsPage(ctx context.Context, after, state, profile, workspace string, limit int) ([]models.Job, error) {
+	rows, err := s.DB.QueryContext(ctx, `SELECT id, repo_url, ref, profile, task, mode, ttl_minutes, keepalive, status, sandbox_vmid, workspace_id, session_id, created_at, updated_at, result_json FROM jobs WHERE id > ? AND (? = '' OR status = ?) AND (? = '' OR profile = ?) AND (? = '' OR workspace_id = ?) ORDER BY id LIMIT ?`, after, state, state, profile, profile, workspace, workspace, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	jobs := make([]models.Job, 0)
+	for rows.Next() {
+		job, err := scanJobRow(rows)
+		if err != nil {
+			return nil, err
+		}
+		jobs = append(jobs, job)
+	}
+	return jobs, rows.Err()
+}

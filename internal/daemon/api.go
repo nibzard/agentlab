@@ -144,6 +144,7 @@ var (
 //   - GET    /v1/exposures            - List exposures
 //   - DELETE /v1/exposures/{name}     - Delete exposure
 type ControlAPI struct {
+	schemaSurfaces     map[string]*http.ServeMux
 	store              *db.Store
 	profiles           map[string]models.Profile
 	backend            proxmox.Backend
@@ -363,11 +364,15 @@ func (api *ControlAPI) WithBackgroundRunner(r BackgroundRunner) *ControlAPI {
 // and asserts scope enforcement for every target-bearing route (reviews T34
 // and T35). A route added here without an authorize call fails that matrix.
 func (api *ControlAPI) Register(mux *http.ServeMux) {
+	if mux != nil {
+		api.WithSchemaSurface("control", mux)
+	}
 	if mux == nil {
 		return
 	}
 	mux.HandleFunc("/v1/jobs/validate-plan", api.handleJobValidatePlan)
 	mux.HandleFunc("/v1/jobs", api.handleJobs)
+	mux.HandleFunc("/v1/operations/", api.handleOperation)
 	mux.HandleFunc("/v1/jobs/", api.handleJobByID)
 	mux.HandleFunc("/v1/profiles", api.handleProfiles)
 	mux.HandleFunc("/v1/schema", api.handleSchema)
@@ -391,6 +396,8 @@ func (api *ControlAPI) Register(mux *http.ServeMux) {
 
 func (api *ControlAPI) handleJobs(w http.ResponseWriter, r *http.Request) {
 	switch r.Method {
+	case http.MethodGet:
+		api.handleJobList(w, r)
 	case http.MethodPost:
 		// The body names the workspace the job runs in, so the scope check
 		// resolves that workspace's sandbox (review T33).
@@ -399,7 +406,7 @@ func (api *ControlAPI) handleJobs(w http.ResponseWriter, r *http.Request) {
 		}
 		api.handleJobCreate(w, r)
 	default:
-		writeMethodNotAllowed(w, []string{http.MethodPost})
+		writeMethodNotAllowed(w, []string{http.MethodGet, http.MethodPost})
 	}
 }
 
@@ -1620,7 +1627,11 @@ func (api *ControlAPI) handleSandboxes(w http.ResponseWriter, r *http.Request) {
 		if !api.authorize(w, r, permSandboxCreate, func() int { return sandboxCreateVMID(r) }, false) {
 			return
 		}
-		api.handleSandboxCreate(w, r)
+		if r.URL.Query().Get("async") == "true" || r.Header.Get("Idempotency-Key") != "" {
+			api.handleSandboxCreateOperation(w, r)
+		} else {
+			api.handleSandboxCreate(w, r)
+		}
 	case http.MethodGet:
 		if !api.authorize(w, r, permSandboxList, nil, false) {
 			return
@@ -1644,6 +1655,13 @@ func (api *ControlAPI) handleSandboxByID(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
+	if len(parts) == 2 && parts[1] == "snapshot" {
+		if r.Method != http.MethodPost {
+			writeMethodNotAllowed(w, []string{http.MethodPost})
+			return
+		}
+		parts[1] = "snapshots"
+	}
 	// Authorize before dispatching. The VMID is in the URL, so the sandbox
 	// scope check uses it directly. Unknown actions fall through to the
 	// handler's own 404.
@@ -2050,6 +2068,18 @@ func (api *ControlAPI) handleSandboxGet(w http.ResponseWriter, r *http.Request, 
 		return
 	}
 	resp := api.sandboxToV1(sandbox)
+	if job, err := api.store.GetJobBySandboxVMID(r.Context(), vmid); err == nil {
+		resp.JobID = &job.ID
+	} else if !errors.Is(err, sql.ErrNoRows) {
+		writeError(w, 500, "failed to load sandbox workload", err)
+		return
+	}
+	if session, err := api.store.GetSessionBySandboxVMID(r.Context(), vmid); err == nil {
+		resp.SessionID = &session.ID
+	} else if !errors.Is(err, sql.ErrNoRows) {
+		writeError(w, 500, "failed to load sandbox session", err)
+		return
+	}
 	resp.Resources = api.loadSandboxResources(r.Context(), vmid)
 	projection := NewEventProjection()
 	sandboxEvents, err := api.store.ListEventsBySandboxAll(r.Context(), vmid)
@@ -3710,15 +3740,7 @@ func (api *ControlAPI) handleSandboxDestroy(w http.ResponseWriter, r *http.Reque
 		case errors.Is(err, ErrSandboxNotFound):
 			writeError(w, http.StatusNotFound, "sandbox not found")
 		case errors.Is(err, ErrInvalidTransition):
-			if api.store != nil {
-				if sb, getErr := api.store.GetSandbox(r.Context(), vmid); getErr == nil {
-					writeError(w, http.StatusConflict, fmt.Sprintf("cannot destroy sandbox in %s state. Valid states: STOPPED, DESTROYED. Use --force to bypass", sb.State))
-				} else {
-					writeError(w, http.StatusConflict, "invalid sandbox state for destroy operation. Use --force to bypass")
-				}
-			} else {
-				writeError(w, http.StatusConflict, "invalid sandbox state. Use --force to bypass")
-			}
+			writeError(w, http.StatusConflict, fmt.Sprintf("sandbox state changed or is unsupported for destruction; inspect with agentlab sandbox show %d before retrying", vmid))
 		default:
 			writeError(w, http.StatusInternalServerError, fmt.Sprintf("failed to destroy sandbox: %v", err))
 		}
@@ -4310,12 +4332,33 @@ func (api *ControlAPI) handleSandboxPrune(w http.ResponseWriter, r *http.Request
 		writeError(w, http.StatusInternalServerError, "sandbox manager unavailable")
 		return
 	}
-	count, err := api.sandboxManager.PruneOrphans(r.Context())
+	dryRun := false
+	if value := r.URL.Query().Get("dry_run"); value != "" {
+		parsed, err := strconv.ParseBool(value)
+		if err != nil {
+			writeError(w, 400, "invalid dry_run; expected true or false")
+			return
+		}
+		dryRun = parsed
+	}
+	var targets map[int]bool
+	if values, ok := r.URL.Query()["vmid"]; ok {
+		targets = make(map[int]bool)
+		for _, value := range values {
+			vmid, err := strconv.Atoi(value)
+			if err != nil || vmid <= 0 {
+				writeError(w, 400, "invalid target vmid")
+				return
+			}
+			targets[vmid] = true
+		}
+	}
+	result, err := api.sandboxManager.PruneTimedOut(r.Context(), dryRun, targets)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "failed to prune sandboxes")
+		writeError(w, 500, "failed to prune sandboxes", err)
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]int{"count": count})
+	writeJSON(w, http.StatusOK, result)
 }
 
 func (api *ControlAPI) handleSandboxEvents(w http.ResponseWriter, r *http.Request, vmid int) {
@@ -4422,6 +4465,7 @@ func jobToV1(job models.Job) V1JobResponse {
 	}
 	if job.ResultJSON != "" {
 		resp.Result = json.RawMessage(job.ResultJSON)
+		resp.Outcome = jobOutcome(job.ResultJSON)
 	}
 	return resp
 }
@@ -4664,6 +4708,10 @@ func workspaceToV1(ws models.Workspace) V1WorkspaceResponse {
 		SizeGB:    ws.SizeGB,
 		CreatedAt: ws.CreatedAt.UTC().Format(time.RFC3339Nano),
 		UpdatedAt: ws.LastUpdated.UTC().Format(time.RFC3339Nano),
+	}
+	resp.LeaseOwner = ws.LeaseOwner
+	if !ws.LeaseExpires.IsZero() {
+		resp.LeaseExpires = ws.LeaseExpires.UTC().Format(time.RFC3339Nano)
 	}
 	if ws.AttachedVM != nil && *ws.AttachedVM > 0 {
 		value := *ws.AttachedVM

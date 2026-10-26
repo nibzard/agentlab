@@ -45,110 +45,10 @@ import (
 	"time"
 
 	"github.com/agentlab/agentlab/internal/buildinfo"
+	"github.com/agentlab/agentlab/internal/clicontract"
+	"net/url"
+	"strconv"
 )
-
-const usageText = `agentlab is the CLI for agentlabd.
-
-Quick commands (aliases for common operations):
-  agentlab new [--name <name>] [--prompt <text>] (--profile <profile> | +mod [+mod...])   Create a sandbox (alias: sandbox new)
-  agentlab ls [--all|-a]                                                   List current sandboxes (alias: sandbox list)
-  agentlab show <vmid>                                                    Show sandbox details (alias: sandbox show)
-  agentlab ssh <vmid>                                                     SSH into a sandbox
-  agentlab start <vmid>                                                   Start a sandbox (alias: sandbox start)
-  agentlab stop <vmid>                                                    Stop a sandbox (alias: sandbox stop)
-  agentlab rm [--force] <vmid>                                            Destroy a sandbox (alias: sandbox destroy)
-  agentlab logs <vmid> [--follow]                                         View sandbox logs
-
-Usage:
-  agentlab --version
-  agentlab [--endpoint URL] [--token TOKEN] [--socket PATH] [--json] [--timeout DURATION] status
-  agentlab [--endpoint URL] [--token TOKEN] [--socket PATH] [--json] [--timeout DURATION] schema
-  agentlab [--endpoint URL] [--token TOKEN] [--socket PATH] [--json] [--timeout DURATION] init [--apply] [--backend <backend>] [--smoke-test] [--assets <path>] [--force] [--control-port <port>] [--control-token <token>] [--rotate-control-token] [--tailscale-serve|--no-tailscale-serve]
-  agentlab [--json] bootstrap --host <ssh_host> [--ssh-user <user>] [--ssh-port <port>] [--identity <path>] [--assets <path>] [--control-port <port>] [--control-token <token>] [--rotate-control-token] [--tailscale-serve|--no-tailscale-serve] [--tailscale-authkey <key>] [--tailscale-hostname <name>] [--tailscale-tailnet <name>] [--tailscale-api-key <key>] [--tailscale-oauth-client-id <id>] [--tailscale-oauth-client-secret <secret>] [--tailscale-oauth-scopes <scopes>] [--release-url <url>] [--agentlab-bin <path>] [--agentlabd-bin <path>] [--agentlab-url <url>] [--agentlabd-url <url>] [--force] [--keep-temp] [--verbose]
-  agentlab [--endpoint URL] [--token TOKEN] [--socket PATH] [--json] [--timeout DURATION] job run --repo <url> --task <task> --profile <profile> [--ref <ref>] [--branch <branch>] [--mode <mode>] [--ttl <ttl>] [--keepalive] [--workspace <id|name|new:name>] [--workspace-create <name>] [--workspace-size <size>] [--workspace-storage <storage>] [--workspace-wait <duration>] [--stateful]
-  agentlab [--endpoint URL] [--token TOKEN] [--socket PATH] [--json] [--timeout DURATION] job validate --repo <url> --task <task> --profile <profile> [--ref <ref>] [--branch <branch>] [--mode <mode>] [--ttl <ttl>] [--keepalive] [--workspace <id|name|new:name>] [--workspace-create <name>] [--workspace-size <size>] [--workspace-storage <storage>] [--workspace-wait <duration>] [--stateful]
-  agentlab [--endpoint URL] [--token TOKEN] [--socket PATH] [--json] [--timeout DURATION] job show <job_id> [--events-tail <n>]
-  agentlab [--endpoint URL] [--token TOKEN] [--socket PATH] [--json] [--timeout DURATION] job artifacts <job_id>
-  agentlab [--endpoint URL] [--token TOKEN] [--socket PATH] [--json] [--timeout DURATION] job artifacts download <job_id> [--out <path>] [--path <path>] [--name <name>] [--latest] [--bundle]
-  agentlab [--endpoint URL] [--token TOKEN] [--socket PATH] [--json] [--timeout DURATION] job doctor <job_id> [--out <path>]
-  agentlab [--endpoint URL] [--token TOKEN] [--socket PATH] [--json] [--timeout DURATION] sandbox new [--name <name>] [--ttl <ttl>] [--keepalive] [--workspace <id>] [--vmid <vmid>] [--job <id>] [--and-ssh] [--type <type>] [--image <image>] [--prompt <text>] [--tag <tag>...] (--profile <profile> | +mod [+mod...])
-  agentlab [--endpoint URL] [--token TOKEN] [--socket PATH] [--json] [--timeout DURATION] sandbox validate [--name <name>] [--ttl <ttl>] [--keepalive] [--workspace <id>] [--vmid <vmid>] [--job <id>] (+mod [+mod...] | --profile <profile>)
-  agentlab [--endpoint URL] [--token TOKEN] [--socket PATH] [--json] [--timeout DURATION] sandbox list [--all|-a]
-  agentlab [--endpoint URL] [--token TOKEN] [--socket PATH] [--json] [--timeout DURATION] sandbox inventory
-  agentlab [--endpoint URL] [--token TOKEN] [--socket PATH] [--json] [--timeout DURATION] sandbox reconcile [--apply]
-  agentlab [--endpoint URL] [--token TOKEN] [--socket PATH] [--json] [--timeout DURATION] sandbox show <vmid>
-  agentlab [--endpoint URL] [--token TOKEN] [--socket PATH] [--json] [--timeout DURATION] sandbox update [--cores <n>] [--memory <size>] [--tag <tag>...] [--clear-tags] <vmid>
-  agentlab [--endpoint URL] [--token TOKEN] [--socket PATH] [--json] [--timeout DURATION] sandbox start <vmid>
-  agentlab [--endpoint URL] [--token TOKEN] [--socket PATH] [--json] [--timeout DURATION] sandbox stop <vmid>
-  agentlab [--endpoint URL] [--token TOKEN] [--socket PATH] [--json] [--timeout DURATION] sandbox stop --all [--force]
-  agentlab [--endpoint URL] [--token TOKEN] [--socket PATH] [--json] [--timeout DURATION] sandbox pause <vmid>
-  agentlab [--endpoint URL] [--token TOKEN] [--socket PATH] [--json] [--timeout DURATION] sandbox resume <vmid>
-  agentlab [--endpoint URL] [--token TOKEN] [--socket PATH] [--json] [--timeout DURATION] sandbox revert [--force] [--restart|--no-restart] <vmid>
-  agentlab [--endpoint URL] [--token TOKEN] [--socket PATH] [--json] [--timeout DURATION] sandbox snapshot save [--force] <vmid> <name>
-  agentlab [--endpoint URL] [--token TOKEN] [--socket PATH] [--json] [--timeout DURATION] sandbox snapshot list <vmid>
-  agentlab [--endpoint URL] [--token TOKEN] [--socket PATH] [--json] [--timeout DURATION] sandbox snapshot restore [--force] <vmid> <name>
-  agentlab [--endpoint URL] [--token TOKEN] [--socket PATH] [--json] [--timeout DURATION] sandbox destroy [--force] <vmid>
-  agentlab [--endpoint URL] [--token TOKEN] [--socket PATH] [--json] [--timeout DURATION] sandbox lease renew --ttl <ttl> <vmid>
-  agentlab [--endpoint URL] [--token TOKEN] [--socket PATH] [--json] [--timeout DURATION] sandbox prune
-  agentlab [--endpoint URL] [--token TOKEN] [--socket PATH] [--json] [--timeout DURATION] sandbox expose [--force] <vmid> :<port>
-  agentlab [--endpoint URL] [--token TOKEN] [--socket PATH] [--json] [--timeout DURATION] sandbox exposed
-  agentlab [--endpoint URL] [--token TOKEN] [--socket PATH] [--json] [--timeout DURATION] sandbox unexpose <name>
-  agentlab [--endpoint URL] [--token TOKEN] [--socket PATH] [--json] [--timeout DURATION] sandbox doctor <vmid> [--out <path>]
-  agentlab [--endpoint URL] [--token TOKEN] [--socket PATH] [--json] [--timeout DURATION] workspace create --name <name> --size <size> [--storage <storage>]
-  agentlab [--endpoint URL] [--token TOKEN] [--socket PATH] [--json] [--timeout DURATION] workspace list
-  agentlab [--endpoint URL] [--token TOKEN] [--socket PATH] [--json] [--timeout DURATION] workspace check <workspace>
-  agentlab [--endpoint URL] [--token TOKEN] [--socket PATH] [--json] [--timeout DURATION] workspace fsck <workspace> [--repair]
-  agentlab [--endpoint URL] [--token TOKEN] [--socket PATH] [--json] [--timeout DURATION] workspace attach <workspace> <vmid>
-  agentlab [--endpoint URL] [--token TOKEN] [--socket PATH] [--json] [--timeout DURATION] workspace detach <workspace>
-  agentlab [--endpoint URL] [--token TOKEN] [--socket PATH] [--json] [--timeout DURATION] workspace lease clear <workspace>
-  agentlab [--endpoint URL] [--token TOKEN] [--socket PATH] [--json] [--timeout DURATION] workspace rebind <workspace> --profile <profile> [--ttl <ttl>] [--keep-old]
-  agentlab [--endpoint URL] [--token TOKEN] [--socket PATH] [--json] [--timeout DURATION] workspace fork <workspace> --name <name> [--from-snapshot <name>]
-  agentlab [--endpoint URL] [--token TOKEN] [--socket PATH] [--json] [--timeout DURATION] workspace snapshot create <workspace> <name>
-  agentlab [--endpoint URL] [--token TOKEN] [--socket PATH] [--json] [--timeout DURATION] workspace snapshot list <workspace>
-  agentlab [--endpoint URL] [--token TOKEN] [--socket PATH] [--json] [--timeout DURATION] workspace snapshot restore <workspace> <name>
-  agentlab [--endpoint URL] [--token TOKEN] [--socket PATH] [--json] [--timeout DURATION] session create --name <name> --profile <profile> (--workspace <id|name|new:name> | --workspace-create <name>) [--workspace-size <size>] [--workspace-storage <storage>] [--branch <branch>]
-  agentlab [--endpoint URL] [--token TOKEN] [--socket PATH] [--json] [--timeout DURATION] session list
-  agentlab [--endpoint URL] [--token TOKEN] [--socket PATH] [--json] [--timeout DURATION] session show <session>
-  agentlab [--endpoint URL] [--token TOKEN] [--socket PATH] [--json] [--timeout DURATION] session resume <session>
-  agentlab [--endpoint URL] [--token TOKEN] [--socket PATH] [--json] [--timeout DURATION] session stop <session>
-  agentlab [--endpoint URL] [--token TOKEN] [--socket PATH] [--json] [--timeout DURATION] session fork <session> --name <name> (--workspace <id|name|new:name> | --workspace-create <name>) [--workspace-size <size>] [--workspace-storage <storage>] [--profile <profile>] [--branch <branch>]
-  agentlab [--endpoint URL] [--token TOKEN] [--socket PATH] [--json] [--timeout DURATION] session branch <branch> --profile <profile> [--workspace <id|name|new:name>] [--workspace-create <name>] [--workspace-size <size>] [--workspace-storage <storage>]
-  agentlab [--endpoint URL] [--token TOKEN] [--socket PATH] [--json] [--timeout DURATION] session doctor <session> [--out <path>]
-  agentlab [--endpoint URL] [--token TOKEN] [--socket PATH] [--json] [--timeout DURATION] profile list
-  agentlab [--endpoint URL] [--token TOKEN] [--socket PATH] [--json] [--timeout DURATION] secrets <show|validate|set-env|set-git|add-ssh-key|remove-ssh-key|set-tailscale|clear-tailscale> [...]
-  agentlab [--endpoint URL] [--token TOKEN] [--socket PATH] [--json] [--timeout DURATION] token <create|list|inspect> [...]
-  agentlab [--endpoint URL] [--token TOKEN] [--socket PATH] [--json] [--timeout DURATION] integration <add|list|rm|status> [...]
-  agentlab [--endpoint URL] [--token TOKEN] [--socket PATH] [--json] [--timeout DURATION] user <add|list|show|rm|key> [...]
-  agentlab [--endpoint URL] [--token TOKEN] [--socket PATH] [--json] [--timeout DURATION] team <add|list|rm|members|member> [...]
-  agentlab [--endpoint URL] [--token TOKEN] [--socket PATH] [--json] [--timeout DURATION] ssh <vmid> [--user <user>] [--port <port>] [--identity <path>] [--jump-host <host>] [--jump-user <user>] [--exec] [--no-start] [--wait] [-- <remote command>...]
-  agentlab [--endpoint URL] [--token TOKEN] [--socket PATH] [--json] [--timeout DURATION] msg post (--job <id> | --workspace <id> | --session <id>) [--author <name>] [--kind <kind>] [--text <text>] [--payload <json>] [message...]
-  agentlab [--endpoint URL] [--token TOKEN] [--socket PATH] [--json] [--timeout DURATION] msg tail (--job <id> | --workspace <id> | --session <id>) [--follow] [--tail <n>]
-  agentlab [--endpoint URL] [--token TOKEN] [--socket PATH] [--json] [--timeout DURATION] logs <vmid> [--follow] [--tail <n>]
-  agentlab connect --endpoint <url> --token <token> [--jump-host <host>] [--jump-user <user>]
-  agentlab disconnect
-  agentlab defaults write <key> <value>
-  agentlab defaults read <key>
-  agentlab defaults list
-  agentlab defaults delete <key>
-  agentlab version [--json]
-  agentlab [--endpoint URL] [--token TOKEN] [--socket PATH] [--json] pool status
-  agentlab completion <bash|zsh|fish>
-
-Global Flags:
-  --endpoint URL  Control plane endpoint (http(s)://host:port)
-  --token TOKEN   Control plane auth token (Authorization: Bearer)
-  --socket PATH   Path to agentlabd socket (default /run/agentlab/agentlabd.sock)
-  --json          Output json
-  --timeout       Request timeout (e.g. 30s, 2m)
-
-Errors:
-  When --json is set, errors are emitted as: {"error":"message","code":"...","message":"...","details":"..."}
-
-Exit codes:
-  0: Success or help displayed
-  1: Command or request failed
-  2: Invalid arguments or usage
-`
 
 type globalOptions struct {
 	socketPath        string
@@ -162,6 +62,12 @@ type globalOptions struct {
 }
 
 func main() {
+	if len(os.Args) > 1 && os.Args[1] == "__complete" {
+		for _, candidate := range clicontract.Candidates(os.Args[2:]) {
+			fmt.Println(candidate)
+		}
+		return
+	}
 	opts, args, err := parseGlobal(os.Args[1:])
 	if err != nil {
 		if errors.Is(err, errHelp) {
@@ -192,7 +98,7 @@ func main() {
 		printUsage()
 		return
 	}
-	if isHelpToken(args[0]) {
+	if isHelpToken(args[0]) && args[0] != "help" {
 		printUsage()
 		return
 	}
@@ -209,7 +115,17 @@ func main() {
 		tailscaleAdmin:    opts.tailscaleAdmin,
 		allowInsecureHTTP: opts.allowInsecureHTTP,
 	}
-	if err := dispatch(ctx, args, base); err != nil {
+	var commandErr error
+	if path, wanted, err := clicontract.HelpPath(args); wanted {
+		if err != nil {
+			commandErr = newUsageError(err, false)
+		} else {
+			commandErr = runCatalogHelp(path)
+		}
+	} else {
+		commandErr = dispatch(ctx, args, base)
+	}
+	if err := commandErr; err != nil {
 		if errors.Is(err, errHelp) {
 			return
 		}
@@ -226,8 +142,74 @@ func main() {
 	}
 }
 
-func parseGlobal(args []string) (globalOptions, []string, error) {
-	opts := globalOptions{socketPath: defaultSocketPath, timeout: defaultRequestTimeout}
+func parseGlobal(args []string) (opts globalOptions, remaining []string, parseErr error) {
+	defer func() {
+		global, _ := clicontract.ExtractGlobals(args)
+		for i := 0; i < len(global); i++ {
+			name, value, inline := strings.Cut(strings.TrimLeft(global[i], "-"), "=")
+			if kind, ok := clicontract.Globals[name]; ok && kind != "bool" && !inline {
+				i++
+				continue
+			}
+			if name == "json" {
+				if !inline {
+					value = "true"
+				}
+				if v, err := strconv.ParseBool(value); err == nil {
+					opts.jsonOutput = v
+				}
+			}
+		}
+	}()
+	opts = globalOptions{socketPath: defaultSocketPath, timeout: defaultRequestTimeout}
+	// Help and command discovery must remain usable when saved preferences
+	// are corrupt. Validate their syntax without opening user configuration.
+	globals, commands := clicontract.ExtractGlobals(args)
+	if len(commands) > 0 && commands[0] == "help" {
+		syntax := append(append([]string{}, globals...), "status")
+		if err := clicontract.Validate(syntax); err == nil {
+			return opts, commands, nil
+		}
+	}
+	if _, wanted, helpErr := clicontract.HelpPath(commands); wanted && helpErr == nil {
+		if err := clicontract.Validate(args); err == nil {
+			return opts, commands, nil
+		}
+	}
+	if len(commands) == 0 {
+		for _, arg := range globals {
+			if arg == "--help" || arg == "-h" {
+				if err := clicontract.Validate(args); err == nil {
+					return opts, nil, errHelp
+				}
+			}
+		}
+	}
+	defaults, err := loadDefaults()
+	if err != nil {
+		return opts, nil, err
+	}
+	_, commandArgs := clicontract.ExtractGlobals(args)
+	editingDefaults := len(commandArgs) > 1 && commandArgs[0] == "defaults" && (commandArgs[1] == "delete" || commandArgs[1] == "write" || commandArgs[1] == "list" || commandArgs[1] == "read")
+	for key, value := range defaults {
+		if editingDefaults {
+			continue
+		}
+		if err := validateDefault(key, value); err != nil {
+			return opts, nil, withHints(fmt.Errorf("invalid saved preference: %w", err), "Remove the unsupported value with agentlab defaults delete "+key)
+		}
+	}
+	if editingDefaults {
+		defaults = map[string]string{}
+	}
+	if value := defaults["default-socket"]; value != "" {
+		opts.socketPath = value
+	}
+	if value := defaults["default-timeout"]; value != "" {
+		opts.timeout, _ = time.ParseDuration(value)
+	}
+	opts.jsonOutput = defaults["output-format"] == "json"
+
 	var tailscaleCfg *tailscaleAdminConfig
 	// allowInsecureHTTP accumulates the acknowledgement from any source
 	// (saved config, env, then --allow-insecure-http flag below). A trusted
@@ -264,14 +246,15 @@ func parseGlobal(args []string) (globalOptions, []string, error) {
 	fs.StringVar(&opts.endpoint, "endpoint", opts.endpoint, "control plane endpoint (http(s)://host:port)")
 	fs.StringVar(&opts.token, "token", opts.token, "control plane auth token")
 	fs.StringVar(&opts.socketPath, "socket", opts.socketPath, "path to agentlabd socket")
-	fs.BoolVar(&opts.jsonOutput, "json", false, jsonFlagDescription)
+	fs.BoolVar(&opts.jsonOutput, "json", opts.jsonOutput, jsonFlagDescription)
 	fs.DurationVar(&opts.timeout, "timeout", opts.timeout, "request timeout (e.g. 30s, 2m)")
 	fs.BoolVar(&opts.allowInsecureHTTP, "allow-insecure-http", opts.allowInsecureHTTP,
 		"permit plaintext HTTP to a non-loopback endpoint (only inside a trusted tunnel such as Tailscale)")
 	fs.BoolVar(&opts.showVersion, "version", false, "print version and exit")
 	fs.BoolVar(&help, "help", false, "show help")
 	fs.BoolVar(&help, "h", false, "show help")
-	if err := fs.Parse(args); err != nil {
+	globalArgs, commandArgs := clicontract.ExtractGlobals(args)
+	if err := fs.Parse(globalArgs); err != nil {
 		if errors.Is(err, flag.ErrHelp) {
 			return opts, nil, errHelp
 		}
@@ -280,14 +263,21 @@ func parseGlobal(args []string) (globalOptions, []string, error) {
 	if help {
 		return opts, nil, errHelp
 	}
+	if err := clicontract.ValidateTimeout(opts.timeout); err != nil {
+		return opts, nil, newUsageError(err, false)
+	}
 	if opts.socketPath == "" {
 		opts.socketPath = defaultSocketPath
 	}
-	return opts, fs.Args(), nil
+	return opts, commandArgs, nil
 }
 
 func dispatch(ctx context.Context, args []string, base commonFlags) error {
 	switch args[0] {
+	case "help":
+		return runCatalogHelp(args[1:])
+	case "operation":
+		return runOperationCommand(ctx, args[1:], base)
 	// Short aliases for the 80/20 common operations.
 	// Each delegates to the corresponding sandbox subcommand runner.
 	case "new":
@@ -358,7 +348,14 @@ func dispatch(ctx context.Context, args []string, base commonFlags) error {
 }
 
 func printUsage() {
-	_, _ = fmt.Fprint(os.Stdout, usageText)
+	fmt.Fprintln(os.Stdout, "agentlab is the CLI for agentlabd.")
+	fmt.Fprintln(os.Stdout, "\nUsage:\n  agentlab [global flags] <command> [flags]\n  agentlab help <command> [subcommand]")
+	for _, candidate := range clicontract.Candidates([]string{""}) {
+		if !strings.HasPrefix(candidate, "-") {
+			fmt.Fprintln(os.Stdout, "  agentlab "+candidate)
+		}
+	}
+	fmt.Fprintln(os.Stdout, "\nGlobal Flags:\n  --endpoint URL  Control plane endpoint\n  --token TOKEN   Control plane token\n  --socket PATH   Daemon socket (default /run/agentlab/agentlabd.sock)\n  --timeout DURATION Request timeout (default 10m)\n  --json[=false]  JSON output, including errors\n  --allow-insecure-http Permit HTTP inside a trusted tunnel\n  --version      Print version\n\nPreferences: explicit flag, existing environment override, saved preference, built-in default.\nExit codes: 0 success/help, 1 operational failure, 2 invalid arguments.")
 }
 
 func errorMessage(err error) string {
@@ -384,8 +381,10 @@ func writeJSONError(w io.Writer, err error) {
 	if errors.As(err, &skipPrintedJSON) {
 		return
 	}
-	payload := map[string]string{
+	msg, next, hints := describeError(err)
+	payload := map[string]any{
 		"error":   "internal error",
+		"code":    "operation_failed",
 		"message": "internal error",
 	}
 	if err != nil {
@@ -395,6 +394,13 @@ func writeJSONError(w io.Writer, err error) {
 		}
 		payload["error"] = msg
 		payload["message"] = msg
+		if errors.Is(err, errUsage) {
+			payload["code"] = "invalid_arguments"
+		}
+		var transport *url.Error
+		if errors.As(err, &transport) {
+			payload["code"] = "transport_error"
+		}
 		var apiErr apiResponseError
 		if errors.As(err, &apiErr) {
 			code := strings.TrimSpace(apiErr.Code)
@@ -403,13 +409,22 @@ func writeJSONError(w io.Writer, err error) {
 			}
 			msg = strings.TrimSpace(apiErr.Message)
 			if msg == "" {
-				msg = strings.TrimSpace(payload["error"])
+				msg = fmt.Sprint(payload["error"])
 			}
 			payload["message"] = msg
 			if details := strings.TrimSpace(apiErr.Details); details != "" {
 				payload["details"] = details
 			}
 		}
+	}
+	if next != "" {
+		payload["next"] = next
+	}
+	if len(hints) > 0 {
+		payload["hints"] = hints
+	}
+	if msg != "" {
+		payload["error"] = msg
 	}
 	data, err := json.Marshal(payload)
 	if err != nil {
@@ -550,7 +565,7 @@ func printSandboxSnapshotRestoreUsage() {
 
 func printSandboxDestroyUsage() {
 	fmt.Fprintln(os.Stdout, "Usage: agentlab sandbox destroy [--force] <vmid>")
-	fmt.Fprintln(os.Stdout, "Note: --force bypasses state restrictions and destroys sandbox in any state")
+	fmt.Fprintln(os.Stdout, "Note: --force is a compatibility alias; both paths stop, detach, destroy and release owned leases")
 }
 
 func printSandboxLeaseUsage() {

@@ -63,6 +63,9 @@ func runSecretsShowRemote(ctx context.Context, args []string, base commonFlags) 
 	if err := parseFlags(fs, args, printSecretsShowUsage, help, opts.jsonOutput); err != nil {
 		return err
 	}
+	if fs.NArg() != 0 {
+		return newUsageError(fmt.Errorf("remote secrets show does not accept a bundle argument"), false)
+	}
 	client, err := apiClientFromFlags(opts)
 	if err != nil {
 		return err

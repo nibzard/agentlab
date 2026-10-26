@@ -1,3 +1,5 @@
+> Historical report. Current implementation tracking: [AX_UX_IMPROVEMENT_PLAN.md](AX_UX_IMPROVEMENT_PLAN.md).
+
 # AgentLab Improvement Plan
 
 > Informed by analysis of exe.dev (exe.ssh) architecture and design patterns.

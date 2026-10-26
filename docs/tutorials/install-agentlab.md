@@ -1,13 +1,15 @@
 # Install AgentLab
 
-Goal: install the `agentlab` CLI and the `agentlabd` daemon, then confirm both run.
+Install the CLI on your laptop. Run the Linux-only daemon on the Proxmox host.
+Laptop users can stop after connecting to an existing host; host operators continue
+with the host setup guide.
 
 ## Prerequisites
 
 - A Linux or macOS host with `curl` or `wget`.
 - Write access to `/usr/local/bin`, or `sudo` for that directory.
 - GoReleaser release artifacts are published for `linux/amd64`, `linux/arm64`, `darwin/amd64`, and `darwin/arm64`. The daemon is Linux-only.
-- For source builds, Go 1.24 or later. The `go.mod` toolchain line pins this.
+- For source builds, Go 1.25 or later, as required by `go.mod`.
 
 ## Steps
 
@@ -29,7 +31,19 @@ Goal: install the `agentlab` CLI and the `agentlabd` daemon, then confirm both r
     agentlab --version
     ```
 
-3. (Optional) Install shell completion for your shell.
+3. Laptop users: connect to an existing control plane using credentials supplied
+   by its operator. Use HTTPS, or explicitly acknowledge HTTP inside a trusted
+   tunnel with `--allow-insecure-http`.
+
+    ```bash
+    agentlab connect --endpoint https://host.example:8845 --token <token>
+    agentlab status --json
+    ```
+
+   Client settings use the OS user config directory: `~/Library/Application Support/agentlab`
+   on macOS; `$XDG_CONFIG_HOME/agentlab` or `~/.config/agentlab` on Linux. The daemon stays on the Linux host.
+
+   (Optional) Install shell completion for your shell.
 
     ```bash
     echo 'eval "$(agentlab completion bash)"' >> ~/.bashrc
@@ -47,18 +61,28 @@ Goal: install the `agentlab` CLI and the `agentlabd` daemon, then confirm both r
    If you have Go installed, build both binaries from source instead:
 
     ```bash
-    go install github.com/agentlab/agentlab/cmd/agentlab@latest
-    go install github.com/agentlab/agentlab/cmd/agentlabd@latest
+    git clone https://github.com/nibzard/agentlab.git
+    cd agentlab
+    go build -o agentlab ./cmd/agentlab
+    go build -o agentlabd ./cmd/agentlabd
     ```
 
 5. Create the daemon directories and a minimal config. The daemon reads `/etc/agentlab/config.yaml` by default and listens on the Unix socket at `/run/agentlab/agentlabd.sock`.
 
     ```bash
     sudo mkdir -p /etc/agentlab /etc/agentlab/profiles /var/lib/agentlab /run/agentlab
-    sudo chmod 0600 /etc/agentlab/config.yaml
+    sudo install -m 0600 /dev/null /etc/agentlab/config.yaml
+    sudo tee /etc/agentlab/config.yaml >/dev/null <<'YAML'
+    ssh_public_key_path: /etc/agentlab/keys/agentlab_id_ed25519.pub
+    secrets_bundle: default
+    bootstrap_listen: 10.77.0.1:8844
+    artifact_listen: 10.77.0.1:8846
+    controller_url: http://10.77.0.1:8844
+    YAML
     ```
 
-6. Start the daemon and check that it answers on the socket.
+6. Complete [Proxmox host setup](set-up-proxmox-host.md), including the bridge,
+   SSH key, profiles, and template. Then start the daemon and check the socket.
 
     ```bash
     sudo agentlabd -config /etc/agentlab/config.yaml

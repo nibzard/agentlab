@@ -28,6 +28,8 @@ that disk is part of the snapshot and is reset too. Detach the workspace first
 if you need to keep it.
 
 ```bash
+# If a persistent workspace is attached, detach it before resetting the root.
+agentlab workspace detach dev-workspace
 agentlab sandbox revert 1001 --force --restart
 ```
 
@@ -46,7 +48,7 @@ agentlab sandbox revert 1001 --force --restart
     ```
 
 2. Check the workspace state against the daemon database and Proxmox first.
-   `workspace check` reconciles records; it does not inspect the filesystem.
+   `workspace check` compares records with backend state; it does not inspect the filesystem.
 
     ```bash
     agentlab workspace check dev-workspace

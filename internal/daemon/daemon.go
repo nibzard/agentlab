@@ -551,6 +551,7 @@ func newService(cfg config.Config, profiles map[string]models.Profile, store *db
 	artifactMux.HandleFunc("/healthz", healthHandler)
 	NewArtifactAPI(store, cfg.ArtifactDir, cfg.ArtifactMaxBytes, agentSubnet, artifactLimiter).Register(artifactMux)
 
+	controlAPI.WithSchemaSurface("bootstrap", bootstrapMux).WithSchemaSurface("artifacts", artifactMux)
 	artifactGC := NewArtifactGC(store, profiles, cfg.ArtifactDir, log.Default(), redactor)
 	idleStopper := NewIdleStopper(store, backend, profiles, sandboxManager, &ConntrackSessionDetector{}, log.Default(), metrics, IdleStopConfig{
 		Enabled:        cfg.IdleStopEnabled,
@@ -615,6 +616,7 @@ func newService(cfg config.Config, profiles map[string]models.Profile, store *db
 		metricsMux := http.NewServeMux()
 		metricsMux.Handle("/metrics", metrics.Handler())
 		metricsMux.HandleFunc("/healthz", healthHandler)
+		controlAPI.WithSchemaSurface("metrics", metricsMux)
 		metricsServer = &http.Server{
 			Handler:           metricsMux,
 			ReadHeaderTimeout: 5 * time.Second,
@@ -918,7 +920,7 @@ func listenUnix(socketPath string) (net.Listener, error) {
 
 func healthHandler(w http.ResponseWriter, _ *http.Request) {
 	w.WriteHeader(http.StatusOK)
-	_, _ = w.Write([]byte("ok"))
+	_, _ = w.Write([]byte(V1HealthResponse("ok")))
 }
 
 func buildControllerURL(listen string) string {

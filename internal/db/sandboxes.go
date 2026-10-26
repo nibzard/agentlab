@@ -76,7 +76,18 @@ func (s *Store) CreateSandbox(ctx context.Context, sandbox models.Sandbox) error
 	if sandbox.WorkspaceID != nil && *sandbox.WorkspaceID != "" {
 		workspace = *sandbox.WorkspaceID
 	}
-	_, err := s.DB.ExecContext(ctx, `INSERT INTO sandboxes (
+	tx, err := s.sandboxOperationTransaction(ctx)
+	if err != nil {
+		return err
+	}
+	var executor interface {
+		ExecContext(context.Context, string, ...any) (sql.Result, error)
+	} = s.DB
+	if tx != nil {
+		defer tx.Rollback()
+		executor = tx
+	}
+	_, err = executor.ExecContext(ctx, `INSERT INTO sandboxes (
 		vmid, name, profile, state, ip, workspace_id, keepalive, lease_expires_at, lease_warned_at, last_used_at, created_at, updated_at, meta_json, type, image, tags, prompt, owner
 	) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		sandbox.VMID,
@@ -100,6 +111,12 @@ func (s *Store) CreateSandbox(ctx context.Context, sandbox models.Sandbox) error
 	)
 	if err != nil {
 		return fmt.Errorf("insert sandbox %d: %w", sandbox.VMID, err)
+	}
+	if tx != nil {
+		if _, err := tx.ExecContext(ctx, `UPDATE operations SET vmid=? WHERE id=?`, sandbox.VMID, operationID(ctx)); err != nil {
+			return err
+		}
+		return tx.Commit()
 	}
 	return nil
 }

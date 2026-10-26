@@ -88,12 +88,13 @@ func runInitCommand(ctx context.Context, args []string, base commonFlags) error 
 		return err
 	}
 	if tailscaleServe && noTailscaleServe {
-		return fmt.Errorf("--tailscale-serve and --no-tailscale-serve are mutually exclusive")
+		return newUsageError(fmt.Errorf("--tailscale-serve and --no-tailscale-serve are mutually exclusive"), false)
 	}
 	if controlPort <= 0 || controlPort > 65535 {
-		return fmt.Errorf("control-port must be between 1 and 65535")
+		return newUsageError(fmt.Errorf("control-port must be between 1 and 65535"), false)
 	}
 
+	backendName = strings.ToLower(strings.TrimSpace(backendName))
 	report, state, err := collectInitReport(ctx, defaultConfigPath, controlPort)
 	if err != nil {
 		return err

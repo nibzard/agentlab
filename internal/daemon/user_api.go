@@ -86,11 +86,7 @@ func (api *UserAPI) addUser(w http.ResponseWriter, r *http.Request) {
 	if !api.authorizeWrite(w, r) {
 		return
 	}
-	var req struct {
-		Name string `json:"name"`
-		Key  string `json:"key"`
-		Role string `json:"role"`
-	}
+	var req V1UserCreateRequest
 	if err := decodeJSON(w, r, &req); err != nil {
 		writeJSONDecodeError(w, err)
 		return
@@ -115,13 +111,7 @@ func (api *UserAPI) addUser(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	writeJSON(w, http.StatusCreated, map[string]any{
-		"id":          u.ID,
-		"name":        u.Name,
-		"role":        string(u.Role),
-		"fingerprint": u.Fingerprint,
-		"created_at":  u.CreatedAt.Format("2006-01-02T15:04:05Z"),
-	})
+	writeJSON(w, http.StatusCreated, V1UserResponse{ID: u.ID, Name: u.Name, Role: string(u.Role), Fingerprint: u.Fingerprint, CreatedAt: u.CreatedAt.Format("2006-01-02T15:04:05Z")})
 }
 
 func (api *UserAPI) listUsers(w http.ResponseWriter, r *http.Request) {
@@ -134,20 +124,11 @@ func (api *UserAPI) listUsers(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var result []map[string]any
+	result := make([]V1UserResponse, 0, len(users))
 	for _, u := range users {
-		result = append(result, map[string]any{
-			"id":          u.ID,
-			"name":        u.Name,
-			"role":        string(u.Role),
-			"fingerprint": u.Fingerprint,
-			"created_at":  u.CreatedAt.Format("2006-01-02T15:04:05Z"),
-		})
+		result = append(result, V1UserResponse{ID: u.ID, Name: u.Name, Role: string(u.Role), Fingerprint: u.Fingerprint, CreatedAt: u.CreatedAt.Format("2006-01-02T15:04:05Z")})
 	}
-	if result == nil {
-		result = []map[string]any{}
-	}
-	writeJSON(w, http.StatusOK, map[string]any{"users": result})
+	writeJSON(w, http.StatusOK, V1UsersResponse{Users: result})
 }
 
 func (api *UserAPI) showUser(w http.ResponseWriter, r *http.Request, name string) {
@@ -159,13 +140,7 @@ func (api *UserAPI) showUser(w http.ResponseWriter, r *http.Request, name string
 		writeError(w, http.StatusNotFound, "user not found")
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{
-		"id":          u.ID,
-		"name":        u.Name,
-		"role":        string(u.Role),
-		"fingerprint": u.Fingerprint,
-		"created_at":  u.CreatedAt.Format("2006-01-02T15:04:05Z"),
-	})
+	writeJSON(w, http.StatusOK, V1UserResponse{ID: u.ID, Name: u.Name, Role: string(u.Role), Fingerprint: u.Fingerprint, CreatedAt: u.CreatedAt.Format("2006-01-02T15:04:05Z")})
 }
 
 func (api *UserAPI) removeUser(w http.ResponseWriter, r *http.Request, name string) {
@@ -177,7 +152,7 @@ func (api *UserAPI) removeUser(w http.ResponseWriter, r *http.Request, name stri
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]string{"status": "deleted", "name": name})
+	writeJSON(w, http.StatusOK, V1RegistryMutationResponse{Status: "deleted", Name: name})
 }
 
 func (api *UserAPI) handleUserKeys(w http.ResponseWriter, r *http.Request, userName string) {
@@ -195,9 +170,7 @@ func (api *UserAPI) addUserKey(w http.ResponseWriter, r *http.Request, userName 
 	if !api.authorizeWrite(w, r) {
 		return
 	}
-	var req struct {
-		Key string `json:"key"`
-	}
+	var req V1UserKeyCreateRequest
 	if err := decodeJSON(w, r, &req); err != nil {
 		writeJSONDecodeError(w, err)
 		return
@@ -228,7 +201,7 @@ func (api *UserAPI) addUserKey(w http.ResponseWriter, r *http.Request, userName 
 	}
 
 	_ = api.registry.RecordAction(r.Context(), u.ID, "user.key.add", "user:"+userName, "fingerprint="+fingerprint)
-	writeJSON(w, http.StatusOK, map[string]string{"status": "added", "fingerprint": fingerprint})
+	writeJSON(w, http.StatusOK, V1RegistryMutationResponse{Status: "added", Fingerprint: fingerprint})
 }
 
 func (api *UserAPI) removeUserKey(w http.ResponseWriter, r *http.Request, userName string) {
@@ -254,7 +227,7 @@ func (api *UserAPI) removeUserKey(w http.ResponseWriter, r *http.Request, userNa
 	}
 
 	_ = api.registry.RecordAction(r.Context(), u.ID, "user.key.remove", "user:"+userName, "fingerprint="+fingerprint)
-	writeJSON(w, http.StatusOK, map[string]string{"status": "removed"})
+	writeJSON(w, http.StatusOK, V1RegistryMutationResponse{Status: "removed"})
 }
 
 // --- Team handlers ---
@@ -305,10 +278,7 @@ func (api *UserAPI) addTeam(w http.ResponseWriter, r *http.Request) {
 	if !api.authorizeWrite(w, r) {
 		return
 	}
-	var req struct {
-		Name        string `json:"name"`
-		Description string `json:"description"`
-	}
+	var req V1TeamCreateRequest
 	if err := decodeJSON(w, r, &req); err != nil {
 		writeJSONDecodeError(w, err)
 		return
@@ -324,12 +294,7 @@ func (api *UserAPI) addTeam(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	writeJSON(w, http.StatusCreated, map[string]any{
-		"id":          t.ID,
-		"name":        t.Name,
-		"description": t.Description,
-		"created_at":  t.CreatedAt.Format("2006-01-02T15:04:05Z"),
-	})
+	writeJSON(w, http.StatusCreated, V1TeamResponse{ID: t.ID, Name: t.Name, Description: t.Description, CreatedAt: t.CreatedAt.Format("2006-01-02T15:04:05Z")})
 }
 
 func (api *UserAPI) listTeams(w http.ResponseWriter, r *http.Request) {
@@ -342,19 +307,11 @@ func (api *UserAPI) listTeams(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var result []map[string]any
+	result := make([]V1TeamResponse, 0, len(teams))
 	for _, t := range teams {
-		result = append(result, map[string]any{
-			"id":          t.ID,
-			"name":        t.Name,
-			"description": t.Description,
-			"created_at":  t.CreatedAt.Format("2006-01-02T15:04:05Z"),
-		})
+		result = append(result, V1TeamResponse{ID: t.ID, Name: t.Name, Description: t.Description, CreatedAt: t.CreatedAt.Format("2006-01-02T15:04:05Z")})
 	}
-	if result == nil {
-		result = []map[string]any{}
-	}
-	writeJSON(w, http.StatusOK, map[string]any{"teams": result})
+	writeJSON(w, http.StatusOK, V1TeamsResponse{Teams: result})
 }
 
 func (api *UserAPI) removeTeam(w http.ResponseWriter, r *http.Request, name string) {
@@ -366,7 +323,7 @@ func (api *UserAPI) removeTeam(w http.ResponseWriter, r *http.Request, name stri
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]string{"status": "deleted", "name": name})
+	writeJSON(w, http.StatusOK, V1RegistryMutationResponse{Status: "deleted", Name: name})
 }
 
 func (api *UserAPI) handleTeamMembers(w http.ResponseWriter, r *http.Request, teamName string) {
@@ -390,29 +347,18 @@ func (api *UserAPI) listTeamMembers(w http.ResponseWriter, r *http.Request, team
 		return
 	}
 
-	var result []map[string]any
+	result := make([]V1TeamMemberResponse, 0, len(members))
 	for _, m := range members {
-		result = append(result, map[string]any{
-			"user_id":   m.UserID,
-			"team_id":   m.TeamID,
-			"role":      string(m.Role),
-			"joined_at": m.JoinedAt.Format("2006-01-02T15:04:05Z"),
-		})
+		result = append(result, V1TeamMemberResponse{UserID: m.UserID, TeamID: m.TeamID, Role: string(m.Role), JoinedAt: m.JoinedAt.Format("2006-01-02T15:04:05Z")})
 	}
-	if result == nil {
-		result = []map[string]any{}
-	}
-	writeJSON(w, http.StatusOK, map[string]any{"members": result})
+	writeJSON(w, http.StatusOK, V1TeamMembersResponse{Members: result})
 }
 
 func (api *UserAPI) addTeamMember(w http.ResponseWriter, r *http.Request, teamName string) {
 	if !api.authorizeWrite(w, r) {
 		return
 	}
-	var req struct {
-		UserID string `json:"user_id"`
-		Role   string `json:"role"`
-	}
+	var req V1TeamMemberCreateRequest
 	if err := decodeJSON(w, r, &req); err != nil {
 		writeJSONDecodeError(w, err)
 		return
@@ -433,7 +379,7 @@ func (api *UserAPI) addTeamMember(w http.ResponseWriter, r *http.Request, teamNa
 		return
 	}
 
-	writeJSON(w, http.StatusOK, map[string]string{"status": "added", "team": teamName, "user": req.UserID})
+	writeJSON(w, http.StatusOK, V1RegistryMutationResponse{Status: "added", Team: teamName, User: req.UserID})
 }
 
 func (api *UserAPI) removeTeamMember(w http.ResponseWriter, r *http.Request, teamName, userName string) {
@@ -445,7 +391,7 @@ func (api *UserAPI) removeTeamMember(w http.ResponseWriter, r *http.Request, tea
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]string{"status": "removed", "team": teamName, "user": userName})
+	writeJSON(w, http.StatusOK, V1RegistryMutationResponse{Status: "removed", Team: teamName, User: userName})
 }
 
 // Registry returns the underlying user registry.

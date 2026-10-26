@@ -203,8 +203,8 @@ the message log together.
       --kind handoff --text "State ready in ws-worker; please review."
     ```
 
-   Destroy the worker sandbox when the human confirms the handoff. Add `--force`
-   only if the sandbox is stuck in an invalid state:
+   Destroy the worker sandbox when the human confirms the handoff. Destruction
+   stops it and releases only leases still owned by its work:
 
     ```bash
     agentlab sandbox destroy <vmid>

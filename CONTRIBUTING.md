@@ -141,6 +141,32 @@ GOOS=windows GOARCH=amd64 go build -o bin/agentlab.exe ./cmd/agentlab
 
 AgentLab uses a comprehensive testing suite. Here's how to run tests:
 
+### Dashboard browser acceptance
+
+The browser fixture uses a local API and a separate headless Chrome profile;
+it never provisions a VM. Install the optional browser driver outside the repo:
+
+```bash
+npm install --prefix /tmp/agentlab-browser playwright-core@1.64.1
+AGENTLAB_PLAYWRIGHT_MODULE=/tmp/agentlab-browser/node_modules/playwright-core TMPDIR=/tmp go test ./internal/dashboard -run TestBrowserAcceptance -count=1 -v
+```
+
+On macOS the test uses the installed Google Chrome. Set `AGENTLAB_CHROME` to
+its executable path on other systems. The test covers shared login, expiry and
+cancel/retry, inventory/history/search, stale data, keyed create progress,
+keyboard focus/dismissal and narrow layout. Without the module variable this
+optional test skips; ordinary Go/Node behavior tests still run.
+
+### Timed creation acceptance
+
+The optional slow-clone fixture holds a local stub backend for 31 seconds to
+cross the dashboard's former proxy timeout. It verifies one operation/allocation,
+retry while cloning, restart inspection and completion without live VMs:
+
+```bash
+AGENTLAB_SLOW_ACCEPTANCE=1 TMPDIR=/tmp go test ./internal/daemon -run TestCreateOperationSlowCloneBeyondProxyTimeout -count=1 -v
+```
+
 ### Unit Tests
 
 Run all unit tests:

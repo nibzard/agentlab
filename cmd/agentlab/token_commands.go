@@ -6,6 +6,7 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"github.com/agentlab/agentlab/internal/clicontract"
 	"io"
 	"os"
 	"strings"
@@ -77,45 +78,29 @@ func runTokenCreate(_ context.Context, args []string, base commonFlags) error {
 	fs.StringVar(&keyPath, "key", "", "path to SSH private key")
 	fs.StringVar(&cmds, "cmds", "", "comma-separated list of allowed command prefixes")
 	fs.StringVar(&scope, "scope", "", "comma-separated list of sandbox scopes (e.g., sandbox:1001)")
-	fs.StringVar(&ttl, "ttl", "1h", "token lifetime (e.g., 30m, 24h)")
+	fs.StringVar(&ttl, "ttl", "1h", "token lifetime (e.g., 30m, 24h; zero uses the 1h default)")
 	fs.StringVar(&subject, "subject", "", "optional human-readable label")
 	fs.BoolVar(&help, "help", false, "show help")
 	fs.BoolVar(&help, "h", false, "show help")
 
-	if err := fs.Parse(args); err != nil {
-		return newUsageError(err, true)
-	}
-	if help {
-		fmt.Fprint(os.Stdout, tokenUsage)
-		return errHelp
-	}
-
-	keyPath, err := resolveKeyPath(keyPath)
-	if err != nil {
+	if err := parseFlags(fs, args, func() { fmt.Fprint(os.Stdout, tokenUsage) }, &help, base.jsonOutput); err != nil {
 		return err
 	}
+
 	if cmds == "" {
 		return newUsageError(errors.New("--cmds is required"), true)
 	}
-
+	duration, commandList, scopeList, err := clicontract.ParseTokenOptions(ttl, cmds, scope)
+	if err != nil {
+		return newUsageError(err, false)
+	}
+	keyPath, err = resolveKeyPath(keyPath)
+	if err != nil {
+		return err
+	}
 	signer, err := loadTokenSigner(keyPath)
 	if err != nil {
 		return fmt.Errorf("load SSH key: %w", err)
-	}
-
-	duration, err := time.ParseDuration(ttl)
-	if err != nil {
-		return fmt.Errorf("invalid --ttl %q: %w", ttl, err)
-	}
-
-	commandList := splitAndTrim(cmds)
-	if len(commandList) == 0 {
-		return errors.New("--cmds must contain at least one command")
-	}
-
-	var scopeList []string
-	if scope != "" {
-		scopeList = splitAndTrim(scope)
 	}
 
 	tokenStr, err := auth.CreateToken(signer, auth.TokenCreateRequest{
@@ -160,12 +145,8 @@ func runTokenList(_ context.Context, args []string, base commonFlags) error {
 	fs.BoolVar(&help, "help", false, "show help")
 	fs.BoolVar(&help, "h", false, "show help")
 
-	if err := fs.Parse(args); err != nil {
-		return newUsageError(err, true)
-	}
-	if help {
-		fmt.Fprint(os.Stdout, tokenUsage)
-		return errHelp
+	if err := parseFlags(fs, args, func() { fmt.Fprint(os.Stdout, tokenUsage) }, &help, base.jsonOutput); err != nil {
+		return err
 	}
 
 	keyPath, err := resolveKeyPath(keyPath)
@@ -205,12 +186,8 @@ func runTokenInspect(_ context.Context, args []string, base commonFlags) error {
 	fs.BoolVar(&help, "help", false, "show help")
 	fs.BoolVar(&help, "h", false, "show help")
 
-	if err := fs.Parse(args); err != nil {
-		return newUsageError(err, true)
-	}
-	if help {
-		fmt.Fprint(os.Stdout, tokenUsage)
-		return errHelp
+	if err := parseFlags(fs, args, func() { fmt.Fprint(os.Stdout, tokenUsage) }, &help, base.jsonOutput); err != nil {
+		return err
 	}
 
 	if fs.NArg() == 0 {
@@ -220,7 +197,7 @@ func runTokenInspect(_ context.Context, args []string, base commonFlags) error {
 	tokenStr := fs.Arg(0)
 	tok, err := auth.ParseTokenUnverified(tokenStr)
 	if err != nil {
-		return fmt.Errorf("parse token: %w", err)
+		return newUsageError(fmt.Errorf("parse token: %w", err), false)
 	}
 
 	expiry := "never"
@@ -287,16 +264,4 @@ func resolveKeyPath(keyPath string) (string, error) {
 		}
 	}
 	return "", errors.New("--key is required (no default SSH key found in ~/.ssh/)")
-}
-
-func splitAndTrim(s string) []string {
-	parts := strings.Split(s, ",")
-	var result []string
-	for _, p := range parts {
-		p = strings.TrimSpace(p)
-		if p != "" {
-			result = append(result, p)
-		}
-	}
-	return result
 }

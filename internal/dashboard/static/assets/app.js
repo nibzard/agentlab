@@ -5,6 +5,64 @@
 
   let refreshTimer = null;
   let profiles = [];
+  let loginPending = null;
+  let authPaused = false;
+  let refreshPending = false;
+  let memoryToken = "";
+  let lastRefresh = null;
+  let createPending = false;
+  let createKey = "";
+  let createPayload = "";
+  let createOperation = "";
+  const observingCreations = new Set();
+  const CREATE_RECOVERY_KEY = "agentlab_create_recovery";
+  let sandboxPage = 0;
+  let jobCursor = "";
+  let jobCursorHistory = [];
+  let jobNextCursor = "";
+  let cachedEventMessages = null;
+  let cachedFailureDigest = null;
+
+  function requestLogin() {
+    if (loginPending) return loginPending;
+    authPaused = true;
+    loginPending = new Promise(function (resolve) {
+      var dialog = document.createElement("dialog");
+      dialog.ariaLabel = "Dashboard sign in";
+      var form = document.createElement("form");
+      form.method = "dialog";
+      var label = document.createElement("label");
+      label.textContent = "Dashboard access token ";
+      var input = document.createElement("input");
+      input.type = "password";
+      input.autocomplete = "off";
+      input.required = true;
+      label.appendChild(input);
+      form.appendChild(label);
+      var submit = document.createElement("button");
+      submit.textContent = "Sign in";
+      submit.type = "submit";
+      form.appendChild(submit);
+      var cancel = document.createElement("button");
+      cancel.type = "button";
+      cancel.textContent = "Cancel";
+      form.appendChild(cancel);
+      dialog.appendChild(form);
+      document.body.appendChild(dialog);
+      function finish(token) {
+        if (token) { setDashboardToken(token); authPaused = false; }
+        dialog.close();
+        dialog.remove();
+        resolve(token);
+      }
+      form.addEventListener("submit", function (e) { e.preventDefault(); finish(input.value.trim()); });
+      cancel.addEventListener("click", function () { finish(""); });
+      dialog.addEventListener("cancel", function (e) { e.preventDefault(); finish(""); });
+      dialog.showModal();
+      input.focus();
+    }).finally(function () { loginPending = null; });
+    return loginPending;
+  }
   const REFRESH_INTERVAL = 5000;
 
   // --- API helpers ---
@@ -15,13 +73,14 @@
   // --browser-token, or the server generates one and logs it at startup.
   function dashboardToken() {
     try {
-      return sessionStorage.getItem("agentlab_dashboard_token") || "";
+      return memoryToken || sessionStorage.getItem("agentlab_dashboard_token") || "";
     } catch (e) {
-      return "";
+      return memoryToken;
     }
   }
 
   function setDashboardToken(tok) {
+    memoryToken = tok;
     try {
       sessionStorage.setItem("agentlab_dashboard_token", tok);
     } catch (e) {
@@ -44,16 +103,20 @@
   async function api(path, opts) {
     opts = applyDashboardHeaders(opts);
     var res = await fetch("/api" + path, opts);
-    // If the server requires an inbound token we do not yet hold, ask the user
-    // once, persist it to this session, and retry the original request.
-    if (res.status === 401 && !opts.__agentlabRetried) {
-      var tok = window.prompt("Dashboard access token:");
+    // Only dashboard authentication failures request browser credentials.
+    // Daemon authorization errors must be reported without asking for another token.
+    if (res.status === 401 && res.headers.get("X-Agentlab-Auth") === "dashboard") {
+      var sentToken = (opts.headers.Authorization || "").replace(/^Bearer /, "");
+      var tok = dashboardToken();
+      if (!tok || tok === sentToken) {
+        if (authPaused && !loginPending) throw new Error("Sign-in paused. Use Refresh to retry.");
+        tok = await requestLogin();
+      }
       if (tok) {
-        setDashboardToken(tok);
-        opts.__agentlabRetried = true;
-        opts.headers["Authorization"] = "Bearer " + tok;
+        opts = applyDashboardHeaders(opts);
         res = await fetch("/api" + path, opts);
       }
+      if (res.status === 401) authPaused = true;
     }
     if (!res.ok && res.status !== 404) {
       var body = await res.text();
@@ -114,6 +177,10 @@
   }
 
   function errorRow(tbody, colspan, message) {
+    if (tbody._lastSuccess) {
+      document.getElementById("data-status").textContent = "Data unavailable: " + message + ". Showing stale data from " + tbody._lastSuccess.toLocaleTimeString();
+      return;
+    }
     tbody.innerHTML = "";
     var tr = document.createElement("tr");
     var td = document.createElement("td");
@@ -142,6 +209,13 @@
     var d = new Date(ts);
     if (isNaN(d.getTime())) return esc(ts);
     var diff = Date.now() - d.getTime();
+    if (diff < 0) {
+      var futureMins = Math.ceil(-diff / 60000);
+      if (futureMins < 60) return "in " + futureMins + "m";
+      var futureHours = Math.ceil(futureMins / 60);
+      if (futureHours < 24) return "in " + futureHours + "h";
+      return "in " + Math.ceil(futureHours / 24) + "d";
+    }
     var mins = Math.floor(diff / 60000);
     if (mins < 1) return "just now";
     if (mins < 60) return mins + "m ago";
@@ -238,15 +312,15 @@
       if (!data) return;
       document.getElementById("status-daemon").textContent = "Daemon: OK";
       var sb = data.sandboxes || {};
-      var running = sb["running"] || sb["ready"] || 0;
+      var running = (sb["RUNNING"] || 0) + (sb["READY"] || 0);
       var total = 0;
       for (var k in sb) {
-        if (sb.hasOwnProperty(k)) total += sb[k];
+        if (sb.hasOwnProperty(k) && k !== "DESTROYED") total += sb[k];
       }
       document.getElementById("status-sandboxes").textContent =
-        "Sandboxes: " + total + " (" + running + " active)";
+        "Sandboxes: " + total + " current (" + running + " active), " + (sb["DESTROYED"] || 0) + " destroyed";
       var jb = data.jobs || {};
-      var jobActive = (jb["running"] || 0) + (jb["queued"] || 0);
+      var jobActive = (jb["RUNNING"] || 0) + (jb["QUEUED"] || 0);
       document.getElementById("status-jobs").textContent =
         "Jobs: " + jobActive + " active";
 
@@ -308,8 +382,24 @@
     var empty = document.getElementById("sandbox-empty");
     try {
       var data = await apiJSON("/v1/sandboxes");
+      if (!data) throw new Error("Sandbox inventory endpoint unavailable");
+      tbody._lastSuccess = new Date();
       var list = (data && data.sandboxes) || [];
+      var search = document.getElementById("sandbox-search").value.trim().toLowerCase();
+      var state = document.getElementById("sandbox-state-filter").value.trim().toUpperCase();
+      var profile = document.getElementById("sandbox-profile-filter").value.trim();
+      var history = document.getElementById("sandbox-history").checked;
+      list = list.filter(function (sb) {
+        return (history || sb.state !== "DESTROYED") && (!state || sb.state === state) && (!profile || sb.profile === profile) && (!search || [sb.vmid,sb.name,sb.profile,sb.state].join(" ").toLowerCase().includes(search));
+      });
+      sandboxPage = Math.min(sandboxPage, Math.max(0, Math.ceil(list.length/25)-1));
+      document.getElementById("sandbox-page-status").textContent = "Database records: " + list.length + " matching. Page " + (sandboxPage+1) + ". Updated " + new Date().toLocaleTimeString();
+      document.getElementById("sandbox-previous").disabled = sandboxPage === 0;
+      document.getElementById("sandbox-next").disabled = (sandboxPage+1)*25 >= list.length;
+      empty.textContent = "No sandboxes match these filters. Clear filters or create a sandbox.";
+      list = list.slice(sandboxPage*25,(sandboxPage+1)*25);
       if (list.length === 0) {
+        empty.textContent = search || state || profile ? "No sandboxes match these filters. Clear Search, State or Profile to see other records." : "No current sandboxes. Use New Sandbox to create one or Include destroyed history to inspect past records.";
         tbody.innerHTML = "";
         empty.style.display = "block";
         return;
@@ -369,54 +459,15 @@
     var tbody = document.getElementById("job-list");
     var empty = document.getElementById("job-empty");
     try {
-      var data = await apiJSON("/v1/status");
-      var failures = (data && data.recent_failure_digest) || [];
-      var jobTimelines = (data && data.job_timelines) || {};
-      var timelineList = [];
-      for (var jid in jobTimelines) {
-        if (jobTimelines.hasOwnProperty(jid)) {
-          timelineList.push(jobTimelines[jid]);
-        }
-      }
-
-      // Combine timeline entries and failure digests into a unified view.
-      var seen = {};
-      var rows = [];
-
-      // Add timeline entries first (non-duplicate).
-      timelineList.forEach(function (tl) {
-        var key = tl.job_id;
-        if (!seen[key]) {
-          seen[key] = true;
-          rows.push({
-            job_id: tl.job_id,
-            repo: "-",
-            task: "-",
-            profile: "-",
-            status: tl.status,
-            created: tl.started_at || "",
-            error: tl.last_failure_message || "",
-          });
-        }
+      var data = await apiJSON("/v1/jobs?limit=50&after=" + encodeURIComponent(jobCursor));
+      if (!data) throw new Error("Jobs endpoint unavailable");
+      jobNextCursor = (data && data.next_cursor) || "";
+      document.getElementById("job-next").disabled = !jobNextCursor;
+      document.getElementById("job-previous").disabled = jobCursorHistory.length === 0;
+      tbody._lastSuccess = new Date();
+      var rows = ((data && data.jobs) || []).map(function (job) {
+        return {job_id:job.id, repo:job.repo_url, task:job.task, profile:job.profile, status:job.status, created:job.created_at, sandbox:job.sandbox_vmid, workspace:job.workspace_id};
       });
-
-      // Add failures not already shown.
-      failures.forEach(function (f) {
-        var key = f.job_id || f.event_id;
-        if (!seen[key]) {
-          seen[key] = true;
-          rows.push({
-            job_id: f.job_id || f.event_id,
-            repo: f.kind || "-",
-            task: f.stage || "-",
-            profile: "-",
-            status: "failed",
-            created: f.ts || "",
-            error: f.error || f.message || "",
-          });
-        }
-      });
-
       if (rows.length === 0) {
         tbody.innerHTML = "";
         empty.style.display = "block";
@@ -432,9 +483,16 @@
         appendTd(tr, r.task);
         appendTd(tr, r.profile);
         appendTd(tr).appendChild(stateBadgeEl(r.status));
-        appendTd(tr, timeAgo(r.created));
+        var createdCell = appendTd(tr, timeAgo(r.created));
+        createdCell.title = r.created || "";
+        var sandboxCell = appendTd(tr);
+        if (r.sandbox) addActionButton(sandboxCell, String(r.sandbox), "btn btn-sm", function () {showDetail(r.sandbox);});
+        var workspaceCell = appendTd(tr);
+        if (r.workspace) addActionButton(workspaceCell, r.workspace, "btn btn-sm", function () {showWorkspaceDetail(r.workspace);});
+        else workspaceCell.textContent = "-";
+        workspaceCell.title = r.workspace || "";
         var actions = document.createElement("td");
-        if (r.status === "failed") {
+        if (jobId) {
           addActionButton(actions, "View", "btn btn-sm", function () {
             showJobDetail(jobId);
           });
@@ -452,6 +510,8 @@
     var empty = document.getElementById("workspace-empty");
     try {
       var data = await apiJSON("/v1/workspaces");
+      if (!data) throw new Error("Workspaces endpoint unavailable");
+      tbody._lastSuccess = new Date();
       var list = (data && data.workspaces) || [];
       if (list.length === 0) {
         tbody.innerHTML = "";
@@ -459,36 +519,20 @@
         return;
       }
       empty.style.display = "none";
-      tbody.innerHTML = list
-        .map(function (ws) {
-          return (
-            "<tr>" +
-            "<td><code>" +
-            esc(ws.id) +
-            "</code></td>" +
-            "<td>" +
-            esc(ws.name) +
-            "</td>" +
-            "<td>" +
-            esc(ws.size_gb) +
-            " GB</td>" +
-            "<td>" +
-            (ws.attached_vmid
-              ? '<code>' + esc(ws.attached_vmid) + "</code>"
-              : "-") +
-            "</td>" +
-            "<td>" +
-            timeAgo(ws.created_at) +
-            "</td>" +
-            "</tr>"
-          );
-        })
-        .join("");
+      tbody.innerHTML = "";
+      list.forEach(function (ws) {
+        var row = document.createElement("tr");
+        addActionButton(appendTd(row), ws.id, "btn btn-sm", function () {showWorkspaceDetail(ws.id);});
+        appendTd(row, ws.name);
+        appendTd(row, ws.size_gb + " GB");
+        var sandboxCell = appendTd(row);
+        if (ws.attached_vmid) addActionButton(sandboxCell, String(ws.attached_vmid), "btn btn-sm", function () {showDetail(ws.attached_vmid);});
+        else sandboxCell.textContent = "-";
+        appendTd(row, timeAgo(ws.created_at));
+        tbody.appendChild(row);
+      });
     } catch (e) {
-      tbody.innerHTML =
-        '<tr><td colspan="5" class="error">Failed to load: ' +
-        esc(e.message) +
-        "</td></tr>";
+      errorRow(tbody, 5, e.message);
     }
   }
 
@@ -497,6 +541,8 @@
     var empty = document.getElementById("exposure-empty");
     try {
       var data = await apiJSON("/v1/exposures");
+      if (!data) throw new Error("Exposures endpoint unavailable");
+      tbody._lastSuccess = new Date();
       var list = (data && data.exposures) || [];
       if (list.length === 0) {
         tbody.innerHTML = "";
@@ -543,11 +589,40 @@
     var empty = document.getElementById("event-empty");
     try {
       // Load messages as event stream
-      var data = await apiJSON("/v1/messages");
+      var type = document.getElementById("event-scope-type").value;
+      var id = document.getElementById("event-scope-id").value.trim();
+      var results = await Promise.allSettled([
+        type && id ? apiJSON("/v1/messages?scope_type=" + encodeURIComponent(type) + "&scope_id=" + encodeURIComponent(id)) : Promise.resolve(null),
+        apiJSON("/v1/status")
+      ]);
+      var errors = [], stale = [];
+      var scopeKey = JSON.stringify([type, id]);
+      var loadedAt = new Date();
+      var data = null, status = null;
+      if (type && id) {
+        if (results[0].status === "fulfilled" && results[0].value) {
+          data = results[0].value;
+          cachedEventMessages = {scope: scopeKey, data: data, at: loadedAt};
+        } else {
+          errors.push("Messages: " + (results[0].status === "rejected" ? results[0].reason.message : "endpoint unavailable"));
+          if (cachedEventMessages && cachedEventMessages.scope === scopeKey) {
+            data = cachedEventMessages.data;
+            stale.push("messages from " + cachedEventMessages.at.toLocaleTimeString());
+          }
+        }
+      }
+      if (results[1].status === "fulfilled" && results[1].value) {
+        status = results[1].value;
+        cachedFailureDigest = {data: status, at: loadedAt};
+      } else {
+        errors.push("Failure digest: " + (results[1].status === "rejected" ? results[1].reason.message : "endpoint unavailable"));
+        if (cachedFailureDigest) {
+          status = cachedFailureDigest.data;
+          stale.push("failure digest from " + cachedFailureDigest.at.toLocaleTimeString());
+        }
+      }
+      document.getElementById("events-status").textContent = errors.length ? "Some sources unavailable: " + errors.join("; ") + (stale.length ? ". Showing stale " + stale.join(" and ") : "") : "Failure digest" + (type && id ? " and selected scope messages" : "; select a scope to see messages") + ". Updated " + loadedAt.toLocaleTimeString();
       var messages = (data && data.messages) || [];
-
-      // Also get status for failure digest
-      var status = await apiJSON("/v1/status");
       var failures = (status && status.recent_failure_digest) || [];
 
       // Combine into unified timeline
@@ -577,6 +652,7 @@
       });
 
       if (events.length === 0) {
+        empty.textContent = errors.length ? "Event sources unavailable; retry after restoring access or connectivity." : "No failure digest entries or messages for this selection.";
         container.innerHTML = "";
         empty.style.display = "block";
         return;
@@ -615,7 +691,10 @@
   }
 
   async function refreshAll() {
-    await Promise.all([
+    if (refreshPending || authPaused) return;
+    refreshPending = true;
+    document.getElementById("data-status").textContent = "";
+    try { await Promise.all([
       loadStatus(),
       loadSandboxes(),
       loadJobs(),
@@ -623,6 +702,9 @@
       loadExposures(),
       loadEvents(),
     ]);
+      lastRefresh = new Date();
+      document.getElementById("btn-refresh").title = "Last refresh completed " + lastRefresh.toLocaleTimeString();
+    } finally { refreshPending = false; }
   }
 
   // --- Actions ---
@@ -650,13 +732,17 @@
   }
 
   async function destroySandbox(vmid) {
-    if (!confirm("Destroy sandbox " + vmid + "? This cannot be undone."))
+    var sandbox;
+    try { sandbox = await apiJSON("/v1/sandboxes/" + vmid); }
+    catch (e) { alert("Cannot load sandbox for confirmation: " + e.message); return; }
+    if (!confirm("Destroy sandbox " + vmid + " (" + (sandbox.name || "unnamed") +
+      ", " + sandbox.state + ", job " + (sandbox.job_id || "none") + ", workspace " + (sandbox.workspace_id || "none") + ", session " + (sandbox.session_id || "none") + ")? This cannot be undone."))
       return;
     try {
       await api("/v1/sandboxes/" + vmid + "/destroy", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ force: true }),
+        body: JSON.stringify({ force: false }),
       });
       await loadSandboxes();
     } catch (e) {
@@ -681,7 +767,7 @@
         { label: "Keepalive", value: data.keepalive ? "yes" : "no" },
         {
           label: "Lease Expires",
-          value: data.lease_expires_at ? timeAgo(data.lease_expires_at) : "-",
+          value: data.lease_expires_at ? data.lease_expires_at + " (" + timeAgo(data.lease_expires_at) + ")" : "-",
         },
         { label: "Created", value: timeAgo(data.created_at) },
       ];
@@ -725,7 +811,7 @@
         null,
         2
       );
-      document.getElementById("modal-sandbox-detail").style.display = "flex";
+      openModal("modal-sandbox-detail");
     } catch (e) {
       alert("Failed to load details: " + e.message);
     }
@@ -733,7 +819,7 @@
 
   async function showJobDetail(jobId) {
     try {
-      var data = await apiJSON("/v1/jobs/" + jobId);
+      var data = await apiJSON("/v1/jobs/" + encodeURIComponent(jobId));
       if (!data) {
         alert("Job not found");
         return;
@@ -747,6 +833,11 @@
         { label: "Profile", value: data.profile },
         { label: "Status", value: data.status },
         { label: "Task", value: data.task || "-" },
+        { label: "Workspace", value: data.workspace_id || "-" },
+        { label: "Exit code", value: data.outcome && data.outcome.exit_code != null ? data.outcome.exit_code : "Not recorded" },
+        { label: "Duration (seconds)", value: data.outcome && data.outcome.duration_seconds != null ? data.outcome.duration_seconds : "Not recorded" },
+        { label: "Outcome message", value: data.outcome && data.outcome.message || "-" },
+        { label: "Commit", value: data.outcome && data.outcome.commit || "-" },
         { label: "Mode", value: data.mode || "-" },
         { label: "Sandbox VMID", value: data.sandbox_vmid || "-" },
         { label: "Created", value: timeAgo(data.created_at) },
@@ -766,15 +857,36 @@
         })
         .join("");
       document.getElementById("detail-summary").innerHTML = summaryHtml;
+      var related = document.getElementById("detail-summary");
+      if (data.sandbox_vmid) addActionButton(related, "Sandbox " + data.sandbox_vmid, "btn btn-sm", function () {showDetail(data.sandbox_vmid);});
+      if (data.workspace_id) addActionButton(related, "Workspace " + data.workspace_id, "btn btn-sm", function () {showWorkspaceDetail(data.workspace_id);});
       document.getElementById("detail-json").textContent = JSON.stringify(
         data,
         null,
         2
       );
-      document.getElementById("modal-sandbox-detail").style.display = "flex";
+      openModal("modal-sandbox-detail");
     } catch (e) {
       alert("Failed to load job: " + e.message);
     }
+  }
+
+  async function showWorkspaceDetail(workspaceId) {
+    try {
+      var data = await apiJSON("/v1/workspaces/" + encodeURIComponent(workspaceId));
+      document.getElementById("detail-title").textContent = "Workspace " + (data.name || data.id || workspaceId);
+      var summary = document.getElementById("detail-summary");
+      summary.innerHTML = "";
+      [["ID", data.id], ["Name", data.name], ["Size", data.size_gb + " GB"], ["Storage", data.storage], ["Attached sandbox", data.attached_vmid || "Detached"], ["Lease owner", data.lease_owner || "None"], ["Lease expires", data.lease_expires_at || "-"]].forEach(function (field) {
+        var item = document.createElement("div");
+        item.className = "detail-field";
+        item.textContent = field[0] + ": " + (field[1] == null ? "-" : field[1]);
+        summary.appendChild(item);
+      });
+      if (data.attached_vmid) addActionButton(summary, "Sandbox " + data.attached_vmid, "btn btn-sm", function () {showDetail(data.attached_vmid);});
+      document.getElementById("detail-json").textContent = JSON.stringify(data, null, 2);
+      openModal("modal-sandbox-detail");
+    } catch (e) { alert("Failed to load workspace: " + e.message); }
   }
 
   // --- Expose ---
@@ -785,7 +897,7 @@
     exposeVMID = vmid;
     document.getElementById("expose-vmid").textContent = "#" + vmid;
     document.getElementById("form-expose").reset();
-    document.getElementById("modal-expose").style.display = "flex";
+    openModal("modal-expose");
   }
 
   // --- Snapshot ---
@@ -796,7 +908,7 @@
     snapshotVMID = vmid;
     document.getElementById("snapshot-vmid").textContent = "#" + vmid;
     document.getElementById("form-snapshot").reset();
-    document.getElementById("modal-snapshot").style.display = "flex";
+    openModal("modal-snapshot");
   }
 
   // --- Remove exposure ---
@@ -813,24 +925,95 @@
     }
   }
 
+  function modalFocusables(modal) {
+    return Array.from(modal.querySelectorAll("button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), a[href], [tabindex='0']")).filter(function (item) {return item.getClientRects().length > 0;});
+  }
+  function openModal(id) {
+    var modal = document.getElementById(id);
+    if (modal.style.display !== "flex") modal._opener = document.activeElement;
+    modal.style.display = "flex";
+    // DOM fixture runners lack selector APIs; real browsers receive focus and
+    // semantics for every modal, including asynchronous detail views.
+    if (modal.setAttribute) {
+      modal.setAttribute("role", "dialog");
+      modal.setAttribute("aria-modal", "true");
+      var heading = modal.querySelector("h3");
+      if (heading) modal.setAttribute("aria-label", heading.textContent);
+      modal.tabIndex = -1;
+      (modalFocusables(modal)[0] || modal).focus();
+    }
+  }
   function closeModal(id) {
-    document.getElementById(id).style.display = "none";
+    var modal = document.getElementById(id);
+    modal.style.display = "none";
+    if (modal._opener && modal._opener.isConnected) modal._opener.focus();
   }
 
   // --- New Sandbox Form ---
 
+  function readCreateRecovery() {
+    try {
+      var saved = JSON.parse(sessionStorage.getItem(CREATE_RECOVERY_KEY) || "null");
+      if (!saved || typeof saved.key !== "string" || typeof saved.payload !== "string") return null;
+      JSON.parse(saved.payload);
+      return saved;
+    } catch (e) { return null; }
+  }
+
+  function saveCreateRecovery(operation) {
+    createOperation = operation || "";
+    try { sessionStorage.setItem(CREATE_RECOVERY_KEY, JSON.stringify({key:createKey,payload:createPayload,operation:createOperation})); } catch (e) { /* In-memory retry remains available. */ }
+    document.getElementById("create-resume").hidden = false;
+  }
+
+  async function submitCreation(payload, form) {
+    if (createPending) return;
+    if (payload !== createPayload || !createKey) { createKey = crypto.randomUUID(); createPayload = payload; createOperation = ""; }
+    // Persist before sending: a dropped response or page reload retains the
+    // exact payload and key instead of allocating an untraceable duplicate.
+    saveCreateRecovery(createOperation);
+    createPending = true;
+    var submit = form && form.querySelector('[type="submit"]');
+    var resume = document.getElementById("create-resume");
+    if (submit) submit.disabled = true;
+    resume.disabled = true;
+    try {
+      var response = await api("/v1/sandboxes?async=true", {
+        method:"POST",headers:{"Content-Type":"application/json","Idempotency-Key":createKey},body:payload
+      });
+      var operation = await response.json();
+      saveCreateRecovery(operation.id);
+      document.getElementById("create-progress").textContent = "Creation " + operation.state + ". Operation " + operation.id + ". Resume with the saved request or agentlab operation show " + operation.id;
+      observeCreation(operation.id);
+      closeModal("modal-new-sandbox");
+      if (form) form.reset();
+      await loadSandboxes();
+    } catch (e) {
+      document.getElementById("create-progress").textContent = "Create request outcome unknown: " + e.message + ". Resume the saved request to reuse its idempotency key.";
+    } finally { createPending = false; if (submit) submit.disabled = false; resume.disabled = false; }
+  }
+
   function initNewSandboxForm() {
+    var recovery = readCreateRecovery();
+    var resume = document.getElementById("create-resume");
+    if (recovery) {
+      createKey = recovery.key; createPayload = recovery.payload; createOperation = recovery.operation || "";
+      resume.hidden = false;
+      document.getElementById("create-progress").textContent = "A previous creation request can be resumed" + (createOperation ? ": operation " + createOperation : " using its saved request key") + ".";
+    }
+    resume.addEventListener("click",function () { if (createPayload) return submitCreation(createPayload,null); });
     document
       .getElementById("btn-new-sandbox")
       .addEventListener("click", function () {
         loadProfiles();
-        document.getElementById("modal-new-sandbox").style.display = "flex";
+        openModal("modal-new-sandbox");
       });
 
     document
       .getElementById("form-new-sandbox")
       .addEventListener("submit", async function (e) {
         e.preventDefault();
+        if (createPending) return;
         var fd = new FormData(e.target);
         var body = {
           name: fd.get("name") || "",
@@ -843,26 +1026,46 @@
         var ttl = parseInt(fd.get("ttl_minutes"));
         if (ttl > 0) body.ttl_minutes = ttl;
 
-        try {
-          await api("/v1/sandboxes", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify(body),
-          });
-          closeModal("modal-new-sandbox");
-          e.target.reset();
-          await loadSandboxes();
-        } catch (e) {
-          alert("Failed to create sandbox: " + e.message);
-        }
+        await submitCreation(JSON.stringify(body), e.target);
       });
 
     // Close modal on backdrop click.
     document.querySelectorAll(".modal-backdrop").forEach(function (el) {
       el.addEventListener("click", function () {
-        el.parentElement.style.display = "none";
+        closeModal(el.parentElement.id);
       });
     });
+  }
+
+  async function observeCreation(id) {
+    if (observingCreations.has(id)) return;
+    observingCreations.add(id);
+    try {
+    var started = Date.now();
+    for (var attempt=0; attempt<120; attempt++) {
+      try {
+        var op = await apiJSON("/v1/operations/" + encodeURIComponent(id));
+        var message = "Operation " + id + ": " + op.state + ". Elapsed " + Math.floor((Date.now()-started)/1000) + "s.";
+        if (op.vmid) message += " Sandbox " + op.vmid + ".";
+        if (op.result && op.result.state) message += " Stage " + op.result.state + ".";
+        document.getElementById("create-progress").textContent = message + " Resume: agentlab operation show " + id;
+        if (op.state !== "accepted") {
+          if (op.state === "succeeded" || op.state === "failed" || op.state === "rejected") {
+            if (createOperation === id) {
+              createKey = ""; createPayload = ""; createOperation = "";
+              try { sessionStorage.removeItem(CREATE_RECOVERY_KEY); } catch (e) { /* storage unavailable */ }
+              document.getElementById("create-resume").hidden = true;
+            }
+          }
+          await loadSandboxes(); return;
+        }
+      } catch (e) {
+        document.getElementById("create-progress").textContent = "Observation unavailable: " + e.message + ". Resume: agentlab operation show " + id;
+        return;
+      }
+      await new Promise(function (resolve) { setTimeout(resolve,5000); });
+    }
+    } finally { observingCreations.delete(id); }
   }
 
   // --- Expose Form ---
@@ -909,7 +1112,7 @@
         };
 
         try {
-          await api("/v1/sandboxes/" + snapshotVMID + "/snapshot", {
+          await api("/v1/sandboxes/" + snapshotVMID + "/snapshots", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify(body),
@@ -943,10 +1146,16 @@
     document
       .getElementById("btn-prune")
       .addEventListener("click", async function () {
-        if (!confirm("Prune all stopped sandboxes? This cannot be undone."))
-          return;
         try {
-          await api("/v1/sandboxes/prune", { method: "POST" });
+          var previewRes = await api("/v1/sandboxes/prune?dry_run=true", {method:"POST"});
+          var preview = await previewRes.json();
+          if (!preview.outcomes.length) { alert("No timed-out sandboxes to prune."); return; }
+          if (!confirm("Destroy these timed-out sandboxes? " + preview.outcomes.map(function (item) { return item.vmid + " (" + item.name + ")"; }).join(", "))) return;
+          var query = preview.outcomes.map(function (item) {return "vmid=" + item.vmid;}).join("&");
+          var resultRes = await api("/v1/sandboxes/prune?" + query, {method:"POST"});
+          var result = await resultRes.json();
+          var failed = result.outcomes.filter(function (item) {return item.outcome !== "destroyed";});
+          alert("Pruned " + result.count + " sandboxes." + (failed.length ? " Targets not destroyed: " + failed.map(function (item) {return item.vmid + ": " + item.outcome + " " + item.error + (item.retryable ? " (retryable)" : "");}).join("; ") : ""));
           await loadSandboxes();
         } catch (e) {
           alert("Failed to prune: " + e.message);
@@ -957,6 +1166,17 @@
   // --- Init ---
 
   function init() {
+    document.addEventListener("keydown", function (event) {
+      var modal = Array.from(document.querySelectorAll(".modal")).find(function (item) {return item.style.display === "flex";});
+      if (!modal) return;
+      if (event.key === "Escape") {event.preventDefault();closeModal(modal.id);}
+      if (event.key === "Tab") {
+        var items = modalFocusables(modal);
+        var first = items[0] || modal, last = items[items.length - 1] || modal;
+        if (event.shiftKey && (document.activeElement === first || document.activeElement === modal)) {event.preventDefault();last.focus();}
+        else if (!event.shiftKey && (document.activeElement === last || document.activeElement === modal)) {event.preventDefault();first.focus();}
+      }
+    });
     initTabs();
     initNewSandboxForm();
     initExposeForm();
@@ -971,8 +1191,17 @@
       });
     });
 
-    document.getElementById("btn-refresh").addEventListener("click", refreshAll);
+    document.getElementById("btn-refresh").addEventListener("click", function () { authPaused = false; refreshAll(); });
 
+    document.getElementById("event-scope-load").addEventListener("click", loadEvents);
+    document.getElementById("job-next").addEventListener("click",function () {if(jobNextCursor){jobCursorHistory.push(jobCursor);jobCursor=jobNextCursor;loadJobs();}});
+    document.getElementById("job-previous").addEventListener("click",function () {jobCursor=jobCursorHistory.pop()||"";loadJobs();});
+
+    ["sandbox-search","sandbox-state-filter","sandbox-profile-filter","sandbox-history"].forEach(function (id) {
+      document.getElementById(id).addEventListener("change",function () {sandboxPage=0;loadSandboxes();});
+    });
+    document.getElementById("sandbox-previous").addEventListener("click",function () {sandboxPage=Math.max(0,sandboxPage-1);loadSandboxes();});
+    document.getElementById("sandbox-next").addEventListener("click",function () {sandboxPage++;loadSandboxes();});
     // Load profiles for the form.
     loadProfiles();
 

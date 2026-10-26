@@ -47,3 +47,25 @@ func TestHandleSchema(t *testing.T) {
 	assert.GreaterOrEqual(t, len(resp.Resources), 1)
 	assert.GreaterOrEqual(t, len(resp.EventKinds), 1)
 }
+
+func TestSchemaRequestDefinitions(t *testing.T) {
+	response := buildSchemaResponse()
+	for _, resource := range response.Resources {
+		if resource.RequestType != "" {
+			if _, ok := response.Definitions[resource.RequestType]; !ok {
+				t.Errorf("missing request definition %s for %s", resource.RequestType, resource.Path)
+			}
+		}
+		if resource.Path == "/v1/jobs/{id}/events" {
+			t.Error("advertised unimplemented events endpoint")
+		}
+	}
+	create, ok := response.Definitions["V1SandboxCreateRequest"].(map[string]any)
+	require.True(t, ok)
+	assert.Equal(t, []string{"profile"}, create["required"])
+	properties := create["properties"].(map[string]any)
+	assert.Contains(t, properties, "workspace_id")
+	assert.Contains(t, properties, "keepalive")
+	assert.Contains(t, properties, "ttl_minutes")
+	require.NotEmpty(t, create["examples"])
+}

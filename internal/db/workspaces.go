@@ -388,3 +388,24 @@ func (s *Store) ClearWorkspaceLease(ctx context.Context, id string) (bool, error
 	}
 	return affected > 0, nil
 }
+
+// ReleaseWorkspaceLeaseForSandbox releases a captured lease only while its owner
+// still belongs to vmid. The binding and nonce checks share the same SQL update,
+// so session rebinds and new lease generations cannot race stale cleanup.
+func (s *Store) ReleaseWorkspaceLeaseForSandbox(ctx context.Context, id, owner, nonce string, vmid int) (bool, error) {
+	if s == nil || s.DB == nil {
+		return false, errors.New("db store is nil")
+	}
+	if strings.TrimSpace(id) == "" || strings.TrimSpace(owner) == "" || strings.TrimSpace(nonce) == "" || vmid <= 0 {
+		return false, errors.New("workspace, owner, nonce and positive vmid are required")
+	}
+	result, err := s.DB.ExecContext(ctx, `UPDATE workspaces SET lease_owner=NULL,lease_nonce=NULL,lease_expires_at=NULL,updated_at=?
+ WHERE id=? AND lease_owner=? AND lease_nonce=? AND (
+ lease_owner=? OR EXISTS(SELECT 1 FROM jobs WHERE 'job:' || jobs.id = workspaces.lease_owner AND jobs.workspace_id=workspaces.id AND jobs.sandbox_vmid=?)
+ OR EXISTS(SELECT 1 FROM sessions WHERE 'session:' || sessions.id=workspaces.lease_owner AND sessions.workspace_id=workspaces.id AND sessions.current_vmid=?))`, formatTime(time.Now().UTC()), id, owner, nonce, fmt.Sprintf("sandbox:%d", vmid), vmid, vmid)
+	if err != nil {
+		return false, fmt.Errorf("release workspace lease for sandbox %d: %w", vmid, err)
+	}
+	n, err := result.RowsAffected()
+	return n > 0, err
+}

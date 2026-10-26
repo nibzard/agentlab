@@ -145,15 +145,14 @@ docs-snippets:
 docs-check: docs-lint docs-links docs-typos docs-snippets
 
 docs-gen:
+	python3 scripts/dev/generate_api_schema.py
+	python3 scripts/dev/generate_cli_contract.py
 	./scripts/dev/gen_cli_docs.sh
 
 docs-verify:
-	./scripts/dev/gen_cli_docs.sh
-	@if [ -n "$$(git status --porcelain -- docs/reference/cli.md)" ]; then \
-		echo "docs/reference/cli.md is out of date. Run 'make docs-gen'."; \
-		git status --porcelain -- docs/reference/cli.md; \
-		exit 1; \
-	fi
+	python3 scripts/dev/generate_api_schema.py --check
+	python3 scripts/dev/generate_cli_contract.py --check
+	./scripts/dev/gen_cli_docs.sh --check
 
 release-snapshot:
 	$(GORELEASER) release --snapshot --clean
@@ -163,3 +162,9 @@ release-check:
 
 clean:
 	rm -rf $(BIN_DIR) $(DIST_DIR)
+
+# Safe public-contract fixtures; no live infrastructure or release publication.
+.PHONY: test-contracts
+test-contracts:
+	TMPDIR=/tmp $(GO) test ./cmd/agentlab ./internal/api ./internal/daemon ./internal/dashboard ./internal/db ./internal/clicontract
+	python3 scripts/dev/install_test.py

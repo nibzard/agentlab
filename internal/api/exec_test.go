@@ -3,8 +3,10 @@ package api
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"io"
 	"log"
+	"math"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -12,6 +14,7 @@ import (
 	"strings"
 	"testing"
 	"time"
+	"unicode/utf8"
 )
 
 func TestBuildExecArgs(t *testing.T) {
@@ -51,39 +54,6 @@ func TestBuildExecArgs(t *testing.T) {
 				if got[i] != tc.want[i] {
 					t.Errorf("buildExecArgs[%d] = %q, want %q", i, got[i], tc.want[i])
 				}
-			}
-		})
-	}
-}
-
-func TestIsValidCLICommand(t *testing.T) {
-	tests := []struct {
-		cmd  string
-		want bool
-	}{
-		{"sandbox", true},
-		{"status", true},
-		{"new", true},
-		{"ls", true},
-		{"ssh", true},
-		{"rm", true},
-		{"job", true},
-		{"workspace", true},
-		{"session", true},
-		{"profile", true},
-		{"version", true},
-		{"help", true},
-		{"--json", true},
-		{"-v", true},
-		{"bogus", false},
-		{"unknowncmd", false},
-	}
-
-	for _, tc := range tests {
-		t.Run(tc.cmd, func(t *testing.T) {
-			got := isValidCLICommand(tc.cmd)
-			if got != tc.want {
-				t.Errorf("isValidCLICommand(%q) = %v, want %v", tc.cmd, got, tc.want)
 			}
 		})
 	}
@@ -187,6 +157,16 @@ func TestExecAPI_HandleDryRun(t *testing.T) {
 		wantOK  bool
 		wantErr bool
 	}{
+
+		{name: "invalid nested command", body: `{"command":"sandbox imaginary --bogus"}`, wantErr: true},
+		{name: "invalid flag after global flag", body: `{"command":"--json sandbox show 123 --bogus"}`, wantErr: true},
+		{name: "missing operand", body: `{"command":"sandbox show"}`, wantErr: true},
+		{name: "missing required flags", body: `{"command":"job run"}`, wantErr: true},
+		{name: "default-dependent sandbox profile", body: `{"args":["sandbox","new"]}`, wantOK: true},
+		{name: "remote quoted argv", body: `{"args":["ssh","123","echo","quoted value","--json"]}`, wantOK: true},
+		{name: "empty modifier", body: `{"args":["sandbox","new","+"]}`, wantErr: true},
+		{name: "invalid numeric target", body: `{"args":["sandbox","show","bad"]}`, wantErr: true},
+		{name: "implemented pool command", body: `{"command":"pool status"}`, wantOK: true},
 		{
 			name:   "valid sandbox command",
 			body:   `{"command": "sandbox list --json"}`,
@@ -224,6 +204,12 @@ func TestExecAPI_HandleDryRun(t *testing.T) {
 			var resp ExecDryRunResponse
 			if err := json.NewDecoder(rec.Body).Decode(&resp); err != nil {
 				t.Fatalf("decode response: %v", err)
+			}
+			if len(resp.Deferred) == 0 {
+				t.Error("missing deferred context checks")
+			}
+			if resp.Validation != "syntax" {
+				t.Errorf("validation level %q", resp.Validation)
 			}
 			if resp.OK != tc.wantOK {
 				t.Errorf("ok = %v, want %v", resp.OK, tc.wantOK)
@@ -469,6 +455,7 @@ func TestApplyExecTimeout(t *testing.T) {
 		{-5, defaultExecTimeout}, // negative → server default
 		{30, 30 * time.Second},   // normal
 		{3600, maxExecTimeout},   // exactly the ceiling
+		{math.MaxInt, maxExecTimeout},
 		{999999, maxExecTimeout}, // above ceiling → clamped
 	}
 	for _, tc := range cases {
@@ -548,14 +535,13 @@ func TestExecAPI_HandleExec_StreamingBothStreams(t *testing.T) {
 // TestExecAPI_HandleExec_StreamingOutputCap verifies that streaming enforces a
 // total output limit rather than streaming unbounded output (review H1).
 func TestExecAPI_HandleExec_StreamingOutputCap(t *testing.T) {
-	script := writeFloodScript(t, "while true; do echo xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx; done")
+	script := writeFloodScript(t, "head -c 6291456 /dev/zero | tr '\\000' x")
 	api := NewExecAPI(script, "/tmp/test.sock", log.New(io.Discard, "", 0))
 	mux := http.NewServeMux()
 	api.Register(mux)
 
-	// Keep the timeout short so the runaway process is reaped promptly after
-	// the cap is reached.
-	body := `{"command": "run", "stream": true, "timeout": 2}`
+	// Finite deterministic output exceeds the cap without relying on shell-loop speed.
+	body := `{"command": "run", "stream": true, "timeout": 30}`
 	req := httptest.NewRequest(http.MethodPost, "/v1/exec", strings.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
 	rec := httptest.NewRecorder()
@@ -573,4 +559,162 @@ func TestExecAPI_HandleExec_StreamingOutputCap(t *testing.T) {
 	if len(out) > 16<<20 {
 		t.Errorf("streamed response far exceeded cap: %d bytes", len(out))
 	}
+}
+
+func TestExecTimeoutContract(t *testing.T) {
+	script := writeFloodScript(t, "exec sleep 5")
+	api := NewExecAPI(script, "/tmp/test.sock", log.New(io.Discard, "", 0))
+	for _, stream := range []bool{false, true} {
+		body := fmt.Sprintf(`{"args":["status"],"timeout":1,"stream":%t}`, stream)
+		req := httptest.NewRequest(http.MethodPost, "/v1/exec", strings.NewReader(body))
+		rec := httptest.NewRecorder()
+		api.handleExec(rec, req)
+		if stream {
+			if !strings.Contains(rec.Body.String(), `"code":124`) || !strings.Contains(rec.Body.String(), `"timed_out":true`) {
+				t.Fatal(rec.Body.String())
+			}
+		} else {
+			var result ExecResponse
+			if err := json.Unmarshal(rec.Body.Bytes(), &result); err != nil {
+				t.Fatal(err)
+			}
+			if result.ExitCode != 124 || !result.TimedOut {
+				t.Fatalf("%+v", result)
+			}
+		}
+	}
+}
+
+func TestExecCaptureTruncationContract(t *testing.T) {
+	script := writeFloodScript(t, "head -c 6291456 /dev/zero | tr '\\000' x")
+	api := NewExecAPI(script, "/tmp/test.sock", log.New(io.Discard, "", 0))
+	rec := httptest.NewRecorder()
+	api.handleExec(rec, httptest.NewRequest(http.MethodPost, "/v1/exec", strings.NewReader(`{"args":["status"]}`)))
+	var result ExecResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &result); err != nil {
+		t.Fatal(err)
+	}
+	if result.ExitCode != 0 || !result.StdoutTruncated || result.StdoutCapturedBytes != maxOutputBytes || result.StdoutDroppedBytes != 2<<20 {
+		t.Fatalf("exit=%d truncated=%t captured=%d dropped=%d", result.ExitCode, result.StdoutTruncated, result.StdoutCapturedBytes, result.StdoutDroppedBytes)
+	}
+}
+
+func TestExecUnicodeTruncationBothStreams(t *testing.T) {
+	data := strings.Repeat("界", maxOutputBytes/3+10)
+	path := filepath.Join(t.TempDir(), "unicode.txt")
+	if err := os.WriteFile(path, []byte(data), 0600); err != nil {
+		t.Fatal(err)
+	}
+	quoted := "'" + strings.ReplaceAll(path, "'", "'\\''") + "'"
+	script := writeFloodScript(t, "cat "+quoted+"\ncat "+quoted+" >&2")
+	api := NewExecAPI(script, "/tmp/test.sock", log.New(io.Discard, "", 0))
+	for _, stream := range []bool{false, true} {
+		t.Run(fmt.Sprintf("stream=%t", stream), func(t *testing.T) {
+			rec := httptest.NewRecorder()
+			body := fmt.Sprintf(`{"args":["status"],"stream":%t}`, stream)
+			api.handleExec(rec, httptest.NewRequest(http.MethodPost, "/v1/exec", strings.NewReader(body)))
+			if !stream {
+				var result ExecResponse
+				if err := json.Unmarshal(rec.Body.Bytes(), &result); err != nil {
+					t.Fatal(err)
+				}
+				for _, output := range []string{result.Stdout, result.Stderr} {
+					if strings.ContainsRune(output, '\uFFFD') || !utf8.ValidString(output) || len(output) != maxOutputBytes-1 {
+						t.Fatalf("invalid captured UTF-8 or size: %d", len(output))
+					}
+				}
+				if !result.StdoutTruncated || !result.StderrTruncated || result.StdoutCapturedBytes+result.StdoutDroppedBytes != int64(len(data)) || result.StderrCapturedBytes+result.StderrDroppedBytes != int64(len(data)) {
+					t.Fatal("capture metadata does not account for both streams")
+				}
+				if result.ExitCode != 0 {
+					t.Fatalf("truncation changed exit: %d", result.ExitCode)
+				}
+			} else {
+				total := 0
+				truncated := map[string]SSEEvent{}
+				exit := false
+				for _, line := range strings.Split(rec.Body.String(), "\n") {
+					if !strings.HasPrefix(line, "data: ") {
+						continue
+					}
+					var event SSEEvent
+					if err := json.Unmarshal([]byte(strings.TrimPrefix(line, "data: ")), &event); err != nil {
+						t.Fatal(err)
+					}
+					switch event.Type {
+					case "stdout", "stderr":
+						if event.Data == "output limit exceeded" {
+							continue
+						}
+						if strings.ContainsRune(event.Data, '\uFFFD') || !utf8.ValidString(event.Data) {
+							t.Fatal("stream split a Unicode rune")
+						}
+						total += len(event.Data)
+					case "truncation":
+						truncated[event.Stream] = event
+					case "exit":
+						exit = true
+						if event.Code != 0 {
+							t.Fatalf("exit %d", event.Code)
+						}
+					}
+				}
+				if total > maxOutputBytes || !exit {
+					t.Fatal("stream exceeded cap or lost exit")
+				}
+				for _, label := range []string{"stdout", "stderr"} {
+					event, ok := truncated[label]
+					if !ok || event.CapturedBytes+event.DroppedBytes != int64(len(data)) {
+						t.Fatalf("%s truncation accounting: %+v", label, event)
+					}
+				}
+			}
+		})
+	}
+}
+
+func TestExecStreamingSmallOutputArrivesBeforeExit(t *testing.T) {
+	// The child waits for an acknowledgement written by the HTTP output sink.
+	// Buffering until 4 KiB/EOF would deadlock until the timeout and fail this test.
+	ack := filepath.Join(t.TempDir(), "ack")
+	quoted := "'" + strings.ReplaceAll(ack, "'", "'\\''") + "'"
+	script := writeFloodScript(t, "printf '界'\nwhile [ ! -f "+quoted+" ]; do sleep 0.01; done\nprintf done")
+	api := NewExecAPI(script, "/tmp/test.sock", log.New(io.Discard, "", 0))
+	sink := &acknowledgingResponse{ResponseRecorder: httptest.NewRecorder(), path: ack}
+	api.handleExec(sink, httptest.NewRequest(http.MethodPost, "/v1/exec", strings.NewReader(`{"args":["status"],"stream":true,"timeout":3}`)))
+	var terminal SSEEvent
+	for _, line := range strings.Split(sink.Body.String(), "\n") {
+		if strings.HasPrefix(line, "data: ") {
+			var event SSEEvent
+			if err := json.Unmarshal([]byte(strings.TrimPrefix(line, "data: ")), &event); err != nil {
+				t.Fatal(err)
+			}
+			if event.Type == "exit" {
+				terminal = event
+			}
+		}
+	}
+	if terminal.Type != "exit" || terminal.Code != 0 || terminal.TimedOut {
+		t.Fatalf("small output did not stream before exit: %+v", terminal)
+	}
+	if _, err := os.Stat(ack); err != nil {
+		t.Fatal("no live output acknowledgement")
+	}
+	if !strings.Contains(sink.Body.String(), "done") {
+		t.Fatal("child did not complete after streamed acknowledgement")
+	}
+}
+
+type acknowledgingResponse struct {
+	*httptest.ResponseRecorder
+	path string
+}
+
+func (r *acknowledgingResponse) Write(data []byte) (int, error) {
+	if bytes.Contains(data, []byte("界")) {
+		if err := os.WriteFile(r.path, []byte("ack"), 0600); err != nil {
+			return 0, err
+		}
+	}
+	return r.ResponseRecorder.Write(data)
 }

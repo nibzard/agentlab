@@ -21,15 +21,15 @@ func TestControlAPIErrorResponses(t *testing.T) {
 	api.Register(mux)
 
 	t.Run("method not allowed returns 405 with allow header", func(t *testing.T) {
-		req := httptest.NewRequest(http.MethodGet, "/v1/jobs", nil)
+		req := httptest.NewRequest(http.MethodDelete, "/v1/jobs", nil)
 		rec := httptest.NewRecorder()
 		mux.ServeHTTP(rec, req)
 
 		if rec.Code != http.StatusMethodNotAllowed {
 			t.Fatalf("status = %d, want %d", rec.Code, http.StatusMethodNotAllowed)
 		}
-		if allow := rec.Header().Get("Allow"); allow != http.MethodPost {
-			t.Fatalf("allow header = %q, want %q", allow, http.MethodPost)
+		if allow := rec.Header().Get("Allow"); allow != http.MethodGet+", "+http.MethodPost {
+			t.Fatalf("allow header = %q, want %q", allow, http.MethodGet+", "+http.MethodPost)
 		}
 	})
 

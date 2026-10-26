@@ -25,6 +25,9 @@
   </nav>
 
   <main>
+    <p id="data-status" role="status"></p>
+    <p id="create-progress" role="status"></p>
+    <button id="create-resume" type="button" hidden>Resume saved creation request</button>
     <!-- Status bar -->
     <section id="status-bar" class="status-bar">
       <span id="status-sandboxes"></span>
@@ -39,10 +42,18 @@
         <h2>Sandboxes</h2>
         <div class="view-header-actions">
           <button id="btn-stop-all" class="btn btn-sm">Stop All</button>
-          <button id="btn-prune" class="btn btn-sm">Prune Stopped</button>
+          <button id="btn-prune" class="btn btn-sm">Prune Timed-out Sandboxes</button>
           <button id="btn-new-sandbox" class="btn btn-primary">+ New Sandbox</button>
         </div>
       </div>
+      <div class="view-header-actions">
+        <label>Search <input id="sandbox-search" type="search"></label>
+        <label>State <input id="sandbox-state-filter" placeholder="e.g. RUNNING"></label>
+        <label>Profile <input id="sandbox-profile-filter"></label>
+        <label><input id="sandbox-history" type="checkbox"> Include destroyed history</label>
+        <button id="sandbox-previous">Previous</button><button id="sandbox-next">Next</button>
+      </div>
+      <p id="sandbox-page-status" role="status"></p>
       <table class="data-table">
         <thead>
           <tr>
@@ -65,6 +76,7 @@
     <section id="view-jobs" class="view">
       <div class="view-header">
         <h2>Jobs</h2>
+        <button id="job-previous">Previous</button><button id="job-next">Next</button>
       </div>
       <table class="data-table">
         <thead>
@@ -75,6 +87,7 @@
             <th>Profile</th>
             <th>Status</th>
             <th>Created</th>
+            <th>Sandbox</th><th>Workspace</th>
             <th>Actions</th>
           </tr>
         </thead>
@@ -128,8 +141,12 @@
     <!-- Events view -->
     <section id="view-events" class="view">
       <div class="view-header">
-        <h2>Recent Events</h2>
+        <h2>Failures and Scoped Messages</h2>
+        <label>Message scope <select id="event-scope-type"><option value="">None</option><option value="job">Job</option><option value="workspace">Workspace</option><option value="session">Session</option></select></label>
+        <label>Scope ID <input id="event-scope-id"></label>
+        <button id="event-scope-load">Load messages</button>
       </div>
+      <p id="events-status" role="status"></p>
       <div id="events-list" class="events-list"></div>
       <p id="event-empty" class="empty-state hidden">No recent events.</p>
     </section>

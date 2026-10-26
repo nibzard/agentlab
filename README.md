@@ -235,12 +235,12 @@ stateDiagram-v2
 | READY | VM ready but not running | show, logs, destroy |
 | RUNNING | VM actively running | show, logs, destroy, lease renew |
 | STOPPED | VM stopped | show, logs, start, destroy |
-| TIMEOUT | Lease expired, VM may be gone | show, logs, destroy (--force) |
+| TIMEOUT | Lease expired, VM may be gone | show, logs, destroy |
 | DESTROYED | VM destroyed | show |
 | FAILED | VM provisioning failed | show, logs |
 
 **Notes:**
-- Use `--force` with `sandbox destroy` to bypass state restrictions
+- Normal and forced `sandbox destroy` share the same stop, detach and cleanup path
 - Use `sandbox prune` to remove orphaned TIMEOUT sandboxes
 - Lease renewal only allowed in RUNNING state
 
@@ -524,13 +524,13 @@ control plane.
 ```bash
 agentlab sandbox destroy 1020
 
-# Force destroy (bypasses state checks)
+# Force destroy (compatibility alias for the same stop/detach/cleanup path)
 agentlab sandbox destroy --force 1020
 ```
 
 **Allowed transitions:**
-- Any state → DESTROYED (with `--force`)
-- TIMEOUT/DESTROYED → DESTROYED (normal)
+- Every supported sandbox state → DESTROYED (normal or `--force`)
+- Repeated destruction of DESTROYED is safe
 
 #### Revert Sandbox (Rollback to Clean Snapshot)
 

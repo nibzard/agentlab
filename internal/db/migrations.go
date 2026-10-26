@@ -405,6 +405,9 @@ var migrations = []migration{
 			`CREATE INDEX idx_sandbox_static_ips_vmid ON sandbox_static_ips(vmid)`,
 		},
 	},
+	{version: 22, name: "create_operations", statements: []string{
+		`CREATE TABLE operations (id TEXT PRIMARY KEY, caller TEXT NOT NULL, request_key TEXT NOT NULL, payload TEXT NOT NULL, state TEXT NOT NULL, vmid INTEGER REFERENCES sandboxes(vmid), http_status INTEGER NOT NULL DEFAULT 0, result TEXT NOT NULL DEFAULT '', UNIQUE(caller,request_key))`,
+	}},
 }
 
 // Migrate runs any pending migrations against the provided database.

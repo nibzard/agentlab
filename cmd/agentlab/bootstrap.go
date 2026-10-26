@@ -10,12 +10,11 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/agentlab/agentlab/internal/clicontract"
 	"io"
-	"net"
 	"os"
 	"os/exec"
 	"path/filepath"
-	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -128,26 +127,26 @@ func runBootstrapCommand(ctx context.Context, args []string, base commonFlags) e
 		return err
 	}
 	if bootstrap.tailscaleServe && bootstrap.noTailscaleServe {
-		return fmt.Errorf("--tailscale-serve and --no-tailscale-serve are mutually exclusive")
+		return newUsageError(fmt.Errorf("--tailscale-serve and --no-tailscale-serve are mutually exclusive"), false)
 	}
 	bootstrap.host = strings.TrimSpace(bootstrap.host)
 	if bootstrap.host == "" {
 		if !opts.jsonOutput {
 			printBootstrapUsage()
 		}
-		return fmt.Errorf("host is required")
+		return newUsageError(fmt.Errorf("host is required"), false)
 	}
 	if bootstrap.sshPort <= 0 || bootstrap.sshPort > 65535 {
-		return fmt.Errorf("ssh-port must be between 1 and 65535")
+		return newUsageError(fmt.Errorf("ssh-port must be between 1 and 65535"), false)
 	}
 	if bootstrap.controlPort <= 0 || bootstrap.controlPort > 65535 {
-		return fmt.Errorf("control-port must be between 1 and 65535")
+		return newUsageError(fmt.Errorf("control-port must be between 1 and 65535"), false)
 	}
 	if cfg, ok := tailscaleAdminConfigFromFlags(tailscaleTailnet, tailscaleAPIKey, tailscaleOAuthClientID, tailscaleOAuthClientSecret, tailscaleOAuthScopes); ok {
 		bootstrap.tailscaleAdmin = mergeTailscaleAdminConfig(bootstrap.tailscaleAdmin, cfg)
 	}
 	if err := validateTailscaleAdminConfig(bootstrap.tailscaleAdmin); err != nil {
-		return err
+		return newUsageError(err, false)
 	}
 
 	assetsRoot, err := resolveBootstrapAssets(bootstrap.assetsDir)
@@ -679,17 +678,7 @@ func (c *bootstrapSSHClient) upload(ctx context.Context, localPath, remotePath s
 	return err
 }
 
-func splitUserHost(raw string) (string, string) {
-	value := strings.TrimSpace(raw)
-	if value == "" {
-		return "", ""
-	}
-	idx := strings.LastIndex(value, "@")
-	if idx == -1 {
-		return "", value
-	}
-	return value[:idx], value[idx+1:]
-}
+func splitUserHost(raw string) (string, string) { return clicontract.SplitUserHost(raw) }
 
 func buildRemoteDownloadArgs(remoteRoot string, binaries bootstrapBinaries) []string {
 	dest := filepath.Join(remoteRoot, "dist")
@@ -863,48 +852,5 @@ func validateRemoteArg(arg string) error {
 	return nil
 }
 
-var sshUserPattern = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9._+-]*$`)
-var sshHostPattern = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9._-]*$`)
-
-func validateSSHUser(user string) error {
-	if strings.TrimSpace(user) == "" {
-		return fmt.Errorf("ssh user is required")
-	}
-	if !sshUserPattern.MatchString(user) {
-		return fmt.Errorf("ssh user contains invalid characters")
-	}
-	return nil
-}
-
-func validateSSHHost(host string) error {
-	host = strings.TrimSpace(host)
-	if host == "" {
-		return fmt.Errorf("ssh host is required")
-	}
-	if strings.HasPrefix(host, "-") {
-		return fmt.Errorf("ssh host must not start with '-'")
-	}
-	if strings.ContainsAny(host, " \t\r\n") {
-		return fmt.Errorf("ssh host must not contain whitespace")
-	}
-	trimmed := strings.TrimPrefix(host, "[")
-	trimmed = strings.TrimSuffix(trimmed, "]")
-	if ip := parseIPWithZone(trimmed); ip != nil {
-		return nil
-	}
-	if strings.Contains(host, ":") {
-		return fmt.Errorf("ssh host must not include port; use --ssh-port")
-	}
-	if !sshHostPattern.MatchString(host) {
-		return fmt.Errorf("ssh host contains invalid characters")
-	}
-	return nil
-}
-
-func parseIPWithZone(value string) net.IP {
-	ip := value
-	if idx := strings.LastIndex(ip, "%"); idx != -1 {
-		ip = ip[:idx]
-	}
-	return net.ParseIP(ip)
-}
+func validateSSHUser(value string) error { return clicontract.ValidateSSHUser(value) }
+func validateSSHHost(value string) error { return clicontract.ValidateSSHHost(value) }

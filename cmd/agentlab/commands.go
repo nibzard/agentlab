@@ -32,8 +32,8 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"github.com/agentlab/agentlab/internal/clicontract"
 	"io"
-	"math"
 	"net/http"
 	"net/url"
 	"os"
@@ -230,16 +230,29 @@ func bindHelpFlag(fs *flag.FlagSet) *bool {
 
 func parseFlags(fs *flag.FlagSet, args []string, usage func(), help *bool, jsonOutput bool) error {
 	fs.Usage = usage
-	if err := fs.Parse(args); err != nil {
-		if !jsonOutput {
-			usage()
-		}
+	ordered, err := interspersedArgs(fs, args)
+	if fs.Name() == "ssh" {
+		ordered, err = args, nil
+	}
+	if err != nil {
+		return newUsageError(err, false)
+	}
+	if err := fs.Parse(ordered); err != nil {
 		return newUsageError(err, false)
 	}
 	if help != nil && *help {
 		usage()
 		return errHelp
 	}
+	if limit := positionalLimit(fs.Name()); limit >= 0 && fs.NArg() > limit {
+		return newUsageError(fmt.Errorf("unexpected arguments: %s", strings.Join(fs.Args()[limit:], " ")), false)
+	}
+	values := map[string]string{}
+	fs.Visit(func(f *flag.Flag) { values[f.Name] = f.Value.String() })
+	if err := clicontract.ValidateOptions(fs.Name(), values); err != nil {
+		return newUsageError(err, false)
+	}
+
 	return nil
 }
 
@@ -299,7 +312,7 @@ func runSchemaCommand(ctx context.Context, args []string, base commonFlags) erro
 		if !opts.jsonOutput {
 			printSchemaUsage()
 		}
-		return fmt.Errorf("unexpected extra arguments")
+		return newUsageError(fmt.Errorf("unexpected extra arguments"), false)
 	}
 	client, err := apiClientFromFlags(opts)
 	if err != nil {
@@ -338,14 +351,14 @@ func runConnectCommand(ctx context.Context, args []string, base commonFlags) err
 		if !opts.jsonOutput {
 			printConnectUsage()
 		}
-		return fmt.Errorf("unexpected extra arguments")
+		return newUsageError(fmt.Errorf("unexpected extra arguments"), false)
 	}
 	endpointRaw := strings.TrimSpace(opts.endpoint)
 	if endpointRaw == "" {
 		if !opts.jsonOutput {
 			printConnectUsage()
 		}
-		return fmt.Errorf("endpoint is required")
+		return newUsageError(fmt.Errorf("endpoint is required"), false)
 	}
 	endpoint, err := normalizeEndpoint(endpointRaw)
 	if err != nil {
@@ -434,7 +447,7 @@ func runDisconnectCommand(ctx context.Context, args []string, base commonFlags) 
 		if !opts.jsonOutput {
 			printDisconnectUsage()
 		}
-		return fmt.Errorf("unexpected extra arguments")
+		return newUsageError(fmt.Errorf("unexpected extra arguments"), false)
 	}
 	path, err := clientConfigPath()
 	if err != nil {
@@ -476,6 +489,10 @@ func runJobCommand(ctx context.Context, args []string, base commonFlags) error {
 		return errHelp
 	}
 	switch args[0] {
+	case "wait":
+		return runWaitCommand(ctx, args[1:], base, "job")
+	case "list":
+		return runJobList(ctx, args[1:], base)
 	case "run":
 		return runJobRun(ctx, args[1:], base)
 	case "validate":
@@ -535,7 +552,7 @@ func runJobRun(ctx context.Context, args []string, base commonFlags) error {
 		if !opts.jsonOutput {
 			printJobRunUsage()
 		}
-		return fmt.Errorf("repo, profile, and task are required")
+		return newUsageError(fmt.Errorf("repo, profile, and task are required"), false)
 	}
 	ttlMinutes, err := parseTTLMinutes(ttl)
 	if err != nil {
@@ -563,22 +580,22 @@ func runJobRun(ctx context.Context, args []string, base commonFlags) error {
 			return wrapUnknownProfileError(ctx, client, profile, err)
 		}
 		if strings.TrimSpace(session.WorkspaceID) == "" {
-			return fmt.Errorf("session workspace_id is required")
+			return newUsageError(fmt.Errorf("session workspace_id is required"), false)
 		}
 		ws := strings.TrimSpace(session.WorkspaceID)
 		workspaceID = &ws
 		sessionID = &session.ID
 	} else {
 		if workspace != "" && workspaceCreate != "" {
-			return fmt.Errorf("--workspace and --workspace-create are mutually exclusive")
+			return newUsageError(fmt.Errorf("--workspace and --workspace-create are mutually exclusive"), false)
 		}
 		if strings.HasPrefix(workspace, "new:") {
 			name := strings.TrimSpace(strings.TrimPrefix(workspace, "new:"))
 			if name == "" {
-				return fmt.Errorf("workspace name is required after new")
+				return newUsageError(fmt.Errorf("workspace name is required after new"), false)
 			}
 			if workspaceCreate != "" {
-				return fmt.Errorf("--workspace new:<name> cannot be combined with --workspace-create")
+				return newUsageError(fmt.Errorf("--workspace new:<name> cannot be combined with --workspace-create"), false)
 			}
 			workspaceCreate = name
 			workspace = ""
@@ -603,7 +620,7 @@ func runJobRun(ctx context.Context, args []string, base commonFlags) error {
 				if stateful {
 					sizeGB = defaultStatefulWorkspaceSizeGB
 				} else {
-					return fmt.Errorf("--workspace-size is required when creating a workspace")
+					return newUsageError(fmt.Errorf("--workspace-size is required when creating a workspace"), false)
 				}
 			} else {
 				sizeGB, err = parseSizeGB(workspaceSize)
@@ -621,7 +638,7 @@ func runJobRun(ctx context.Context, args []string, base commonFlags) error {
 				Storage: storage,
 			}
 		} else if workspaceSize != "" || workspaceStorage != "" {
-			return fmt.Errorf("--workspace-size/--workspace-storage require workspace creation (use --workspace new:<name> or --workspace-create)")
+			return newUsageError(fmt.Errorf("--workspace-size/--workspace-storage require workspace creation (use --workspace new:<name> or --workspace-create)"), false)
 		}
 	}
 	if workspaceWait != "" {
@@ -630,7 +647,7 @@ func runJobRun(ctx context.Context, args []string, base commonFlags) error {
 			return err
 		}
 		if workspaceID == nil && workspaceCreateReq == nil {
-			return fmt.Errorf("--workspace-wait requires --workspace or --workspace-create")
+			return newUsageError(fmt.Errorf("--workspace-wait requires --workspace or --workspace-create"), false)
 		}
 	}
 	req := jobCreateRequest{
@@ -704,7 +721,7 @@ func runJobValidate(ctx context.Context, args []string, base commonFlags) error 
 		if !opts.jsonOutput {
 			printJobValidateUsage()
 		}
-		return fmt.Errorf("repo, profile, and task are required")
+		return newUsageError(fmt.Errorf("repo, profile, and task are required"), false)
 	}
 	ttlMinutes, err := parseTTLMinutes(ttl)
 	if err != nil {
@@ -732,22 +749,22 @@ func runJobValidate(ctx context.Context, args []string, base commonFlags) error 
 			return wrapUnknownProfileError(ctx, client, profile, err)
 		}
 		if strings.TrimSpace(session.WorkspaceID) == "" {
-			return fmt.Errorf("session workspace_id is required")
+			return newUsageError(fmt.Errorf("session workspace_id is required"), false)
 		}
 		ws := strings.TrimSpace(session.WorkspaceID)
 		workspaceID = &ws
 		sessionID = &session.ID
 	} else {
 		if workspace != "" && workspaceCreate != "" {
-			return fmt.Errorf("--workspace and --workspace-create are mutually exclusive")
+			return newUsageError(fmt.Errorf("--workspace and --workspace-create are mutually exclusive"), false)
 		}
 		if strings.HasPrefix(workspace, "new:") {
 			name := strings.TrimSpace(strings.TrimPrefix(workspace, "new:"))
 			if name == "" {
-				return fmt.Errorf("workspace name is required after new")
+				return newUsageError(fmt.Errorf("workspace name is required after new"), false)
 			}
 			if workspaceCreate != "" {
-				return fmt.Errorf("--workspace new:<name> cannot be combined with --workspace-create")
+				return newUsageError(fmt.Errorf("--workspace new:<name> cannot be combined with --workspace-create"), false)
 			}
 			workspaceCreate = name
 			workspace = ""
@@ -772,7 +789,7 @@ func runJobValidate(ctx context.Context, args []string, base commonFlags) error 
 				if stateful {
 					sizeGB = defaultStatefulWorkspaceSizeGB
 				} else {
-					return fmt.Errorf("--workspace-size is required when creating a workspace")
+					return newUsageError(fmt.Errorf("--workspace-size is required when creating a workspace"), false)
 				}
 			} else {
 				sizeGB, err = parseSizeGB(workspaceSize)
@@ -790,7 +807,7 @@ func runJobValidate(ctx context.Context, args []string, base commonFlags) error 
 				Storage: storage,
 			}
 		} else if workspaceSize != "" || workspaceStorage != "" {
-			return fmt.Errorf("--workspace-size/--workspace-storage require workspace creation (use --workspace new:<name> or --workspace-create)")
+			return newUsageError(fmt.Errorf("--workspace-size/--workspace-storage require workspace creation (use --workspace new:<name> or --workspace-create)"), false)
 		}
 	}
 	if workspaceWait != "" {
@@ -799,7 +816,7 @@ func runJobValidate(ctx context.Context, args []string, base commonFlags) error 
 			return err
 		}
 		if workspaceID == nil && workspaceCreateReq == nil {
-			return fmt.Errorf("--workspace-wait requires --workspace or --workspace-create")
+			return newUsageError(fmt.Errorf("--workspace-wait requires --workspace or --workspace-create"), false)
 		}
 	}
 	req := jobValidatePlanRequest{
@@ -865,11 +882,11 @@ func runJobShow(ctx context.Context, args []string, base commonFlags) error {
 		if !opts.jsonOutput {
 			printJobShowUsage()
 		}
-		return fmt.Errorf("job_id is required")
+		return newUsageError(fmt.Errorf("job_id is required"), false)
 	}
 	jobID := strings.TrimSpace(fs.Arg(0))
 	if jobID == "" {
-		return fmt.Errorf("job_id is required")
+		return newUsageError(fmt.Errorf("job_id is required"), false)
 	}
 
 	client, err := apiClientFromFlags(opts)
@@ -935,11 +952,11 @@ func runJobArtifactsList(ctx context.Context, args []string, base commonFlags) e
 		if !opts.jsonOutput {
 			printJobArtifactsUsage()
 		}
-		return fmt.Errorf("job_id is required")
+		return newUsageError(fmt.Errorf("job_id is required"), false)
 	}
 	jobID := strings.TrimSpace(fs.Arg(0))
 	if jobID == "" {
-		return fmt.Errorf("job_id is required")
+		return newUsageError(fmt.Errorf("job_id is required"), false)
 	}
 
 	client, err := apiClientFromFlags(opts)
@@ -987,16 +1004,16 @@ func runJobArtifactsDownload(ctx context.Context, args []string, base commonFlag
 		if !opts.jsonOutput {
 			printJobArtifactsDownloadUsage()
 		}
-		return fmt.Errorf("job_id is required")
+		return newUsageError(fmt.Errorf("job_id is required"), false)
 	}
 	jobID := strings.TrimSpace(fs.Arg(0))
 	if jobID == "" {
-		return fmt.Errorf("job_id is required")
+		return newUsageError(fmt.Errorf("job_id is required"), false)
 	}
 	path = strings.TrimSpace(path)
 	name = strings.TrimSpace(name)
 	if path != "" && name != "" {
-		return fmt.Errorf("path and name are mutually exclusive")
+		return newUsageError(fmt.Errorf("path and name are mutually exclusive"), false)
 	}
 	if path == "" && name == "" && !latest && !bundle {
 		bundle = true
@@ -1096,11 +1113,11 @@ func runJobDoctor(ctx context.Context, args []string, base commonFlags) error {
 		if !opts.jsonOutput {
 			printJobDoctorUsage()
 		}
-		return fmt.Errorf("job_id is required")
+		return newUsageError(fmt.Errorf("job_id is required"), false)
 	}
 	jobID := strings.TrimSpace(fs.Arg(0))
 	if jobID == "" {
-		return fmt.Errorf("job_id is required")
+		return newUsageError(fmt.Errorf("job_id is required"), false)
 	}
 	bundleName := defaultDoctorBundleName("job", jobID)
 	path, err := endpointPath("/v1/jobs", jobID, "doctor")
@@ -1124,6 +1141,8 @@ func runSandboxCommand(ctx context.Context, args []string, base commonFlags) err
 		return errHelp
 	}
 	switch args[0] {
+	case "wait":
+		return runWaitCommand(ctx, args[1:], base, "sandbox")
 	case "new":
 		return runSandboxNew(ctx, args[1:], base)
 	case "validate":
@@ -1333,6 +1352,8 @@ func runSandboxNew(ctx context.Context, args []string, base commonFlags) error {
 	fs := newFlagSet("sandbox new")
 	opts := base
 	opts.bind(fs)
+	var noWait bool
+	var idempotencyKey string
 	var name string
 	var profile string
 	var ttl string
@@ -1346,6 +1367,8 @@ func runSandboxNew(ctx context.Context, args []string, base commonFlags) error {
 	var prompt string
 	var tags stringSliceFlag
 	help := bindHelpFlag(fs)
+	fs.BoolVar(&noWait, "no-wait", false, "return an operation identifier before provisioning finishes")
+	fs.StringVar(&idempotencyKey, "idempotency-key", "", "reuse this key for safe create retries")
 	fs.StringVar(&name, "name", "", "sandbox name")
 	fs.StringVar(&profile, "profile", "", "profile name")
 	fs.StringVar(&ttl, "ttl", "", ttlFlagDescription)
@@ -1355,7 +1378,7 @@ func runSandboxNew(ctx context.Context, args []string, base commonFlags) error {
 	fs.BoolVar(&andSSH, "and-ssh", false, "create sandbox and immediately ssh into it")
 	fs.Var(&keepalive, "keepalive", "enable keepalive lease for sandbox")
 	fs.StringVar(&sandboxType, "type", "", "sandbox type: vm (default) or lxc")
-	fs.StringVar(&image, "image", "", "container image for LXC sandboxes (e.g., ubuntu:22.04)")
+	fs.StringVar(&image, "image", preferredValue("default-image"), "container image for LXC sandboxes (e.g., ubuntu:22.04)")
 	fs.StringVar(&prompt, "prompt", "", "initial agent prompt for agent-ready sandboxes")
 	fs.Var(&tags, "tag", "integration-attachment tag (repeatable; normalized to lowercase)")
 	if err := parseFlags(fs, args, printSandboxNewUsage, help, opts.jsonOutput); err != nil {
@@ -1368,23 +1391,26 @@ func runSandboxNew(ctx context.Context, args []string, base commonFlags) error {
 		}
 		return err
 	}
+	if profile == "" && len(modifiers) == 0 {
+		profile = preferredValue("default-profile")
+	}
 	profile = strings.TrimSpace(profile)
 	if profile != "" && len(modifiers) > 0 {
-		return fmt.Errorf("cannot combine --profile with modifiers")
+		return newUsageError(fmt.Errorf("cannot combine --profile with modifiers"), false)
 	}
 	if andSSH {
 		if opts.jsonOutput {
-			return fmt.Errorf("cannot use --and-ssh with --json")
+			return newUsageError(fmt.Errorf("cannot use --and-ssh with --json"), false)
 		}
 		if !isInteractive() {
-			return fmt.Errorf("--and-ssh requires an interactive terminal")
+			return newUsageError(fmt.Errorf("--and-ssh requires an interactive terminal"), false)
 		}
 	}
 	if profile == "" && len(modifiers) == 0 {
 		if !opts.jsonOutput {
 			printSandboxNewUsage()
 		}
-		return fmt.Errorf("profile is required (or provide +modifiers)")
+		return newUsageError(fmt.Errorf("profile is required (or provide +modifiers)"), false)
 	}
 	ttlMinutes, err := parseTTLMinutes(ttl)
 	if err != nil {
@@ -1437,9 +1463,37 @@ func runSandboxNew(ctx context.Context, args []string, base commonFlags) error {
 		Prompt:     prompt,
 		Tags:       tags.values,
 	}
-	payload, err := client.doJSON(ctx, http.MethodPost, "/v1/sandboxes", req)
+	path := "/v1/sandboxes"
+	if noWait || idempotencyKey != "" {
+		path += "?async=true"
+	}
+	if noWait && andSSH {
+		return newUsageError(fmt.Errorf("--no-wait cannot be combined with --and-ssh"), false)
+	}
+	payload, err := client.doJSON(ctx, http.MethodPost, path, req, map[string]string{"Idempotency-Key": idempotencyKey})
 	if err != nil {
 		return err
+	}
+	if noWait {
+		if opts.jsonOutput {
+			return prettyPrintJSON(os.Stdout, payload)
+		}
+		var op operationResponse
+		if err := json.Unmarshal(payload, &op); err != nil {
+			return err
+		}
+		fmt.Printf("Creation %s; operation %s. Resume: agentlab operation wait %s\n", op.State, op.ID, op.ID)
+		return nil
+	}
+	if idempotencyKey != "" {
+		var op operationResponse
+		if err := json.Unmarshal(payload, &op); err != nil {
+			return err
+		}
+		payload, err = waitOperation(ctx, client, opts, op.ID)
+		if err != nil {
+			return err
+		}
 	}
 	if opts.jsonOutput {
 		return prettyPrintJSON(os.Stdout, payload)
@@ -1484,15 +1538,18 @@ func runSandboxValidate(ctx context.Context, args []string, base commonFlags) er
 		}
 		return err
 	}
+	if profile == "" && len(modifiers) == 0 {
+		profile = preferredValue("default-profile")
+	}
 	profile = strings.TrimSpace(profile)
 	if profile != "" && len(modifiers) > 0 {
-		return fmt.Errorf("cannot combine --profile with modifiers")
+		return newUsageError(fmt.Errorf("cannot combine --profile with modifiers"), false)
 	}
 	if profile == "" && len(modifiers) == 0 {
 		if !opts.jsonOutput {
 			printSandboxValidateUsage()
 		}
-		return fmt.Errorf("profile is required (or provide +modifiers)")
+		return newUsageError(fmt.Errorf("profile is required (or provide +modifiers)"), false)
 	}
 	ttlMinutes, err := parseTTLMinutes(ttl)
 	if err != nil {
@@ -1588,7 +1645,38 @@ func runSandboxList(ctx context.Context, args []string, base commonFlags) error 
 	if err != nil {
 		return err
 	}
-	if opts.jsonOutput && all {
+	if opts.jsonOutput {
+		if !all {
+			var envelope map[string]json.RawMessage
+			if err := json.Unmarshal(payload, &envelope); err != nil {
+				return err
+			}
+			var records []json.RawMessage
+			if err := json.Unmarshal(envelope["sandboxes"], &records); err != nil {
+				return err
+			}
+			visible := make([]json.RawMessage, 0, len(records))
+			for _, record := range records {
+				var state struct {
+					State string `json:"state"`
+				}
+				if err := json.Unmarshal(record, &state); err != nil {
+					return err
+				}
+				if state.State != "DESTROYED" {
+					visible = append(visible, record)
+				}
+			}
+			filtered, err := json.Marshal(visible)
+			if err != nil {
+				return err
+			}
+			envelope["sandboxes"] = filtered
+			payload, err = json.Marshal(envelope)
+			if err != nil {
+				return err
+			}
+		}
 		return prettyPrintJSON(os.Stdout, payload)
 	}
 	var resp sandboxesResponse
@@ -1683,7 +1771,7 @@ func runSandboxShow(ctx context.Context, args []string, base commonFlags) error 
 		if !opts.jsonOutput {
 			printSandboxShowUsage()
 		}
-		return fmt.Errorf("vmid is required")
+		return newUsageError(fmt.Errorf("vmid is required"), false)
 	}
 	vmid, err := parseVMID(fs.Arg(0))
 	if err != nil {
@@ -1734,7 +1822,7 @@ func runSandboxUpdate(ctx context.Context, args []string, base commonFlags) erro
 		if !opts.jsonOutput {
 			printSandboxUpdateUsage()
 		}
-		return fmt.Errorf("vmid is required")
+		return newUsageError(fmt.Errorf("vmid is required"), false)
 	}
 	vmid, err := parseVMID(fs.Arg(0))
 	if err != nil {
@@ -1744,10 +1832,10 @@ func runSandboxUpdate(ctx context.Context, args []string, base commonFlags) erro
 		if !opts.jsonOutput {
 			printSandboxUpdateUsage()
 		}
-		return fmt.Errorf("unexpected arguments: %s", strings.Join(fs.Args()[1:], " "))
+		return newUsageError(fmt.Errorf("unexpected arguments: %s", strings.Join(fs.Args()[1:], " ")), false)
 	}
 	if cores < 0 {
-		return fmt.Errorf("cores must be positive")
+		return newUsageError(fmt.Errorf("cores must be positive"), false)
 	}
 	var coresPtr *int
 	if cores > 0 {
@@ -1767,7 +1855,7 @@ func runSandboxUpdate(ctx context.Context, args []string, base commonFlags) erro
 		if !opts.jsonOutput {
 			printSandboxUpdateUsage()
 		}
-		return fmt.Errorf("at least one of --cores, --memory, --tag, or --clear-tags is required")
+		return newUsageError(fmt.Errorf("at least one of --cores, --memory, --tag, or --clear-tags is required"), false)
 	}
 	// Full-replacement tag semantics (review M6): --clear-tags sends an empty
 	// slice to wipe tags; --tag sends the provided set; omitting both leaves
@@ -1775,7 +1863,7 @@ func runSandboxUpdate(ctx context.Context, args []string, base commonFlags) erro
 	var tagsPtr *[]string
 	switch {
 	case clearTags && tags.set:
-		return fmt.Errorf("--clear-tags cannot be combined with --tag")
+		return newUsageError(fmt.Errorf("--clear-tags cannot be combined with --tag"), false)
 	case clearTags:
 		empty := []string{}
 		tagsPtr = &empty
@@ -1819,7 +1907,7 @@ func runSandboxStart(ctx context.Context, args []string, base commonFlags) error
 		if !opts.jsonOutput {
 			printSandboxStartUsage()
 		}
-		return fmt.Errorf("vmid is required")
+		return newUsageError(fmt.Errorf("vmid is required"), false)
 	}
 	vmid, err := parseVMID(fs.Arg(0))
 	if err != nil {
@@ -1870,7 +1958,7 @@ func runSandboxStop(ctx context.Context, args []string, base commonFlags) error 
 			if !opts.jsonOutput {
 				printSandboxStopUsage()
 			}
-			return fmt.Errorf("vmid is not allowed with --all")
+			return newUsageError(fmt.Errorf("vmid is not allowed with --all"), false)
 		}
 		if err := requireConfirmation(confirmOptions{
 			action:     "stop all running sandboxes",
@@ -1897,7 +1985,7 @@ func runSandboxStop(ctx context.Context, args []string, base commonFlags) error 
 		if !opts.jsonOutput {
 			printSandboxStopUsage()
 		}
-		return fmt.Errorf("vmid is required")
+		return newUsageError(fmt.Errorf("vmid is required"), false)
 	}
 	vmid, err := parseVMID(fs.Arg(0))
 	if err != nil {
@@ -1935,7 +2023,7 @@ func runSandboxPause(ctx context.Context, args []string, base commonFlags) error
 		if !opts.jsonOutput {
 			printSandboxPauseUsage()
 		}
-		return fmt.Errorf("vmid is required")
+		return newUsageError(fmt.Errorf("vmid is required"), false)
 	}
 	vmid, err := parseVMID(fs.Arg(0))
 	if err != nil {
@@ -1977,7 +2065,7 @@ func runSandboxResume(ctx context.Context, args []string, base commonFlags) erro
 		if !opts.jsonOutput {
 			printSandboxResumeUsage()
 		}
-		return fmt.Errorf("vmid is required")
+		return newUsageError(fmt.Errorf("vmid is required"), false)
 	}
 	vmid, err := parseVMID(fs.Arg(0))
 	if err != nil {
@@ -2041,10 +2129,10 @@ func runSandboxRevert(ctx context.Context, args []string, base commonFlags) erro
 		if !opts.jsonOutput {
 			printSandboxRevertUsage()
 		}
-		return fmt.Errorf("vmid is required")
+		return newUsageError(fmt.Errorf("vmid is required"), false)
 	}
 	if noRestart && restart {
-		return fmt.Errorf("cannot use --restart and --no-restart together")
+		return newUsageError(fmt.Errorf("cannot use --restart and --no-restart together"), false)
 	}
 	vmid, err := parseVMID(fs.Arg(0))
 	if err != nil {
@@ -2151,7 +2239,7 @@ func runSandboxSnapshotSave(ctx context.Context, args []string, base commonFlags
 		if !opts.jsonOutput {
 			printSandboxSnapshotSaveUsage()
 		}
-		return fmt.Errorf("vmid and snapshot name are required")
+		return newUsageError(fmt.Errorf("vmid and snapshot name are required"), false)
 	}
 	vmid, err := parseVMID(fs.Arg(0))
 	if err != nil {
@@ -2159,7 +2247,7 @@ func runSandboxSnapshotSave(ctx context.Context, args []string, base commonFlags
 	}
 	name := strings.TrimSpace(fs.Arg(1))
 	if name == "" {
-		return fmt.Errorf("snapshot name is required")
+		return newUsageError(fmt.Errorf("snapshot name is required"), false)
 	}
 	client, err := apiClientFromFlags(opts)
 	if err != nil {
@@ -2197,7 +2285,7 @@ func runSandboxSnapshotList(ctx context.Context, args []string, base commonFlags
 		if !opts.jsonOutput {
 			printSandboxSnapshotListUsage()
 		}
-		return fmt.Errorf("vmid is required")
+		return newUsageError(fmt.Errorf("vmid is required"), false)
 	}
 	vmid, err := parseVMID(fs.Arg(0))
 	if err != nil {
@@ -2240,7 +2328,7 @@ func runSandboxSnapshotRestore(ctx context.Context, args []string, base commonFl
 		if !opts.jsonOutput {
 			printSandboxSnapshotRestoreUsage()
 		}
-		return fmt.Errorf("vmid and snapshot name are required")
+		return newUsageError(fmt.Errorf("vmid and snapshot name are required"), false)
 	}
 	vmid, err := parseVMID(fs.Arg(0))
 	if err != nil {
@@ -2248,7 +2336,7 @@ func runSandboxSnapshotRestore(ctx context.Context, args []string, base commonFl
 	}
 	name := strings.TrimSpace(fs.Arg(1))
 	if name == "" {
-		return fmt.Errorf("snapshot name is required")
+		return newUsageError(fmt.Errorf("snapshot name is required"), false)
 	}
 	client, err := apiClientFromFlags(opts)
 	if err != nil {
@@ -2280,7 +2368,7 @@ func runSandboxDestroy(ctx context.Context, args []string, base commonFlags) err
 	opts.bind(fs)
 	var force bool
 	help := bindHelpFlag(fs)
-	fs.BoolVar(&force, "force", false, "force destroy even if in invalid state")
+	fs.BoolVar(&force, "force", false, "compatibility alias for ordinary destruction and cleanup")
 	if err := parseFlags(fs, args, printSandboxDestroyUsage, help, opts.jsonOutput); err != nil {
 		return err
 	}
@@ -2288,7 +2376,7 @@ func runSandboxDestroy(ctx context.Context, args []string, base commonFlags) err
 		if !opts.jsonOutput {
 			printSandboxDestroyUsage()
 		}
-		return fmt.Errorf("vmid is required")
+		return newUsageError(fmt.Errorf("vmid is required"), false)
 	}
 	vmid, err := parseVMID(fs.Arg(0))
 	if err != nil {
@@ -2356,13 +2444,13 @@ func runSandboxLeaseRenew(ctx context.Context, args []string, base commonFlags) 
 		if !opts.jsonOutput {
 			printSandboxLeaseRenewUsage()
 		}
-		return fmt.Errorf("vmid is required")
+		return newUsageError(fmt.Errorf("vmid is required"), false)
 	}
 	if ttl == "" {
 		if !opts.jsonOutput {
 			printSandboxLeaseRenewUsage()
 		}
-		return fmt.Errorf("ttl is required. Flags must come before vmid (e.g., --ttl 120 1009)")
+		return newUsageError(fmt.Errorf("ttl is required (e.g., --ttl 120 1009)"), false)
 	}
 	vmid, err := parseVMID(fs.Arg(0))
 	if err != nil {
@@ -2401,6 +2489,10 @@ func runSandboxPrune(ctx context.Context, args []string, base commonFlags) error
 	fs := newFlagSet("sandbox prune")
 	opts := base
 	opts.bind(fs)
+	var dryRun bool
+	var targets stringSliceFlag
+	fs.Var(&targets, "vmid", "target VMID from a preview (repeatable)")
+	fs.BoolVar(&dryRun, "dry-run", false, "preview timed-out sandboxes without destroying them")
 	help := bindHelpFlag(fs)
 	if err := parseFlags(fs, args, printSandboxPruneUsage, help, opts.jsonOutput); err != nil {
 		return err
@@ -2410,18 +2502,61 @@ func runSandboxPrune(ctx context.Context, args []string, base commonFlags) error
 	if err != nil {
 		return err
 	}
-	payload, err := client.doJSON(ctx, http.MethodPost, "/v1/sandboxes/prune", nil)
+	query := url.Values{}
+	if dryRun {
+		query.Set("dry_run", "true")
+	}
+	for _, target := range targets.values {
+		vmid, err := parseVMID(target)
+		if err != nil {
+			return err
+		}
+		query.Add("vmid", strconv.Itoa(vmid))
+	}
+	path := "/v1/sandboxes/prune"
+	if len(query) > 0 {
+		path += "?" + query.Encode()
+	}
+	payload, err := client.doJSON(ctx, http.MethodPost, path, nil)
 	if err != nil {
 		return err
-	}
-	if opts.jsonOutput {
-		return prettyPrintJSON(os.Stdout, payload)
 	}
 	var resp pruneResponse
 	if err := json.Unmarshal(payload, &resp); err != nil {
 		return err
 	}
-	fmt.Printf("pruned %d sandbox(es)\n", resp.Count)
+	failed := false
+	for _, outcome := range resp.Outcomes {
+		if outcome.Outcome == "failed" {
+			failed = true
+		}
+	}
+	if opts.jsonOutput {
+		if err := prettyPrintJSON(os.Stdout, payload); err != nil {
+			return err
+		}
+		if failed {
+			return newPrintedJSONOnlyError(fmt.Errorf("some prune targets failed"))
+		}
+		return nil
+	}
+	if len(resp.Outcomes) == 0 {
+		fmt.Println("No timed-out sandboxes match the targets.")
+	} else if dryRun {
+		fmt.Printf("Preview: %d target(s); no sandboxes destroyed.\n", len(resp.Outcomes))
+	} else {
+		fmt.Printf("pruned %d sandbox(es)\n", resp.Count)
+	}
+	for _, outcome := range resp.Outcomes {
+		fmt.Printf("%d: %s %s\n", outcome.VMID, outcome.Outcome, outcome.Error)
+		if outcome.Retryable {
+			fmt.Printf("Retry: agentlab sandbox prune --vmid %d\n", outcome.VMID)
+		}
+	}
+	if failed {
+		return fmt.Errorf("some prune targets failed; retry commands are listed above")
+	}
+
 	return nil
 }
 
@@ -2439,7 +2574,7 @@ func runSandboxExpose(ctx context.Context, args []string, base commonFlags) erro
 		if !opts.jsonOutput {
 			printSandboxExposeUsage()
 		}
-		return fmt.Errorf("vmid and port are required")
+		return newUsageError(fmt.Errorf("vmid and port are required"), false)
 	}
 	vmid, err := parseVMID(fs.Arg(0))
 	if err != nil {
@@ -2520,11 +2655,11 @@ func runSandboxUnexpose(ctx context.Context, args []string, base commonFlags) er
 		if !opts.jsonOutput {
 			printSandboxUnexposeUsage()
 		}
-		return fmt.Errorf("name is required")
+		return newUsageError(fmt.Errorf("name is required"), false)
 	}
 	name := strings.TrimSpace(fs.Arg(0))
 	if name == "" {
-		return fmt.Errorf("name is required")
+		return newUsageError(fmt.Errorf("name is required"), false)
 	}
 	client, err := apiClientFromFlags(opts)
 	if err != nil {
@@ -2563,7 +2698,7 @@ func runSandboxDoctor(ctx context.Context, args []string, base commonFlags) erro
 		if !opts.jsonOutput {
 			printSandboxDoctorUsage()
 		}
-		return fmt.Errorf("vmid is required")
+		return newUsageError(fmt.Errorf("vmid is required"), false)
 	}
 	vmid, err := parseVMID(fs.Arg(0))
 	if err != nil {
@@ -2598,7 +2733,7 @@ func runWorkspaceCreate(ctx context.Context, args []string, base commonFlags) er
 		if !opts.jsonOutput {
 			printWorkspaceCreateUsage()
 		}
-		return fmt.Errorf("name and size are required")
+		return newUsageError(fmt.Errorf("name and size are required"), false)
 	}
 	sizeGB, err := parseSizeGB(size)
 	if err != nil {
@@ -2668,11 +2803,11 @@ func runWorkspaceCheck(ctx context.Context, args []string, base commonFlags) err
 		if !opts.jsonOutput {
 			printWorkspaceCheckUsage()
 		}
-		return fmt.Errorf("workspace is required")
+		return newUsageError(fmt.Errorf("workspace is required"), false)
 	}
 	workspace := strings.TrimSpace(fs.Arg(0))
 	if workspace == "" {
-		return fmt.Errorf("workspace is required")
+		return newUsageError(fmt.Errorf("workspace is required"), false)
 	}
 	client, err := apiClientFromFlags(opts)
 	if err != nil {
@@ -2711,11 +2846,11 @@ func runWorkspaceFsck(ctx context.Context, args []string, base commonFlags) erro
 		if !opts.jsonOutput {
 			printWorkspaceFsckUsage()
 		}
-		return fmt.Errorf("workspace is required")
+		return newUsageError(fmt.Errorf("workspace is required"), false)
 	}
 	workspace := strings.TrimSpace(fs.Arg(0))
 	if workspace == "" {
-		return fmt.Errorf("workspace is required")
+		return newUsageError(fmt.Errorf("workspace is required"), false)
 	}
 
 	client, err := apiClientFromFlags(opts)
@@ -2754,11 +2889,11 @@ func runWorkspaceAttach(ctx context.Context, args []string, base commonFlags) er
 		if !opts.jsonOutput {
 			printWorkspaceAttachUsage()
 		}
-		return fmt.Errorf("workspace and vmid are required")
+		return newUsageError(fmt.Errorf("workspace and vmid are required"), false)
 	}
 	workspace := strings.TrimSpace(fs.Arg(0))
 	if workspace == "" {
-		return fmt.Errorf("workspace is required")
+		return newUsageError(fmt.Errorf("workspace is required"), false)
 	}
 	vmid, err := parseVMID(fs.Arg(1))
 	if err != nil {
@@ -2801,11 +2936,11 @@ func runWorkspaceDetach(ctx context.Context, args []string, base commonFlags) er
 		if !opts.jsonOutput {
 			printWorkspaceDetachUsage()
 		}
-		return fmt.Errorf("workspace is required")
+		return newUsageError(fmt.Errorf("workspace is required"), false)
 	}
 	workspace := strings.TrimSpace(fs.Arg(0))
 	if workspace == "" {
-		return fmt.Errorf("workspace is required")
+		return newUsageError(fmt.Errorf("workspace is required"), false)
 	}
 	client, err := apiClientFromFlags(opts)
 	if err != nil {
@@ -2865,11 +3000,11 @@ func runWorkspaceLeaseClear(ctx context.Context, args []string, base commonFlags
 		if !opts.jsonOutput {
 			printWorkspaceLeaseClearUsage()
 		}
-		return fmt.Errorf("workspace is required")
+		return newUsageError(fmt.Errorf("workspace is required"), false)
 	}
 	workspace := strings.TrimSpace(fs.Arg(0))
 	if workspace == "" {
-		return fmt.Errorf("workspace is required")
+		return newUsageError(fmt.Errorf("workspace is required"), false)
 	}
 	client, err := apiClientFromFlags(opts)
 	if err != nil {
@@ -2921,18 +3056,18 @@ func runWorkspaceRebind(ctx context.Context, args []string, base commonFlags) er
 		if !opts.jsonOutput {
 			printWorkspaceRebindUsage()
 		}
-		return fmt.Errorf("workspace is required")
+		return newUsageError(fmt.Errorf("workspace is required"), false)
 	}
 	workspace := strings.TrimSpace(fs.Arg(0))
 	if workspace == "" {
-		return fmt.Errorf("workspace is required")
+		return newUsageError(fmt.Errorf("workspace is required"), false)
 	}
 	profile = strings.TrimSpace(profile)
 	if profile == "" {
 		if !opts.jsonOutput {
 			printWorkspaceRebindUsage()
 		}
-		return fmt.Errorf("profile is required")
+		return newUsageError(fmt.Errorf("profile is required"), false)
 	}
 	ttlMinutes, err := parseTTLMinutes(ttl)
 	if err != nil {
@@ -2984,11 +3119,11 @@ func runWorkspaceFork(ctx context.Context, args []string, base commonFlags) erro
 		if !opts.jsonOutput {
 			printWorkspaceForkUsage()
 		}
-		return fmt.Errorf("workspace is required")
+		return newUsageError(fmt.Errorf("workspace is required"), false)
 	}
 	source := strings.TrimSpace(fs.Arg(0))
 	if source == "" {
-		return fmt.Errorf("workspace is required")
+		return newUsageError(fmt.Errorf("workspace is required"), false)
 	}
 	name = strings.TrimSpace(name)
 	fromSnapshot = strings.TrimSpace(fromSnapshot)
@@ -2996,7 +3131,7 @@ func runWorkspaceFork(ctx context.Context, args []string, base commonFlags) erro
 		if !opts.jsonOutput {
 			printWorkspaceForkUsage()
 		}
-		return fmt.Errorf("name is required")
+		return newUsageError(fmt.Errorf("name is required"), false)
 	}
 
 	client, err := apiClientFromFlags(opts)
@@ -3066,12 +3201,12 @@ func runWorkspaceSnapshotCreate(ctx context.Context, args []string, base commonF
 		if !opts.jsonOutput {
 			printWorkspaceSnapshotCreateUsage()
 		}
-		return fmt.Errorf("workspace and snapshot name are required")
+		return newUsageError(fmt.Errorf("workspace and snapshot name are required"), false)
 	}
 	workspace := strings.TrimSpace(fs.Arg(0))
 	name := strings.TrimSpace(fs.Arg(1))
 	if workspace == "" || name == "" {
-		return fmt.Errorf("workspace and snapshot name are required")
+		return newUsageError(fmt.Errorf("workspace and snapshot name are required"), false)
 	}
 	client, err := apiClientFromFlags(opts)
 	if err != nil {
@@ -3109,11 +3244,11 @@ func runWorkspaceSnapshotList(ctx context.Context, args []string, base commonFla
 		if !opts.jsonOutput {
 			printWorkspaceSnapshotListUsage()
 		}
-		return fmt.Errorf("workspace is required")
+		return newUsageError(fmt.Errorf("workspace is required"), false)
 	}
 	workspace := strings.TrimSpace(fs.Arg(0))
 	if workspace == "" {
-		return fmt.Errorf("workspace is required")
+		return newUsageError(fmt.Errorf("workspace is required"), false)
 	}
 	client, err := apiClientFromFlags(opts)
 	if err != nil {
@@ -3150,12 +3285,12 @@ func runWorkspaceSnapshotRestore(ctx context.Context, args []string, base common
 		if !opts.jsonOutput {
 			printWorkspaceSnapshotRestoreUsage()
 		}
-		return fmt.Errorf("workspace and snapshot name are required")
+		return newUsageError(fmt.Errorf("workspace and snapshot name are required"), false)
 	}
 	workspace := strings.TrimSpace(fs.Arg(0))
 	name := strings.TrimSpace(fs.Arg(1))
 	if workspace == "" || name == "" {
-		return fmt.Errorf("workspace and snapshot name are required")
+		return newUsageError(fmt.Errorf("workspace and snapshot name are required"), false)
 	}
 	client, err := apiClientFromFlags(opts)
 	if err != nil {
@@ -3209,13 +3344,13 @@ func runSessionCreate(ctx context.Context, args []string, base commonFlags) erro
 		if !opts.jsonOutput {
 			printSessionCreateUsage()
 		}
-		return fmt.Errorf("name is required")
+		return newUsageError(fmt.Errorf("name is required"), false)
 	}
 	if profile == "" {
 		if !opts.jsonOutput {
 			printSessionCreateUsage()
 		}
-		return fmt.Errorf("profile is required")
+		return newUsageError(fmt.Errorf("profile is required"), false)
 	}
 	workspaceID, workspaceCreateReq, err := parseWorkspaceSelection(workspace, workspaceCreate, workspaceSize, workspaceStorage)
 	if err != nil {
@@ -3228,7 +3363,7 @@ func runSessionCreate(ctx context.Context, args []string, base commonFlags) erro
 		if !opts.jsonOutput {
 			printSessionCreateUsage()
 		}
-		return fmt.Errorf("workspace is required")
+		return newUsageError(fmt.Errorf("workspace is required"), false)
 	}
 
 	client, err := apiClientFromFlags(opts)
@@ -3297,11 +3432,11 @@ func runSessionShow(ctx context.Context, args []string, base commonFlags) error 
 		if !opts.jsonOutput {
 			printSessionShowUsage()
 		}
-		return fmt.Errorf("session is required")
+		return newUsageError(fmt.Errorf("session is required"), false)
 	}
 	sessionID := strings.TrimSpace(fs.Arg(0))
 	if sessionID == "" {
-		return fmt.Errorf("session is required")
+		return newUsageError(fmt.Errorf("session is required"), false)
 	}
 	client, err := apiClientFromFlags(opts)
 	if err != nil {
@@ -3338,11 +3473,11 @@ func runSessionResume(ctx context.Context, args []string, base commonFlags) erro
 		if !opts.jsonOutput {
 			printSessionResumeUsage()
 		}
-		return fmt.Errorf("session is required")
+		return newUsageError(fmt.Errorf("session is required"), false)
 	}
 	sessionID := strings.TrimSpace(fs.Arg(0))
 	if sessionID == "" {
-		return fmt.Errorf("session is required")
+		return newUsageError(fmt.Errorf("session is required"), false)
 	}
 	client, err := apiClientFromFlags(opts)
 	if err != nil {
@@ -3379,11 +3514,11 @@ func runSessionStop(ctx context.Context, args []string, base commonFlags) error 
 		if !opts.jsonOutput {
 			printSessionStopUsage()
 		}
-		return fmt.Errorf("session is required")
+		return newUsageError(fmt.Errorf("session is required"), false)
 	}
 	sessionID := strings.TrimSpace(fs.Arg(0))
 	if sessionID == "" {
-		return fmt.Errorf("session is required")
+		return newUsageError(fmt.Errorf("session is required"), false)
 	}
 	client, err := apiClientFromFlags(opts)
 	if err != nil {
@@ -3434,11 +3569,11 @@ func runSessionFork(ctx context.Context, args []string, base commonFlags) error 
 		if !opts.jsonOutput {
 			printSessionForkUsage()
 		}
-		return fmt.Errorf("session is required")
+		return newUsageError(fmt.Errorf("session is required"), false)
 	}
 	sourceID := strings.TrimSpace(fs.Arg(0))
 	if sourceID == "" {
-		return fmt.Errorf("session is required")
+		return newUsageError(fmt.Errorf("session is required"), false)
 	}
 	name = strings.TrimSpace(name)
 	profile = strings.TrimSpace(profile)
@@ -3447,7 +3582,7 @@ func runSessionFork(ctx context.Context, args []string, base commonFlags) error 
 		if !opts.jsonOutput {
 			printSessionForkUsage()
 		}
-		return fmt.Errorf("name is required")
+		return newUsageError(fmt.Errorf("name is required"), false)
 	}
 	workspaceID, workspaceCreateReq, err := parseWorkspaceSelection(workspace, workspaceCreate, workspaceSize, workspaceStorage)
 	if err != nil {
@@ -3460,7 +3595,7 @@ func runSessionFork(ctx context.Context, args []string, base commonFlags) error 
 		if !opts.jsonOutput {
 			printSessionForkUsage()
 		}
-		return fmt.Errorf("workspace is required")
+		return newUsageError(fmt.Errorf("workspace is required"), false)
 	}
 
 	client, err := apiClientFromFlags(opts)
@@ -3516,11 +3651,11 @@ func runSessionBranch(ctx context.Context, args []string, base commonFlags) erro
 		if !opts.jsonOutput {
 			printSessionBranchUsage()
 		}
-		return fmt.Errorf("branch is required")
+		return newUsageError(fmt.Errorf("branch is required"), false)
 	}
 	branch := strings.TrimSpace(fs.Arg(0))
 	if branch == "" {
-		return fmt.Errorf("branch is required")
+		return newUsageError(fmt.Errorf("branch is required"), false)
 	}
 
 	client, err := apiClientFromFlags(opts)
@@ -3559,11 +3694,11 @@ func runSessionDoctor(ctx context.Context, args []string, base commonFlags) erro
 		if !opts.jsonOutput {
 			printSessionDoctorUsage()
 		}
-		return fmt.Errorf("session id or name is required")
+		return newUsageError(fmt.Errorf("session id or name is required"), false)
 	}
 	sessionID := strings.TrimSpace(fs.Arg(0))
 	if sessionID == "" {
-		return fmt.Errorf("session id or name is required")
+		return newUsageError(fmt.Errorf("session id or name is required"), false)
 	}
 	bundleName := defaultDoctorBundleName("session", sessionID)
 	path, err := endpointPath("/v1/sessions", sessionID, "doctor")
@@ -3700,12 +3835,12 @@ func runMsgPost(ctx context.Context, args []string, base commonFlags) error {
 	var rawPayload json.RawMessage
 	if payload != "" {
 		if !json.Valid([]byte(payload)) {
-			return fmt.Errorf("payload must be valid JSON")
+			return newUsageError(fmt.Errorf("payload must be valid JSON"), false)
 		}
 		rawPayload = json.RawMessage(payload)
 	}
 	if text == "" && len(rawPayload) == 0 {
-		return fmt.Errorf("text or payload is required")
+		return newUsageError(fmt.Errorf("text or payload is required"), false)
 	}
 
 	client, err := apiClientFromFlags(opts)
@@ -3825,7 +3960,7 @@ func runLogsCommand(ctx context.Context, args []string, base commonFlags) error 
 		if !opts.jsonOutput {
 			printLogsUsage()
 		}
-		return fmt.Errorf("vmid is required")
+		return newUsageError(fmt.Errorf("vmid is required"), false)
 	}
 	vmid, err := parseVMID(fs.Arg(0))
 	if err != nil {
@@ -4231,6 +4366,8 @@ func printWorkspace(ws workspaceResponse) {
 	fmt.Printf("Attached VMID: %s\n", vmidString(ws.AttachedVMID))
 	fmt.Printf("Created At: %s\n", ws.CreatedAt)
 	fmt.Printf("Updated At: %s\n", ws.UpdatedAt)
+	fmt.Printf("Lease Owner: %s\n", orDash(ws.LeaseOwner))
+	fmt.Printf("Lease Expires: %s\n", orDash(ws.LeaseExpires))
 }
 
 func printWorkspaceList(workspaces []workspaceResponse) {
@@ -4305,6 +4442,8 @@ func printWorkspaceCheck(resp workspaceCheckResponse) {
 	fmt.Printf("Volume Exists: %t\n", resp.Volume.Exists)
 	fmt.Printf("Volume Path: %s\n", orDash(resp.Volume.Path))
 	fmt.Printf("Attached VMID: %s\n", vmidString(ws.AttachedVMID))
+	fmt.Printf("Lease Owner: %s\n", orDash(ws.LeaseOwner))
+	fmt.Printf("Lease Expires: %s\n", orDash(ws.LeaseExpires))
 	fmt.Printf("Checked At: %s\n", resp.CheckedAt)
 	if len(resp.Findings) == 0 {
 		fmt.Println("Findings: none")
@@ -4673,9 +4812,9 @@ func downloadDoctorBundle(ctx context.Context, opts commonFlags, path, out, bund
 
 // parseVMID parses and validates a VM ID from a string.
 func parseVMID(value string) (int, error) {
-	vmid, err := strconv.Atoi(strings.TrimSpace(value))
-	if err != nil || vmid <= 0 {
-		return 0, fmt.Errorf("invalid vmid %q", value)
+	vmid, err := clicontract.ParseVMID(value)
+	if err != nil {
+		return 0, newUsageError(err, false)
 	}
 	return vmid, nil
 }
@@ -4704,28 +4843,11 @@ func exposureName(vmid, port int) string {
 // parseTTLMinutes parses a TTL value, accepting either minutes (int) or a duration string.
 // Returns nil if the value is empty.
 func parseTTLMinutes(value string) (*int, error) {
-	value = strings.TrimSpace(value)
-	if value == "" {
-		return nil, nil
-	}
-	if minutes, err := strconv.Atoi(value); err == nil {
-		if minutes <= 0 {
-			return nil, fmt.Errorf("ttl must be positive")
-		}
-		return &minutes, nil
-	}
-	dur, err := time.ParseDuration(value)
+	result, err := clicontract.ParseTTLMinutes(value)
 	if err != nil {
-		return nil, fmt.Errorf("invalid ttl %q", value)
+		return result, newUsageError(err, false)
 	}
-	if dur <= 0 {
-		return nil, fmt.Errorf("ttl must be positive")
-	}
-	minutes := int(math.Ceil(dur.Minutes()))
-	if minutes <= 0 {
-		minutes = 1
-	}
-	return &minutes, nil
+	return result, nil
 }
 
 // parseRequiredTTLMinutes parses a TTL value that must be provided and positive.
@@ -4742,82 +4864,29 @@ func parseRequiredTTLMinutes(value string) (int, error) {
 
 // parseSizeGB parses a disk size string (e.g., "80G", "80GB") into gigabytes.
 func parseSizeGB(value string) (int, error) {
-	value = strings.TrimSpace(value)
-	if value == "" {
-		return 0, fmt.Errorf("size is required")
+	result, err := clicontract.ParseSizeGB(value)
+	if err != nil {
+		return result, newUsageError(err, false)
 	}
-	lower := strings.ToLower(value)
-	switch {
-	case strings.HasSuffix(lower, "gb"):
-		lower = strings.TrimSuffix(lower, "gb")
-	case strings.HasSuffix(lower, "g"):
-		lower = strings.TrimSuffix(lower, "g")
-	}
-	lower = strings.TrimSpace(lower)
-	size, err := strconv.Atoi(lower)
-	if err != nil || size <= 0 {
-		return 0, fmt.Errorf("invalid size %q", value)
-	}
-	return size, nil
+	return result, nil
 }
 
 func parseMemoryMB(value string) (int, error) {
-	value = strings.TrimSpace(value)
-	if value == "" {
-		return 0, fmt.Errorf("memory is required")
+	result, err := clicontract.ParseMemoryMB(value)
+	if err != nil {
+		return result, newUsageError(err, false)
 	}
-	lower := strings.ToLower(value)
-	multiplier := 1
-	switch {
-	case strings.HasSuffix(lower, "gib"):
-		lower = strings.TrimSuffix(lower, "gib")
-		multiplier = 1024
-	case strings.HasSuffix(lower, "gb"):
-		lower = strings.TrimSuffix(lower, "gb")
-		multiplier = 1024
-	case strings.HasSuffix(lower, "g"):
-		lower = strings.TrimSuffix(lower, "g")
-		multiplier = 1024
-	case strings.HasSuffix(lower, "mib"):
-		lower = strings.TrimSuffix(lower, "mib")
-	case strings.HasSuffix(lower, "mb"):
-		lower = strings.TrimSuffix(lower, "mb")
-	case strings.HasSuffix(lower, "m"):
-		lower = strings.TrimSuffix(lower, "m")
-	}
-	lower = strings.TrimSpace(lower)
-	size, err := strconv.Atoi(lower)
-	if err != nil || size <= 0 {
-		return 0, fmt.Errorf("invalid memory %q", value)
-	}
-	return size * multiplier, nil
+	return result, nil
 }
 
 // parseWorkspaceWaitSeconds parses a wait duration or seconds into seconds.
 // Returns nil if the value is empty.
 func parseWorkspaceWaitSeconds(value string) (*int, error) {
-	value = strings.TrimSpace(value)
-	if value == "" {
-		return nil, nil
-	}
-	if seconds, err := strconv.Atoi(value); err == nil {
-		if seconds <= 0 {
-			return nil, fmt.Errorf("workspace-wait must be positive")
-		}
-		return &seconds, nil
-	}
-	dur, err := time.ParseDuration(value)
+	result, err := clicontract.ParseWorkspaceWaitSeconds(value)
 	if err != nil {
-		return nil, fmt.Errorf("invalid workspace-wait %q", value)
+		return result, newUsageError(err, false)
 	}
-	if dur <= 0 {
-		return nil, fmt.Errorf("workspace-wait must be positive")
-	}
-	seconds := int(math.Ceil(dur.Seconds()))
-	if seconds <= 0 {
-		seconds = 1
-	}
-	return &seconds, nil
+	return result, nil
 }
 
 func parseWorkspaceSelection(workspace, workspaceCreate, workspaceSize, workspaceStorage string) (*string, *workspaceCreateRequest, error) {

@@ -8,16 +8,54 @@ import (
 
 const controlAPISchemaVersion = 1
 
+// V1HealthResponse is the plain text liveness body, not a JSON object.
+type V1HealthResponse string
+
+type schemaAuthorization struct {
+	Permission     string `json:"permission,omitempty"`
+	Authentication string `json:"authentication"`
+	SandboxScope   string `json:"sandbox_scope"`
+}
+type schemaParameter struct {
+	Name        string         `json:"name"`
+	In          string         `json:"in"`
+	Required    bool           `json:"required"`
+	Schema      map[string]any `json:"schema"`
+	Description string         `json:"description,omitempty"`
+}
+type schemaCompletion struct {
+	Mode         string `json:"mode"`
+	Cancellation string `json:"cancellation"`
+	Retry        string `json:"retry"`
+	StatusURL    string `json:"status_url,omitempty"`
+}
+type schemaResponseVariant struct {
+	When        string `json:"when"`
+	Type        string `json:"type"`
+	Status      int    `json:"status"`
+	ContentType string `json:"content_type"`
+}
 type schemaResource struct {
-	Path         string   `json:"path"`
-	Methods      []string `json:"methods"`
-	Summary      string   `json:"summary"`
-	RequestType  string   `json:"request_type,omitempty"`
-	ResponseType string   `json:"response_type"`
-	Notes        string   `json:"notes,omitempty"`
+	Authorization    schemaAuthorization     `json:"authorization"`
+	Parameters       []schemaParameter       `json:"parameters,omitempty"`
+	Completion       schemaCompletion        `json:"completion"`
+	ErrorType        string                  `json:"error_type"`
+	BodyOptional     bool                    `json:"body_optional,omitempty"`
+	Surface          string                  `json:"surface"`
+	Available        *bool                   `json:"available,omitempty"`
+	ResponseVariants []schemaResponseVariant `json:"response_variants,omitempty"`
+	Path             string                  `json:"path"`
+	Methods          []string                `json:"methods"`
+	Summary          string                  `json:"summary"`
+	RequestType      string                  `json:"request_type,omitempty"`
+	ResponseType     string                  `json:"response_type"`
+	Notes            string                  `json:"notes,omitempty"`
 }
 
 type schemaResponse struct {
+	JSONSchema         string               `json:"$schema"`
+	Definitions        map[string]any       `json:"definitions"`
+	Capabilities       map[string]any       `json:"capabilities,omitempty"`
 	GeneratedAt        string               `json:"generated_at"`
 	APISchemaVersion   int                  `json:"api_schema_version"`
 	EventSchemaVersion int                  `json:"event_schema_version"`
@@ -28,6 +66,8 @@ type schemaResponse struct {
 
 func buildSchemaResponse() schemaResponse {
 	return schemaResponse{
+		JSONSchema:         "http://json-schema.org/draft-07/schema#",
+		Definitions:        schemaDefinitions(),
 		GeneratedAt:        time.Now().UTC().Format(time.RFC3339Nano),
 		APISchemaVersion:   controlAPISchemaVersion,
 		EventSchemaVersion: eventContractSchemaVersion,
@@ -39,15 +79,17 @@ func buildSchemaResponse() schemaResponse {
 
 func schemaResources() []schemaResource {
 	resources := []schemaResource{
-		resourceSchema("/v1/exposures", methods("GET", "POST"), "List/create exposures", "V1ExposureCreateRequest", "V1ExposuresResponse", ""),
+		resourceSchema("/v1/exposures", methods("GET"), "List exposures", "", "V1ExposuresResponse", ""),
+		resourceSchema("/v1/exposures", methods("POST"), "Create exposure", "V1ExposureCreateRequest", "V1Exposure", ""),
 		resourceSchema("/v1/exposures/{name}", methods("DELETE"), "Delete exposure", "", "V1Exposure", ""),
 		resourceSchema("/v1/host", methods("GET"), "Fetch host metadata", "", "V1HostResponse", "Includes daemon version, configured subnet, and tailscale hostname when available."),
+		resourceSchema("/v1/operations/{id}", methods("GET"), "Observe accepted creation", "", "V1OperationResponse", "Caller-scoped; requires sandbox.create permission. Restarted unfinished work reports unknown; do not replay with a new key until resource inspection."),
 		resourceSchema("/v1/jobs", methods("POST"), "Create jobs", "V1JobCreateRequest", "V1JobResponse", "Creation returns status 201."),
 		resourceSchema("/v1/jobs/{id}", methods("GET"), "Fetch job details", "", "V1JobResponse", "Includes event history when events_tail is provided."),
 		resourceSchema("/v1/jobs/{id}/artifacts", methods("GET"), "List job artifacts", "", "V1ArtifactsResponse", ""),
 		resourceSchema("/v1/jobs/{id}/artifacts/download", methods("GET"), "Download a job artifact", "", "application/octet-stream", "Query path or name to select artifact."),
 		resourceSchema("/v1/jobs/{id}/doctor", methods("POST"), "Create job doctor bundle", "", "V1ArtifactUploadResponse", ""),
-		resourceSchema("/v1/jobs/{id}/events", methods("GET"), "Fetch job events", "", "V1EventsResponse", "Not currently exposed as dedicated endpoint."),
+		resourceSchema("/v1/jobs", methods("GET"), "List jobs", "", "V1JobsResponse", "ID cursor pagination: limit 1-200, after; filters state, profile, workspace. Scope is checked before pagination."),
 		resourceSchema("/v1/jobs/validate-plan", methods("POST"), "Validate job plan", "V1JobValidatePlanRequest", "V1JobValidatePlanResponse", ""),
 		resourceSchema("/v1/messages", methods("GET"), "Read messagebox entries", "", "V1MessagesResponse", ""),
 		resourceSchema("/v1/messages", methods("POST"), "Post messagebox entry", "V1MessageCreateRequest", "V1Message", ""),
@@ -57,7 +99,7 @@ func schemaResources() []schemaResource {
 		resourceSchema("/v1/sandboxes/inventory", methods("GET"), "List live Proxmox VM inventory annotated with AgentLab state and Tailscale metadata", "", "V1SandboxInventoryResponse", ""),
 		resourceSchema("/v1/sandboxes/reconcile", methods("POST"), "Detect or apply sandbox state reconciliation against live Proxmox inventory", "V1SandboxReconcileRequest", "V1SandboxReconcileResponse", ""),
 		resourceSchema("/v1/sandboxes/{vmid}", methods("GET"), "Fetch sandbox details", "", "V1SandboxResponse", ""),
-		resourceSchema("/v1/sandboxes/{vmid}/destroy", methods("POST"), "Destroy sandbox", "", "V1SandboxResponse", ""),
+		resourceSchema("/v1/sandboxes/{vmid}/destroy", methods("POST"), "Destroy sandbox", "V1SandboxDestroyRequest", "V1SandboxResponse", ""),
 		resourceSchema("/v1/sandboxes/{vmid}/doctor", methods("POST"), "Create sandbox doctor bundle", "", "V1ArtifactUploadResponse", ""),
 		resourceSchema("/v1/sandboxes/{vmid}/events", methods("GET"), "List sandbox events", "", "V1EventsResponse", "Supports tail and after query parameters."),
 		resourceSchema("/v1/sandboxes/{vmid}/lease/renew", methods("POST"), "Renew sandbox lease", "V1LeaseRenewRequest", "V1LeaseRenewResponse", ""),
@@ -72,7 +114,7 @@ func schemaResources() []schemaResource {
 		resourceSchema("/v1/sandboxes/{vmid}/stop", methods("POST"), "Stop sandbox", "", "V1SandboxResponse", ""),
 		resourceSchema("/v1/sandboxes/{vmid}/touch", methods("POST"), "Touch sandbox usage timestamp", "", "V1SandboxResponse", ""),
 		resourceSchema("/v1/sandboxes/{vmid}/update", methods("POST"), "Update sandbox resources", "V1SandboxUpdateRequest", "V1SandboxResponse", ""),
-		resourceSchema("/v1/sandboxes/prune", methods("POST"), "Prune orphaned sandbox entries", "", "map[string]int", ""),
+		resourceSchema("/v1/sandboxes/prune", methods("POST"), "Prune orphaned sandbox entries", "", "PruneResult", ""),
 		resourceSchema("/v1/sandboxes/stop_all", methods("POST"), "Stop all sandboxes", "V1SandboxStopAllRequest", "V1SandboxStopAllResponse", ""),
 		resourceSchema("/v1/sandboxes/validate-plan", methods("POST"), "Validate sandbox plan", "V1SandboxValidatePlanRequest", "V1SandboxValidatePlanResponse", ""),
 		resourceSchema("/v1/schema", methods("GET"), "Discover API and event schema catalog", "", "schemaResponse", ""),
@@ -98,9 +140,16 @@ func schemaResources() []schemaResource {
 		resourceSchema("/v1/workspaces/{id}/snapshots", methods("POST"), "Create workspace snapshot", "V1WorkspaceSnapshotCreateRequest", "V1WorkspaceSnapshotResponse", ""),
 		resourceSchema("/v1/workspaces/{id}/snapshots/{name}/restore", methods("POST"), "Restore workspace snapshot", "", "V1WorkspaceSnapshotResponse", ""),
 	}
+	resources = append(resources, standaloneSchemaResources()...)
+	for i := range resources {
+		decorateSchemaResource(&resources[i])
+	}
 	sort.Slice(resources, func(i, j int) bool {
 		if resources[i].Path == resources[j].Path {
-			return len(resources[i].Methods) < len(resources[j].Methods)
+			if resources[i].Surface != resources[j].Surface {
+				return resources[i].Surface < resources[j].Surface
+			}
+			return resources[i].Methods[0] < resources[j].Methods[0]
 		}
 		return resources[i].Path < resources[j].Path
 	})
@@ -123,9 +172,12 @@ func schemaEventKinds() []EventPayloadSchema {
 
 func schemaCompatibilityPolicy() map[string]string {
 	return map[string]string{
-		"api":    "Additive endpoint, path, and optional field changes are preferred. Breaking changes bump the API schema version.",
-		"events": "Event kinds, required payload fields, and required version values are managed as an additive contract.",
-		"errors": "Unknown event kinds or fields should be ignored by clients.",
+		"api":       "Additive endpoint, path, and optional field changes are preferred. Breaking changes bump the API schema version.",
+		"events":    "Event kinds, required payload fields, and required version values are managed as an additive contract.",
+		"errors":    "Structured error codes are stable; clients ignore additional response/error fields.",
+		"requests":  "Request decoders reject unknown fields. Required fields, removing supported values, and tightening accepted constraints are breaking changes.",
+		"responses": "Adding optional fields or enum/state values is additive. Clients preserve unknown fields and must not treat unknown states as active or successful.",
+		"discovery": "The static catalog describes implemented operations. available and capabilities report configured surfaces separately from api_schema_version.",
 	}
 }
 
@@ -174,5 +226,38 @@ func (api *ControlAPI) handleSchema(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	resp := buildSchemaResponse()
+	names := make([]string, 0, len(api.profiles))
+	for name := range api.profiles {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	// Examples use a real configured profile when available; static schemas stay portable.
+	if len(names) > 0 {
+		for _, definition := range resp.Definitions {
+			if object, ok := definition.(map[string]any); ok {
+				if examples, ok := object["examples"].([]any); ok {
+					for _, example := range examples {
+						if fields, ok := example.(map[string]any); ok {
+							if _, hasProfile := fields["profile"]; hasProfile {
+								fields["profile"] = names[0]
+							}
+						}
+					}
+				}
+			}
+		}
+	}
+	resp.Capabilities = map[string]any{"profiles": names, "provisioning": api.jobOrchestrator != nil, "workspace_operations": api.schemaBackendCapabilities()["workspace_volumes"], "async_create": true, "idempotency": true, "job_list": true, "backend_available": api.backend != nil}
+	for i := range resp.Resources {
+		resource := &resp.Resources[i]
+		available := false
+		if mux := api.schemaSurfaces[resource.Surface]; mux != nil {
+			_, pattern := mux.Handler(schemaProbeRequest(resource))
+			available = pattern != ""
+		}
+		resource.Available = &available
+	}
+	resp.Capabilities["backend_operations"] = api.schemaBackendCapabilities()
+	resp.Capabilities["configured_routes"] = configuredSchemaRoutes(resp.Resources)
 	writeJSON(w, http.StatusOK, resp)
 }

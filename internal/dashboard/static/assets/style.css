@@ -479,3 +479,19 @@ details summary:hover {
 .exposure-url:hover {
   text-decoration: underline;
 }
+
+/* Keep navigation and resource tables usable on narrow screens. */
+.modal-content { max-width: calc(100vw - 32px); }
+.view { overflow-x: auto; }
+.view-header-actions { flex-wrap: wrap; }
+@media (max-width: 700px) {
+  nav { height: auto; min-height: 56px; padding: 12px; gap: 8px; flex-wrap: wrap; }
+  .nav-tabs { order: 3; width: 100%; overflow-x: auto; }
+  .tab { padding: 8px 10px; }
+  main { padding: 12px; }
+  .view-header { flex-wrap: wrap; gap: 12px; }
+  .status-bar { flex-wrap: wrap; }
+}
+
+.modal-content input[type="checkbox"] { width: auto; }
+.modal-content label:has(input[type="checkbox"]) { display: flex; align-items: center; gap: 8px; }

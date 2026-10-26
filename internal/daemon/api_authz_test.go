@@ -141,6 +141,7 @@ func newAuthzPlane(t *testing.T) *authzPlane {
 	}
 
 	mux := http.NewServeMux()
+	mux.HandleFunc("/healthz", healthHandler)
 	ctrl.Register(mux)
 	NewPoolAPI(resourcePool).Register(mux)
 	NewSecretsAPI(secretsStore, "default", nil, log.New(io.Discard, "", 0)).Register(mux)
@@ -350,6 +351,7 @@ func TestControlAPI_Authorization(t *testing.T) {
 	// the daemon registers it.
 	t.Run("deny-by-default: zero-permission token is refused everywhere", func(t *testing.T) {
 		routes := []struct{ method, path, body string }{
+			{http.MethodGet, "/v1/operations/missing", ""},
 			{http.MethodPost, "/v1/jobs", `{"repo_url":"https://example.com/r.git","profile":"default","task":"t"}`},
 			{http.MethodPost, "/v1/jobs/validate-plan", `{"repo_url":"https://example.com/r.git","profile":"default","task":"t"}`},
 			{http.MethodGet, "/v1/jobs/job-1001", ""},
@@ -788,6 +790,7 @@ func TestAuthzRouteCoverage(t *testing.T) {
 	matrixEntries := []matrixEntry{
 		// ControlAPI routes
 		{"POST", "/v1/jobs", "/v1/jobs"},
+		{"GET", "/v1/operations/", "/v1/operations/missing"},
 		{"GET", "/v1/jobs/", "/v1/jobs/job-1001"},
 		{"POST", "/v1/jobs/validate-plan", "/v1/jobs/validate-plan"},
 		{"GET", "/v1/profiles", "/v1/profiles"},

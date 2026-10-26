@@ -34,6 +34,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/agentlab/agentlab/internal/clicontract"
 	"net"
 	"net/http"
 	"net/url"
@@ -113,39 +114,30 @@ func runSSHCommand(ctx context.Context, args []string, base commonFlags) error {
 	fs.BoolVar(&waitSSH, "wait", false, "wait for ssh readiness before returning")
 	fs.BoolVar(&help, "help", false, "show help")
 	fs.BoolVar(&help, "h", false, "show help")
-	preArgs, explicitRemoteCmd, hasExplicitRemoteCmd := splitDoubleDash(args)
-	vmidToken, parseArgs := extractVMIDArg(preArgs)
-	if vmidToken == "" {
-		if !opts.jsonOutput {
-			printSSHUsage()
-		}
-		return fmt.Errorf("vmid is required")
+	parseArgs, vmidToken, remoteCmd, err := clicontract.SplitSSHArgs(args)
+	if err != nil {
+		return newUsageError(err, false)
 	}
-	// Parse flags from the remaining args (supports flags appearing before or after <vmid>).
 	if err := parseFlags(fs, parseArgs, printSSHUsage, &help, opts.jsonOutput); err != nil {
 		return err
+	}
+	if vmidToken == "" {
+		return newUsageError(fmt.Errorf("vmid is required"), false)
 	}
 	vmid, err := parseVMID(vmidToken)
 	if err != nil {
 		return err
 	}
 
-	var remoteCmd []string
-	if hasExplicitRemoteCmd {
-		remoteCmd = explicitRemoteCmd
-	} else {
-		remoteCmd = fs.Args()
-	}
-
 	user = strings.TrimSpace(user)
 	if user == "" {
-		return fmt.Errorf("user is required")
+		return newUsageError(fmt.Errorf("user is required"), false)
 	}
 	if port <= 0 || port > 65535 {
-		return fmt.Errorf("invalid port %d", port)
+		return newUsageError(fmt.Errorf("invalid port %d", port), false)
 	}
 	if opts.jsonOutput && execFlag {
-		return fmt.Errorf("cannot use --json with --exec")
+		return newUsageError(fmt.Errorf("cannot use --json with --exec"), false)
 	}
 	if execFlag && len(remoteCmd) == 0 && !isInteractive() {
 		return fmt.Errorf("--exec requires an interactive terminal (or pass a remote command after <vmid> with --)")
@@ -431,62 +423,6 @@ func buildSSHArgs(target string, port int, identity string, jump jumpConfig, use
 	}
 	args = append(args, target)
 	return args
-}
-
-func splitDoubleDash(args []string) (before []string, after []string, ok bool) {
-	for i, v := range args {
-		if v == "--" {
-			return args[:i], args[i+1:], true
-		}
-	}
-	return args, nil, false
-}
-
-func extractVMIDArg(args []string) (vmid string, rest []string) {
-	for i := 0; i < len(args); i++ {
-		value := strings.TrimSpace(args[i])
-		if value == "" {
-			continue
-		}
-		if strings.HasPrefix(value, "--") {
-			switch {
-			case value == "--user", value == "--jump-host", value == "--jump-user", value == "--identity", value == "--port":
-				i++
-			case hasSSHFlagWithValue(value):
-				continue
-			default:
-				// Bool or unknown flags do not consume a value by position.
-			}
-			continue
-		}
-		if strings.HasPrefix(value, "-") {
-			switch {
-			case value == "-u" || value == "-i" || value == "-p":
-				i++
-			case strings.HasPrefix(value, "-u="), strings.HasPrefix(value, "-i="), strings.HasPrefix(value, "-p="):
-				continue
-			case value == "-h" || value == "-e":
-				// Bool short flags do not consume value.
-			default:
-				// Unknown flags are left for flag.Parse to validate.
-			}
-			continue
-		}
-		vmid = value
-		rest = append([]string{}, args[:i]...)
-		rest = append(rest, args[i+1:]...)
-		return vmid, rest
-	}
-	return "", args
-}
-
-func hasSSHFlagWithValue(value string) bool {
-	for _, prefix := range []string{"--user=", "--jump-host=", "--jump-user=", "--identity=", "--port="} {
-		if strings.HasPrefix(value, prefix) {
-			return true
-		}
-	}
-	return false
 }
 
 func isReadableFile(path string) bool {

@@ -145,6 +145,7 @@ func (s *Server) ListenAndServe(ctx context.Context) error {
 
 	// API proxy endpoints — forward to daemon.
 	mux.HandleFunc("/api/v1/status", s.proxyGet)
+	mux.HandleFunc("/api/v1/operations/", s.proxyGet)
 	mux.HandleFunc("/api/v1/sandboxes/inventory", s.proxyGet)
 	mux.HandleFunc("/api/v1/sandboxes/reconcile", s.proxyPost)
 	mux.HandleFunc("/api/v1/sandboxes/validate-plan", s.proxyPost)
@@ -235,7 +236,7 @@ func (s *Server) proxyGet(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
 		return
 	}
-	s.forward(w, r.Method, daemonPath(r.URL.Path), nil)
+	s.forward(w, r.Method, daemonRequestTarget(r), nil, r.Header)
 }
 
 // maxForwardBytes caps the size of a request body the dashboard buffers before
@@ -271,7 +272,7 @@ func (s *Server) proxyPost(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	s.forward(w, r.Method, daemonPath(r.URL.Path), body)
+	s.forward(w, r.Method, daemonRequestTarget(r), body, r.Header)
 }
 
 // proxySandboxes handles GET (list) and POST (create) for /api/v1/sandboxes.
@@ -279,13 +280,13 @@ func (s *Server) proxySandboxes(w http.ResponseWriter, r *http.Request) {
 	// Strip the /api prefix to get /v1/sandboxes.
 	switch r.Method {
 	case http.MethodGet:
-		s.forward(w, r.Method, "/v1/sandboxes", nil)
+		s.forward(w, r.Method, daemonRequestTarget(r), nil, r.Header)
 	case http.MethodPost:
 		body, ok := s.readBoundedBody(w, r)
 		if !ok {
 			return
 		}
-		s.forward(w, r.Method, "/v1/sandboxes", body)
+		s.forward(w, r.Method, daemonRequestTarget(r), body, r.Header)
 	default:
 		writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
 	}
@@ -297,20 +298,20 @@ func (s *Server) proxySandboxAction(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	s.forward(w, r.Method, daemonPath(r.URL.Path), body)
+	s.forward(w, r.Method, daemonRequestTarget(r), body, r.Header)
 }
 
 // proxyJobs handles GET (list) and POST (create) for /api/v1/jobs.
 func (s *Server) proxyJobs(w http.ResponseWriter, r *http.Request) {
 	switch r.Method {
 	case http.MethodGet:
-		s.forward(w, r.Method, "/v1/jobs", nil)
+		s.forward(w, r.Method, daemonRequestTarget(r), nil, r.Header)
 	case http.MethodPost:
 		body, ok := s.readBoundedBody(w, r)
 		if !ok {
 			return
 		}
-		s.forward(w, r.Method, "/v1/jobs", body)
+		s.forward(w, r.Method, daemonRequestTarget(r), body, r.Header)
 	default:
 		writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
 	}
@@ -322,7 +323,7 @@ func (s *Server) proxyWorkspaceAction(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	s.forward(w, r.Method, daemonPath(r.URL.Path), body)
+	s.forward(w, r.Method, daemonRequestTarget(r), body, r.Header)
 }
 
 // proxySessionAction forwards requests to /v1/sessions/{id}/...
@@ -331,7 +332,7 @@ func (s *Server) proxySessionAction(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	s.forward(w, r.Method, daemonPath(r.URL.Path), body)
+	s.forward(w, r.Method, daemonRequestTarget(r), body, r.Header)
 }
 
 // proxyExposures handles GET (list), POST (create), DELETE for /api/v1/exposures.
@@ -340,7 +341,7 @@ func (s *Server) proxyExposures(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	s.forward(w, r.Method, daemonPath(r.URL.Path), body)
+	s.forward(w, r.Method, daemonRequestTarget(r), body, r.Header)
 }
 
 // proxyDelete forwards a DELETE request to the daemon.
@@ -349,7 +350,7 @@ func (s *Server) proxyDelete(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	s.forward(w, r.Method, daemonPath(r.URL.Path), body)
+	s.forward(w, r.Method, daemonRequestTarget(r), body, r.Header)
 }
 
 // proxyMessages handles GET (list) and POST (create) for /api/v1/messages.
@@ -358,7 +359,7 @@ func (s *Server) proxyMessages(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	s.forward(w, r.Method, daemonPath(r.URL.Path), body)
+	s.forward(w, r.Method, daemonRequestTarget(r), body, r.Header)
 }
 
 // daemonPath strips the /api prefix from the URL path, mapping dashboard
@@ -367,8 +368,17 @@ func daemonPath(p string) string {
 	return strings.TrimPrefix(p, "/api")
 }
 
+// daemonRequestTarget preserves both escaped path segments and raw query values.
+func daemonRequestTarget(r *http.Request) string {
+	target := daemonPath(r.URL.EscapedPath())
+	if r.URL.RawQuery != "" {
+		target += "?" + r.URL.RawQuery
+	}
+	return target
+}
+
 // forward sends a request to the daemon via Unix socket.
-func (s *Server) forward(w http.ResponseWriter, method, path string, body []byte) {
+func (s *Server) forward(w http.ResponseWriter, method, path string, body []byte, inbound ...http.Header) {
 	client := &http.Client{
 		Transport: &http.Transport{
 			DialContext: func(_ context.Context, _, _ string) (net.Conn, error) {
@@ -391,6 +401,11 @@ func (s *Server) forward(w http.ResponseWriter, method, path string, body []byte
 		return
 	}
 
+	if len(inbound) > 0 {
+		if key := inbound[0].Get("Idempotency-Key"); key != "" {
+			req.Header.Set("Idempotency-Key", key)
+		}
+	}
 	if s.token != "" {
 		req.Header.Set("Authorization", "Bearer "+s.token)
 	}
@@ -482,6 +497,7 @@ func (s *Server) inboundMiddleware(next http.Handler) http.Handler {
 		// configured, so a Server that somehow skipped ensureBrowserToken can
 		// never serve /api/* unauthenticated.
 		if !s.requestHasBrowserToken(r) {
+			w.Header().Set("X-Agentlab-Auth", "dashboard")
 			writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "dashboard token required"})
 			return
 		}

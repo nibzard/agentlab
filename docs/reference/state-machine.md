@@ -47,8 +47,8 @@ returns `ErrInvalidTransition` with the message
 
 Notes:
 
-- `agentlab sandbox destroy --force` overrides state restrictions for stuck or
-  `TIMEOUT` sandboxes.
+- `agentlab sandbox destroy` permits every supported state, including `RUNNING`
+  and `TIMEOUT`; `--force` is a compatibility alias for the same cleanup.
 - Lease renewal (`agentlab sandbox lease renew --ttl <ttl> <vmid>`) is accepted
   only when the sandbox is `RUNNING`. `READY` is rejected with 409.
 - `agentlab sandbox revert` resets the root disk to the `clean` snapshot. It

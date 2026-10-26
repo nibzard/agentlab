@@ -1,0 +1,2421 @@
+{
+  "bootstrap": {
+    "flag_details": {
+      "agentlab-bin": {
+        "default": "",
+        "description": "path to agentlab linux binary to upload"
+      },
+      "agentlab-url": {
+        "default": "",
+        "description": "download URL for agentlab linux binary"
+      },
+      "agentlabd-bin": {
+        "default": "",
+        "description": "path to agentlabd linux binary to upload"
+      },
+      "agentlabd-url": {
+        "default": "",
+        "description": "download URL for agentlabd linux binary"
+      },
+      "assets": {
+        "default": "",
+        "description": "path to agentlab assets (scripts/)"
+      },
+      "control-port": {
+        "default": "inherited or computed",
+        "description": "control plane port"
+      },
+      "control-token": {
+        "default": "",
+        "description": "control plane auth token (optional)"
+      },
+      "force": {
+        "default": "false",
+        "description": "force overwrite of managed network files"
+      },
+      "h": {
+        "default": "false",
+        "description": "show help"
+      },
+      "help": {
+        "default": "false",
+        "description": "show help"
+      },
+      "host": {
+        "default": "",
+        "description": "SSH host (required)"
+      },
+      "identity": {
+        "default": "",
+        "description": "SSH identity file"
+      },
+      "keep-temp": {
+        "default": "false",
+        "description": "keep remote bootstrap bundle directory"
+      },
+      "no-tailscale-serve": {
+        "default": "false",
+        "description": "disable tailscale serve publishing"
+      },
+      "release-url": {
+        "default": "",
+        "description": "base URL for downloading linux binaries"
+      },
+      "rotate-control-token": {
+        "default": "false",
+        "description": "rotate control auth token"
+      },
+      "ssh-port": {
+        "default": "inherited or computed",
+        "description": "SSH port"
+      },
+      "ssh-user": {
+        "default": "inherited or computed",
+        "description": "SSH username"
+      },
+      "tailscale-api-key": {
+        "default": "",
+        "description": "tailscale admin API key (optional)"
+      },
+      "tailscale-authkey": {
+        "default": "",
+        "description": "tailscale auth key for unattended tailscale up"
+      },
+      "tailscale-hostname": {
+        "default": "",
+        "description": "tailscale hostname (when using authkey)"
+      },
+      "tailscale-oauth-client-id": {
+        "default": "",
+        "description": "tailscale oauth client id (optional)"
+      },
+      "tailscale-oauth-client-secret": {
+        "default": "",
+        "description": "tailscale oauth client secret (optional)"
+      },
+      "tailscale-oauth-scopes": {
+        "default": "",
+        "description": "tailscale oauth scopes (comma/space separated)"
+      },
+      "tailscale-serve": {
+        "default": "false",
+        "description": "force tailscale serve publishing"
+      },
+      "tailscale-tailnet": {
+        "default": "",
+        "description": "tailscale tailnet name for admin API (optional)"
+      },
+      "verbose": {
+        "default": "false",
+        "description": "show remote command output"
+      }
+    },
+    "flags": {
+      "agentlab-bin": "string",
+      "agentlab-url": "string",
+      "agentlabd-bin": "string",
+      "agentlabd-url": "string",
+      "assets": "string",
+      "control-port": "int",
+      "control-token": "string",
+      "force": "bool",
+      "h": "bool",
+      "help": "bool",
+      "host": "string",
+      "identity": "string",
+      "keep-temp": "bool",
+      "no-tailscale-serve": "bool",
+      "release-url": "string",
+      "rotate-control-token": "bool",
+      "ssh-port": "int",
+      "ssh-user": "string",
+      "tailscale-api-key": "string",
+      "tailscale-authkey": "string",
+      "tailscale-hostname": "string",
+      "tailscale-oauth-client-id": "string",
+      "tailscale-oauth-client-secret": "string",
+      "tailscale-oauth-scopes": "string",
+      "tailscale-serve": "bool",
+      "tailscale-tailnet": "string",
+      "verbose": "bool"
+    },
+    "operand_types": {},
+    "operands": 0,
+    "required_flags": []
+  },
+  "completion": {
+    "flags": {
+      "h": "bool",
+      "help": "bool"
+    },
+    "operands": 1
+  },
+  "connect": {
+    "flag_details": {
+      "jump-host": {
+        "default": "",
+        "description": "default SSH jump host (used when subnet route is unavailable)"
+      },
+      "jump-user": {
+        "default": "",
+        "description": "default SSH jump username"
+      }
+    },
+    "flags": {
+      "h": "bool",
+      "help": "bool",
+      "jump-host": "string",
+      "jump-user": "string"
+    },
+    "operand_types": {},
+    "operands": 0,
+    "required_flags": []
+  },
+  "defaults delete": {
+    "flags": {
+      "h": "bool",
+      "help": "bool"
+    },
+    "operands": 1
+  },
+  "defaults effective": {
+    "flags": {
+      "h": "bool",
+      "help": "bool"
+    },
+    "operands": 0
+  },
+  "defaults list": {
+    "flags": {
+      "h": "bool",
+      "help": "bool"
+    },
+    "operands": 0
+  },
+  "defaults read": {
+    "flags": {
+      "h": "bool",
+      "help": "bool"
+    },
+    "operands": 1
+  },
+  "defaults write": {
+    "flags": {
+      "h": "bool",
+      "help": "bool"
+    },
+    "operands": 2
+  },
+  "disconnect": {
+    "flag_details": {},
+    "flags": {
+      "h": "bool",
+      "help": "bool"
+    },
+    "operand_types": {},
+    "operands": 0,
+    "required_flags": []
+  },
+  "init": {
+    "flag_details": {
+      "apply": {
+        "default": "false",
+        "description": "apply recommended host setup changes"
+      },
+      "assets": {
+        "default": "",
+        "description": "path to agentlab repo root (for scripts)"
+      },
+      "backend": {
+        "default": "",
+        "description": "sandbox backend: proxmox, docker, libvirt (default proxmox)"
+      },
+      "control-port": {
+        "default": "inherited or computed",
+        "description": "control plane port"
+      },
+      "control-token": {
+        "default": "",
+        "description": "control plane auth token (optional)"
+      },
+      "force": {
+        "default": "false",
+        "description": "overwrite managed network files when applying"
+      },
+      "h": {
+        "default": "false",
+        "description": "show help"
+      },
+      "help": {
+        "default": "false",
+        "description": "show help"
+      },
+      "no-tailscale-serve": {
+        "default": "false",
+        "description": "disable tailscale serve publishing"
+      },
+      "rotate-control-token": {
+        "default": "false",
+        "description": "rotate control auth token"
+      },
+      "smoke-test": {
+        "default": "false",
+        "description": "run end-to-end provisioning smoke test"
+      },
+      "tailscale-serve": {
+        "default": "false",
+        "description": "force tailscale serve publishing"
+      }
+    },
+    "flags": {
+      "apply": "bool",
+      "assets": "string",
+      "backend": "string",
+      "control-port": "int",
+      "control-token": "string",
+      "force": "bool",
+      "h": "bool",
+      "help": "bool",
+      "no-tailscale-serve": "bool",
+      "rotate-control-token": "bool",
+      "smoke-test": "bool",
+      "tailscale-serve": "bool"
+    },
+    "operand_types": {},
+    "operands": 0,
+    "required_flags": []
+  },
+  "integration add": {
+    "flag_details": {
+      "attach": {
+        "default": "auto:all",
+        "description": "attachment mode (sandbox:<name>, tag:<value>, auto:all)"
+      },
+      "h": {
+        "default": "false",
+        "description": "show help"
+      },
+      "help": {
+        "default": "false",
+        "description": "show help"
+      },
+      "name": {
+        "default": "",
+        "description": "integration name (unique identifier)"
+      },
+      "secret": {
+        "default": "",
+        "description": "secret value (API key, token, password)"
+      },
+      "secret-header": {
+        "default": "",
+        "description": "custom header name (for header secret-type)"
+      },
+      "secret-type": {
+        "default": "bearer",
+        "description": "how to inject secret (bearer, header, basic-auth)"
+      },
+      "target": {
+        "default": "",
+        "description": "target URL for HTTP proxy (e.g., https://api.example.com)"
+      },
+      "type": {
+        "default": "http-proxy",
+        "description": "integration type (http-proxy or git-proxy)"
+      },
+      "username": {
+        "default": "",
+        "description": "username for basic-auth or git proxy"
+      }
+    },
+    "flags": {
+      "attach": "string",
+      "h": "bool",
+      "help": "bool",
+      "name": "string",
+      "secret": "string",
+      "secret-header": "string",
+      "secret-type": "string",
+      "target": "string",
+      "type": "string",
+      "username": "string"
+    },
+    "operand_types": {},
+    "operands": 0,
+    "required_flags": [
+      "name",
+      "secret"
+    ]
+  },
+  "integration list": {
+    "flag_details": {},
+    "flags": {
+      "h": "bool",
+      "help": "bool"
+    },
+    "operand_types": {},
+    "operands": 0,
+    "required_flags": []
+  },
+  "integration rm": {
+    "flag_details": {},
+    "flags": {
+      "h": "bool",
+      "help": "bool"
+    },
+    "operand_types": {},
+    "operands": 1,
+    "required_flags": []
+  },
+  "integration status": {
+    "flag_details": {
+      "sandbox": {
+        "default": "",
+        "description": "sandbox name to show integrations for"
+      }
+    },
+    "flags": {
+      "h": "bool",
+      "help": "bool",
+      "sandbox": "string"
+    },
+    "operand_types": {},
+    "operands": 0,
+    "required_flags": [
+      "sandbox"
+    ]
+  },
+  "job artifacts": {
+    "flag_details": {},
+    "flags": {
+      "h": "bool",
+      "help": "bool"
+    },
+    "operand_types": {},
+    "operands": 1,
+    "required_flags": []
+  },
+  "job artifacts download": {
+    "flag_details": {
+      "bundle": {
+        "default": "false",
+        "description": "download latest bundle (agentlab-artifacts.tar.gz)"
+      },
+      "latest": {
+        "default": "false",
+        "description": "download latest artifact"
+      },
+      "name": {
+        "default": "",
+        "description": "artifact name to download"
+      },
+      "out": {
+        "default": "",
+        "description": "output file path or directory"
+      },
+      "path": {
+        "default": "",
+        "description": "artifact path to download"
+      }
+    },
+    "flags": {
+      "bundle": "bool",
+      "h": "bool",
+      "help": "bool",
+      "latest": "bool",
+      "name": "string",
+      "out": "string",
+      "path": "string"
+    },
+    "operand_types": {},
+    "operands": 1,
+    "required_flags": []
+  },
+  "job doctor": {
+    "flag_details": {
+      "out": {
+        "default": "",
+        "description": "output file path or directory"
+      }
+    },
+    "flags": {
+      "h": "bool",
+      "help": "bool",
+      "out": "string"
+    },
+    "operand_types": {},
+    "operands": 1,
+    "required_flags": []
+  },
+  "job list": {
+    "flag_details": {
+      "after": {
+        "default": "",
+        "description": "opaque pagination cursor"
+      },
+      "limit": {
+        "default": "50",
+        "description": "page size (1-200)"
+      },
+      "profile": {
+        "default": "",
+        "description": "profile filter"
+      },
+      "state": {
+        "default": "",
+        "description": "job state"
+      },
+      "workspace": {
+        "default": "",
+        "description": "workspace ID filter"
+      }
+    },
+    "flags": {
+      "after": "string",
+      "h": "bool",
+      "help": "bool",
+      "limit": "int",
+      "profile": "string",
+      "state": "string",
+      "workspace": "string"
+    },
+    "operand_types": {},
+    "operands": 0,
+    "required_flags": []
+  },
+  "job run": {
+    "flag_details": {
+      "branch": {
+        "default": "",
+        "description": "branch name (session-backed)"
+      },
+      "keepalive": {
+        "default": "unset",
+        "description": "keep sandbox after job completion"
+      },
+      "mode": {
+        "default": "",
+        "description": "mode (default dangerous)"
+      },
+      "profile": {
+        "default": "",
+        "description": "profile name"
+      },
+      "ref": {
+        "default": "",
+        "description": "git ref (default main)"
+      },
+      "repo": {
+        "default": "",
+        "description": "git repository url"
+      },
+      "stateful": {
+        "default": "false",
+        "description": "create a default workspace for a stateful job"
+      },
+      "task": {
+        "default": "",
+        "description": "task description"
+      },
+      "workspace": {
+        "default": "",
+        "description": "workspace id or name (or new:<name>)"
+      },
+      "workspace-create": {
+        "default": "",
+        "description": "create workspace with name"
+      },
+      "workspace-size": {
+        "default": "",
+        "description": "workspace size for creation (e.g. 80G)"
+      },
+      "workspace-storage": {
+        "default": "",
+        "description": "workspace storage (default local-zfs)"
+      },
+      "workspace-wait": {
+        "default": "",
+        "description": "wait for workspace detach (e.g. 2m, 30s)"
+      }
+    },
+    "flags": {
+      "branch": "string",
+      "h": "bool",
+      "help": "bool",
+      "keepalive": "bool",
+      "mode": "string",
+      "profile": "string",
+      "ref": "string",
+      "repo": "string",
+      "stateful": "bool",
+      "task": "string",
+      "ttl": "string",
+      "workspace": "string",
+      "workspace-create": "string",
+      "workspace-size": "string",
+      "workspace-storage": "string",
+      "workspace-wait": "string"
+    },
+    "operand_types": {},
+    "operands": 0,
+    "required_flags": []
+  },
+  "job show": {
+    "flag_details": {
+      "events-tail": {
+        "default": "inherited or computed",
+        "description": "number of recent events to include (0 to omit)"
+      }
+    },
+    "flags": {
+      "events-tail": "int",
+      "h": "bool",
+      "help": "bool"
+    },
+    "operand_types": {},
+    "operands": 1,
+    "required_flags": []
+  },
+  "job validate": {
+    "flag_details": {
+      "branch": {
+        "default": "",
+        "description": "branch name (session-backed)"
+      },
+      "keepalive": {
+        "default": "unset",
+        "description": "keep sandbox after job completion"
+      },
+      "mode": {
+        "default": "",
+        "description": "mode (default dangerous)"
+      },
+      "profile": {
+        "default": "",
+        "description": "profile name"
+      },
+      "ref": {
+        "default": "",
+        "description": "git ref (default main)"
+      },
+      "repo": {
+        "default": "",
+        "description": "git repository url"
+      },
+      "stateful": {
+        "default": "false",
+        "description": "create a default workspace for a stateful job"
+      },
+      "task": {
+        "default": "",
+        "description": "task description"
+      },
+      "workspace": {
+        "default": "",
+        "description": "workspace id or name (or new:<name>)"
+      },
+      "workspace-create": {
+        "default": "",
+        "description": "create workspace with name"
+      },
+      "workspace-size": {
+        "default": "",
+        "description": "workspace size for creation (e.g. 80G)"
+      },
+      "workspace-storage": {
+        "default": "",
+        "description": "workspace storage (default local-zfs)"
+      },
+      "workspace-wait": {
+        "default": "",
+        "description": "wait for workspace detach (e.g. 2m, 30s)"
+      }
+    },
+    "flags": {
+      "branch": "string",
+      "h": "bool",
+      "help": "bool",
+      "keepalive": "bool",
+      "mode": "string",
+      "profile": "string",
+      "ref": "string",
+      "repo": "string",
+      "stateful": "bool",
+      "task": "string",
+      "ttl": "string",
+      "workspace": "string",
+      "workspace-create": "string",
+      "workspace-size": "string",
+      "workspace-storage": "string",
+      "workspace-wait": "string"
+    },
+    "operand_types": {},
+    "operands": 0,
+    "required_flags": []
+  },
+  "job wait": {
+    "flags": {
+      "h": "bool",
+      "help": "bool"
+    },
+    "operands": 1
+  },
+  "logs": {
+    "flag_details": {
+      "follow": {
+        "default": "false",
+        "description": "follow new events"
+      },
+      "tail": {
+        "default": "inherited or computed",
+        "description": "show the last N events"
+      }
+    },
+    "flags": {
+      "follow": "bool",
+      "h": "bool",
+      "help": "bool",
+      "tail": "int"
+    },
+    "operand_types": {
+      "0": "vmid"
+    },
+    "operands": 1,
+    "required_flags": []
+  },
+  "msg post": {
+    "flag_details": {
+      "author": {
+        "default": "",
+        "description": "message author"
+      },
+      "job": {
+        "default": "",
+        "description": "message scope job id"
+      },
+      "kind": {
+        "default": "",
+        "description": "message kind"
+      },
+      "payload": {
+        "default": "",
+        "description": "message json payload"
+      },
+      "session": {
+        "default": "",
+        "description": "message scope session id"
+      },
+      "text": {
+        "default": "",
+        "description": "message text"
+      },
+      "workspace": {
+        "default": "",
+        "description": "message scope workspace id"
+      }
+    },
+    "flags": {
+      "author": "string",
+      "h": "bool",
+      "help": "bool",
+      "job": "string",
+      "kind": "string",
+      "payload": "string",
+      "session": "string",
+      "text": "string",
+      "workspace": "string"
+    },
+    "operand_types": {},
+    "operands": -1,
+    "required_flags": []
+  },
+  "msg tail": {
+    "flag_details": {
+      "follow": {
+        "default": "false",
+        "description": "follow new messages"
+      },
+      "job": {
+        "default": "",
+        "description": "message scope job id"
+      },
+      "session": {
+        "default": "",
+        "description": "message scope session id"
+      },
+      "tail": {
+        "default": "inherited or computed",
+        "description": "show the last N messages"
+      },
+      "workspace": {
+        "default": "",
+        "description": "message scope workspace id"
+      }
+    },
+    "flags": {
+      "follow": "bool",
+      "h": "bool",
+      "help": "bool",
+      "job": "string",
+      "session": "string",
+      "tail": "int",
+      "workspace": "string"
+    },
+    "operand_types": {},
+    "operands": 0,
+    "required_flags": []
+  },
+  "operation show": {
+    "flags": {
+      "h": "bool",
+      "help": "bool"
+    },
+    "operands": 1
+  },
+  "operation wait": {
+    "flags": {
+      "h": "bool",
+      "help": "bool"
+    },
+    "operands": 1
+  },
+  "pool status": {
+    "flag_details": {},
+    "flags": {
+      "h": "bool",
+      "help": "bool"
+    },
+    "operand_types": {},
+    "operands": 0,
+    "required_flags": []
+  },
+  "profile list": {
+    "flag_details": {},
+    "flags": {
+      "h": "bool",
+      "help": "bool"
+    },
+    "operand_types": {},
+    "operands": 0,
+    "required_flags": []
+  },
+  "sandbox destroy": {
+    "flag_details": {
+      "force": {
+        "default": "false",
+        "description": "compatibility alias for ordinary destruction and cleanup"
+      }
+    },
+    "flags": {
+      "force": "bool",
+      "h": "bool",
+      "help": "bool"
+    },
+    "operand_types": {
+      "0": "vmid"
+    },
+    "operands": 1,
+    "required_flags": []
+  },
+  "sandbox doctor": {
+    "flag_details": {
+      "out": {
+        "default": "",
+        "description": "output file path or directory"
+      }
+    },
+    "flags": {
+      "h": "bool",
+      "help": "bool",
+      "out": "string"
+    },
+    "operand_types": {
+      "0": "vmid"
+    },
+    "operands": 1,
+    "required_flags": []
+  },
+  "sandbox expose": {
+    "flag_details": {
+      "force": {
+        "default": "false",
+        "description": "skip confirmation prompt"
+      }
+    },
+    "flags": {
+      "force": "bool",
+      "h": "bool",
+      "help": "bool"
+    },
+    "operand_types": {
+      "0": "vmid"
+    },
+    "operands": 2,
+    "required_flags": []
+  },
+  "sandbox exposed": {
+    "flag_details": {},
+    "flags": {
+      "h": "bool",
+      "help": "bool"
+    },
+    "operand_types": {},
+    "operands": 0,
+    "required_flags": []
+  },
+  "sandbox inventory": {
+    "flag_details": {},
+    "flags": {
+      "h": "bool",
+      "help": "bool"
+    },
+    "operand_types": {},
+    "operands": 0,
+    "required_flags": []
+  },
+  "sandbox lease renew": {
+    "flag_details": {},
+    "flags": {
+      "h": "bool",
+      "help": "bool",
+      "ttl": "string"
+    },
+    "operand_types": {
+      "0": "vmid"
+    },
+    "operands": 1,
+    "required_flags": []
+  },
+  "sandbox list": {
+    "flag_details": {
+      "a": {
+        "default": "false",
+        "description": "include destroyed sandboxes"
+      },
+      "all": {
+        "default": "false",
+        "description": "include destroyed sandboxes"
+      }
+    },
+    "flags": {
+      "a": "bool",
+      "all": "bool",
+      "h": "bool",
+      "help": "bool"
+    },
+    "operand_types": {},
+    "operands": 0,
+    "required_flags": []
+  },
+  "sandbox new": {
+    "flag_details": {
+      "and-ssh": {
+        "default": "false",
+        "description": "create sandbox and immediately ssh into it"
+      },
+      "idempotency-key": {
+        "default": "",
+        "description": "reuse this key for safe create retries"
+      },
+      "image": {
+        "default": "inherited or computed",
+        "description": "container image for LXC sandboxes (e.g., ubuntu:22.04)"
+      },
+      "job": {
+        "default": "",
+        "description": "attach to existing job id"
+      },
+      "keepalive": {
+        "default": "unset",
+        "description": "enable keepalive lease for sandbox"
+      },
+      "name": {
+        "default": "",
+        "description": "sandbox name"
+      },
+      "no-wait": {
+        "default": "false",
+        "description": "return an operation identifier before provisioning finishes"
+      },
+      "profile": {
+        "default": "",
+        "description": "profile name"
+      },
+      "prompt": {
+        "default": "",
+        "description": "initial agent prompt for agent-ready sandboxes"
+      },
+      "tag": {
+        "default": "unset",
+        "description": "integration-attachment tag (repeatable; normalized to lowercase)"
+      },
+      "type": {
+        "default": "",
+        "description": "sandbox type: vm (default) or lxc"
+      },
+      "vmid": {
+        "default": "0",
+        "description": "vmid override"
+      },
+      "workspace": {
+        "default": "",
+        "description": "workspace id or name"
+      }
+    },
+    "flags": {
+      "and-ssh": "bool",
+      "h": "bool",
+      "help": "bool",
+      "idempotency-key": "string",
+      "image": "string",
+      "job": "string",
+      "keepalive": "bool",
+      "name": "string",
+      "no-wait": "bool",
+      "profile": "string",
+      "prompt": "string",
+      "tag": "string",
+      "ttl": "string",
+      "type": "string",
+      "vmid": "int",
+      "workspace": "string"
+    },
+    "operand_types": {},
+    "operands": -1,
+    "required_flags": []
+  },
+  "sandbox pause": {
+    "flag_details": {},
+    "flags": {
+      "h": "bool",
+      "help": "bool"
+    },
+    "operand_types": {
+      "0": "vmid"
+    },
+    "operands": 1,
+    "required_flags": []
+  },
+  "sandbox prune": {
+    "flag_details": {
+      "dry-run": {
+        "default": "false",
+        "description": "preview timed-out sandboxes without destroying them"
+      },
+      "vmid": {
+        "default": "unset",
+        "description": "target VMID from a preview (repeatable)"
+      }
+    },
+    "flags": {
+      "dry-run": "bool",
+      "h": "bool",
+      "help": "bool",
+      "vmid": "string"
+    },
+    "operand_types": {},
+    "operands": 0,
+    "required_flags": []
+  },
+  "sandbox reconcile": {
+    "flag_details": {
+      "apply": {
+        "default": "false",
+        "description": "apply supported reconciliation fixes"
+      }
+    },
+    "flags": {
+      "apply": "bool",
+      "h": "bool",
+      "help": "bool"
+    },
+    "operand_types": {},
+    "operands": 0,
+    "required_flags": []
+  },
+  "sandbox resume": {
+    "flag_details": {},
+    "flags": {
+      "h": "bool",
+      "help": "bool"
+    },
+    "operand_types": {
+      "0": "vmid"
+    },
+    "operands": 1,
+    "required_flags": []
+  },
+  "sandbox revert": {
+    "flag_details": {
+      "force": {
+        "default": "false",
+        "description": "force revert even if a job is running"
+      },
+      "no-restart": {
+        "default": "false",
+        "description": "do not restart the sandbox after revert"
+      },
+      "restart": {
+        "default": "false",
+        "description": "restart the sandbox after revert"
+      }
+    },
+    "flags": {
+      "force": "bool",
+      "h": "bool",
+      "help": "bool",
+      "no-restart": "bool",
+      "restart": "bool"
+    },
+    "operand_types": {
+      "0": "vmid"
+    },
+    "operands": 1,
+    "required_flags": []
+  },
+  "sandbox show": {
+    "flag_details": {},
+    "flags": {
+      "h": "bool",
+      "help": "bool"
+    },
+    "operand_types": {
+      "0": "vmid"
+    },
+    "operands": 1,
+    "required_flags": []
+  },
+  "sandbox snapshot list": {
+    "flag_details": {},
+    "flags": {
+      "h": "bool",
+      "help": "bool"
+    },
+    "operand_types": {
+      "0": "vmid"
+    },
+    "operands": 1,
+    "required_flags": []
+  },
+  "sandbox snapshot restore": {
+    "flag_details": {
+      "force": {
+        "default": "false",
+        "description": "override snapshot safety checks"
+      }
+    },
+    "flags": {
+      "force": "bool",
+      "h": "bool",
+      "help": "bool"
+    },
+    "operand_types": {
+      "0": "vmid"
+    },
+    "operands": 2,
+    "required_flags": []
+  },
+  "sandbox snapshot save": {
+    "flag_details": {
+      "force": {
+        "default": "false",
+        "description": "override snapshot safety checks"
+      }
+    },
+    "flags": {
+      "force": "bool",
+      "h": "bool",
+      "help": "bool"
+    },
+    "operand_types": {
+      "0": "vmid"
+    },
+    "operands": 2,
+    "required_flags": []
+  },
+  "sandbox start": {
+    "flag_details": {},
+    "flags": {
+      "h": "bool",
+      "help": "bool"
+    },
+    "operand_types": {
+      "0": "vmid"
+    },
+    "operands": 1,
+    "required_flags": []
+  },
+  "sandbox stop": {
+    "flag_details": {
+      "all": {
+        "default": "false",
+        "description": "stop all running sandboxes"
+      },
+      "force": {
+        "default": "false",
+        "description": "skip confirmation prompt"
+      }
+    },
+    "flags": {
+      "all": "bool",
+      "force": "bool",
+      "h": "bool",
+      "help": "bool"
+    },
+    "operand_types": {
+      "0": "vmid"
+    },
+    "operands": 1,
+    "required_flags": []
+  },
+  "sandbox unexpose": {
+    "flag_details": {},
+    "flags": {
+      "h": "bool",
+      "help": "bool"
+    },
+    "operand_types": {},
+    "operands": 1,
+    "required_flags": []
+  },
+  "sandbox update": {
+    "flag_details": {
+      "clear-tags": {
+        "default": "false",
+        "description": "remove all sandbox tags"
+      },
+      "cores": {
+        "default": "0",
+        "description": "number of CPU cores"
+      },
+      "memory": {
+        "default": "",
+        "description": "memory size in MiB or GiB (for example 8192 or 8GiB)"
+      },
+      "tag": {
+        "default": "unset",
+        "description": "replace sandbox tags with these values (repeatable); omits leaves them unchanged"
+      }
+    },
+    "flags": {
+      "clear-tags": "bool",
+      "cores": "int",
+      "h": "bool",
+      "help": "bool",
+      "memory": "string",
+      "tag": "string"
+    },
+    "operand_types": {
+      "0": "vmid"
+    },
+    "operands": 1,
+    "required_flags": []
+  },
+  "sandbox validate": {
+    "flag_details": {
+      "job": {
+        "default": "",
+        "description": "attach to existing job id"
+      },
+      "keepalive": {
+        "default": "unset",
+        "description": "enable keepalive lease for sandbox"
+      },
+      "name": {
+        "default": "",
+        "description": "sandbox name"
+      },
+      "profile": {
+        "default": "",
+        "description": "profile name"
+      },
+      "vmid": {
+        "default": "0",
+        "description": "vmid override"
+      },
+      "workspace": {
+        "default": "",
+        "description": "workspace id or name"
+      }
+    },
+    "flags": {
+      "h": "bool",
+      "help": "bool",
+      "job": "string",
+      "keepalive": "bool",
+      "name": "string",
+      "profile": "string",
+      "ttl": "string",
+      "vmid": "int",
+      "workspace": "string"
+    },
+    "operand_types": {},
+    "operands": -1,
+    "required_flags": []
+  },
+  "sandbox wait": {
+    "flags": {
+      "h": "bool",
+      "help": "bool"
+    },
+    "operand_types": {
+      "0": "vmid"
+    },
+    "operands": 1
+  },
+  "schema": {
+    "flag_details": {},
+    "flags": {
+      "h": "bool",
+      "help": "bool"
+    },
+    "operand_types": {},
+    "operands": 1,
+    "required_flags": []
+  },
+  "secrets add-ssh-key": {
+    "flag_details": {
+      "age-key": {
+        "default": "",
+        "description": "age key path override"
+      },
+      "allow-plaintext": {
+        "default": "false",
+        "description": "allow reading or writing plaintext bundles"
+      },
+      "bundle": {
+        "default": "",
+        "description": "bundle name or path (defaults to config secrets_bundle)"
+      },
+      "config": {
+        "default": "inherited or computed",
+        "description": "path to agentlab config file"
+      },
+      "dir": {
+        "default": "",
+        "description": "secrets directory override"
+      },
+      "key": {
+        "default": "",
+        "description": "SSH public key value"
+      },
+      "key-file": {
+        "default": "",
+        "description": "path to an SSH public key file"
+      },
+      "name": {
+        "default": "",
+        "description": "key name in the bundle"
+      },
+      "sops-path": {
+        "default": "",
+        "description": "sops binary path override"
+      }
+    },
+    "flags": {
+      "age-key": "string",
+      "allow-plaintext": "bool",
+      "bundle": "string",
+      "config": "string",
+      "dir": "string",
+      "h": "bool",
+      "help": "bool",
+      "key": "string",
+      "key-file": "string",
+      "name": "string",
+      "sops-path": "string"
+    },
+    "operand_types": {},
+    "operands": 0,
+    "required_flags": [
+      "name"
+    ]
+  },
+  "secrets clear-tailscale": {
+    "flag_details": {
+      "age-key": {
+        "default": "",
+        "description": "age key path override"
+      },
+      "allow-plaintext": {
+        "default": "false",
+        "description": "allow reading or writing plaintext bundles"
+      },
+      "bundle": {
+        "default": "",
+        "description": "bundle name or path (defaults to config secrets_bundle)"
+      },
+      "config": {
+        "default": "inherited or computed",
+        "description": "path to agentlab config file"
+      },
+      "dir": {
+        "default": "",
+        "description": "secrets directory override"
+      },
+      "sops-path": {
+        "default": "",
+        "description": "sops binary path override"
+      }
+    },
+    "flags": {
+      "age-key": "string",
+      "allow-plaintext": "bool",
+      "bundle": "string",
+      "config": "string",
+      "dir": "string",
+      "h": "bool",
+      "help": "bool",
+      "sops-path": "string"
+    },
+    "operand_types": {},
+    "operands": 0,
+    "required_flags": []
+  },
+  "secrets remove-ssh-key": {
+    "flag_details": {
+      "age-key": {
+        "default": "",
+        "description": "age key path override"
+      },
+      "allow-plaintext": {
+        "default": "false",
+        "description": "allow reading or writing plaintext bundles"
+      },
+      "bundle": {
+        "default": "",
+        "description": "bundle name or path (defaults to config secrets_bundle)"
+      },
+      "config": {
+        "default": "inherited or computed",
+        "description": "path to agentlab config file"
+      },
+      "dir": {
+        "default": "",
+        "description": "secrets directory override"
+      },
+      "name": {
+        "default": "",
+        "description": "key name in the bundle"
+      },
+      "sops-path": {
+        "default": "",
+        "description": "sops binary path override"
+      }
+    },
+    "flags": {
+      "age-key": "string",
+      "allow-plaintext": "bool",
+      "bundle": "string",
+      "config": "string",
+      "dir": "string",
+      "h": "bool",
+      "help": "bool",
+      "name": "string",
+      "sops-path": "string"
+    },
+    "operand_types": {},
+    "operands": 0,
+    "required_flags": [
+      "name"
+    ]
+  },
+  "secrets set-env": {
+    "flag_details": {
+      "from-file": {
+        "default": "",
+        "description": "bulk: path to a KEY=VAL line file or a JSON object"
+      },
+      "name": {
+        "default": "",
+        "description": "environment variable name (single-variable mode)"
+      },
+      "value": {
+        "default": "",
+        "description": "environment variable value (single-variable mode)"
+      },
+      "value-file": {
+        "default": "",
+        "description": "read the single value from a file (single-variable mode)"
+      }
+    },
+    "flags": {
+      "from-file": "string",
+      "h": "bool",
+      "help": "bool",
+      "name": "string",
+      "value": "string",
+      "value-file": "string"
+    },
+    "operand_types": {},
+    "operands": 0,
+    "required_flags": []
+  },
+  "secrets set-git": {
+    "flag_details": {
+      "git-token": {
+        "default": "",
+        "description": "git access token (e.g. GitHub PAT)"
+      },
+      "git-token-file": {
+        "default": "",
+        "description": "read the git token from a file"
+      },
+      "known-hosts-file": {
+        "default": "",
+        "description": "path to a known_hosts file"
+      },
+      "ssh-key-file": {
+        "default": "",
+        "description": "path to an SSH private key"
+      },
+      "username": {
+        "default": "",
+        "description": "git username (for HTTPS auth)"
+      }
+    },
+    "flags": {
+      "git-token": "string",
+      "git-token-file": "string",
+      "h": "bool",
+      "help": "bool",
+      "known-hosts-file": "string",
+      "ssh-key-file": "string",
+      "username": "string"
+    },
+    "operand_types": {},
+    "operands": 0,
+    "required_flags": []
+  },
+  "secrets set-tailscale": {
+    "flag_details": {
+      "admin-api-key": {
+        "default": "",
+        "description": "Tailscale Admin API key (tskey-api-...) to mint per-VM auth keys"
+      },
+      "admin-api-key-file": {
+        "default": "",
+        "description": "read the Tailscale Admin API key from a file"
+      },
+      "age-key": {
+        "default": "",
+        "description": "age key path override"
+      },
+      "allow-plaintext": {
+        "default": "false",
+        "description": "allow reading or writing plaintext bundles"
+      },
+      "authkey": {
+        "default": "",
+        "description": "shared reusable Tailscale auth key (fallback for per-VM minting)"
+      },
+      "authkey-file": {
+        "default": "",
+        "description": "read the shared Tailscale auth key from a file"
+      },
+      "bundle": {
+        "default": "",
+        "description": "bundle name or path (defaults to config secrets_bundle)"
+      },
+      "config": {
+        "default": "inherited or computed",
+        "description": "path to agentlab config file"
+      },
+      "dir": {
+        "default": "",
+        "description": "secrets directory override"
+      },
+      "extra-arg": {
+        "default": "unset",
+        "description": "additional `tailscale up` arg (repeatable)"
+      },
+      "hostname-template": {
+        "default": "",
+        "description": "per-VM hostname template (supports {vmid} and {name})"
+      },
+      "sops-path": {
+        "default": "",
+        "description": "sops binary path override"
+      },
+      "tag": {
+        "default": "unset",
+        "description": "Tailscale tag (repeatable)"
+      },
+      "tailnet": {
+        "default": "",
+        "description": "tailnet to mint keys in (default: the key's own tailnet, \"-\")"
+      }
+    },
+    "flags": {
+      "admin-api-key": "string",
+      "admin-api-key-file": "string",
+      "age-key": "string",
+      "allow-plaintext": "bool",
+      "authkey": "string",
+      "authkey-file": "string",
+      "bundle": "string",
+      "config": "string",
+      "dir": "string",
+      "extra-arg": "string",
+      "h": "bool",
+      "help": "bool",
+      "hostname-template": "string",
+      "sops-path": "string",
+      "tag": "string",
+      "tailnet": "string"
+    },
+    "operand_types": {},
+    "operands": 0,
+    "required_flags": []
+  },
+  "secrets show": {
+    "flag_details": {
+      "age-key": {
+        "default": "",
+        "description": "age key path override"
+      },
+      "allow-plaintext": {
+        "default": "false",
+        "description": "allow reading or writing plaintext bundles"
+      },
+      "bundle": {
+        "default": "",
+        "description": "bundle name or path (defaults to config secrets_bundle)"
+      },
+      "config": {
+        "default": "inherited or computed",
+        "description": "path to agentlab config file"
+      },
+      "dir": {
+        "default": "",
+        "description": "secrets directory override"
+      },
+      "format": {
+        "default": "inherited or computed",
+        "description": "output format: yaml or json"
+      },
+      "reveal": {
+        "default": "false",
+        "description": "show sensitive values instead of redacting them"
+      },
+      "sops-path": {
+        "default": "",
+        "description": "sops binary path override"
+      }
+    },
+    "flags": {
+      "age-key": "string",
+      "allow-plaintext": "bool",
+      "bundle": "string",
+      "config": "string",
+      "dir": "string",
+      "format": "string",
+      "h": "bool",
+      "help": "bool",
+      "reveal": "bool",
+      "sops-path": "string"
+    },
+    "operand_types": {},
+    "operands": 1,
+    "required_flags": []
+  },
+  "secrets validate": {
+    "flag_details": {
+      "age-key": {
+        "default": "",
+        "description": "age key path override"
+      },
+      "allow-plaintext": {
+        "default": "false",
+        "description": "allow reading or writing plaintext bundles"
+      },
+      "bundle": {
+        "default": "",
+        "description": "bundle name or path (defaults to config secrets_bundle)"
+      },
+      "config": {
+        "default": "inherited or computed",
+        "description": "path to agentlab config file"
+      },
+      "dir": {
+        "default": "",
+        "description": "secrets directory override"
+      },
+      "sops-path": {
+        "default": "",
+        "description": "sops binary path override"
+      }
+    },
+    "flags": {
+      "age-key": "string",
+      "allow-plaintext": "bool",
+      "bundle": "string",
+      "config": "string",
+      "dir": "string",
+      "h": "bool",
+      "help": "bool",
+      "sops-path": "string"
+    },
+    "operand_types": {},
+    "operands": 1,
+    "required_flags": []
+  },
+  "session branch": {
+    "flag_details": {
+      "profile": {
+        "default": "",
+        "description": "profile name"
+      },
+      "workspace": {
+        "default": "",
+        "description": "workspace id or name (or new:<name>)"
+      },
+      "workspace-create": {
+        "default": "",
+        "description": "create workspace with name"
+      },
+      "workspace-size": {
+        "default": "",
+        "description": "workspace size for creation (e.g. 80G)"
+      },
+      "workspace-storage": {
+        "default": "",
+        "description": "workspace storage (default local-zfs)"
+      }
+    },
+    "flags": {
+      "h": "bool",
+      "help": "bool",
+      "profile": "string",
+      "workspace": "string",
+      "workspace-create": "string",
+      "workspace-size": "string",
+      "workspace-storage": "string"
+    },
+    "operand_types": {},
+    "operands": 1,
+    "required_flags": []
+  },
+  "session create": {
+    "flag_details": {
+      "branch": {
+        "default": "",
+        "description": "branch label"
+      },
+      "name": {
+        "default": "",
+        "description": "session name"
+      },
+      "profile": {
+        "default": "",
+        "description": "profile name"
+      },
+      "workspace": {
+        "default": "",
+        "description": "workspace id or name (or new:<name>)"
+      },
+      "workspace-create": {
+        "default": "",
+        "description": "create workspace with name"
+      },
+      "workspace-size": {
+        "default": "",
+        "description": "workspace size for creation (e.g. 80G)"
+      },
+      "workspace-storage": {
+        "default": "",
+        "description": "workspace storage (default local-zfs)"
+      }
+    },
+    "flags": {
+      "branch": "string",
+      "h": "bool",
+      "help": "bool",
+      "name": "string",
+      "profile": "string",
+      "workspace": "string",
+      "workspace-create": "string",
+      "workspace-size": "string",
+      "workspace-storage": "string"
+    },
+    "operand_types": {},
+    "operands": 0,
+    "required_flags": []
+  },
+  "session doctor": {
+    "flag_details": {
+      "out": {
+        "default": "",
+        "description": "output file path or directory"
+      }
+    },
+    "flags": {
+      "h": "bool",
+      "help": "bool",
+      "out": "string"
+    },
+    "operand_types": {},
+    "operands": 1,
+    "required_flags": []
+  },
+  "session fork": {
+    "flag_details": {
+      "branch": {
+        "default": "",
+        "description": "branch label"
+      },
+      "name": {
+        "default": "",
+        "description": "new session name"
+      },
+      "profile": {
+        "default": "",
+        "description": "profile name (defaults to source session)"
+      },
+      "workspace": {
+        "default": "",
+        "description": "workspace id or name (or new:<name>)"
+      },
+      "workspace-create": {
+        "default": "",
+        "description": "create workspace with name"
+      },
+      "workspace-size": {
+        "default": "",
+        "description": "workspace size for creation (e.g. 80G)"
+      },
+      "workspace-storage": {
+        "default": "",
+        "description": "workspace storage (default local-zfs)"
+      }
+    },
+    "flags": {
+      "branch": "string",
+      "h": "bool",
+      "help": "bool",
+      "name": "string",
+      "profile": "string",
+      "workspace": "string",
+      "workspace-create": "string",
+      "workspace-size": "string",
+      "workspace-storage": "string"
+    },
+    "operand_types": {},
+    "operands": 1,
+    "required_flags": []
+  },
+  "session list": {
+    "flag_details": {},
+    "flags": {
+      "h": "bool",
+      "help": "bool"
+    },
+    "operand_types": {},
+    "operands": 0,
+    "required_flags": []
+  },
+  "session resume": {
+    "flag_details": {},
+    "flags": {
+      "h": "bool",
+      "help": "bool"
+    },
+    "operand_types": {},
+    "operands": 1,
+    "required_flags": []
+  },
+  "session show": {
+    "flag_details": {},
+    "flags": {
+      "h": "bool",
+      "help": "bool"
+    },
+    "operand_types": {},
+    "operands": 1,
+    "required_flags": []
+  },
+  "session stop": {
+    "flag_details": {},
+    "flags": {
+      "h": "bool",
+      "help": "bool"
+    },
+    "operand_types": {},
+    "operands": 1,
+    "required_flags": []
+  },
+  "ssh": {
+    "flag_details": {
+      "e": {
+        "default": "false",
+        "description": "exec ssh instead of printing the command"
+      },
+      "exec": {
+        "default": "false",
+        "description": "exec ssh instead of printing the command"
+      },
+      "h": {
+        "default": "false",
+        "description": "show help"
+      },
+      "help": {
+        "default": "false",
+        "description": "show help"
+      },
+      "i": {
+        "default": "",
+        "description": "ssh identity file"
+      },
+      "identity": {
+        "default": "",
+        "description": "ssh identity file"
+      },
+      "jump-host": {
+        "default": "",
+        "description": "ssh jump host for ProxyJump fallback"
+      },
+      "jump-user": {
+        "default": "",
+        "description": "ssh jump username for ProxyJump fallback"
+      },
+      "no-start": {
+        "default": "false",
+        "description": "do not auto-start stopped sandboxes"
+      },
+      "p": {
+        "default": "inherited or computed",
+        "description": "ssh port"
+      },
+      "port": {
+        "default": "inherited or computed",
+        "description": "ssh port"
+      },
+      "u": {
+        "default": "inherited or computed",
+        "description": "ssh username"
+      },
+      "user": {
+        "default": "inherited or computed",
+        "description": "ssh username"
+      },
+      "wait": {
+        "default": "false",
+        "description": "wait for ssh readiness before returning"
+      }
+    },
+    "flags": {
+      "e": "bool",
+      "exec": "bool",
+      "h": "bool",
+      "help": "bool",
+      "i": "string",
+      "identity": "string",
+      "jump-host": "string",
+      "jump-user": "string",
+      "no-start": "bool",
+      "p": "int",
+      "port": "int",
+      "u": "string",
+      "user": "string",
+      "wait": "bool"
+    },
+    "operand_types": {},
+    "operands": 1,
+    "required_flags": []
+  },
+  "status": {
+    "flag_details": {},
+    "flags": {
+      "h": "bool",
+      "help": "bool"
+    },
+    "operand_types": {},
+    "operands": 0,
+    "required_flags": []
+  },
+  "team add": {
+    "flag_details": {
+      "description": {
+        "default": "",
+        "description": "team description"
+      },
+      "name": {
+        "default": "",
+        "description": "team name"
+      }
+    },
+    "flags": {
+      "description": "string",
+      "h": "bool",
+      "help": "bool",
+      "name": "string"
+    },
+    "operand_types": {},
+    "operands": 0,
+    "required_flags": [
+      "name"
+    ]
+  },
+  "team list": {
+    "flag_details": {},
+    "flags": {
+      "h": "bool",
+      "help": "bool"
+    },
+    "operand_types": {},
+    "operands": 0,
+    "required_flags": []
+  },
+  "team member add": {
+    "flag_details": {
+      "role": {
+        "default": "user",
+        "description": "role within team (admin or user)"
+      },
+      "team": {
+        "default": "",
+        "description": "team name"
+      },
+      "user": {
+        "default": "",
+        "description": "username to add"
+      }
+    },
+    "flags": {
+      "h": "bool",
+      "help": "bool",
+      "role": "string",
+      "team": "string",
+      "user": "string"
+    },
+    "operand_types": {},
+    "operands": 0,
+    "required_flags": [
+      "team",
+      "user"
+    ]
+  },
+  "team member rm": {
+    "flag_details": {
+      "team": {
+        "default": "",
+        "description": "team name"
+      },
+      "user": {
+        "default": "",
+        "description": "username to remove"
+      }
+    },
+    "flags": {
+      "h": "bool",
+      "help": "bool",
+      "team": "string",
+      "user": "string"
+    },
+    "operand_types": {},
+    "operands": 0,
+    "required_flags": [
+      "team",
+      "user"
+    ]
+  },
+  "team members": {
+    "flag_details": {},
+    "flags": {
+      "h": "bool",
+      "help": "bool"
+    },
+    "operand_types": {},
+    "operands": 1,
+    "required_flags": []
+  },
+  "team rm": {
+    "flag_details": {},
+    "flags": {
+      "h": "bool",
+      "help": "bool"
+    },
+    "operand_types": {},
+    "operands": 1,
+    "required_flags": []
+  },
+  "token create": {
+    "flag_details": {
+      "cmds": {
+        "default": "",
+        "description": "comma-separated list of allowed command prefixes"
+      },
+      "h": {
+        "default": "false",
+        "description": "show help"
+      },
+      "help": {
+        "default": "false",
+        "description": "show help"
+      },
+      "key": {
+        "default": "",
+        "description": "path to SSH private key"
+      },
+      "scope": {
+        "default": "",
+        "description": "comma-separated list of sandbox scopes (e.g., sandbox:1001)"
+      },
+      "subject": {
+        "default": "",
+        "description": "optional human-readable label"
+      },
+      "ttl": {
+        "default": "1h",
+        "description": "token lifetime (e.g., 30m, 24h; zero uses the 1h default)"
+      }
+    },
+    "flags": {
+      "cmds": "string",
+      "h": "bool",
+      "help": "bool",
+      "key": "string",
+      "scope": "string",
+      "subject": "string",
+      "ttl": "string"
+    },
+    "operand_types": {},
+    "operands": 0,
+    "required_flags": [
+      "cmds"
+    ]
+  },
+  "token inspect": {
+    "flag_details": {
+      "h": {
+        "default": "false",
+        "description": "show help"
+      },
+      "help": {
+        "default": "false",
+        "description": "show help"
+      }
+    },
+    "flags": {
+      "h": "bool",
+      "help": "bool"
+    },
+    "operand_types": {},
+    "operands": 1,
+    "required_flags": []
+  },
+  "token list": {
+    "flag_details": {
+      "h": {
+        "default": "false",
+        "description": "show help"
+      },
+      "help": {
+        "default": "false",
+        "description": "show help"
+      },
+      "key": {
+        "default": "",
+        "description": "path to SSH private key to show fingerprint for"
+      }
+    },
+    "flags": {
+      "h": "bool",
+      "help": "bool",
+      "key": "string"
+    },
+    "operand_types": {},
+    "operands": 0,
+    "required_flags": []
+  },
+  "user add": {
+    "flag_details": {
+      "h": {
+        "default": "false",
+        "description": "show help"
+      },
+      "help": {
+        "default": "false",
+        "description": "show help"
+      },
+      "key": {
+        "default": "",
+        "description": "SSH public key (e.g., 'ssh-ed25519 AAAA...')"
+      },
+      "name": {
+        "default": "",
+        "description": "user name (unique identifier)"
+      },
+      "role": {
+        "default": "user",
+        "description": "user role: admin or user"
+      }
+    },
+    "flags": {
+      "h": "bool",
+      "help": "bool",
+      "key": "string",
+      "name": "string",
+      "role": "string"
+    },
+    "operand_types": {},
+    "operands": 0,
+    "required_flags": [
+      "key",
+      "name"
+    ]
+  },
+  "user key add": {
+    "flag_details": {
+      "key": {
+        "default": "",
+        "description": "SSH public key to add"
+      },
+      "name": {
+        "default": "",
+        "description": "user name"
+      }
+    },
+    "flags": {
+      "h": "bool",
+      "help": "bool",
+      "key": "string",
+      "name": "string"
+    },
+    "operand_types": {},
+    "operands": 0,
+    "required_flags": [
+      "key",
+      "name"
+    ]
+  },
+  "user key rm": {
+    "flag_details": {
+      "fingerprint": {
+        "default": "",
+        "description": "SSH key fingerprint to remove"
+      },
+      "name": {
+        "default": "",
+        "description": "user name"
+      }
+    },
+    "flags": {
+      "fingerprint": "string",
+      "h": "bool",
+      "help": "bool",
+      "name": "string"
+    },
+    "operand_types": {},
+    "operands": 0,
+    "required_flags": [
+      "fingerprint",
+      "name"
+    ]
+  },
+  "user list": {
+    "flag_details": {},
+    "flags": {
+      "h": "bool",
+      "help": "bool"
+    },
+    "operand_types": {},
+    "operands": 0,
+    "required_flags": []
+  },
+  "user rm": {
+    "flag_details": {},
+    "flags": {
+      "h": "bool",
+      "help": "bool"
+    },
+    "operand_types": {},
+    "operands": 1,
+    "required_flags": []
+  },
+  "user show": {
+    "flag_details": {},
+    "flags": {
+      "h": "bool",
+      "help": "bool"
+    },
+    "operand_types": {},
+    "operands": 1,
+    "required_flags": []
+  },
+  "version": {
+    "flags": {
+      "h": "bool",
+      "help": "bool",
+      "json": "bool"
+    },
+    "operands": 0
+  },
+  "workspace attach": {
+    "flag_details": {},
+    "flags": {
+      "h": "bool",
+      "help": "bool"
+    },
+    "operand_types": {
+      "1": "vmid"
+    },
+    "operands": 2,
+    "required_flags": []
+  },
+  "workspace check": {
+    "flag_details": {},
+    "flags": {
+      "h": "bool",
+      "help": "bool"
+    },
+    "operand_types": {},
+    "operands": 1,
+    "required_flags": []
+  },
+  "workspace create": {
+    "flag_details": {
+      "name": {
+        "default": "",
+        "description": "workspace name"
+      },
+      "size": {
+        "default": "",
+        "description": "workspace size (e.g. 80G)"
+      },
+      "storage": {
+        "default": "",
+        "description": "Proxmox storage (default local-zfs)"
+      }
+    },
+    "flags": {
+      "h": "bool",
+      "help": "bool",
+      "name": "string",
+      "size": "string",
+      "storage": "string"
+    },
+    "operand_types": {},
+    "operands": 0,
+    "required_flags": []
+  },
+  "workspace detach": {
+    "flag_details": {},
+    "flags": {
+      "h": "bool",
+      "help": "bool"
+    },
+    "operand_types": {},
+    "operands": 1,
+    "required_flags": []
+  },
+  "workspace fork": {
+    "flag_details": {
+      "from-snapshot": {
+        "default": "",
+        "description": "snapshot name to fork from"
+      },
+      "name": {
+        "default": "",
+        "description": "new workspace name"
+      }
+    },
+    "flags": {
+      "from-snapshot": "string",
+      "h": "bool",
+      "help": "bool",
+      "name": "string"
+    },
+    "operand_types": {},
+    "operands": 1,
+    "required_flags": []
+  },
+  "workspace fsck": {
+    "flag_details": {
+      "repair": {
+        "default": "false",
+        "description": "repair filesystem (requires detached workspace)"
+      }
+    },
+    "flags": {
+      "h": "bool",
+      "help": "bool",
+      "repair": "bool"
+    },
+    "operand_types": {},
+    "operands": 1,
+    "required_flags": []
+  },
+  "workspace lease clear": {
+    "flag_details": {},
+    "flags": {
+      "h": "bool",
+      "help": "bool"
+    },
+    "operand_types": {},
+    "operands": 1,
+    "required_flags": []
+  },
+  "workspace list": {
+    "flag_details": {},
+    "flags": {
+      "h": "bool",
+      "help": "bool"
+    },
+    "operand_types": {},
+    "operands": 0,
+    "required_flags": []
+  },
+  "workspace rebind": {
+    "flag_details": {
+      "keep-old": {
+        "default": "false",
+        "description": "keep old sandbox running"
+      },
+      "profile": {
+        "default": "",
+        "description": "profile name"
+      }
+    },
+    "flags": {
+      "h": "bool",
+      "help": "bool",
+      "keep-old": "bool",
+      "profile": "string",
+      "ttl": "string"
+    },
+    "operand_types": {},
+    "operands": 1,
+    "required_flags": []
+  },
+  "workspace snapshot create": {
+    "flag_details": {},
+    "flags": {
+      "h": "bool",
+      "help": "bool"
+    },
+    "operand_types": {},
+    "operands": 2,
+    "required_flags": []
+  },
+  "workspace snapshot list": {
+    "flag_details": {},
+    "flags": {
+      "h": "bool",
+      "help": "bool"
+    },
+    "operand_types": {},
+    "operands": 1,
+    "required_flags": []
+  },
+  "workspace snapshot restore": {
+    "flag_details": {},
+    "flags": {
+      "h": "bool",
+      "help": "bool"
+    },
+    "operand_types": {},
+    "operands": 2,
+    "required_flags": []
+  }
+}

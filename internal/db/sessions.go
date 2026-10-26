@@ -195,3 +195,9 @@ func scanSessionRow(scanner interface{ Scan(dest ...any) error }) (models.Sessio
 	}
 	return session, nil
 }
+
+// GetSessionBySandboxVMID returns the current session binding for a sandbox.
+func (s *Store) GetSessionBySandboxVMID(ctx context.Context, vmid int) (models.Session, error) {
+	row := s.DB.QueryRowContext(ctx, `SELECT id,name,workspace_id,current_vmid,profile,branch,created_at,updated_at,meta_json FROM sessions WHERE current_vmid=? ORDER BY updated_at DESC,id LIMIT 1`, vmid)
+	return scanSessionRow(row)
+}

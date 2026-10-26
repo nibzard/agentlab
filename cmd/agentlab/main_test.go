@@ -126,10 +126,10 @@ func TestParseGlobal(t *testing.T) {
 			wantRemain: []string{"job"},
 		},
 		{
-			name:       "flags after positional arg are not parsed",
+			name:       "flags after positional arg are parsed",
 			args:       []string{"job", "--socket", "/tmp/test.sock"},
-			wantOpts:   globalOptions{socketPath: defaultSocketPath, jsonOutput: false, timeout: defaultRequestTimeout},
-			wantRemain: []string{"job", "--socket", "/tmp/test.sock"},
+			wantOpts:   globalOptions{socketPath: "/tmp/test.sock", jsonOutput: false, timeout: defaultRequestTimeout},
+			wantRemain: []string{"job"},
 		},
 		{
 			name:        "unknown flag",
@@ -444,14 +444,14 @@ func TestParseGlobalTimeoutVariations(t *testing.T) {
 			wantTimeout: 500 * time.Millisecond,
 		},
 		{
-			name:        "zero duration",
-			args:        []string{"--timeout", "0s"},
-			wantTimeout: 0,
+			name:    "zero duration rejected",
+			args:    []string{"--timeout", "0s"},
+			wantErr: true,
 		},
 		{
-			name:        "negative duration is accepted by Go",
-			args:        []string{"--timeout", "-1s"},
-			wantTimeout: -1 * time.Second,
+			name:    "negative duration rejected",
+			args:    []string{"--timeout", "-1s"},
+			wantErr: true,
 		},
 		{
 			name:    "invalid unit",

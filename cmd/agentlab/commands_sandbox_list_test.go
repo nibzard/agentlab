@@ -83,3 +83,22 @@ func TestRunSandboxListOnlyDestroyedJSON(t *testing.T) {
 		t.Fatalf("expected empty JSON array, got %s", out)
 	}
 }
+
+func TestSandboxListPreservesUnknownJSON(t *testing.T) {
+	for _, args := range [][]string{nil, {"--all"}, {"-a"}} {
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.Write([]byte(`{"future_envelope":{"cursor":9007199254740993},"sandboxes":[{"vmid":1,"state":"RUNNING","health":{"ready":true},"future_field":{"large":9007199254740993}},{"vmid":2,"state":"DESTROYED"}]}`))
+		}))
+		out := captureStdout(t, func() {
+			if err := runSandboxList(context.Background(), args, commonFlags{endpoint: srv.URL, timeout: time.Second, jsonOutput: true}); err != nil {
+				t.Fatal(err)
+			}
+		})
+		srv.Close()
+		for _, field := range []string{`"future_envelope"`, `"health"`, `"future_field"`, `9007199254740993`} {
+			if !strings.Contains(out, field) {
+				t.Errorf("lost %s: %s", field, out)
+			}
+		}
+	}
+}

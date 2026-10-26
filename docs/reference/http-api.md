@@ -8,10 +8,11 @@ Reference for the `agentlabd` control-plane and guest-facing HTTP routes. The co
     response verbatim and handles auth, retries, and parsing. See
     [JSON output for agents](agent-json-output.md) and
     [Drive AgentLab as a coding agent](../how-to/drive-agentlab-as-a-coding-agent.md).
-    Three routes behave differently from the table: `POST /v1/exec` is
-    full-access and always returns HTTP 200 (branch on `exit_code`),
-    `/v1/integrations` handlers skip authorization, and `/v1/runner/report` is
-    served on the guest bootstrap listener (agent subnet, no bearer token).
+    `POST /v1/exec` requires full access; successful execution requests return
+    HTTP 200 with an `exit_code`, while malformed or unauthorized requests return
+    HTTP errors. Integrations require their own read/write/delete permissions and
+    reject sandbox-scoped tokens. `/v1/runner/report` uses the guest listener and
+    requires its sandbox secret and an allowed source address.
 
 ## Discovery and status
 
@@ -21,7 +22,27 @@ Reference for the `agentlabd` control-plane and guest-facing HTTP routes. The co
 | GET | `/v1/status` | Control-plane status snapshot, including schema versions. | `V1StatusResponse` |
 | GET | `/v1/host` | Host metadata: daemon version, configured subnet, Tailscale DNS name. | `V1HostResponse` |
 
-Both schema versions are `1`. The compatibility policy is additive: unknown event kinds or fields should be ignored by clients.
+Both schema versions are `1`. `/v1/schema` includes Draft 7 JSON Schema
+`definitions`: resolve a resource's `request_type`, `response_type`, or
+`error_type` as `#/definitions/<type>`. Request definitions include required
+fields, defaults, constraints and validated examples. Request decoders reject
+unknown fields; clients must tolerate additional response fields and enum values.
+
+Each resource describes its authorization, query/path/header parameters,
+completion and retry behavior, and response variants (including asynchronous
+creation and exec streams). Exec dry-run reports `validation: "syntax"` and
+a `deferred` list: saved defaults, daemon preflight, resource/authorization and
+terminal checks require execution context. In particular, an omitted sandbox
+profile may be supplied by a saved preference. Dry-run does not read or change
+preferences. `surface` identifies the control or guest listener;
+`available` reports whether that listener's route is configured. Availability
+does not grant authorization or guarantee storage/profile readiness.
+`capabilities.profiles` lists configured profiles, while `backend_operations`
+reports backend support separately from the static schema version. Use plan
+validation to resolve profile, storage and policy requirements before creation.
+Configured create examples use an available profile name. Breaking required-field
+or accepted-value changes require a schema-version change; optional response
+additions do not.
 
 ```bash
 agentlab schema
@@ -38,7 +59,7 @@ agentlab status
 | GET | `/v1/sandboxes/inventory` | List live Proxmox VMs annotated with AgentLab and Tailscale metadata. | - | `V1SandboxInventoryResponse` |
 | POST | `/v1/sandboxes/reconcile` | Detect or apply (`apply=true`) drift against Proxmox. | `V1SandboxReconcileRequest` | `V1SandboxReconcileResponse` |
 | POST | `/v1/sandboxes/stop_all` | Stop every sandbox. | `V1SandboxStopAllRequest` | `V1SandboxStopAllResponse` |
-| POST | `/v1/sandboxes/prune` | Remove orphaned sandbox records. | - | `map[string]int` |
+| POST | `/v1/sandboxes/prune` | Prune TIMEOUT sandboxes; query `dry_run=true` previews, repeated `vmid` selects targets. | - | `PruneResult` |
 | GET | `/v1/sandboxes/{vmid}` | Fetch a sandbox by VMID. | - | `V1SandboxResponse` |
 | POST | `/v1/sandboxes/{vmid}/start` | Start a stopped sandbox. | - | `V1SandboxResponse` |
 | POST | `/v1/sandboxes/{vmid}/stop` | Stop a sandbox without destroying it. | - | `V1SandboxResponse` |
@@ -47,7 +68,7 @@ agentlab status
 | POST | `/v1/sandboxes/{vmid}/revert` | Revert the root disk to the clean snapshot. | `V1SandboxRevertRequest` | `V1SandboxRevertResponse` |
 | POST | `/v1/sandboxes/{vmid}/update` | Update sandbox resources. | `V1SandboxUpdateRequest` | `V1SandboxResponse` |
 | POST | `/v1/sandboxes/{vmid}/touch` | Update the `LastUsedAt` timestamp. | - | `V1SandboxResponse` |
-| POST | `/v1/sandboxes/{vmid}/destroy` | Destroy a sandbox; `force` bypasses state checks. | - | `V1SandboxResponse` |
+| POST | `/v1/sandboxes/{vmid}/destroy` | Stop, detach and destroy a sandbox; `force` is a compatibility alias. | - | `V1SandboxResponse` |
 | POST | `/v1/sandboxes/{vmid}/lease/renew` | Renew a keepalive lease (RUNNING only; READY returns 409). | `V1LeaseRenewRequest` | `V1LeaseRenewResponse` |
 | GET | `/v1/sandboxes/{vmid}/events` | List sandbox events; supports `tail`, `after`, `limit`. | - | `V1EventsResponse` |
 | POST | `/v1/sandboxes/{vmid}/doctor` | Create a read-only sandbox doctor bundle. | - | `V1ArtifactUploadResponse` |
@@ -61,12 +82,19 @@ Only the plural `/snapshots` path is served. The singular `/snapshot` path has n
 
 | Method | Path | Purpose | Request | Response |
 | --- | --- | --- | --- | --- |
+| GET | `/v1/jobs` | List jobs in ID order; `limit` (1–200), `after`, `state`, `profile`, `workspace` filters. Scope filtering precedes pagination. | - | `V1JobsResponse` |
 | POST | `/v1/jobs` | Create and start a job. Required: `repo_url`, `profile`, `task`. Defaults `ref=main`, `mode=dangerous`. | `V1JobCreateRequest` | `V1JobResponse` (201) |
 | POST | `/v1/jobs/validate-plan` | Validate a job create request without creating resources. | `V1JobValidatePlanRequest` | `V1JobValidatePlanResponse` |
 | GET | `/v1/jobs/{id}` | Fetch a job by id; supports `events_tail`. | - | `V1JobResponse` |
 | GET | `/v1/jobs/{id}/artifacts` | List artifacts recorded for a job. | - | `V1ArtifactsResponse` |
 | GET | `/v1/jobs/{id}/artifacts/download` | Download an artifact by `path` or `name`. | - | `application/octet-stream` |
 | POST | `/v1/jobs/{id}/doctor` | Create a read-only job doctor bundle. | - | `V1ArtifactUploadResponse` |
+
+Job details and collection records include optional `outcome` fields projected
+from recorded runner reports: `exit_code`, `duration_seconds`, `commit`, `message`
+and `reported_at`. A recorded zero exit code or duration remains zero; missing
+historical values stay absent. The original `result` is preserved, including
+additional runner fields. Job state alone does not imply a recorded exit code.
 
 ## Workspaces
 
@@ -198,3 +226,10 @@ For the trust model behind these rules, see [security.md](security.md) and [../e
 - [Event contract](event-contract.md) for the event envelope and kinds.
 - [Configuration reference](configuration.md) for the keys that enable each listener.
 - [Listeners and ports](listeners-and-ports.md) for bind addresses and defaults.
+
+Workspace records include optional `lease_owner` and `lease_expires_at` for
+recovery inspection. They describe the recorded job/session lease; expiry is an
+exact UTC timestamp. The lease nonce is never returned. `workspace check --json`
+includes this record alongside findings, and authorized workspace listings and
+dashboard details expose the same fields. Do not clear a lease simply because
+an observing client disconnected; inspect its owner and current work first.

@@ -22,16 +22,14 @@ Flags:
 `
 
 func runVersionCommand(args []string, base commonFlags) error {
-	useJSON := base.jsonOutput
-	for _, a := range args {
-		if a == "--json" {
-			useJSON = true
-		}
-		if isHelpToken(a) {
-			fmt.Fprint(os.Stdout, versionUsage)
-			return errHelp
-		}
+	fs := newFlagSet("version")
+	opts := base
+	opts.bind(fs)
+	help := bindHelpFlag(fs)
+	if err := parseFlags(fs, args, func() { fmt.Fprint(os.Stdout, versionUsage) }, help, opts.jsonOutput); err != nil {
+		return err
 	}
+	useJSON := opts.jsonOutput
 
 	if useJSON {
 		info := map[string]string{

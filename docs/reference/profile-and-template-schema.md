@@ -147,8 +147,7 @@ into its own file under `profiles_dir`.
 | `agent-claude` | lxc | - | 480m |
 | `agent-codex` | lxc | - | 480m |
 
-The file also includes a `docker-agent` example for use with
-`agentlab sandbox new --type docker --image <image>`. The profile loader accepts
-only `vm` and `lxc` profile types; the Docker backend is selected through CLI
-flags and the `default-backend` preference. See reference/cli.md and
-reference/configuration.md.
+Backend selection belongs in the daemon's `backend` configuration. Profiles
+accept only `vm` and `lxc` types; `sandbox new --type docker` and a client
+`default-backend` preference are unsupported. See [CLI reference](cli.md) and
+[daemon configuration](configuration.md).

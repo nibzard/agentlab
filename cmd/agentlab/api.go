@@ -421,7 +421,14 @@ type leaseRenewResponse struct {
 
 // pruneResponse contains the result of a prune operation.
 type pruneResponse struct {
-	Count int `json:"count"`
+	Count    int  `json:"count"`
+	DryRun   bool `json:"dry_run"`
+	Outcomes []struct {
+		VMID      int    `json:"vmid"`
+		Outcome   string `json:"outcome"`
+		Retryable bool   `json:"retryable"`
+		Error     string `json:"error"`
+	} `json:"outcomes"`
 }
 
 // workspaceCreateRequest contains parameters for creating a workspace.
@@ -451,6 +458,8 @@ type workspaceRebindRequest struct {
 
 // workspaceResponse represents a workspace returned from the API.
 type workspaceResponse struct {
+	LeaseOwner   string `json:"lease_owner,omitempty"`
+	LeaseExpires string `json:"lease_expires_at,omitempty"`
 	ID           string `json:"id"`
 	Name         string `json:"name"`
 	Storage      string `json:"storage"`
@@ -749,7 +758,7 @@ func sanitizePathSegment(segment string) (string, error) {
 
 // doJSON sends an HTTP request with a JSON payload and returns the JSON response.
 // It handles timeout, request serialization, and error parsing.
-func (c *apiClient) doJSON(ctx context.Context, method, path string, payload any) ([]byte, error) {
+func (c *apiClient) doJSON(ctx context.Context, method, path string, payload any, headers ...map[string]string) ([]byte, error) {
 	ctx, cancel := c.withTimeout(ctx)
 	defer cancel()
 	var body io.Reader
@@ -764,6 +773,11 @@ func (c *apiClient) doJSON(ctx context.Context, method, path string, payload any
 	req, err := c.newRequest(ctx, method, path, body)
 	if err != nil {
 		return nil, err
+	}
+	if len(headers) > 0 {
+		for key, value := range headers[0] {
+			req.Header.Set(key, value)
+		}
 	}
 	req.Header.Set("Accept", "application/json")
 	if payload != nil {

@@ -92,3 +92,20 @@ daemon returns.
 - Diagnose a sandbox that drift got wrong: [Debug a stuck sandbox](../how-to/debug-a-stuck-sandbox.md).
 - States and allowed transitions: [State machine reference](../reference/state-machine.md).
 - Component overview: [Architecture](architecture.md).
+
+### Preview and retry pruning
+
+Pruning targets only `TIMEOUT`; it leaves `STOPPED` resources intact. Preview
+before executing and pass the selected VMIDs to preserve the reviewed target set:
+
+```bash
+agentlab sandbox prune --dry-run --json
+agentlab sandbox prune --vmid <vmid> --json
+```
+
+The response contains `count`, `dry_run`, and an `outcomes` array. Each entry has
+`vmid`, `outcome` (`preview`, `destroyed`, `failed`, `skipped`, or `not_found`),
+optional `error`, and `retryable`. A changed state is skipped and a disappeared
+record is reported explicitly. Retry only entries marked retryable. CLI partial
+failures exit 1 after printing the result document; they do not append a second
+JSON error. `--vmid` can be repeated for several previewed targets.

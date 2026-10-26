@@ -15,6 +15,8 @@ PREFIX="${AGENTLAB_PREFIX:-/usr/local}"
 BIN_DIR="${AGENTLAB_BIN_DIR:-${PREFIX}/bin}"
 REPO="nibzard/agentlab"
 GITHUB_BASE="https://github.com/${REPO}"
+install_tmpdir=""
+trap 'rm -rf "${install_tmpdir:-}"' EXIT
 
 RED='\033[0;31m'
 GREEN='\033[0;32m'
@@ -89,7 +91,11 @@ detect_platform() {
 resolve_version() {
   local tag="$1"
   if [[ "$tag" == "latest" ]]; then
-    tag=$(curl -fsSL "https://api.github.com/repos/${REPO}/releases/latest" 2>/dev/null | grep '"tag_name"' | head -1 | sed -E 's/.*"tag_name":\s*"([^"]+)".*/\1/') || true
+    local metadata
+    metadata="$(mktemp)"
+    download "https://api.github.com/repos/${REPO}/releases/latest" "$metadata" || { rm -f "$metadata"; die "could not download release metadata"; }
+    tag=$(cat "$metadata" | grep '"tag_name"' | head -1 | sed -E 's/.*"tag_name":[[:space:]]*"([^"]+)".*/\1/') || true
+    rm -f "$metadata"
     if [[ -z "$tag" ]]; then
       die "could not determine latest version. Set AGENTLAB_VERSION explicitly."
     fi
@@ -125,12 +131,26 @@ main() {
   url="${GITHUB_BASE}/releases/download/${version}/agentlab_${version}_${platform}.${ext}"
 
   tmpdir="$(mktemp -d)"
-  trap 'rm -rf "$tmpdir"' EXIT
+  install_tmpdir="$tmpdir"
 
   archive="${tmpdir}/agentlab.${ext}"
 
   log "downloading ${url}"
   download "$url" "$archive"
+
+  download "${GITHUB_BASE}/releases/download/${version}/checksums.txt" "${tmpdir}/checksums.txt"
+  local archive_name expected actual
+  archive_name="agentlab_${version}_${platform}.${ext}"
+  expected="$(awk -v name="$archive_name" '$2 == name {print $1}' "${tmpdir}/checksums.txt")"
+  [[ "${#expected}" -eq 64 ]] || die "missing or invalid archive checksum"
+  if command -v sha256sum &>/dev/null; then
+    actual="$(sha256sum "$archive" | awk '{print $1}')"
+  elif command -v shasum &>/dev/null; then
+    actual="$(shasum -a 256 "$archive" | awk '{print $1}')"
+  else
+    die "sha256sum or shasum is required to verify the download"
+  fi
+  [[ "$actual" == "$expected" ]] || die "archive checksum mismatch"
 
   # Extract
   log "extracting..."
@@ -167,8 +187,11 @@ main() {
   # Add to PATH if not already there
   if [[ ":${PATH}:" != *":${BIN_DIR}:"* ]]; then
     warn "add ${BIN_DIR} to your PATH:"
-    warn "  echo 'export PATH=\"\${PATH}:${BIN_DIR}\"' >> ~/.bashrc"
-    warn "  source ~/.bashrc"
+    case "${SHELL##*/}" in
+      zsh) warn "  Add export PATH=\"$BIN_DIR:\$PATH\" to ~/.zshrc" ;;
+      fish) warn "  Run: fish_add_path '$BIN_DIR'" ;;
+      *) warn "  Add export PATH=\"$BIN_DIR:\$PATH\" to your shell startup file" ;;
+    esac
   fi
 
   log "done! run 'agentlab --help' to get started."

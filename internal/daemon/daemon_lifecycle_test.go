@@ -2,10 +2,12 @@ package daemon
 
 import (
 	"context"
+	"io"
 	"net"
 	"net/http"
 	"os"
 	"path/filepath"
+	"runtime/pprof"
 	"testing"
 	"time"
 
@@ -27,11 +29,12 @@ func waitForServeReady(t *testing.T, service *Service) {
 		t.Fatal("daemon bootstrap listener not configured")
 	}
 	url := "http://" + service.bootstrapListener.Addr().String() + "/healthz"
-	client := &http.Client{Timeout: time.Second}
+	client := &http.Client{Timeout: time.Second, Transport: &http.Transport{DisableKeepAlives: true}}
 	deadline := time.Now().Add(5 * time.Second)
 	for {
 		resp, err := client.Get(url)
 		if err == nil {
+			_, _ = io.Copy(io.Discard, resp.Body)
 			resp.Body.Close()
 			if resp.StatusCode == http.StatusOK {
 				return
@@ -426,9 +429,10 @@ func TestServe_GracefulShutdown(t *testing.T) {
 	waitForServeReady(t, service)
 
 	// Verify servers are running by making a request
-	client := &http.Client{Timeout: time.Second}
+	client := &http.Client{Timeout: time.Second, Transport: &http.Transport{DisableKeepAlives: true}}
 	resp, err := client.Get("http://" + service.bootstrapListener.Addr().String() + "/healthz")
 	require.NoError(t, err)
+	_, _ = io.Copy(io.Discard, resp.Body)
 	resp.Body.Close()
 	assert.Equal(t, http.StatusOK, resp.StatusCode)
 
@@ -439,7 +443,10 @@ func TestServe_GracefulShutdown(t *testing.T) {
 	select {
 	case err := <-errCh:
 		assert.NoError(t, err)
-	case <-time.After(5 * time.Second):
+		// The production HTTP drain alone permits shutdownTimeout; allow a
+	// bounded margin for closing SQLite and collecting the Serve goroutines.
+	case <-time.After(shutdownTimeout + 2*time.Second):
+		_ = pprof.Lookup("goroutine").WriteTo(os.Stderr, 2)
 		t.Fatal("Serve did not shut down within timeout")
 	}
 
