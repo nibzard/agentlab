@@ -43,8 +43,11 @@ func newIntegrationHarness(t *testing.T) *integrationHarness {
 	temp := t.TempDir()
 	token := "test-token"
 	cfg := config.Config{
-		ConfigPath:              filepath.Join(temp, "config.yaml"),
-		ProfilesDir:             filepath.Join(temp, "profiles"),
+		ConfigPath: filepath.Join(temp, "config.yaml"),
+		// Empty profile directory selects the in-memory profile store:
+		// the harness passes its profiles directly and never activates
+		// profiles on disk, so no profiles directory is created.
+		ProfilesDir:             "",
 		DataDir:                 temp,
 		LogDir:                  filepath.Join(temp, "log"),
 		RunDir:                  filepath.Join(temp, "run"),
