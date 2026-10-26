@@ -274,6 +274,10 @@ func isStorageNameChar(r rune) bool {
 	}
 }
 
+// staticcheck call graph on the Linux CI runner marks this dead, while
+// the test file and darwin builds keep it alive.
+//
+//lint:ignore U1000 exercised by TestSnippetStoreCreateAndDelete; the
 func renderCloudInitUserData(hostname, sshKey, token, controller string, vmid int) (string, error) {
 	return renderCloudInitUserDataRecovery(hostname, sshKey, token, controller, vmid, "", "", "")
 }
