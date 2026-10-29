@@ -228,13 +228,51 @@ func bindHelpFlag(fs *flag.FlagSet) *bool {
 	return help
 }
 
+// interspersedArgs keeps flag values together and permits flags after operands.
+func interspersedArgs(fs *flag.FlagSet, args []string) []string {
+	var options, operands []string
+	for i := 0; i < len(args); i++ {
+		arg := args[i]
+		if arg == "--" {
+			operands = append(operands, args[i+1:]...)
+			break
+		}
+		if !strings.HasPrefix(arg, "-") || arg == "-" {
+			operands = append(operands, arg)
+			continue
+		}
+		options = append(options, arg)
+		name := strings.TrimLeft(strings.SplitN(arg, "=", 2)[0], "-")
+		f := fs.Lookup(name)
+		if f != nil && !strings.Contains(arg, "=") {
+			boolean, ok := f.Value.(interface{ IsBoolFlag() bool })
+			if (!ok || !boolean.IsBoolFlag()) && i+1 < len(args) {
+				i++
+				options = append(options, args[i])
+			}
+		}
+	}
+	return append(append(options, "--"), operands...)
+}
+
 func parseFlags(fs *flag.FlagSet, args []string, usage func(), help *bool, jsonOutput bool) error {
-	fs.Usage = usage
-	if err := fs.Parse(args); err != nil {
+	// flag.Parse calls Usage on errors. Emit usage explicitly below so JSON
+	// errors remain a single object.
+	fs.Usage = func() {}
+	// SSH already separates its flags from the remote command. Preserve the
+	// remote command's flags, including the legacy form without a separator.
+	parseArgs := args
+	if fs.Name() != "ssh" {
+		parseArgs = interspersedArgs(fs, args)
+	}
+	if err := fs.Parse(parseArgs); err != nil {
 		if !jsonOutput {
 			usage()
 		}
 		return newUsageError(err, false)
+	}
+	if validateCommandOnly {
+		return errCommandValidated
 	}
 	if help != nil && *help {
 		usage()
@@ -1355,7 +1393,11 @@ func runSandboxNew(ctx context.Context, args []string, base commonFlags) error {
 	fs.BoolVar(&andSSH, "and-ssh", false, "create sandbox and immediately ssh into it")
 	fs.Var(&keepalive, "keepalive", "enable keepalive lease for sandbox")
 	fs.StringVar(&sandboxType, "type", "", "sandbox type: vm (default) or lxc")
-	fs.StringVar(&image, "image", "", "container image for LXC sandboxes (e.g., ubuntu:22.04)")
+	defaults, err := loadDefaults()
+	if err != nil {
+		return err
+	}
+	fs.StringVar(&image, "image", defaults["default-image"], "container image for LXC sandboxes (e.g., ubuntu:22.04)")
 	fs.StringVar(&prompt, "prompt", "", "initial agent prompt for agent-ready sandboxes")
 	fs.Var(&tags, "tag", "integration-attachment tag (repeatable; normalized to lowercase)")
 	if err := parseFlags(fs, args, printSandboxNewUsage, help, opts.jsonOutput); err != nil {
@@ -1379,6 +1421,13 @@ func runSandboxNew(ctx context.Context, args []string, base commonFlags) error {
 		if !isInteractive() {
 			return fmt.Errorf("--and-ssh requires an interactive terminal")
 		}
+	}
+	if profile == "" && len(modifiers) == 0 {
+		defaults, err := loadDefaults()
+		if err != nil {
+			return err
+		}
+		profile = strings.TrimSpace(defaults["default-profile"])
 	}
 	if profile == "" && len(modifiers) == 0 {
 		if !opts.jsonOutput {
@@ -1487,6 +1536,13 @@ func runSandboxValidate(ctx context.Context, args []string, base commonFlags) er
 	profile = strings.TrimSpace(profile)
 	if profile != "" && len(modifiers) > 0 {
 		return fmt.Errorf("cannot combine --profile with modifiers")
+	}
+	if profile == "" && len(modifiers) == 0 {
+		defaults, err := loadDefaults()
+		if err != nil {
+			return err
+		}
+		profile = strings.TrimSpace(defaults["default-profile"])
 	}
 	if profile == "" && len(modifiers) == 0 {
 		if !opts.jsonOutput {
@@ -1605,9 +1661,33 @@ func runSandboxList(ctx context.Context, args []string, base commonFlags) error 
 		resp.Sandboxes = visible
 	}
 	if opts.jsonOutput {
+		var raw map[string]json.RawMessage
+		if err := json.Unmarshal(payload, &raw); err != nil {
+			return err
+		}
+		var entries []json.RawMessage
+		if err := json.Unmarshal(raw["sandboxes"], &entries); err != nil {
+			return err
+		}
+		visible := make([]json.RawMessage, 0, len(entries))
+		for _, entry := range entries {
+			var state struct {
+				State string `json:"state"`
+			}
+			if err := json.Unmarshal(entry, &state); err != nil {
+				return err
+			}
+			if state.State != "DESTROYED" {
+				visible = append(visible, entry)
+			}
+		}
+		raw["sandboxes"], err = json.Marshal(visible)
+		if err != nil {
+			return err
+		}
 		enc := json.NewEncoder(os.Stdout)
 		enc.SetIndent("", "  ")
-		return enc.Encode(resp)
+		return enc.Encode(raw)
 	}
 	printSandboxList(resp.Sandboxes)
 	return nil

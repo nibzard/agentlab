@@ -181,13 +181,13 @@ func (api *ExecAPI) handleExecCapture(w http.ResponseWriter, r *http.Request, ar
 	exitCode := 0
 	if err := proc.Run(); err != nil {
 		var exitErr *exec.ExitError
-		if errors.As(err, &exitErr) {
+		if errors.Is(ctx.Err(), context.DeadlineExceeded) {
+			exitCode = 124
+		} else if errors.As(err, &exitErr) {
 			exitCode = exitErr.ExitCode()
 			if exitCode < 0 {
 				exitCode = 1
 			}
-		} else if errors.Is(ctx.Err(), context.DeadlineExceeded) {
-			exitCode = 124
 		} else {
 			exitCode = 1
 		}
@@ -301,7 +301,9 @@ func (api *ExecAPI) handleExecStream(w http.ResponseWriter, r *http.Request, arg
 	exitCode := 0
 	if err := proc.Wait(); err != nil {
 		var exitErr *exec.ExitError
-		if errors.As(err, &exitErr) {
+		if errors.Is(ctx.Err(), context.DeadlineExceeded) {
+			exitCode = 124
+		} else if errors.As(err, &exitErr) {
 			exitCode = exitErr.ExitCode()
 			if exitCode < 0 {
 				exitCode = 1
@@ -350,10 +352,19 @@ func (api *ExecAPI) handleDryRun(w http.ResponseWriter, r *http.Request) {
 		Args:    resolved,
 	}
 
-	// Basic validation: check that the first arg is a known command.
-	if len(resolved) > 0 && !isValidCLICommand(resolved[0]) {
+	ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
+	defer cancel()
+	proc := exec.CommandContext(ctx, api.cliPath, append([]string{"--validate-command"}, args...)...)
+	var output bytes.Buffer
+	writer := newLimitWriter(&output, maxOutputBytes)
+	proc.Stdout = writer
+	proc.Stderr = writer
+	if err := proc.Run(); err != nil {
 		resp.OK = false
-		resp.Errors = append(resp.Errors, fmt.Sprintf("unknown command: %q", resolved[0]))
+		resp.Errors = append(resp.Errors, strings.TrimSpace(output.String()))
+		if resp.Errors[0] == "" {
+			resp.Errors[0] = err.Error()
+		}
 	}
 
 	writeExecJSON(w, http.StatusOK, resp)
@@ -479,34 +490,6 @@ func applyExecTimeout(requested int) time.Duration {
 func buildExecArgsFromCLI(socketPath string, cliArgs []string) []string {
 	args := []string{"--socket", socketPath}
 	return append(args, cliArgs...)
-}
-
-// isValidCLICommand checks whether the first token is a known agentlab command.
-func isValidCLICommand(first string) bool {
-	known := map[string]bool{
-		// Top-level aliases (from IMPL-6)
-		"new": true, "ls": true, "ssh": true, "rm": true,
-		// Core commands
-		"status": true, "schema": true, "init": true, "bootstrap": true,
-		"job": true, "sandbox": true, "workspace": true, "session": true,
-		"profile": true, "secrets": true, "msg": true,
-		"logs": true, "connect": true, "disconnect": true,
-		"expose": true, "unexpose": true,
-		"lease": true, "token": true, "defaults": true,
-		"version": true, "help": true, "doctor": true,
-		"events": true, "artifacts": true,
-		"snapshot": true, "snapshots": true,
-		"integration": true, "credential": true,
-		"daemon": true,
-	}
-	if known[first] {
-		return true
-	}
-	// Global flags (--json, --socket, etc.) are valid starts.
-	if strings.HasPrefix(first, "-") {
-		return true
-	}
-	return false
 }
 
 // limitWriter wraps a writer and stops writing after maxBytes.

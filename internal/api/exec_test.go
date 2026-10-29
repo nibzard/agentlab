@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -51,39 +52,6 @@ func TestBuildExecArgs(t *testing.T) {
 				if got[i] != tc.want[i] {
 					t.Errorf("buildExecArgs[%d] = %q, want %q", i, got[i], tc.want[i])
 				}
-			}
-		})
-	}
-}
-
-func TestIsValidCLICommand(t *testing.T) {
-	tests := []struct {
-		cmd  string
-		want bool
-	}{
-		{"sandbox", true},
-		{"status", true},
-		{"new", true},
-		{"ls", true},
-		{"ssh", true},
-		{"rm", true},
-		{"job", true},
-		{"workspace", true},
-		{"session", true},
-		{"profile", true},
-		{"version", true},
-		{"help", true},
-		{"--json", true},
-		{"-v", true},
-		{"bogus", false},
-		{"unknowncmd", false},
-	}
-
-	for _, tc := range tests {
-		t.Run(tc.cmd, func(t *testing.T) {
-			got := isValidCLICommand(tc.cmd)
-			if got != tc.want {
-				t.Errorf("isValidCLICommand(%q) = %v, want %v", tc.cmd, got, tc.want)
 			}
 		})
 	}
@@ -177,7 +145,28 @@ func TestExecAPI_HandleExec_EchoCommand(t *testing.T) {
 }
 
 func TestExecAPI_HandleDryRun(t *testing.T) {
-	api := NewExecAPI("echo", "/tmp/test.sock", nil)
+	cli := filepath.Join(t.TempDir(), "agentlab")
+	build := exec.Command("go", "build", "-o", cli, "../../cmd/agentlab")
+	if output, err := build.CombinedOutput(); err != nil {
+		t.Fatalf("build CLI: %v: %s", err, output)
+	}
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	// Exercise top-level error output with --json in the subcommand flags.
+	invalid := exec.Command(cli, "sandbox", "list", "--json", "--unknown")
+	var errorStdout, errorStderr bytes.Buffer
+	invalid.Stdout = &errorStdout
+	invalid.Stderr = &errorStderr
+	if err := invalid.Run(); err == nil {
+		t.Fatal("unknown flag accepted")
+	}
+	var envelope map[string]any
+	if err := json.Unmarshal(errorStdout.Bytes(), &envelope); err != nil {
+		t.Fatalf("non-JSON error: %s: %v", errorStdout.String(), err)
+	}
+	if envelope["error"] == nil || errorStderr.Len() != 0 {
+		t.Fatalf("unexpected error output: %s %s", errorStdout.String(), errorStderr.String())
+	}
+	api := NewExecAPI(cli, "/tmp/test.sock", nil)
 	mux := http.NewServeMux()
 	api.Register(mux)
 
@@ -202,6 +191,9 @@ func TestExecAPI_HandleDryRun(t *testing.T) {
 			body:   `{"command": "--json status"}`,
 			wantOK: true,
 		},
+		{name: "pool status", body: `{"command":"pool status"}`, wantOK: true},
+		{name: "unknown nested command", body: `{"command":"sandbox unknown --bogus"}`, wantErr: true},
+		{name: "unknown flag after operand", body: `{"command":"sandbox show 1001 --bogus"}`, wantErr: true},
 		{
 			name:    "unknown command",
 			body:    `{"command": "foobarbaz"}`,
@@ -572,5 +564,32 @@ func TestExecAPI_HandleExec_StreamingOutputCap(t *testing.T) {
 	// 16MB — proving output was truncated, not streamed forever.
 	if len(out) > 16<<20 {
 		t.Errorf("streamed response far exceeded cap: %d bytes", len(out))
+	}
+}
+
+func TestExecDeadlineReturns124(t *testing.T) {
+	cli := filepath.Join(t.TempDir(), "slow-cli")
+	if err := os.WriteFile(cli, []byte("#!/bin/sh\nexec sleep 10\n"), 0700); err != nil {
+		t.Fatal(err)
+	}
+	for _, stream := range []bool{false, true} {
+		body, _ := json.Marshal(ExecRequest{Command: "status", Timeout: 1, Stream: stream})
+		req := httptest.NewRequest(http.MethodPost, "/v1/exec", bytes.NewReader(body))
+		rec := httptest.NewRecorder()
+		api := NewExecAPI(cli, "/tmp/unused.sock", log.New(io.Discard, "", 0))
+		api.handleExec(rec, req)
+		if stream {
+			if !strings.Contains(rec.Body.String(), `"type":"exit","data":"","code":124`) {
+				t.Fatalf("timeout event: %s", rec.Body)
+			}
+		} else {
+			var result ExecResponse
+			if err := json.Unmarshal(rec.Body.Bytes(), &result); err != nil {
+				t.Fatal(err)
+			}
+			if result.ExitCode != 124 {
+				t.Fatalf("timeout code: %d", result.ExitCode)
+			}
+		}
 	}
 }

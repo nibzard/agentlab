@@ -125,7 +125,7 @@ main() {
   url="${GITHUB_BASE}/releases/download/${version}/agentlab_${version}_${platform}.${ext}"
 
   tmpdir="$(mktemp -d)"
-  trap 'rm -rf "$tmpdir"' EXIT
+  trap "rm -rf -- $(printf '%q' "$tmpdir")" EXIT
 
   archive="${tmpdir}/agentlab.${ext}"
 

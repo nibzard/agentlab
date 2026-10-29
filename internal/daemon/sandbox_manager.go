@@ -1063,6 +1063,7 @@ func (m *SandboxManager) ForceDestroy(ctx context.Context, vmid int) (err error)
 		return fmt.Errorf("load sandbox %d: %w", vmid, err)
 	}
 	if sandbox.State == models.SandboxDestroyed {
+		m.releaseWorkspaceLeases(ctx, vmid)
 		return nil
 	}
 	startedAt := m.now().UTC()
@@ -1102,6 +1103,7 @@ func (m *SandboxManager) ForceDestroy(ctx context.Context, vmid int) (err error)
 	if m.snippetFn != nil {
 		m.snippetFn(vmid)
 	}
+	m.releaseWorkspaceLeases(ctx, vmid)
 	m.cleanupExposures(ctx, vmid)
 	// Delete the sandbox secret. Best-effort: a failure here should not
 	// undo the destroy operation.

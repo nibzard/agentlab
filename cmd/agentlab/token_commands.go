@@ -82,8 +82,11 @@ func runTokenCreate(_ context.Context, args []string, base commonFlags) error {
 	fs.BoolVar(&help, "help", false, "show help")
 	fs.BoolVar(&help, "h", false, "show help")
 
-	if err := fs.Parse(args); err != nil {
+	if err := fs.Parse(interspersedArgs(fs, args)); err != nil {
 		return newUsageError(err, true)
+	}
+	if validateCommandOnly {
+		return errCommandValidated
 	}
 	if help {
 		fmt.Fprint(os.Stdout, tokenUsage)
@@ -160,8 +163,11 @@ func runTokenList(_ context.Context, args []string, base commonFlags) error {
 	fs.BoolVar(&help, "help", false, "show help")
 	fs.BoolVar(&help, "h", false, "show help")
 
-	if err := fs.Parse(args); err != nil {
+	if err := fs.Parse(interspersedArgs(fs, args)); err != nil {
 		return newUsageError(err, true)
+	}
+	if validateCommandOnly {
+		return errCommandValidated
 	}
 	if help {
 		fmt.Fprint(os.Stdout, tokenUsage)
@@ -205,8 +211,11 @@ func runTokenInspect(_ context.Context, args []string, base commonFlags) error {
 	fs.BoolVar(&help, "help", false, "show help")
 	fs.BoolVar(&help, "h", false, "show help")
 
-	if err := fs.Parse(args); err != nil {
+	if err := fs.Parse(interspersedArgs(fs, args)); err != nil {
 		return newUsageError(err, true)
+	}
+	if validateCommandOnly {
+		return errCommandValidated
 	}
 	if help {
 		fmt.Fprint(os.Stdout, tokenUsage)

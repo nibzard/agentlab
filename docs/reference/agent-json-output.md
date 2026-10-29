@@ -370,17 +370,10 @@ Each stdout line is one message object.
 
 ## Pitfalls
 
-- **The `output-format` default is never applied.** You can write
-  `defaults write output-format json`, but the CLI never reads it back. The
-  global `--json` flag always defaults to `false`. Pass `--json` on every
-  invocation.
-
-  ```bash
-  agentlab defaults write output-format json
-  ```
-
-  This stores the value, but the next command without `--json` still prints
-  text. See
+- **Saved output preferences affect commands.** Set the default with
+  `agentlab defaults write output-format json`. Pass `--json` explicitly in
+  automation, or `--json=false` to request text. Explicit flags override the
+  saved preference. See
   [Global flags, environment, and exit codes](global-flags-env-and-exit-codes.md).
 
 - **`--and-ssh` is rejected with `--json`.** Create the sandbox with `--json`

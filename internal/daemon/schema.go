@@ -1,8 +1,12 @@
 package daemon
 
 import (
+	"encoding/json"
+	"github.com/agentlab/agentlab/internal/templatebuild"
 	"net/http"
+	"reflect"
 	"sort"
+	"strings"
 	"time"
 )
 
@@ -18,6 +22,7 @@ type schemaResource struct {
 }
 
 type schemaResponse struct {
+	Definitions        map[string]any       `json:"definitions"`
 	GeneratedAt        string               `json:"generated_at"`
 	APISchemaVersion   int                  `json:"api_schema_version"`
 	EventSchemaVersion int                  `json:"event_schema_version"`
@@ -28,6 +33,7 @@ type schemaResponse struct {
 
 func buildSchemaResponse() schemaResponse {
 	return schemaResponse{
+		Definitions:        schemaDefinitions(),
 		GeneratedAt:        time.Now().UTC().Format(time.RFC3339Nano),
 		APISchemaVersion:   controlAPISchemaVersion,
 		EventSchemaVersion: eventContractSchemaVersion,
@@ -47,7 +53,7 @@ func schemaResources() []schemaResource {
 		resourceSchema("/v1/template-builds/{id}/cancel", methods("POST"), "Request build cancellation", "", "templatebuild.Build", "Idempotent."),
 		resourceSchema("/v1/templates", methods("GET"), "List successful managed templates", "", "templatebuild.Manifest", "Paginated with offset and limit."),
 		resourceSchema("/v1/templates/{vmid}", methods("GET"), "Inspect manifest and live template drift", "", "templatebuild.Manifest", ""),
-		resourceSchema("/v1/templates/{vmid}/activate", methods("POST"), "Activate a template for an existing profile", "", "ProfileActivation", "Requires profile and expected_template_vmid."),
+		resourceSchema("/v1/templates/{vmid}/activate", methods("POST"), "Activate a template for an existing profile", "V1TemplateActivateRequest", "V1TemplateActivateResponse", "Requires profile and expected_template_vmid."),
 		resourceSchema("/v1/exposures", methods("GET", "POST"), "List/create exposures", "V1ExposureCreateRequest", "V1ExposuresResponse", ""),
 		resourceSchema("/v1/exposures/{name}", methods("DELETE"), "Delete exposure", "", "V1Exposure", ""),
 		resourceSchema("/v1/host", methods("GET"), "Fetch host metadata", "", "V1HostResponse", "Includes daemon version, configured subnet, and tailscale hostname when available."),
@@ -184,4 +190,146 @@ func (api *ControlAPI) handleSchema(w http.ResponseWriter, r *http.Request) {
 	}
 	resp := buildSchemaResponse()
 	writeJSON(w, http.StatusOK, resp)
+}
+
+// schemaDefinitions describes JSON fields from the same Go types used by handlers.
+// The catalog describes wire types; endpoint validation can impose extra constraints.
+func schemaDefinitions() map[string]any {
+	definitions := map[string]any{}
+	var describe func(reflect.Type) map[string]any
+	var shape func(reflect.Type) map[string]any
+	describe = func(t reflect.Type) map[string]any {
+		if t == reflect.TypeOf(json.RawMessage{}) {
+			return map[string]any{}
+		}
+		if t == reflect.TypeOf(time.Time{}) {
+			return map[string]any{"type": "string", "format": "date-time"}
+		}
+		if t.Kind() == reflect.Pointer {
+			return map[string]any{"anyOf": []any{describe(t.Elem()), map[string]any{"type": "null"}}}
+		}
+		if t.Name() != "" && t.Kind() == reflect.Struct {
+			name := t.Name()
+			if strings.HasSuffix(t.PkgPath(), "/templatebuild") {
+				name = "templatebuild." + name
+			}
+			if _, ok := definitions[name]; !ok {
+				definitions[name] = map[string]any{}
+				definitions[name] = shape(t)
+			}
+			return map[string]any{"$ref": "#/definitions/" + name}
+		}
+		return shape(t)
+	}
+	shape = func(t reflect.Type) map[string]any {
+		switch t.Kind() {
+		case reflect.Struct:
+			properties := map[string]any{}
+			for i := 0; i < t.NumField(); i++ {
+				field := t.Field(i)
+				if !field.IsExported() {
+					continue
+				}
+				tag := strings.Split(field.Tag.Get("json"), ",")[0]
+				if tag == "-" {
+					continue
+				}
+				if tag == "" {
+					tag = field.Name
+				}
+				properties[tag] = describe(field.Type)
+			}
+			return map[string]any{"type": "object", "properties": properties}
+		case reflect.Map:
+			return map[string]any{"type": "object", "additionalProperties": describe(t.Elem())}
+		case reflect.Slice, reflect.Array:
+			if t.Elem().Kind() == reflect.Uint8 {
+				return map[string]any{"type": "string", "contentEncoding": "base64"}
+			}
+			return map[string]any{"type": "array", "items": describe(t.Elem())}
+		case reflect.String:
+			return map[string]any{"type": "string"}
+		case reflect.Bool:
+			return map[string]any{"type": "boolean"}
+		case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64, reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
+			return map[string]any{"type": "integer"}
+		case reflect.Float32, reflect.Float64:
+			return map[string]any{"type": "number"}
+		default:
+			return map[string]any{}
+		}
+	}
+	roots := map[string]reflect.Type{
+		"V1TemplateActivateRequest":        reflect.TypeOf(V1TemplateActivateRequest{}),
+		"V1TemplateActivateResponse":       reflect.TypeOf(V1TemplateActivateResponse{}),
+		"V1ArtifactUploadResponse":         reflect.TypeOf(V1ArtifactUploadResponse{}),
+		"V1ArtifactsResponse":              reflect.TypeOf(V1ArtifactsResponse{}),
+		"V1EventsResponse":                 reflect.TypeOf(V1EventsResponse{}),
+		"V1Exposure":                       reflect.TypeOf(V1Exposure{}),
+		"V1ExposureCreateRequest":          reflect.TypeOf(V1ExposureCreateRequest{}),
+		"V1ExposuresResponse":              reflect.TypeOf(V1ExposuresResponse{}),
+		"V1HostResponse":                   reflect.TypeOf(V1HostResponse{}),
+		"V1JobCreateRequest":               reflect.TypeOf(V1JobCreateRequest{}),
+		"V1JobResponse":                    reflect.TypeOf(V1JobResponse{}),
+		"V1JobValidatePlanRequest":         reflect.TypeOf(V1JobValidatePlanRequest{}),
+		"V1JobValidatePlanResponse":        reflect.TypeOf(V1JobValidatePlanResponse{}),
+		"V1LeaseRenewRequest":              reflect.TypeOf(V1LeaseRenewRequest{}),
+		"V1LeaseRenewResponse":             reflect.TypeOf(V1LeaseRenewResponse{}),
+		"V1Message":                        reflect.TypeOf(V1Message{}),
+		"V1MessageCreateRequest":           reflect.TypeOf(V1MessageCreateRequest{}),
+		"V1MessagesResponse":               reflect.TypeOf(V1MessagesResponse{}),
+		"V1ProfilesResponse":               reflect.TypeOf(V1ProfilesResponse{}),
+		"V1SandboxCreateRequest":           reflect.TypeOf(V1SandboxCreateRequest{}),
+		"V1SandboxInventoryResponse":       reflect.TypeOf(V1SandboxInventoryResponse{}),
+		"V1SandboxReconcileRequest":        reflect.TypeOf(V1SandboxReconcileRequest{}),
+		"V1SandboxReconcileResponse":       reflect.TypeOf(V1SandboxReconcileResponse{}),
+		"V1SandboxResponse":                reflect.TypeOf(V1SandboxResponse{}),
+		"V1SandboxRevertRequest":           reflect.TypeOf(V1SandboxRevertRequest{}),
+		"V1SandboxRevertResponse":          reflect.TypeOf(V1SandboxRevertResponse{}),
+		"V1SandboxSnapshotCreateRequest":   reflect.TypeOf(V1SandboxSnapshotCreateRequest{}),
+		"V1SandboxSnapshotResponse":        reflect.TypeOf(V1SandboxSnapshotResponse{}),
+		"V1SandboxSnapshotRestoreRequest":  reflect.TypeOf(V1SandboxSnapshotRestoreRequest{}),
+		"V1SandboxSnapshotsResponse":       reflect.TypeOf(V1SandboxSnapshotsResponse{}),
+		"V1SandboxStopAllRequest":          reflect.TypeOf(V1SandboxStopAllRequest{}),
+		"V1SandboxStopAllResponse":         reflect.TypeOf(V1SandboxStopAllResponse{}),
+		"V1SandboxUpdateRequest":           reflect.TypeOf(V1SandboxUpdateRequest{}),
+		"V1SandboxValidatePlanRequest":     reflect.TypeOf(V1SandboxValidatePlanRequest{}),
+		"V1SandboxValidatePlanResponse":    reflect.TypeOf(V1SandboxValidatePlanResponse{}),
+		"V1SandboxesResponse":              reflect.TypeOf(V1SandboxesResponse{}),
+		"V1SessionCreateRequest":           reflect.TypeOf(V1SessionCreateRequest{}),
+		"V1SessionForkRequest":             reflect.TypeOf(V1SessionForkRequest{}),
+		"V1SessionResponse":                reflect.TypeOf(V1SessionResponse{}),
+		"V1SessionResumeResponse":          reflect.TypeOf(V1SessionResumeResponse{}),
+		"V1SessionsResponse":               reflect.TypeOf(V1SessionsResponse{}),
+		"V1StatusResponse":                 reflect.TypeOf(V1StatusResponse{}),
+		"V1WorkspaceAttachRequest":         reflect.TypeOf(V1WorkspaceAttachRequest{}),
+		"V1WorkspaceCheckResponse":         reflect.TypeOf(V1WorkspaceCheckResponse{}),
+		"V1WorkspaceCreateRequest":         reflect.TypeOf(V1WorkspaceCreateRequest{}),
+		"V1WorkspaceFSCKRequest":           reflect.TypeOf(V1WorkspaceFSCKRequest{}),
+		"V1WorkspaceFSCKResponse":          reflect.TypeOf(V1WorkspaceFSCKResponse{}),
+		"V1WorkspaceForkRequest":           reflect.TypeOf(V1WorkspaceForkRequest{}),
+		"V1WorkspaceLeaseClearResponse":    reflect.TypeOf(V1WorkspaceLeaseClearResponse{}),
+		"V1WorkspaceRebindRequest":         reflect.TypeOf(V1WorkspaceRebindRequest{}),
+		"V1WorkspaceRebindResponse":        reflect.TypeOf(V1WorkspaceRebindResponse{}),
+		"V1WorkspaceResponse":              reflect.TypeOf(V1WorkspaceResponse{}),
+		"V1WorkspaceSnapshotCreateRequest": reflect.TypeOf(V1WorkspaceSnapshotCreateRequest{}),
+		"V1WorkspaceSnapshotResponse":      reflect.TypeOf(V1WorkspaceSnapshotResponse{}),
+		"V1WorkspaceSnapshotsResponse":     reflect.TypeOf(V1WorkspaceSnapshotsResponse{}),
+		"V1WorkspacesResponse":             reflect.TypeOf(V1WorkspacesResponse{}),
+		"templatebuild.Build":              reflect.TypeOf(templatebuild.Build{}),
+		"templatebuild.Capabilities":       reflect.TypeOf(templatebuild.Capabilities{}),
+		"templatebuild.Logs":               reflect.TypeOf(templatebuild.Logs{}),
+		"templatebuild.Manifest":           reflect.TypeOf(templatebuild.Manifest{}),
+		"templatebuild.Plan":               reflect.TypeOf(templatebuild.Plan{}),
+		"templatebuild.Validation":         reflect.TypeOf(templatebuild.Validation{}),
+		"schemaResponse":                   reflect.TypeOf(schemaResponse{}),
+		"map[string]int":                   reflect.TypeOf(map[string]int{}),
+	}
+	for name, typ := range roots {
+		describe(typ)
+		if _, ok := definitions[name]; !ok {
+			definitions[name] = shape(typ)
+		}
+	}
+	return definitions
 }

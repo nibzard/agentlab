@@ -16,7 +16,7 @@ import (
 )
 
 func TestStandaloneBootstrapAndAuthenticatedDiagnostics(t *testing.T) {
-	api, token, id := mintTestEnv(t, "")
+	api, token, id := mintTestEnv(t, "tailscale:\n  authkey: standalone-enrollment-fixture\n")
 	if _, err := api.store.DB.Exec(`DELETE FROM jobs WHERE sandbox_vmid=?`, id); err != nil {
 		t.Fatal(err)
 	}
@@ -30,6 +30,9 @@ func TestStandaloneBootstrapAndAuthenticatedDiagnostics(t *testing.T) {
 	}
 	if payload.Sandbox == nil || payload.Sandbox.VMID != id || payload.Job.ID != "" || payload.SandboxSecret == "" || payload.Artifact != nil {
 		t.Fatalf("invalid standalone payload: identity/job/artifact shape")
+	}
+	if payload.Tailscale == nil || payload.Tailscale.AuthKey != "standalone-enrollment-fixture" {
+		t.Fatal("standalone sandbox did not receive enrollment credentials")
 	}
 	hash, _ := api.store.GetSandboxSecretHash(context.Background(), id)
 	if again := doMintFetch(t, api, token, id); again.Code != 403 {

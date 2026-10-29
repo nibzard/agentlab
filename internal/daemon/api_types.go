@@ -840,3 +840,14 @@ type V1TemplateManifest = templatebuild.Manifest
 type V1TemplateCapabilities = templatebuild.Capabilities
 type V1TemplateValidation = templatebuild.Validation
 type V1TemplateLogs = templatebuild.Logs
+
+// V1TemplateActivateRequest selects a profile and guards its current template.
+type V1TemplateActivateRequest struct {
+	Profile  string `json:"profile"`
+	Expected *int   `json:"expected_template_vmid"`
+}
+type V1TemplateActivateResponse struct {
+	Profile         string `json:"profile"`
+	OldTemplateVMID int    `json:"old_template_vmid"`
+	TemplateVMID    int    `json:"template_vmid"`
+}

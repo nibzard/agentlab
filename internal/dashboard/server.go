@@ -235,7 +235,7 @@ func (s *Server) proxyGet(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
 		return
 	}
-	s.forward(w, r.Method, daemonPath(r.URL.Path), nil)
+	s.forward(w, r.Method, daemonPath(r.URL.RequestURI()), nil)
 }
 
 // maxForwardBytes caps the size of a request body the dashboard buffers before
@@ -271,7 +271,7 @@ func (s *Server) proxyPost(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	s.forward(w, r.Method, daemonPath(r.URL.Path), body)
+	s.forward(w, r.Method, daemonPath(r.URL.RequestURI()), body)
 }
 
 // proxySandboxes handles GET (list) and POST (create) for /api/v1/sandboxes.
@@ -279,13 +279,13 @@ func (s *Server) proxySandboxes(w http.ResponseWriter, r *http.Request) {
 	// Strip the /api prefix to get /v1/sandboxes.
 	switch r.Method {
 	case http.MethodGet:
-		s.forward(w, r.Method, "/v1/sandboxes", nil)
+		s.forward(w, r.Method, daemonPath(r.URL.RequestURI()), nil)
 	case http.MethodPost:
 		body, ok := s.readBoundedBody(w, r)
 		if !ok {
 			return
 		}
-		s.forward(w, r.Method, "/v1/sandboxes", body)
+		s.forward(w, r.Method, daemonPath(r.URL.RequestURI()), body)
 	default:
 		writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
 	}
@@ -297,20 +297,20 @@ func (s *Server) proxySandboxAction(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	s.forward(w, r.Method, daemonPath(r.URL.Path), body)
+	s.forward(w, r.Method, daemonPath(r.URL.RequestURI()), body)
 }
 
 // proxyJobs handles GET (list) and POST (create) for /api/v1/jobs.
 func (s *Server) proxyJobs(w http.ResponseWriter, r *http.Request) {
 	switch r.Method {
 	case http.MethodGet:
-		s.forward(w, r.Method, "/v1/jobs", nil)
+		s.forward(w, r.Method, daemonPath(r.URL.RequestURI()), nil)
 	case http.MethodPost:
 		body, ok := s.readBoundedBody(w, r)
 		if !ok {
 			return
 		}
-		s.forward(w, r.Method, "/v1/jobs", body)
+		s.forward(w, r.Method, daemonPath(r.URL.RequestURI()), body)
 	default:
 		writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
 	}
@@ -322,7 +322,7 @@ func (s *Server) proxyWorkspaceAction(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	s.forward(w, r.Method, daemonPath(r.URL.Path), body)
+	s.forward(w, r.Method, daemonPath(r.URL.RequestURI()), body)
 }
 
 // proxySessionAction forwards requests to /v1/sessions/{id}/...
@@ -331,7 +331,7 @@ func (s *Server) proxySessionAction(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	s.forward(w, r.Method, daemonPath(r.URL.Path), body)
+	s.forward(w, r.Method, daemonPath(r.URL.RequestURI()), body)
 }
 
 // proxyExposures handles GET (list), POST (create), DELETE for /api/v1/exposures.
@@ -340,7 +340,7 @@ func (s *Server) proxyExposures(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	s.forward(w, r.Method, daemonPath(r.URL.Path), body)
+	s.forward(w, r.Method, daemonPath(r.URL.RequestURI()), body)
 }
 
 // proxyDelete forwards a DELETE request to the daemon.
@@ -349,7 +349,7 @@ func (s *Server) proxyDelete(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	s.forward(w, r.Method, daemonPath(r.URL.Path), body)
+	s.forward(w, r.Method, daemonPath(r.URL.RequestURI()), body)
 }
 
 // proxyMessages handles GET (list) and POST (create) for /api/v1/messages.
@@ -358,7 +358,7 @@ func (s *Server) proxyMessages(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	s.forward(w, r.Method, daemonPath(r.URL.Path), body)
+	s.forward(w, r.Method, daemonPath(r.URL.RequestURI()), body)
 }
 
 // daemonPath strips the /api prefix from the URL path, mapping dashboard

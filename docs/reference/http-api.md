@@ -325,3 +325,16 @@ can be recovered with the guest key registered in that same transaction.
 `agentlab-guest-recovery-v1`, required template runner `v2`, legacy recovery
 `reprovision`, and `native_ssh: false`. This capability does not imply that
 existing legacy guests have been migrated.
+
+## Schema field discovery
+
+`GET /v1/schema` includes a `definitions` object. Each resource names its request
+and response types. Find their JSON fields under `definitions[type].properties`.
+Nested types use `$ref` paths such as `#/definitions/V1SandboxResponse`.
+Definitions describe JSON field types. Endpoint validation can impose additional
+constraints. Read the endpoint documentation for those constraints.
+
+The execution dry-run endpoint validates the command tree and flags through the
+CLI parser. It does not allocate resources or contact the control API. Use
+`job validate` or `sandbox validate` to check a provisioning plan against the
+host configuration. Install matching CLI and daemon versions for dry-run support.

@@ -47,3 +47,20 @@ func TestHandleSchema(t *testing.T) {
 	assert.GreaterOrEqual(t, len(resp.Resources), 1)
 	assert.GreaterOrEqual(t, len(resp.EventKinds), 1)
 }
+
+func TestSchemaDefinitionsCoverResources(t *testing.T) {
+	response := buildSchemaResponse()
+	for _, resource := range response.Resources {
+		for _, name := range []string{resource.RequestType, resource.ResponseType} {
+			if name == "" || name == "application/octet-stream" {
+				continue
+			}
+			require.Contains(t, response.Definitions, name, resource.Path)
+		}
+	}
+	definition := response.Definitions["V1SandboxCreateRequest"].(map[string]any)
+	fields := definition["properties"].(map[string]any)
+	require.Contains(t, fields, "profile")
+	require.Contains(t, fields, "keepalive")
+	require.Contains(t, response.Definitions["V1JobCreateRequest"].(map[string]any)["properties"], "repo_url")
+}

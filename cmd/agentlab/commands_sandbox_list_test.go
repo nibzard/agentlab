@@ -28,7 +28,7 @@ func TestRunSandboxListVisibility(t *testing.T) {
 				if r.Method != http.MethodGet || r.URL.Path != "/v1/sandboxes" {
 					t.Errorf("unexpected request: %s %s", r.Method, r.URL.Path)
 				}
-				_, _ = w.Write([]byte(`{"sandboxes":[{"vmid":1,"name":"running-vm","state":"RUNNING"},{"vmid":2,"name":"destroyed-vm","state":"DESTROYED"},{"vmid":3,"name":"stopped-vm","state":"STOPPED"},{"vmid":4,"name":"failed-vm","state":"FAILED"}]}`))
+				_, _ = w.Write([]byte(`{"sandboxes":[{"vmid":1,"name":"running-vm","state":"RUNNING","future_field":{"value":7}},{"vmid":2,"name":"destroyed-vm","state":"DESTROYED"},{"vmid":3,"name":"stopped-vm","state":"STOPPED"},{"vmid":4,"name":"failed-vm","state":"FAILED"}]}`))
 			}))
 			defer srv.Close()
 			out := captureStdout(t, func() {
@@ -47,6 +47,9 @@ func TestRunSandboxListVisibility(t *testing.T) {
 				t.Errorf("destroyed visibility should be %t: %s", tc.all, out)
 			}
 			if tc.json {
+				if !strings.Contains(out, "future_field") {
+					t.Fatalf("response field lost: %s", out)
+				}
 				var resp sandboxesResponse
 				if err := json.Unmarshal([]byte(out), &resp); err != nil {
 					t.Fatalf("invalid JSON: %v", err)

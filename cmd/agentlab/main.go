@@ -162,7 +162,14 @@ type globalOptions struct {
 	allowInsecureHTTP bool
 }
 
+var validateCommandOnly bool
+var errCommandValidated = errors.New("command syntax validated")
+
 func main() {
+	validateCommandOnly = len(os.Args) > 1 && os.Args[1] == "--validate-command"
+	if validateCommandOnly {
+		os.Args = append(os.Args[:1], os.Args[2:]...)
+	}
 	opts, args, err := parseGlobal(os.Args[1:])
 	if err != nil {
 		if errors.Is(err, errHelp) {
@@ -211,7 +218,7 @@ func main() {
 		allowInsecureHTTP: opts.allowInsecureHTTP,
 	}
 	if err := dispatch(ctx, args, base); err != nil {
-		if errors.Is(err, errHelp) {
+		if errors.Is(err, errHelp) || errors.Is(err, errCommandValidated) {
 			return
 		}
 		msg, next, hints := describeError(err)
@@ -229,6 +236,44 @@ func main() {
 
 func parseGlobal(args []string) (globalOptions, []string, error) {
 	opts := globalOptions{socketPath: defaultSocketPath, timeout: defaultRequestTimeout}
+	for _, arg := range args {
+		if arg == "--" {
+			break
+		}
+		if arg == "--json" || arg == "--json=true" {
+			opts.jsonOutput = true
+		}
+		if arg == "--json=false" {
+			opts.jsonOutput = false
+		}
+	}
+	defaults, err := loadDefaults()
+	if err != nil {
+		return opts, nil, err
+	}
+	if value := defaults["default-socket"]; value != "" {
+		opts.socketPath = value
+	}
+	if value := defaults["default-timeout"]; value != "" {
+		duration, err := time.ParseDuration(value)
+		if err != nil || duration <= 0 {
+			return opts, nil, fmt.Errorf("invalid default-timeout: %q", value)
+		}
+		opts.timeout = duration
+	}
+	// Explicit output flags take precedence over the saved preference.
+	explicitOutput := false
+	for _, arg := range args {
+		if arg == "--" {
+			break
+		}
+		if arg == "--json" || strings.HasPrefix(arg, "--json=") {
+			explicitOutput = true
+		}
+	}
+	if !explicitOutput {
+		opts.jsonOutput = defaults["output-format"] == "json"
+	}
 	var tailscaleCfg *tailscaleAdminConfig
 	// allowInsecureHTTP accumulates the acknowledgement from any source
 	// (saved config, env, then --allow-insecure-http flag below). A trusted
@@ -265,7 +310,7 @@ func parseGlobal(args []string) (globalOptions, []string, error) {
 	fs.StringVar(&opts.endpoint, "endpoint", opts.endpoint, "control plane endpoint (http(s)://host:port)")
 	fs.StringVar(&opts.token, "token", opts.token, "control plane auth token")
 	fs.StringVar(&opts.socketPath, "socket", opts.socketPath, "path to agentlabd socket")
-	fs.BoolVar(&opts.jsonOutput, "json", false, jsonFlagDescription)
+	fs.BoolVar(&opts.jsonOutput, "json", opts.jsonOutput, jsonFlagDescription)
 	fs.DurationVar(&opts.timeout, "timeout", opts.timeout, "request timeout (e.g. 30s, 2m)")
 	fs.BoolVar(&opts.allowInsecureHTTP, "allow-insecure-http", opts.allowInsecureHTTP,
 		"permit plaintext HTTP to a non-loopback endpoint (only inside a trusted tunnel such as Tailscale)")

@@ -55,7 +55,13 @@ Goal: install the `agentlab` CLI and the `agentlabd` daemon, then confirm both r
 
     ```bash
     sudo mkdir -p /etc/agentlab /etc/agentlab/profiles /var/lib/agentlab /run/agentlab
-    sudo chmod 0600 /etc/agentlab/config.yaml
+    sudo install -m 0600 /dev/null /etc/agentlab/config.yaml
+    sudo tee /etc/agentlab/config.yaml >/dev/null <<'YAML'
+    profiles_dir: /etc/agentlab/profiles
+    data_dir: /var/lib/agentlab
+    run_dir: /run/agentlab
+    socket_path: /run/agentlab/agentlabd.sock
+    YAML
     ```
 
 6. Start the daemon and check that it answers on the socket.

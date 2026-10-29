@@ -321,10 +321,7 @@ func (s *ProfileStore) Activate(name string, expected, vmid int) error {
 	return nil
 }
 func (api *ControlAPI) activateTemplate(w http.ResponseWriter, r *http.Request, m tb.Manifest) {
-	var req struct {
-		Profile  string `json:"profile"`
-		Expected *int   `json:"expected_template_vmid"`
-	}
+	var req V1TemplateActivateRequest
 	if e := decodeJSON(w, r, &req); e != nil {
 		writeJSONDecodeError(w, e)
 		return
@@ -377,5 +374,5 @@ func (api *ControlAPI) activateTemplate(w http.ResponseWriter, r *http.Request, 
 		return
 	}
 	_ = api.store.RecordEvent(r.Context(), "template.activated", nil, nil, req.Profile, templateAuditJSON(EventKindTemplateActivated, map[string]any{"build_id": m.BuildID, "profile": req.Profile, "old_vmid": *req.Expected, "new_vmid": m.VMID}))
-	writeJSON(w, 200, map[string]any{"profile": req.Profile, "old_template_vmid": *req.Expected, "template_vmid": m.VMID})
+	writeJSON(w, 200, V1TemplateActivateResponse{Profile: req.Profile, OldTemplateVMID: *req.Expected, TemplateVMID: m.VMID})
 }

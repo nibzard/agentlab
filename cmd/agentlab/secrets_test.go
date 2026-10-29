@@ -30,7 +30,7 @@ tailscale:
 	}
 
 	out := captureStdout(t, func() {
-		err := runSecretsShowCommand([]string{"--bundle", path, "--allow-plaintext"}, commonFlags{})
+		err := runSecretsShowCommand([]string{"--config", "", "--bundle", path, "--allow-plaintext"}, commonFlags{})
 		if err != nil {
 			t.Fatalf("run secrets show: %v", err)
 		}
@@ -53,6 +53,7 @@ func TestSecretsAddSSHKeyAndSetTailscaleAgeBundle(t *testing.T) {
 
 	_ = captureStdout(t, func() {
 		if err := runSecretsAddSSHKeyCommand([]string{
+			"--config", "",
 			"--dir", dir,
 			"--age-key", keyPath,
 			"--bundle", "default",
@@ -65,6 +66,7 @@ func TestSecretsAddSSHKeyAndSetTailscaleAgeBundle(t *testing.T) {
 
 	_ = captureStdout(t, func() {
 		if err := runSecretsSetTailscaleCommand([]string{
+			"--config", "",
 			"--dir", dir,
 			"--age-key", keyPath,
 			"--bundle", "default",
@@ -113,6 +115,7 @@ tailscale:
 
 	_ = captureStdout(t, func() {
 		if err := runSecretsRemoveSSHKeyCommand([]string{
+			"--config", "",
 			"--bundle", path,
 			"--allow-plaintext",
 			"--name", "laptop",
@@ -122,6 +125,7 @@ tailscale:
 	})
 	_ = captureStdout(t, func() {
 		if err := runSecretsClearTailscaleCommand([]string{
+			"--config", "",
 			"--bundle", path,
 			"--allow-plaintext",
 		}, commonFlags{}); err != nil {

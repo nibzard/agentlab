@@ -149,6 +149,10 @@ func TestProxyForward(t *testing.T) {
 	fakeDaemon := http.Server{
 		Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			if r.URL.Path == "/v1/status" {
+				if r.URL.Query().Get("limit") != "17" {
+					t.Errorf("query lost: %s", r.URL)
+				}
+
 				w.Header().Set("Content-Type", "application/json")
 				json.NewEncoder(w).Encode(map[string]any{
 					"sandboxes": map[string]int{"running": 2},
@@ -198,7 +202,7 @@ func TestProxyForward(t *testing.T) {
 	srv := testServer(socketPath)
 
 	// Test GET proxy.
-	req := httptest.NewRequest(http.MethodGet, "/api/v1/status", nil)
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/status?limit=17", nil)
 	w := httptest.NewRecorder()
 	srv.proxyGet(w, req)
 

@@ -1,7 +1,7 @@
 # Drive AgentLab as a coding agent
 
 As a coding agent, you drive AgentLab through the CLI with `--json`. The loop is
-the same each time: discover what exists, provision a sandbox, submit a job,
+the same each time: discover what exists, validate a job, submit the job,
 read the result, then tear the sandbox down. This page walks one full loop and
 gives you the parsing rules that make it reliable.
 
@@ -18,16 +18,16 @@ concepts behind isolation and credentials, read
 - You pass `--json` on every call.
 
 !!! warning "Pass --json every time"
-    The global `--json` flag always defaults to false. A stored `output-format`
-    default is documented but is never read. If you omit `--json`, the CLI prints
-    human text. Do not parse that text.
+    Pass `--json` explicitly in automation. You can also save `output-format=json`
+    with `agentlab defaults write output-format json`. Explicit flags override
+    the saved preference.
 
 ## The agent loop
 
 Each task has five core phases, plus two optional ones:
 
 1. **Discover** the schema and the available profiles.
-2. **Provision** a sandbox. Poll until it is `RUNNING`.
+2. **Choose job-managed provisioning**. The job creates its own sandbox.
 3. **Submit** a job, after you validate the plan.
 4. **Poll** the job to a terminal state. Read the result.
 5. **Collect** artifacts. **Tear down** the sandbox.
@@ -58,34 +58,15 @@ The steps below cover one full loop.
     agentlab sandbox validate --profile <profile> --json
     ```
 
-2. **Provision a sandbox. Poll to RUNNING.**
+2. **Use the sandbox created by the job.**
 
-    ```bash
-    agentlab sandbox new --profile <profile> --json
-    ```
+   `job run` allocates a sandbox for the job. Do not call `sandbox new` first
+   for this workflow. A standalone sandbox is a separate VM and does not become
+   the job's sandbox. Creating both requires separate cleanup for each VM.
 
-   The response carries the top-level `vmid` field as an integer. Parse the
-   output leniently. The daemon response is a superset of the CLI struct, so it
-   may also include the daemon-only `health` field. Ignore keys you do not use.
-
-   Provisioning sets the sandbox state to `REQUESTED` and blocks on the daemon.
-   The provision call runs on the daemon lifecycle context, so it outlives a
-   client disconnect. The sandbox then walks
-   `REQUESTED -> PROVISIONING -> BOOTING -> READY -> RUNNING`.
-
-   Poll `sandbox show` until the sandbox is ready:
-
-    ```bash
-    agentlab sandbox show <vmid> --json
-    ```
-
-   Treat the sandbox as ready only when both are true:
-
-   - `state` equals `RUNNING`.
-   - `ip` is non-empty.
-
-   The full set of transitions is in
-   [State machine](../reference/state-machine.md).
+   Submit the job in Step 3. Read `sandbox_vmid` from `job show` when you need
+   to inspect its VM. The job destroys its sandbox after completion unless you
+   pass `--keepalive`.
 
 3. **Validate, then submit a job.**
 
@@ -193,12 +174,11 @@ agentlab sandbox lease renew --ttl <minutes> <vmid>
 ```
 
 Lease renewal is `RUNNING`-only. In any other state the daemon returns `409`.
-Put `--ttl` before the vmid. The flag parser stops at the first positional
-argument, so `--ttl` after the vmid is ignored.
+Flags can appear before or after the VMID.
 
 ## Tear down
 
-Destroy the sandbox when you are done:
+For a standalone sandbox or a job kept with `--keepalive`, destroy the sandbox when you are done:
 
 ```bash
 agentlab sandbox destroy <vmid>

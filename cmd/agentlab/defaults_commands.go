@@ -92,6 +92,14 @@ func runDefaultsDispatch(args []string, base commonFlags) error {
 		fmt.Fprint(os.Stdout, defaultsUsage)
 		return errHelp
 	}
+	if validateCommandOnly {
+		counts := map[string]int{"write": 3, "read": 2, "list": 1, "delete": 2}
+		count, ok := counts[args[0]]
+		if !ok || len(args) != count {
+			return newUsageError(errors.New("invalid defaults command or arguments"), false)
+		}
+		return errCommandValidated
+	}
 	switch args[0] {
 	case "write":
 		return runDefaultsWrite(args[1:], base)

@@ -13,19 +13,24 @@
   // embedded in the shipped JavaScript. The user enters it when the server
   // demands it. Every bind requires a token: the operator passes
   // --browser-token, or the server generates one and logs it at startup.
+  var memoryToken = "";
+  var authPrompt = null;
+  var authCancelled = false;
+
   function dashboardToken() {
     try {
-      return sessionStorage.getItem("agentlab_dashboard_token") || "";
+      return memoryToken || sessionStorage.getItem("agentlab_dashboard_token") || "";
     } catch (e) {
       return "";
     }
   }
 
   function setDashboardToken(tok) {
+    memoryToken = tok;
     try {
       sessionStorage.setItem("agentlab_dashboard_token", tok);
     } catch (e) {
-      /* sessionStorage unavailable; token will be requested again */
+      /* Keep the token in memory when sessionStorage is unavailable. */
     }
   }
 
@@ -47,7 +52,18 @@
     // If the server requires an inbound token we do not yet hold, ask the user
     // once, persist it to this session, and retry the original request.
     if (res.status === 401 && !opts.__agentlabRetried) {
-      var tok = window.prompt("Dashboard access token:");
+      var tok = dashboardToken();
+      if (!tok || tok === (opts.headers["Authorization"] || "").replace(/^Bearer /, "")) {
+        if (!authPrompt && !authCancelled) {
+          authPrompt = Promise.resolve().then(function () {
+            var entered = window.prompt("Dashboard access token:");
+            if (entered) setDashboardToken(entered);
+            else authCancelled = true;
+            return entered;
+          });
+        }
+        tok = authPrompt ? await authPrompt : "";
+      }
       if (tok) {
         setDashboardToken(tok);
         opts.__agentlabRetried = true;
@@ -238,15 +254,15 @@
       if (!data) return;
       document.getElementById("status-daemon").textContent = "Daemon: OK";
       var sb = data.sandboxes || {};
-      var running = sb["running"] || sb["ready"] || 0;
+      var running = (sb["RUNNING"] || 0) + (sb["READY"] || 0);
       var total = 0;
       for (var k in sb) {
-        if (sb.hasOwnProperty(k)) total += sb[k];
+        if (sb.hasOwnProperty(k) && k !== "DESTROYED") total += sb[k];
       }
       document.getElementById("status-sandboxes").textContent =
         "Sandboxes: " + total + " (" + running + " active)";
       var jb = data.jobs || {};
-      var jobActive = (jb["running"] || 0) + (jb["queued"] || 0);
+      var jobActive = (jb["RUNNING"] || 0) + (jb["QUEUED"] || 0);
       document.getElementById("status-jobs").textContent =
         "Jobs: " + jobActive + " active";
 
@@ -542,12 +558,19 @@
     var container = document.getElementById("events-list");
     var empty = document.getElementById("event-empty");
     try {
-      // Load messages as event stream
-      var data = await apiJSON("/v1/messages");
-      var messages = (data && data.messages) || [];
-
-      // Also get status for failure digest
       var status = await apiJSON("/v1/status");
+      var workspaces = await apiJSON("/v1/workspaces");
+      var scopes = Object.keys((status && status.job_timelines) || {}).map(function (id) {
+        return "scope_type=job&scope_id=" + encodeURIComponent(id);
+      });
+      ((workspaces && workspaces.workspaces) || []).forEach(function (ws) {
+        scopes.push("scope_type=workspace&scope_id=" + encodeURIComponent(ws.id));
+      });
+      var batches = await Promise.all(scopes.map(async function (scope) {
+        var data = await apiJSON("/v1/messages?" + scope + "&limit=20");
+        return (data && data.messages) || [];
+      }));
+      var messages = [].concat.apply([], batches);
       var failures = (status && status.recent_failure_digest) || [];
 
       // Combine into unified timeline
@@ -971,7 +994,11 @@
       });
     });
 
-    document.getElementById("btn-refresh").addEventListener("click", refreshAll);
+    document.getElementById("btn-refresh").addEventListener("click", function () {
+      authPrompt = null;
+      authCancelled = false;
+      refreshAll();
+    });
 
     // Load profiles for the form.
     loadProfiles();
