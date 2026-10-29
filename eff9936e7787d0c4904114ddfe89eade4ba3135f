@@ -1,0 +1,18 @@
+Resolve the product reports reviewed on 2026-10-29. Keep dry-run parsing
+in the CLI through a validation mode that stops before command execution.
+Older CLI binaries reject the mode instead of executing a dry-run request.
+Build schema definitions from handler types to keep field discovery current.
+
+Existing commits already address 8F92G1V9 (4614749) and A3ZF6QG8
+(3d39d9e). Template installation and standalone Tailscale bootstrap are
+also present in 3d39d9e, with restart recovery added in 87945ce. Extend
+standalone bootstrap coverage to verify enrollment credentials without a job.
+Older guest templates still need rebuilding to receive those changes.
+
+Validation: go test ./... passes. Execution API and dashboard race checks,
+JavaScript fixtures, the installer fixture, and documentation snippet checks
+pass. A provisioning timeout test failed during earlier full runs and passed
+in the final full run. Secrets fixtures now avoid host configuration files.
+
+The product report store is unavailable in this workspace. Report statuses
+have not been changed.
