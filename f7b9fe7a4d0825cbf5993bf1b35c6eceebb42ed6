@@ -1,0 +1,21 @@
+# Context
+
+## Background
+Implements the plan defined in docs/specs/human-and-agent-experience-plan.md
+(commit 33d0ad8). One large commit because the CLI, daemon, dashboard, docs,
+and skill bundle cross-reference each other; splitting would break
+intermediate builds.
+
+## Why This Way
+- New packages (connection, protocol, reposnapshot, operations) keep the
+  client and daemon on shared types instead of duplicated JSON shapes.
+- Tailcat transport stays under experiments/ with its own go.mod until the
+  plan's evaluation gate passes; it is not part of the main module build.
+
+## Gotchas
+- staticcheck in bin/tools was stale (built with go1.25 while go.mod
+  requires go1.26.10). The Makefile only installs missing tools, so stale
+  binaries must be deleted before make quality. This commit also fixes the
+  19 findings the fresh staticcheck raised (dead ZFS helpers, unused
+  wrappers, http status constants, tar.TypeRegA).
+- Verified before commit: make quality green, go test ./... green.
