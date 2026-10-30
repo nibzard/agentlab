@@ -444,6 +444,36 @@ var migrations = []migration{
  DELETE FROM sandbox_secrets WHERE vmid=OLD.vmid;
  DELETE FROM bootstrap_tokens WHERE vmid=OLD.vmid; END`,
 	}},
+	{version: 24, name: "job_submission_keys", statements: []string{
+		`CREATE TABLE job_submissions (owner TEXT NOT NULL, key_hash TEXT NOT NULL, input_hash TEXT NOT NULL, job_id TEXT NOT NULL UNIQUE, expires_at TEXT NOT NULL, committed INTEGER NOT NULL DEFAULT 0, PRIMARY KEY(owner,key_hash))`,
+		`CREATE TABLE job_submission_workspaces(job_id TEXT PRIMARY KEY REFERENCES job_submissions(job_id),workspace_id TEXT NOT NULL)`,
+		`CREATE TRIGGER commit_job_submission AFTER INSERT ON jobs BEGIN UPDATE job_submissions SET committed=1 WHERE job_id=NEW.id; END`,
+	}},
+	{version: 25, name: "job_cancellation_requests", statements: []string{
+		`CREATE TABLE job_cancellations(job_id TEXT PRIMARY KEY REFERENCES jobs(id) ON DELETE CASCADE,state TEXT NOT NULL,record_json TEXT NOT NULL)`,
+		`CREATE TRIGGER protect_job_cancellation BEFORE UPDATE OF status,result_json ON jobs WHEN EXISTS(SELECT 1 FROM job_cancellations WHERE job_id=NEW.id AND state!='finalizing') BEGIN SELECT RAISE(IGNORE); END`,
+	}},
+	{version: 26, name: "repository_snapshots", statements: []string{
+		`CREATE TABLE repository_snapshots(id TEXT PRIMARY KEY,owner TEXT NOT NULL,manifest_json TEXT NOT NULL,created_at TEXT NOT NULL,expires_at TEXT NOT NULL)`,
+	}},
+	{version: 27, name: "ssh_token_revocations", statements: []string{
+		`CREATE TABLE ssh_token_revocations(issuer TEXT NOT NULL,revocation_id TEXT NOT NULL,record_json TEXT NOT NULL,PRIMARY KEY(issuer,revocation_id))`,
+	}},
+	{version: 28, name: "job_workspace_allocations", statements: []string{
+		`CREATE TABLE job_workspace_allocations(job_id TEXT PRIMARY KEY REFERENCES job_submissions(job_id),workspace_id TEXT NOT NULL UNIQUE,name TEXT NOT NULL,storage TEXT NOT NULL,size_gb INTEGER NOT NULL CHECK(size_gb>0),state TEXT NOT NULL CHECK(state IN ('planned','allocating','allocated','committed')),volume_id TEXT NOT NULL DEFAULT '',created_at TEXT NOT NULL)`,
+		`CREATE UNIQUE INDEX pending_workspace_allocation_name ON job_workspace_allocations(name) WHERE state!='committed'`,
+		`CREATE TRIGGER protect_pending_workspace_names BEFORE INSERT ON workspaces WHEN EXISTS(SELECT 1 FROM job_workspace_allocations WHERE name=NEW.name AND workspace_id!=NEW.id AND state!='committed') BEGIN SELECT RAISE(ABORT,'workspace name reserved by job submission'); END`,
+	}},
+	{version: 29, name: "workspace_volume_owners", statements: []string{
+		`CREATE TABLE workspace_volume_owners(workspace_id TEXT PRIMARY KEY,vmid INTEGER NOT NULL UNIQUE REFERENCES vmid_reservations(vmid),allocation_name TEXT NOT NULL UNIQUE,created_at TEXT NOT NULL)`,
+	}},
+	{version: 30, name: "workspace_fork_attempts", statements: []string{
+		`CREATE TABLE workspace_fork_attempts(id TEXT PRIMARY KEY,source_id TEXT NOT NULL,target_id TEXT NOT NULL UNIQUE,target_name TEXT NOT NULL,state TEXT NOT NULL,record_json TEXT NOT NULL)`,
+		`CREATE UNIQUE INDEX pending_workspace_fork_name ON workspace_fork_attempts(target_name) WHERE state!='succeeded'`,
+		`CREATE TRIGGER protect_workspace_fork_names BEFORE INSERT ON workspaces WHEN EXISTS(SELECT 1 FROM workspace_fork_attempts WHERE target_name=NEW.name AND target_id!=NEW.id AND state!='succeeded') BEGIN SELECT RAISE(ABORT,'workspace name reserved by fork operation'); END`,
+	}},
+	{version: 31, name: "job_test_commands", statements: []string{`ALTER TABLE jobs ADD COLUMN test_commands TEXT NOT NULL DEFAULT '[]'`}},
+	{version: 32, name: "ssh_token_renewals", statements: []string{`CREATE TABLE ssh_token_renewals(issuer TEXT NOT NULL,parent_id TEXT NOT NULL,candidate_id TEXT NOT NULL,record_json TEXT NOT NULL,PRIMARY KEY(issuer,parent_id),UNIQUE(issuer,candidate_id))`}},
 }
 
 // Migrate runs any pending migrations against the provided database.

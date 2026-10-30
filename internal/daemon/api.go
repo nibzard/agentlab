@@ -9,6 +9,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/agentlab/agentlab/internal/executionarchive"
+	"github.com/agentlab/agentlab/internal/hostidentity"
 	"io"
 	"log"
 	"net"
@@ -360,7 +362,7 @@ func (api *ControlAPI) WithBackgroundRunner(r BackgroundRunner) *ControlAPI {
 //	DELETE /v1/exposures/{name}          exposureSandboxVMID          Path name resolves to the bound sandbox. Resolved (pre-existing).
 //	POST /v1/messages                    messageBodyScopeVMID         Body scope (job, workspace, or session) resolves to a sandbox. Resolved.
 //	GET  /v1/messages                    messageQueryScopeVMID        Query scope resolves the same way. Resolved.
-//	GET  /v1/profiles, /v1/schema        none                         No sandbox target exists.
+//	GET  /v1/profiles, /v1/schema, /v1/capabilities none                         No sandbox target exists.
 //	GET  /v1/status, /v1/host            none                         Host-wide reads; no sandbox target.
 //
 // Sibling APIs on the same mux: secrets, integrations, users, and teams are
@@ -378,11 +380,18 @@ func (api *ControlAPI) Register(mux *http.ServeMux) {
 		return
 	}
 	api.registerTemplates(mux)
+	mux.HandleFunc("/v1/token-renewals/prepare", api.handleTokenRenewalPrepare)
+	mux.HandleFunc("/v1/token-renewals/commit", api.handleTokenRenewalCommit)
+	mux.HandleFunc("/v1/token-revocations", api.handleTokenRevocations)
+	mux.HandleFunc("/v1/token-revocations/", api.handleTokenRevocation)
 	mux.HandleFunc("/v1/jobs/validate-plan", api.handleJobValidatePlan)
 	mux.HandleFunc("/v1/jobs", api.handleJobs)
+	mux.HandleFunc("/v1/repositories", api.handleRepositoryUpload)
+	mux.HandleFunc("/v1/repositories/", api.handleRepositoryByID)
 	mux.HandleFunc("/v1/jobs/", api.handleJobByID)
 	mux.HandleFunc("/v1/profiles", api.handleProfiles)
 	mux.HandleFunc("/v1/schema", api.handleSchema)
+	mux.HandleFunc("/v1/capabilities", api.handleCapabilities)
 	mux.HandleFunc("/v1/status", api.handleStatus)
 	mux.HandleFunc("/v1/host", api.handleHost)
 	mux.HandleFunc("/v1/messages", api.handleMessages)
@@ -458,10 +467,11 @@ func (api *ControlAPI) handleJobValidatePlan(w http.ResponseWriter, r *http.Requ
 	}
 
 	plan := V1JobValidatePlan{
-		RepoURL: req.RepoURL,
-		Profile: req.Profile,
-		Task:    req.Task,
-		Mode:    req.Mode,
+		RepoURL:      req.RepoURL,
+		Profile:      req.Profile,
+		Task:         req.Task,
+		TestCommands: req.TestCommands,
+		Mode:         req.Mode,
 	}
 	if req.WorkspaceID != nil {
 		workspaceID := *req.WorkspaceID
@@ -485,6 +495,9 @@ func (api *ControlAPI) handleJobValidatePlan(w http.ResponseWriter, r *http.Requ
 		Warnings: make([]V1PreflightIssue, 0),
 	}
 	ctx := r.Context()
+	if err := executionarchive.ValidateTestCommands(req.TestCommands); err != nil {
+		resp.Errors = append(resp.Errors, V1PreflightIssue{Code: "invalid_field_value", Field: "test_commands", Message: err.Error()})
+	}
 
 	if req.Ref == "" {
 		req.Ref = defaultJobRef
@@ -851,6 +864,16 @@ func (api *ControlAPI) handleSandboxValidatePlan(w http.ResponseWriter, r *http.
 	}
 
 	if provisionSandbox && profile.Name != "" {
+		cores, memoryMB, burst := profileResourceAlloc(profile)
+		plan.Capacity = &V1SandboxPlanCapacity{Cores: cores, MemoryMB: memoryMB, AllowBurst: burst}
+		if api.resourcePool != nil && api.resourcePool.IsEnabled() && (cores > 0 || memoryMB > 0) {
+			plan.Capacity.Checked = true
+			if err := api.resourcePool.CanAllocate(cores, memoryMB, burst); err != nil {
+				resp.Errors = append(resp.Errors, V1PreflightIssue{Code: "resource_capacity_unavailable", Field: "profile", Message: "the selected profile exceeds current pool capacity; release resources or select a smaller profile"})
+			}
+		} else {
+			resp.Warnings = append(resp.Warnings, V1PreflightIssue{Code: "capacity_not_checked", Field: "profile", Message: "pool capacity is not configured for this profile; verify host capacity before creation"})
+		}
 		if api.jobOrchestrator == nil {
 			resp.Errors = append(resp.Errors, V1PreflightIssue{Code: "precondition_missing", Field: "job_orchestrator", Message: "job orchestrator unavailable"})
 		} else {
@@ -863,7 +886,7 @@ func (api *ControlAPI) handleSandboxValidatePlan(w http.ResponseWriter, r *http.
 			if strings.TrimSpace(api.jobOrchestrator.sshPublicKey) == "" {
 				resp.Errors = append(resp.Errors, V1PreflightIssue{Code: "precondition_missing", Field: "ssh_public_key", Message: "ssh public key unavailable"})
 			}
-			if strings.TrimSpace(api.jobOrchestrator.controllerURL) == "" {
+			if !api.jobOrchestrator.nativeSSHKeys && strings.TrimSpace(api.jobOrchestrator.controllerURL) == "" {
 				resp.Errors = append(resp.Errors, V1PreflightIssue{Code: "precondition_missing", Field: "controller_url", Message: "controller URL unavailable"})
 			}
 			if len(resp.Errors) == 0 {
@@ -918,6 +941,15 @@ func (api *ControlAPI) handleJobByID(w http.ResponseWriter, r *http.Request) {
 		api.handleJobGet(w, r, jobID)
 		return
 	case 2:
+		if parts[1] == "execution" {
+			api.handleJobExecution(w, r, jobID)
+			return
+		}
+		if parts[1] == "cancel" {
+			api.handleJobCancellation(w, r, jobID)
+			return
+		}
+
 		if parts[1] == "artifacts" {
 			if r.Method != http.MethodGet {
 				writeMethodNotAllowed(w, []string{http.MethodGet})
@@ -935,6 +967,10 @@ func (api *ControlAPI) handleJobByID(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	case 3:
+		if parts[1] == "result" && parts[2] == "cleanup" {
+			api.handleRepositoryResultCleanup(w, r, jobID)
+			return
+		}
 		if parts[1] == "artifacts" && parts[2] == "download" {
 			if r.Method != http.MethodGet {
 				writeMethodNotAllowed(w, []string{http.MethodGet})
@@ -949,10 +985,11 @@ func (api *ControlAPI) handleJobByID(w http.ResponseWriter, r *http.Request) {
 }
 
 func (api *ControlAPI) handleJobCreate(w http.ResponseWriter, r *http.Request) {
-	if api.jobOrchestrator != nil && api.jobOrchestrator.nativeSSHKeys {
+	if r.Header.Get("Idempotency-Key") == "" && api.jobOrchestrator != nil && api.jobOrchestrator.nativeSSHKeys {
 		writeError(w, http.StatusBadRequest, "jobs require bootstrap credentials; provision_sshkeys_native supports standalone sandboxes only")
 		return
 	}
+
 	var req V1JobCreateRequest
 	if err := decodeJSON(w, r, &req); err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
@@ -961,6 +998,10 @@ func (api *ControlAPI) handleJobCreate(w http.ResponseWriter, r *http.Request) {
 	req.RepoURL = strings.TrimSpace(req.RepoURL)
 	req.Ref = strings.TrimSpace(req.Ref)
 	req.Profile = strings.TrimSpace(req.Profile)
+	if err := executionarchive.ValidateTestCommands(req.TestCommands); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
 	req.Task = strings.TrimSpace(req.Task)
 	req.Mode = strings.TrimSpace(req.Mode)
 	if req.WorkspaceID != nil {
@@ -1012,6 +1053,20 @@ func (api *ControlAPI) handleJobCreate(w http.ResponseWriter, r *http.Request) {
 	}
 	if req.SessionID != nil && req.WorkspaceCreate != nil {
 		writeError(w, http.StatusBadRequest, "session_id cannot be combined with workspace_create")
+		return
+	}
+	submission, releaseSubmission, replayed := api.prepareJobSubmission(w, r, req)
+	defer releaseSubmission()
+	if replayed {
+		return
+	}
+	releaseRepository, repositoryReady := api.prepareRepositoryJob(w, r, &req)
+	defer releaseRepository()
+	if !repositoryReady {
+		return
+	}
+	if api.jobOrchestrator != nil && api.jobOrchestrator.nativeSSHKeys {
+		writeError(w, http.StatusBadRequest, "jobs require bootstrap credentials; provision_sshkeys_native supports standalone sandboxes only")
 		return
 	}
 	ctx := r.Context()
@@ -1096,8 +1151,17 @@ func (api *ControlAPI) handleJobCreate(w http.ResponseWriter, r *http.Request) {
 				writeError(w, http.StatusBadRequest, "workspace_create.size_gb must be positive")
 				return
 			}
-			created, err := api.workspaceMgr.Create(ctx, req.WorkspaceCreate.Name, req.WorkspaceCreate.Storage, req.WorkspaceCreate.SizeGB)
+			var created models.Workspace
+			var err error
+			if submission != nil {
+				created, err = api.workspaceMgr.CreateForSubmission(ctx, *submission, req.WorkspaceCreate.Name, req.WorkspaceCreate.Storage, req.WorkspaceCreate.SizeGB)
+			} else {
+				created, err = api.workspaceMgr.Create(ctx, req.WorkspaceCreate.Name, req.WorkspaceCreate.Storage, req.WorkspaceCreate.SizeGB)
+			}
 			if err != nil {
+				if workspaceAllocationFailure(w, err) {
+					return
+				}
 				if errors.Is(err, ErrWorkspaceExists) {
 					writeError(w, http.StatusConflict, "workspace already exists")
 					return
@@ -1122,6 +1186,12 @@ func (api *ControlAPI) handleJobCreate(w http.ResponseWriter, r *http.Request) {
 		workspaceWaitSec = derefInt(req.WorkspaceWaitSeconds)
 		workspaceLeaseTTL = workspaceLeaseDuration(ttlMinutes)
 	}
+	if submission != nil && workspaceID != nil {
+		if err := api.store.BindSubmissionWorkspace(ctx, *submission, *workspaceID); err != nil {
+			submissionError(w, 409, "idempotency_conflict", "workspace binding changed", "restore the original workspace reference before retrying", false)
+			return
+		}
+	}
 	var job models.Job
 	var createErr error
 	for i := 0; i < maxCreateJobIDIterations; i++ {
@@ -1130,11 +1200,25 @@ func (api *ControlAPI) handleJobCreate(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusInternalServerError, "failed to create job id")
 			return
 		}
+		if submission != nil {
+			jobID = submission.JobID
+		}
 		var leaseOwner string
 		var leaseNonce string
 		if workspaceID != nil {
 			leaseOwner = workspaceLeaseOwnerForJobOrSession(jobID, resolvedSessionID)
-			nonce, _, err := api.acquireWorkspaceLease(ctx, workspace, leaseOwner, workspaceLeaseTTL, workspaceWaitSec)
+			var nonce string
+			var err error
+			if submission != nil && resolvedSessionID == nil && workspace.LeaseOwner == leaseOwner && workspace.LeaseNonce != "" && workspace.LeaseExpires.After(api.now()) {
+				renewed, renewErr := api.store.RenewWorkspaceLease(ctx, workspace.ID, leaseOwner, workspace.LeaseNonce, api.now().Add(workspaceLeaseTTL))
+				err = renewErr
+				if err == nil && !renewed {
+					err = ErrWorkspaceLeaseHeld
+				}
+				nonce = workspace.LeaseNonce
+			} else {
+				nonce, _, err = api.acquireWorkspaceLease(ctx, workspace, leaseOwner, workspaceLeaseTTL, workspaceWaitSec)
+			}
 			if err != nil {
 				switch {
 				case errors.Is(err, ErrWorkspaceLeaseHeld), errors.Is(err, errWorkspaceWaitTimeout):
@@ -1171,19 +1255,20 @@ func (api *ControlAPI) handleJobCreate(w http.ResponseWriter, r *http.Request) {
 		}
 		now := api.now().UTC()
 		job = models.Job{
-			ID:          jobID,
-			RepoURL:     req.RepoURL,
-			Ref:         req.Ref,
-			Profile:     req.Profile,
-			Task:        req.Task,
-			Mode:        req.Mode,
-			TTLMinutes:  ttlMinutes,
-			Keepalive:   keepalive,
-			WorkspaceID: workspaceID,
-			SessionID:   resolvedSessionID,
-			Status:      models.JobQueued,
-			CreatedAt:   now,
-			UpdatedAt:   now,
+			ID:           jobID,
+			RepoURL:      req.RepoURL,
+			Ref:          req.Ref,
+			Profile:      req.Profile,
+			Task:         req.Task,
+			TestCommands: req.TestCommands,
+			Mode:         req.Mode,
+			TTLMinutes:   ttlMinutes,
+			Keepalive:    keepalive,
+			WorkspaceID:  workspaceID,
+			SessionID:    resolvedSessionID,
+			Status:       models.JobQueued,
+			CreatedAt:    now,
+			UpdatedAt:    now,
 		}
 		createErr = api.store.CreateJob(ctx, job)
 		if createErr == nil {
@@ -1196,7 +1281,7 @@ func (api *ControlAPI) handleJobCreate(w http.ResponseWriter, r *http.Request) {
 			_, _ = api.store.ReleaseWorkspaceLease(ctx, *workspaceID, leaseOwner, leaseNonce)
 			recordWorkspaceLeaseEvent(ctx, api.store, "workspace.lease.released", nil, nil, *workspaceID, leaseOwner, time.Time{})
 		}
-		if !isUniqueConstraint(createErr) {
+		if submission != nil || !isUniqueConstraint(createErr) {
 			break
 		}
 	}
@@ -1242,6 +1327,16 @@ func (api *ControlAPI) handleJobGet(w http.ResponseWriter, r *http.Request, jobI
 		eventsTail = maxEventsLimit
 	}
 	resp := jobToV1(job)
+	if cancellation, err := api.store.GetJobCancellation(r.Context(), jobID); err == nil {
+		resp.Cancellation = &cancellation
+		if cancellation.State == "cancelled" {
+			resp.Status = string(models.JobFailed)
+		}
+	} else if !errors.Is(err, sql.ErrNoRows) {
+		writeError(w, 500, "failed to load job cancellation")
+		return
+	}
+
 	if eventsTail > 0 {
 		events, err := api.store.ListEventsByJobTail(r.Context(), job.ID, eventsTail)
 		if err != nil {
@@ -1492,10 +1587,12 @@ func (api *ControlAPI) handleHost(w http.ResponseWriter, r *http.Request) {
 	if !api.authorize(w, r, permHostRead, nil, false) {
 		return
 	}
+	identity, _ := hostidentity.Local()
 	resp := V1HostResponse{
-		GuestRecovery: V1GuestRecoveryCapability{Enabled: api.guestRecoveryEnabled, Protocol: "agentlab-guest-recovery-v1", TemplateRunner: "v2", LegacyRecovery: "reprovision", NativeSSH: false},
-		Version:       buildinfo.Version,
-		AgentSubnet:   strings.TrimSpace(api.agentSubnet),
+		ServerIdentity: identity,
+		GuestRecovery:  V1GuestRecoveryCapability{Enabled: api.guestRecoveryEnabled, Protocol: "agentlab-guest-recovery-v1", TemplateRunner: "v2", LegacyRecovery: "reprovision", NativeSSH: false},
+		Version:        buildinfo.Version,
+		AgentSubnet:    strings.TrimSpace(api.agentSubnet),
 	}
 	if api.tailscaleStatus != nil {
 		if dns, err := api.tailscaleStatus(r.Context()); err == nil {
@@ -1843,6 +1940,14 @@ func (api *ControlAPI) handleWorkspaceByID(w http.ResponseWriter, r *http.Reques
 		return
 	case 2:
 		switch parts[1] {
+		case "forks":
+			if r.Method != http.MethodGet {
+				writeMethodNotAllowed(w, []string{http.MethodGet})
+				return
+			}
+			api.handleWorkspaceForkStatus(w, r, id, "")
+			return
+
 		case "check":
 			if r.Method != http.MethodGet {
 				writeMethodNotAllowed(w, []string{http.MethodGet})
@@ -1899,6 +2004,15 @@ func (api *ControlAPI) handleWorkspaceByID(w http.ResponseWriter, r *http.Reques
 			return
 		}
 	case 3:
+		if parts[1] == "forks" {
+			if r.Method != http.MethodGet {
+				writeMethodNotAllowed(w, []string{http.MethodGet})
+				return
+			}
+			api.handleWorkspaceForkStatus(w, r, id, parts[2])
+			return
+		}
+
 		if parts[1] == "lease" && parts[2] == "clear" {
 			if r.Method != http.MethodPost {
 				writeMethodNotAllowed(w, []string{http.MethodPost})
@@ -1908,6 +2022,14 @@ func (api *ControlAPI) handleWorkspaceByID(w http.ResponseWriter, r *http.Reques
 			return
 		}
 	case 4:
+		if parts[1] == "forks" && parts[3] == "resume" {
+			if r.Method != http.MethodPost {
+				writeMethodNotAllowed(w, []string{http.MethodPost})
+				return
+			}
+			api.handleWorkspaceForkResume(w, r, id, parts[2])
+			return
+		}
 		if parts[1] == "snapshots" && parts[3] == "restore" {
 			if r.Method != http.MethodPost {
 				writeMethodNotAllowed(w, []string{http.MethodPost})
@@ -2845,6 +2967,9 @@ func (api *ControlAPI) handleWorkspaceFork(w http.ResponseWriter, r *http.Reques
 	}
 	workspace, err := api.workspaceMgr.Fork(r.Context(), id, req.Name, req.FromSnapshot)
 	if err != nil {
+		if writeWorkspaceStorageFailure(w, err) {
+			return
+		}
 		switch {
 		case errors.Is(err, ErrWorkspaceNotFound):
 			writeError(w, http.StatusNotFound, "workspace not found")
@@ -2913,6 +3038,9 @@ func (api *ControlAPI) handleWorkspaceSnapshotCreate(w http.ResponseWriter, r *h
 		api.metrics.ObserveWorkspaceSnapshotDuration("create", result, api.now().UTC().Sub(start))
 	}
 	if err != nil {
+		if writeWorkspaceStorageFailure(w, err) {
+			return
+		}
 		switch {
 		case errors.Is(err, ErrWorkspaceNotFound):
 			writeError(w, http.StatusNotFound, "workspace not found")
@@ -2953,6 +3081,9 @@ func (api *ControlAPI) handleWorkspaceSnapshotRestore(w http.ResponseWriter, r *
 		api.metrics.ObserveWorkspaceSnapshotDuration("restore", result, api.now().UTC().Sub(start))
 	}
 	if err != nil {
+		if writeWorkspaceStorageFailure(w, err) {
+			return
+		}
 		switch {
 		case errors.Is(err, ErrWorkspaceNotFound):
 			writeError(w, http.StatusNotFound, "workspace not found")
@@ -4430,18 +4561,19 @@ func (api *ControlAPI) profile(name string) (models.Profile, bool) {
 
 func jobToV1(job models.Job) V1JobResponse {
 	resp := V1JobResponse{
-		ID:          job.ID,
-		RepoURL:     job.RepoURL,
-		Ref:         job.Ref,
-		Profile:     job.Profile,
-		Task:        job.Task,
-		Mode:        job.Mode,
-		Keepalive:   job.Keepalive,
-		WorkspaceID: job.WorkspaceID,
-		SessionID:   job.SessionID,
-		Status:      string(job.Status),
-		CreatedAt:   job.CreatedAt.UTC().Format(time.RFC3339Nano),
-		UpdatedAt:   job.UpdatedAt.UTC().Format(time.RFC3339Nano),
+		ID:           job.ID,
+		RepoURL:      job.RepoURL,
+		Ref:          job.Ref,
+		Profile:      job.Profile,
+		Task:         job.Task,
+		TestCommands: job.TestCommands,
+		Mode:         job.Mode,
+		Keepalive:    job.Keepalive,
+		WorkspaceID:  job.WorkspaceID,
+		SessionID:    job.SessionID,
+		Status:       string(job.Status),
+		CreatedAt:    job.CreatedAt.UTC().Format(time.RFC3339Nano),
+		UpdatedAt:    job.UpdatedAt.UTC().Format(time.RFC3339Nano),
 	}
 	if job.TTLMinutes > 0 {
 		value := job.TTLMinutes
@@ -4698,6 +4830,9 @@ func workspaceToV1(ws models.Workspace) V1WorkspaceResponse {
 	if ws.AttachedVM != nil && *ws.AttachedVM > 0 {
 		value := *ws.AttachedVM
 		resp.AttachedVMID = &value
+	}
+	if owner, name, ok := proxmox.WorkspaceVolumeOwnerFromID(ws.VolumeID); ok {
+		resp.OwnerVMID, resp.AllocationName = owner, name
 	}
 	return resp
 }

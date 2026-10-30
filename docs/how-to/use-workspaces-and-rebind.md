@@ -18,8 +18,15 @@ For state transitions, see
   [Fork and snapshot workspaces](fork-and-snapshot-workspaces.md).
 
 !!! note "Storage backends"
-    Workspace snapshot, fork, and restore are implemented for ZFS storage only.
-    Behavior on LVM or directory storage is not yet documented.
+    Workspace snapshot, fork, and restore require ZFS and compatible host operations.
+    Their live backend compatibility remains under validation.
+
+New workspace volumes reserve a storage owner identifier before allocation.
+The reservation uses the range `900000000` through `999999999` and creates no
+extra guest. Workspace JSON reports `owner_vmid` and `allocation_name` for these
+volumes. Keep these identifiers free when making manual Proxmox changes.
+They remain reserved after failed allocation so a retry cannot select another
+owner. Existing volumes retain their current names.
 
 ## Steps
 

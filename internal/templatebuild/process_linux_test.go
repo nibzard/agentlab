@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"syscall"
 	"testing"
 	"time"
 )
@@ -57,7 +58,7 @@ func TestWorkerCancellationTerminatesChildren(t *testing.T) {
 	deadline = time.Now().Add(3 * time.Second)
 	for {
 		raw, err := os.ReadFile(filepath.Join("/proc", strconv.Itoa(pid), "stat"))
-		if os.IsNotExist(err) {
+		if os.IsNotExist(err) || errors.Is(err, syscall.ESRCH) {
 			return
 		}
 		if err != nil {

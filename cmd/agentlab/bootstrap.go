@@ -10,6 +10,9 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/agentlab/agentlab/internal/buildinfo"
+	"github.com/agentlab/agentlab/internal/installassets"
+	"github.com/agentlab/agentlab/internal/releaseassets"
 	"io"
 	"net"
 	"os"
@@ -26,6 +29,9 @@ const (
 )
 
 type bootstrapOptions struct {
+	remoteBase        string
+	contextName       string
+	targetArch        string
 	host              string
 	sshUser           string
 	sshPort           int
@@ -53,6 +59,7 @@ type bootstrapOptions struct {
 }
 
 type bootstrapBinaries struct {
+	arch         string
 	mode         string
 	agentlab     string
 	agentlabd    string
@@ -150,31 +157,61 @@ func runBootstrapCommand(ctx context.Context, args []string, base commonFlags) e
 		return err
 	}
 
-	assetsRoot, err := resolveBootstrapAssets(bootstrap.assetsDir)
+	bootstrap.jsonOutput = opts.jsonOutput
+	bootstrap.requestTimeout = opts.timeout
+	out, err := executeBootstrap(ctx, bootstrap)
 	if err != nil {
 		return err
 	}
-	binaries, err := resolveBootstrapBinaries(assetsRoot, bootstrap)
-	if err != nil {
-		return err
+	if opts.jsonOutput {
+		enc := json.NewEncoder(os.Stdout)
+		enc.SetEscapeHTML(false)
+		return enc.Encode(out)
 	}
-	plan := buildBootstrapPlan(bootstrap, binaries)
-	if !opts.jsonOutput {
-		printBootstrapPlan(plan)
-	}
+	printBootstrapSummary(out.Endpoint, out.ConfigPath, out.BackupPath, out.Warnings, out.TailnetRoute)
+	return nil
+}
 
+func executeBootstrap(ctx context.Context, bootstrap bootstrapOptions) (bootstrapOutput, error) {
 	sshClient, err := newBootstrapSSHClient(bootstrap)
 	if err != nil {
-		return err
+		return bootstrapOutput{}, err
+	}
+	hostInfoPreflight, err := inspectBootstrapHost(ctx, sshClient)
+	if err != nil {
+		return bootstrapOutput{}, err
+	}
+	bootstrap.targetArch = hostInfoPreflight.Architecture
+	assetsRoot, err := resolveBootstrapAssets(bootstrap.assetsDir)
+	if err != nil {
+		return bootstrapOutput{}, err
+	}
+	binaries, err := resolveBootstrapBinariesForHost(ctx, assetsRoot, bootstrap)
+	if err != nil {
+		return bootstrapOutput{}, err
+	}
+	if binaries.mode == "upload" {
+		for _, path := range []string{binaries.agentlab, binaries.agentlabd} {
+			if err := validateBootstrapBinary(path, bootstrap.targetArch); err != nil {
+				return bootstrapOutput{}, err
+			}
+		}
+	}
+	plan := buildBootstrapPlan(bootstrap, binaries)
+	if !bootstrap.jsonOutput {
+		printBootstrapPlan(plan)
 	}
 
 	bundlePath, err := createBootstrapBundle(assetsRoot, binaries)
 	if err != nil {
-		return err
+		return bootstrapOutput{}, err
 	}
 	defer os.Remove(bundlePath)
 
-	remoteBase := fmt.Sprintf("/tmp/agentlab-bootstrap-%d", time.Now().Unix())
+	remoteBase := bootstrap.remoteBase
+	if remoteBase == "" {
+		remoteBase = fmt.Sprintf("/tmp/agentlab-bootstrap-%d", time.Now().UnixNano())
+	}
 	remoteBundle := filepath.Join(remoteBase, "bundle.tgz")
 	remoteRoot := filepath.Join(remoteBase, "agentlab-bootstrap")
 	steps := []bootstrapStep{}
@@ -182,37 +219,43 @@ func runBootstrapCommand(ctx context.Context, args []string, base commonFlags) e
 	var routeCheck *tailnetRouteCheck
 	backupPath := ""
 
-	if _, err := sshClient.runArgs(ctx, []string{"mkdir", "-p", remoteBase}, nil); err != nil {
-		return err
+	safeDirectory := `umask 077
+if [ -e "$1" ] || [ -L "$1" ]; then
+ test -d "$1" && test ! -L "$1" && test "$(stat -c %u "$1")" = "$(id -u)" && test "$(stat -c %a "$1")" = 700
+else
+ mkdir -m 700 -- "$1"
+fi`
+	if _, err := sshClient.runArgs(ctx, setupScriptArgs(safeDirectory, remoteBase), nil); err != nil {
+		return bootstrapOutput{}, err
 	}
 	steps = append(steps, bootstrapStep{Name: "prepare_remote_dir", Status: "ok", Detail: remoteBase})
 
 	if err := sshClient.upload(ctx, bundlePath, remoteBundle); err != nil {
-		return err
+		return bootstrapOutput{}, err
 	}
 	steps = append(steps, bootstrapStep{Name: "upload_bundle", Status: "ok"})
 
 	if _, err := sshClient.runArgs(ctx, []string{"tar", "-xzf", remoteBundle, "-C", remoteBase}, nil); err != nil {
-		return err
+		return bootstrapOutput{}, err
 	}
 	steps = append(steps, bootstrapStep{Name: "extract_bundle", Status: "ok"})
 
 	if binaries.mode == "download" {
 		if _, err := sshClient.runArgs(ctx, buildRemoteDownloadArgs(remoteRoot, binaries), nil); err != nil {
-			return err
+			return bootstrapOutput{}, err
 		}
 		steps = append(steps, bootstrapStep{Name: "download_binaries", Status: "ok"})
 	}
 
 	setupArgs := append([]string{filepath.Join(remoteRoot, "scripts/net/setup_vmbr1.sh"), "--apply"}, boolFlag("--force", bootstrap.force)...)
 	if _, err := sshClient.runArgs(ctx, withSudoArgs(bootstrap, setupArgs), nil); err != nil {
-		return err
+		return bootstrapOutput{}, err
 	}
 	steps = append(steps, bootstrapStep{Name: "configure_vmbr1", Status: "ok"})
 
 	nftArgs := append([]string{filepath.Join(remoteRoot, "scripts/net/apply.sh"), "--apply"}, boolFlag("--force", bootstrap.force)...)
 	if _, err := sshClient.runArgs(ctx, withSudoArgs(bootstrap, nftArgs), nil); err != nil {
-		return err
+		return bootstrapOutput{}, err
 	}
 	steps = append(steps, bootstrapStep{Name: "configure_nftables", Status: "ok"})
 
@@ -222,14 +265,14 @@ func runBootstrapCommand(ctx context.Context, args []string, base commonFlags) e
 			cmdArgs = append(cmdArgs, "--hostname", strings.TrimSpace(bootstrap.tailscaleHostname))
 		}
 		if _, err := sshClient.runArgs(ctx, withSudoArgs(bootstrap, cmdArgs), nil); err != nil {
-			return err
+			return bootstrapOutput{}, err
 		}
 		steps = append(steps, bootstrapStep{Name: "configure_tailscale_router", Status: "ok"})
 	}
 
 	backupOut, err := sshClient.runArgs(ctx, withSudoArgs(bootstrap, buildConfigBackupArgs()), nil)
 	if err != nil {
-		return err
+		return bootstrapOutput{}, err
 	}
 	if parsed := parseBackupPath(backupOut); parsed != "" {
 		backupPath = parsed
@@ -252,22 +295,49 @@ func runBootstrapCommand(ctx context.Context, args []string, base commonFlags) e
 		installArgs = append(installArgs, "--no-tailscale-serve")
 	}
 	if _, err := sshClient.runArgs(ctx, withSudoArgs(bootstrap, installArgs), nil); err != nil {
-		return err
+		return bootstrapOutput{}, err
 	}
 	steps = append(steps, bootstrapStep{Name: "install_agentlab", Status: "ok"})
 
+	verbose := sshClient.verbose
+	sshClient.verbose = false
 	initOut, err := sshClient.runArgs(ctx, withSudoArgs(bootstrap, []string{"agentlab", "init", "--json"}), nil)
+	sshClient.verbose = verbose
 	if err != nil {
-		return err
+		return bootstrapOutput{}, err
 	}
 	endpoint, token, err := parseInitConnect(initOut)
 	if err != nil {
-		return err
+		return bootstrapOutput{}, err
 	}
 
-	configPath, err := writeBootstrapClientConfig(endpoint, token)
+	if err := verifyEndpoint(ctx, endpoint, token, bootstrap.requestTimeout); err != nil {
+		return bootstrapOutput{}, fmt.Errorf("verify new connection before saving: %w", err)
+	}
+	candidate := newAPIClient(clientOptions{Endpoint: endpoint, Token: token}, bootstrap.requestTimeout)
+	verifiedHost, err := fetchHostInfo(ctx, candidate)
 	if err != nil {
-		return err
+		return bootstrapOutput{}, fmt.Errorf("cannot verify the remote server identity: %w", err)
+	}
+	if verifiedHost == nil || verifiedHost.ServerIdentity != hostInfoPreflight.Identity {
+		return bootstrapOutput{}, fmt.Errorf("API server identity differs from the SSH server; check the endpoint and server version")
+	}
+	configPath := ""
+	if bootstrap.contextName != "" {
+		store, err := contextStore()
+		if err != nil {
+			return bootstrapOutput{}, err
+		}
+		if err := store.PutContext(ctx, bootstrap.contextName, legacySettings(clientConfig{ServerIdentity: hostInfoPreflight.Identity, Endpoint: endpoint, Token: token, AllowInsecureHTTP: true})); err != nil {
+			return bootstrapOutput{}, err
+		}
+		configPath = store.Root
+	} else {
+		configPath, err = writeBootstrapClientConfig(endpoint, token)
+	}
+
+	if err != nil {
+		return bootstrapOutput{}, err
 	}
 	steps = append(steps, bootstrapStep{Name: "write_client_config", Status: "ok", Detail: configPath})
 
@@ -302,25 +372,17 @@ func runBootstrapCommand(ctx context.Context, args []string, base commonFlags) e
 		}
 	}
 
-	if opts.jsonOutput {
-		out := bootstrapOutput{
-			Host:         bootstrap.host,
-			Endpoint:     endpoint,
-			ConfigPath:   configPath,
-			BackupPath:   backupPath,
-			Steps:        steps,
-			Warnings:     warnings,
-			AssetsDir:    assetsRoot,
-			RemoteDir:    remoteBase,
-			TailnetRoute: routeCheck,
-		}
-		enc := json.NewEncoder(os.Stdout)
-		enc.SetEscapeHTML(false)
-		return enc.Encode(out)
-	}
-
-	printBootstrapSummary(endpoint, configPath, backupPath, warnings, routeCheck)
-	return nil
+	return bootstrapOutput{
+		Host:         bootstrap.host,
+		Endpoint:     endpoint,
+		ConfigPath:   configPath,
+		BackupPath:   backupPath,
+		Steps:        steps,
+		Warnings:     warnings,
+		AssetsDir:    assetsRoot,
+		RemoteDir:    remoteBase,
+		TailnetRoute: routeCheck,
+	}, nil
 }
 
 func buildBootstrapPlan(opts bootstrapOptions, binaries bootstrapBinaries) []string {
@@ -376,32 +438,11 @@ func resolveBootstrapAssets(explicit string) (string, error) {
 		}
 		return "", fmt.Errorf("assets not found at %s", root)
 	}
-	cwd, err := os.Getwd()
-	if err == nil {
-		if root := findAssetsUpward(cwd); root != "" {
-			return root, nil
-		}
+	cache, err := os.UserCacheDir()
+	if err != nil {
+		return "", err
 	}
-	if exe, err := os.Executable(); err == nil {
-		if root := findAssetsUpward(filepath.Dir(exe)); root != "" {
-			return root, nil
-		}
-	}
-	return "", fmt.Errorf("unable to locate agentlab assets; use --assets to specify the repo root")
-}
-
-func findAssetsUpward(start string) string {
-	dir := start
-	for {
-		if hasBootstrapAssets(dir) {
-			return dir
-		}
-		parent := filepath.Dir(dir)
-		if parent == dir {
-			return ""
-		}
-		dir = parent
-	}
+	return installassets.Materialize(filepath.Join(cache, "agentlab"))
 }
 
 func hasBootstrapAssets(root string) bool {
@@ -424,7 +465,14 @@ func hasBootstrapAssets(root string) bool {
 }
 
 func resolveBootstrapBinaries(root string, opts bootstrapOptions) (bootstrapBinaries, error) {
-	binaries := bootstrapBinaries{}
+	arch := opts.targetArch
+	if arch == "" {
+		arch = "amd64"
+	}
+	if arch != "amd64" && arch != "arm64" {
+		return bootstrapBinaries{}, fmt.Errorf("unsupported server architecture %q", arch)
+	}
+	binaries := bootstrapBinaries{arch: arch}
 	if strings.TrimSpace(opts.agentlabBin) != "" {
 		path, err := filepath.Abs(strings.TrimSpace(opts.agentlabBin))
 		if err != nil {
@@ -446,11 +494,11 @@ func resolveBootstrapBinaries(root string, opts bootstrapOptions) (bootstrapBina
 		binaries.agentlabd = path
 	}
 	if binaries.agentlab == "" && binaries.agentlabd == "" {
-		candidate := filepath.Join(root, "dist", "agentlab_linux_amd64")
+		candidate := filepath.Join(root, "dist", "agentlab_linux_"+arch)
 		if _, err := os.Stat(candidate); err == nil {
 			binaries.agentlab = candidate
 		}
-		candidate = filepath.Join(root, "dist", "agentlabd_linux_amd64")
+		candidate = filepath.Join(root, "dist", "agentlabd_linux_"+arch)
 		if _, err := os.Stat(candidate); err == nil {
 			binaries.agentlabd = candidate
 		}
@@ -470,15 +518,15 @@ func resolveBootstrapBinaries(root string, opts bootstrapOptions) (bootstrapBina
 		if base != "" {
 			base = strings.TrimRight(base, "/")
 			if binaries.agentlabURL == "" {
-				binaries.agentlabURL = base + "/agentlab_linux_amd64"
+				binaries.agentlabURL = base + "/agentlab_linux_" + arch
 			}
 			if binaries.agentlabdURL == "" {
-				binaries.agentlabdURL = base + "/agentlabd_linux_amd64"
+				binaries.agentlabdURL = base + "/agentlabd_linux_" + arch
 			}
 		}
 	}
 	if binaries.agentlabURL == "" || binaries.agentlabdURL == "" {
-		return binaries, fmt.Errorf("linux binaries not found; build dist/ or pass --release-url/--agentlab-url/--agentlabd-url")
+		return binaries, errBootstrapBinariesMissing
 	}
 	binaries.mode = "download"
 	return binaries, nil
@@ -515,10 +563,10 @@ func createBootstrapBundle(root string, binaries bootstrapBinaries) (string, err
 		if err := addTarDir(writer, destDir, 0o755); err != nil {
 			return "", err
 		}
-		if err := addTarFile(writer, binaries.agentlabd, filepath.Join(destDir, "agentlabd_linux_amd64")); err != nil {
+		if err := addTarFile(writer, binaries.agentlabd, filepath.Join(destDir, "agentlabd_linux_"+bootstrapBinaryArch(binaries))); err != nil {
 			return "", err
 		}
-		if err := addTarFile(writer, binaries.agentlab, filepath.Join(destDir, "agentlab_linux_amd64")); err != nil {
+		if err := addTarFile(writer, binaries.agentlab, filepath.Join(destDir, "agentlab_linux_"+bootstrapBinaryArch(binaries))); err != nil {
 			return "", err
 		}
 	}
@@ -568,7 +616,7 @@ func addTarDir(writer *tar.Writer, name string, mode int64) error {
 		Name:     name,
 		Mode:     mode,
 		Typeflag: tar.TypeDir,
-		ModTime:  time.Now(),
+		ModTime:  time.Unix(0, 0),
 	}
 	return writer.WriteHeader(hdr)
 }
@@ -583,6 +631,13 @@ func addTarFile(writer *tar.Writer, src, dest string) error {
 		return err
 	}
 	hdr.Name = filepath.ToSlash(dest)
+	hdr.ModTime = time.Unix(0, 0)
+	hdr.AccessTime = time.Time{}
+	hdr.ChangeTime = time.Time{}
+	hdr.Uid = 0
+	hdr.Gid = 0
+	hdr.Uname = ""
+	hdr.Gname = ""
 	if err := writer.WriteHeader(hdr); err != nil {
 		return err
 	}
@@ -698,8 +753,8 @@ func buildRemoteDownloadArgs(remoteRoot string, binaries bootstrapBinaries) []st
 		"dest=\"$1\"",
 		"url_agentlabd=\"$2\"",
 		"url_agentlab=\"$3\"",
-		"file_agentlabd=\"$dest/agentlabd_linux_amd64\"",
-		"file_agentlab=\"$dest/agentlab_linux_amd64\"",
+		"file_agentlabd=\"$dest/agentlabd_linux_" + bootstrapBinaryArch(binaries) + "\"",
+		"file_agentlab=\"$dest/agentlab_linux_" + bootstrapBinaryArch(binaries) + "\"",
 		"mkdir -p \"$dest\"",
 		"if command -v curl >/dev/null 2>&1; then",
 		"  dl() { curl -fsSL \"$1\" -o \"$2\"; }",
@@ -797,19 +852,16 @@ func writeBootstrapClientConfig(endpoint, token string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	path, err := clientConfigPath()
+	store, err := contextStore()
 	if err != nil {
 		return "", err
 	}
-	// Bootstrap just established the trusted tunnel (e.g. Tailscale) over which
-	// this endpoint is reached, so persist the insecure-HTTP acknowledgement:
-	// subsequent commands reuse the saved config and must not be re-blocked by
-	// the non-loopback plaintext-HTTP policy (review M8).
+	// Bootstrap established the trusted tunnel for this HTTP endpoint.
 	cfg := clientConfig{Endpoint: endpoint, Token: token, AllowInsecureHTTP: true}
-	if err := writeClientConfig(path, cfg); err != nil {
+	if err := store.Put("default", legacySettings(cfg)); err != nil {
 		return "", err
 	}
-	return path, nil
+	return filepath.Join(store.Root, "contexts.json"), nil
 }
 
 func verifyEndpoint(ctx context.Context, endpoint, token string, timeout time.Duration) error {
@@ -907,4 +959,37 @@ func parseIPWithZone(value string) net.IP {
 		ip = ip[:idx]
 	}
 	return net.ParseIP(ip)
+}
+
+func bootstrapBinaryArch(binaries bootstrapBinaries) string {
+	if binaries.arch == "arm64" {
+		return "arm64"
+	}
+	return "amd64"
+}
+
+var errBootstrapBinariesMissing = errors.New("linux binaries not found; build dist/ or pass explicit server binaries")
+
+func resolveBootstrapBinariesForHost(ctx context.Context, root string, opts bootstrapOptions) (bootstrapBinaries, error) {
+	binaries, err := resolveBootstrapBinaries(root, opts)
+	if err == nil {
+		return binaries, nil
+	}
+	// Explicit sources never fall back to another artifact or version.
+	if !errors.Is(err, errBootstrapBinariesMissing) || opts.agentlabBin != "" || opts.agentlabdBin != "" || opts.agentlabURL != "" || opts.agentlabdURL != "" || opts.releaseURL != "" {
+		return binaries, err
+	}
+	cache, err := os.UserCacheDir()
+	if err != nil {
+		return binaries, err
+	}
+	arch := opts.targetArch
+	if arch == "" {
+		arch = "amd64"
+	}
+	pair, err := (releaseassets.Downloader{Root: filepath.Join(cache, "agentlab", "releases")}).Fetch(ctx, buildinfo.Version, arch)
+	if err != nil {
+		return binaries, err
+	}
+	return bootstrapBinaries{arch: arch, mode: "upload", agentlab: pair.Client, agentlabd: pair.Daemon}, nil
 }

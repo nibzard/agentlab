@@ -73,7 +73,7 @@ func (w *worker) smokeTest(ctx context.Context) error {
 		if err = checkCtx.Err(); err != nil {
 			return fmt.Errorf("template_boot_failed: guest did not become usable (%s): %w", last, err)
 		}
-		raw, err = w.run(checkCtx, "qm", "guest", "exec", sid, "--", "/bin/sh", "-c", `set -eu; export PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin; test ! -e /var/lib/agentlab/identity; test ! -e /etc/agentlab/bootstrap.json; test ! -e /run/agentlab-bootstrap; for executable in tailscale agent-bootstrap agent-runner sshd qemu-ga jq curl openssl flock; do command -v "$executable" >/dev/null; done; systemctl is-active --quiet ssh; systemctl is-active --quiet qemu-guest-agent; tailscale status --json | jq -e '.BackendState == "NeedsLogin"' >/dev/null; printf 'agentlab-boot-ok\n'`)
+		raw, err = w.run(checkCtx, "qm", "guest", "exec", sid, "--", "/bin/sh", "-c", `set -eu; export PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin; test ! -e /var/lib/agentlab/identity; test ! -e /etc/agentlab/bootstrap.json; test ! -e /run/agentlab-bootstrap; for executable in tailscale agent-bootstrap agent-runner agentlab-repository sshd qemu-ga jq curl openssl flock; do command -v "$executable" >/dev/null; done; agentlab-repository execution-check --help >/dev/null; systemctl is-active --quiet ssh; systemctl is-active --quiet qemu-guest-agent; tailscale status --json | jq -e '.BackendState == "NeedsLogin"' >/dev/null; printf 'agentlab-boot-ok\n'`)
 		var result struct {
 			Exited   int    `json:"exited"`
 			ExitCode int    `json:"exitcode"`

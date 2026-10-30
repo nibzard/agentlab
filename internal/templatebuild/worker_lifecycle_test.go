@@ -84,7 +84,7 @@ func (f *templateWorkerFixture) command(ctx context.Context, name string, args .
 		}
 		return "", os.WriteFile(filepath.Join(f.worker.cfg.Directory, "work.img"), []byte("customized image"), 0600)
 	case "virt-cat":
-		return `{"tailscale":"1","agent_runner":"1","ssh":"1","qemu_guest_agent":"1","claude":"1","codex":"1","opencode":"1"}`, nil
+		return `{"tailscale":"1","agent_runner":"v3","repository_result":"v1","ssh":"1","qemu_guest_agent":"1","claude":"1","codex":"1","opencode":"1"}`, nil
 	case "qm":
 		if len(args) >= 3 && args[0] == "clone" {
 			f.smokeConfig = map[string]string{"tags": f.worker.cfg.Build.ID, "scsi0": "local:base-9010-disk-0/vm-9011-disk-0", "ide2": "local:vm-9011-cloudinit"}

@@ -1,60 +1,34 @@
-# Networking
+# Diagnose the selected connection
 
-## /sandbox-list
-Check network health quickly.
-
-```bash
-agentlab sandbox list
-agentlab status
-```
-
-Look for stale states and missing `ip`/routing evidence before SSH handoff.
-
-## /sandbox-show
-Inspect a sandbox before changing connectivity or access assumptions.
+Start with the saved context and server identity. Do not change endpoint, token,
+or transport until the failure is understood.
 
 ```bash
-agentlab sandbox show <vmid>
-agentlab sandbox show <vmid> --json
+agentlab context list --json
+agentlab --context "$context" capabilities --json
+agentlab --context "$context" status --json
+agentlab --context "$context" sandbox show "$vmid" --json
 ```
 
-Use this to confirm:
-- current `state`
-- current `ip`
-- network mode / firewall group
-- current `resources` when the backend can read live VM config
+Distinguish an unreachable endpoint from authentication, scope, identity, or
+compatibility failures. Preserve the corrective action from the JSON error.
+An authorization denial is not a reason to switch to the trusted local socket.
 
-## /logs
-Stream events when investigating exposure or routing issues.
+Inspect the sandbox's recorded state, IP, network mode, and available live
+resource information before attempting guest access.
 
 ```bash
-agentlab logs <vmid> --tail 200
-agentlab logs <vmid> --follow
+agentlab --context "$context" logs "$vmid" --tail 200
+agentlab --context "$context" ssh "$vmid"
 ```
 
-## /ssh
-Open interactive SSH to a sandbox.
+Use an existing SSH jump setting when direct subnet access is unavailable.
+Connection setup accepts jump host and user options without a second daemon token.
+Do not install a new tunnel or transport for an already working connection.
+Tailcat is not currently advertised as implemented.
 
-```bash
-agentlab ssh <vmid>
-agentlab ssh <vmid> --user ubuntu --exec "tailscale status"
-```
-
-### Connectivity notes
-- `agentlab` may prefer direct subnet access when route is approved.
-- If subnet access is unavailable, add `--jump-host`/`--jump-user` workflow in `agentlab connect` context.
-
-## /secrets-access-prep
-Prepare guest access from the host side before assuming SSH or Tailscale are configured.
-
-```bash
-agentlab secrets show
-agentlab secrets add-ssh-key --name laptop --key-file ~/.ssh/id_ed25519.pub
-agentlab secrets set-tailscale --authkey tskey-auth-XXXX --hostname-template 'agentlab-{vmid}' --extra-arg --ssh
-agentlab --json secrets validate
-```
-
-Use this when:
-- new sandboxes need authorized SSH keys
-- guest Tailscale bootstrap should be preconfigured
-- an agent needs to verify host-side access material before creating or debugging a sandbox
+When guest SSH or Tailscale prerequisites are missing, inspect the selected
+profile and run `agentlab secrets validate --json` through the selected context.
+Keep credential values in protected files or supported secure input paths.
+Do not copy secrets into command arguments, agent prompts, or diagnostic reports.
+Changing shared guest access material requires authority for that shared change.

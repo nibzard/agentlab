@@ -34,6 +34,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/agentlab/agentlab/internal/connection"
 	"net"
 	"net/http"
 	"net/url"
@@ -157,10 +158,16 @@ func runSSHCommand(ctx context.Context, args []string, base commonFlags) error {
 		return err
 	}
 	client := newAPIClient(clientOpts, opts.timeout)
-	jumpCfg, err := resolveJumpConfig(clientOpts.Endpoint, jumpHost, jumpUser)
-	if err != nil {
-		return err
+	var jumpCfg jumpConfig
+	if opts.selection != nil {
+		jumpCfg = jumpFromSettings(clientOpts.Endpoint, jumpHost, jumpUser, clientOpts.JumpHost, clientOpts.JumpUser)
+	} else {
+		jumpCfg, err = resolveJumpConfigForContext(clientOpts.Endpoint, jumpHost, jumpUser, base.contextName)
+		if err != nil {
+			return err
+		}
 	}
+
 	resp, err := fetchSandbox(waitCtx, client, vmid)
 	if err != nil {
 		return err
@@ -517,18 +524,35 @@ func execSSH(args []string) error {
 	return syscall.Exec(path, argv, os.Environ())
 }
 
-func resolveJumpConfig(endpoint string, flagHost string, flagUser string) (jumpConfig, error) {
-	cfg, ok, err := loadClientConfig()
+func resolveJumpConfigForContext(endpoint string, flagHost string, flagUser string, contextName string) (jumpConfig, error) {
+	if strings.TrimSpace(endpoint) == "" {
+		return jumpFromSettings(endpoint, flagHost, flagUser, "", ""), nil
+	}
+	store, err := contextStore()
 	if err != nil {
 		return jumpConfig{}, err
 	}
-	host := strings.TrimSpace(flagHost)
-	userValue := strings.TrimSpace(flagUser)
-	if host == "" && ok {
-		host = strings.TrimSpace(cfg.JumpHost)
+	selected, err := connection.Prepare(context.Background(), connection.PrepareOptions{Root: store.Root, Context: contextName, Legacy: func() (connection.Settings, error) {
+		cfg, _, err := loadClientConfig()
+		return legacySettings(cfg), err
+	}})
+	if err != nil {
+		return jumpConfig{}, err
 	}
-	if userValue == "" && ok {
-		userValue = strings.TrimSpace(cfg.JumpUser)
+	resolved, err := selected.Resolve(context.Background(), connection.Overrides{Endpoint: &endpoint})
+	if err != nil {
+		return jumpConfig{}, err
+	}
+	return jumpFromSettings(endpoint, flagHost, flagUser, resolved.JumpHost, resolved.JumpUser), nil
+}
+
+func jumpFromSettings(endpoint, flagHost, flagUser, savedHost, savedUser string) jumpConfig {
+	host, userValue := strings.TrimSpace(flagHost), strings.TrimSpace(flagUser)
+	if host == "" {
+		host = strings.TrimSpace(savedHost)
+	}
+	if userValue == "" {
+		userValue = strings.TrimSpace(savedUser)
 	}
 	if host == "" {
 		host = strings.TrimSpace(defaultJumpHostFromEndpoint(endpoint))
@@ -536,7 +560,7 @@ func resolveJumpConfig(endpoint string, flagHost string, flagUser string) (jumpC
 	if host != "" && userValue == "" {
 		userValue = defaultJumpUser()
 	}
-	return jumpConfig{Host: host, User: userValue}, nil
+	return jumpConfig{Host: host, User: userValue}
 }
 
 func defaultJumpHostFromEndpoint(endpoint string) string {

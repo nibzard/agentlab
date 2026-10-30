@@ -23,26 +23,41 @@ func runTokenCommand(ctx context.Context, args []string, base commonFlags) error
 		return errHelp
 	}
 	switch args[0] {
+	case "enroll":
+		return runTokenEnroll(ctx, args[1:], base)
+	case "renew":
+		return runTokenRenew(ctx, args[1:], base)
 	case "create":
 		return runTokenCreate(ctx, args[1:], base)
 	case "list":
 		return runTokenList(ctx, args[1:], base)
 	case "inspect":
 		return runTokenInspect(ctx, args[1:], base)
+	case "revoke", "status":
+		return runTokenRevocation(ctx, args[0], args[1:], base)
 	default:
 		return newUsageError(fmt.Errorf("unknown token subcommand %q", args[0]), true)
 	}
 }
 
 const tokenUsage = `Usage:
+  agentlab token enroll --save-context NAME --key PATH --cmds PERMISSIONS [--ttl 1h]
+  agentlab token renew --context NAME --request-id KEY [--key PATH] [--ttl 1h]
   agentlab token create --key <path> --cmds <commands> [--scope <scope>] [--ttl <duration>] [--subject <label>]
   agentlab token list --key <path>
   agentlab token inspect <token-string>
+  agentlab token inspect --token-stdin [--json]
+  agentlab token revoke --issuer FINGERPRINT REVOCATION_ID [--json]
+  agentlab token status --issuer FINGERPRINT REVOCATION_ID [--json]
 
 Token subcommands:
+  enroll   Verify and save an operator-signed task credential
+  renew    Resume an exact-scope credential replacement and revocation
   create   Create a new scoped API token signed with an SSH key
   list     Show SSH key fingerprint for token signing
   inspect  Decode and display token claims without verifying signature
+  revoke   Revoke one SSH-signed token on the selected server
+  status   Read a token revocation record on the selected server
 
 Examples:
   # Create a token for all commands, valid for 24 hours:
@@ -52,7 +67,7 @@ Examples:
   agentlab token create --key ~/.ssh/id_ed25519 --cmds "sandbox" --scope "sandbox:1001" --ttl 8h
 
   # Inspect a token:
-  agentlab token inspect agentlab.eyJhbGci...
+  agentlab token inspect --token-stdin --json < /protected/task-token
 
 Flags:
   --key     Path to SSH private key for signing (auto-detects ~/.ssh/id_ed25519 or id_rsa)
@@ -81,6 +96,7 @@ func runTokenCreate(_ context.Context, args []string, base commonFlags) error {
 	fs.StringVar(&subject, "subject", "", "optional human-readable label")
 	fs.BoolVar(&help, "help", false, "show help")
 	fs.BoolVar(&help, "h", false, "show help")
+	fs.BoolVar(&base.jsonOutput, "json", base.jsonOutput, jsonFlagDescription)
 
 	if err := fs.Parse(interspersedArgs(fs, args)); err != nil {
 		return newUsageError(err, true)
@@ -134,13 +150,18 @@ func runTokenCreate(_ context.Context, args []string, base commonFlags) error {
 	if base.jsonOutput {
 		pubKey := signer.PublicKey()
 		fp := auth.FingerprintForPublicKey(pubKey)
+		parsed, err := auth.ParseTokenUnverified(tokenStr)
+		if err != nil {
+			return err
+		}
 		out := map[string]any{
-			"token":       tokenStr,
-			"fingerprint": fp,
-			"commands":    commandList,
-			"scope":       scopeList,
-			"ttl":         ttl,
-			"subject":     subject,
+			"revocation_id": auth.RevocationID(parsed.Claims.Issuer, parsed.Claims.TokenID),
+			"token":         tokenStr,
+			"fingerprint":   fp,
+			"commands":      commandList,
+			"scope":         scopeList,
+			"ttl":           ttl,
+			"subject":       subject,
 		}
 		enc := json.NewEncoder(os.Stdout)
 		enc.SetIndent("", "  ")
@@ -162,6 +183,7 @@ func runTokenList(_ context.Context, args []string, base commonFlags) error {
 	fs.StringVar(&keyPath, "key", "", "path to SSH private key to show fingerprint for")
 	fs.BoolVar(&help, "help", false, "show help")
 	fs.BoolVar(&help, "h", false, "show help")
+	fs.BoolVar(&base.jsonOutput, "json", base.jsonOutput, jsonFlagDescription)
 
 	if err := fs.Parse(interspersedArgs(fs, args)); err != nil {
 		return newUsageError(err, true)
@@ -210,6 +232,10 @@ func runTokenInspect(_ context.Context, args []string, base commonFlags) error {
 	var help bool
 	fs.BoolVar(&help, "help", false, "show help")
 	fs.BoolVar(&help, "h", false, "show help")
+	fs.BoolVar(&base.jsonOutput, "json", base.jsonOutput, jsonFlagDescription)
+
+	var tokenStdin bool
+	fs.BoolVar(&tokenStdin, "token-stdin", false, "read the target token from protected standard input")
 
 	if err := fs.Parse(interspersedArgs(fs, args)); err != nil {
 		return newUsageError(err, true)
@@ -222,11 +248,26 @@ func runTokenInspect(_ context.Context, args []string, base commonFlags) error {
 		return errHelp
 	}
 
-	if fs.NArg() == 0 {
-		return newUsageError(errors.New("token string argument is required"), true)
+	if (tokenStdin && fs.NArg() != 0) || (!tokenStdin && fs.NArg() != 1) {
+		return newUsageError(errors.New("provide a target token through --token-stdin or one legacy positional argument"), false)
+	}
+	tokenStr := ""
+	if tokenStdin {
+		data, err := io.ReadAll(io.LimitReader(os.Stdin, 16*1024+1))
+		if err != nil {
+			return fmt.Errorf("read token input: %w", err)
+		}
+		if len(data) > 16*1024 {
+			return newUsageError(errors.New("target token exceeds 16 KiB"), false)
+		}
+		tokenStr = strings.TrimSpace(string(data))
+		if tokenStr == "" {
+			return newUsageError(errors.New("target token input is empty"), false)
+		}
+	} else {
+		tokenStr = fs.Arg(0)
 	}
 
-	tokenStr := fs.Arg(0)
 	tok, err := auth.ParseTokenUnverified(tokenStr)
 	if err != nil {
 		return fmt.Errorf("parse token: %w", err)
@@ -249,13 +290,15 @@ func runTokenInspect(_ context.Context, args []string, base commonFlags) error {
 		enc := json.NewEncoder(os.Stdout)
 		enc.SetIndent("", "  ")
 		return enc.Encode(map[string]any{
-			"issuer":     tok.Claims.Issuer,
-			"subject":    tok.Claims.Subject,
-			"commands":   tok.Claims.Commands,
-			"scope":      tok.Claims.Scope,
-			"expires":    expiry,
-			"not_before": nbf,
-			"token_id":   tok.Claims.TokenID,
+			"issuer":        tok.Claims.Issuer,
+			"subject":       tok.Claims.Subject,
+			"commands":      tok.Claims.Commands,
+			"scope":         tok.Claims.Scope,
+			"expires":       expiry,
+			"not_before":    nbf,
+			"token_id":      tok.Claims.TokenID,
+			"revocation_id": auth.RevocationID(tok.Claims.Issuer, tok.Claims.TokenID),
+			"verified":      false,
 		})
 	}
 
@@ -266,6 +309,8 @@ func runTokenInspect(_ context.Context, args []string, base commonFlags) error {
 	fmt.Printf("Expires:   %s\n", expiry)
 	fmt.Printf("NotBefore: %s\n", nbf)
 	fmt.Printf("TokenID:   %s\n", tok.Claims.TokenID)
+	fmt.Printf("RevocationID: %s\n", auth.RevocationID(tok.Claims.Issuer, tok.Claims.TokenID))
+	fmt.Println("Signature: not verified")
 	return nil
 }
 

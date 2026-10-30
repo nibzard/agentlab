@@ -12,9 +12,10 @@ import (
 
 // RunnerAPI handles guest runner status reports.
 type RunnerAPI struct {
-	orchestrator *JobOrchestrator
-	store        *db.Store
-	agentSubnet  *net.IPNet
+	orchestrator   *JobOrchestrator
+	store          *db.Store
+	agentSubnet    *net.IPNet
+	repositoryRoot string
 }
 
 func NewRunnerAPI(orchestrator *JobOrchestrator, store *db.Store, agentSubnet *net.IPNet) *RunnerAPI {
@@ -26,6 +27,7 @@ func (api *RunnerAPI) Register(mux *http.ServeMux) {
 		return
 	}
 	mux.HandleFunc("/v1/runner/report", api.handleRunnerReport)
+	mux.HandleFunc("/v1/runner/repository", api.handleRunnerRepository)
 	mux.HandleFunc("/v1/sandbox/bootstrap-status", api.handleSandboxBootstrapStatus)
 }
 
@@ -86,6 +88,9 @@ func (api *RunnerAPI) handleRunnerReport(w http.ResponseWriter, r *http.Request)
 			writeError(w, http.StatusInternalServerError, "failed to record job report")
 		}
 		return
+	}
+	if current, err := api.store.GetJob(r.Context(), report.JobID); err == nil {
+		status = current.Status
 	}
 	resp := V1RunnerReportResponse{
 		JobStatus: string(status),

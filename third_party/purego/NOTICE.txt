@@ -1,0 +1,8 @@
+purego v0.11.2
+https://github.com/ebitengine/purego/tree/v0.11.2
+
+Copyright 2022 The Ebitengine Authors
+Licensed under the Apache License, Version 2.0. See LICENSE in this directory.
+
+AgentLab uses purego for macOS Security and Core Foundation framework calls.
+The upstream source is used without modification.

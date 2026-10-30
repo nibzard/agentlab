@@ -1,19 +1,29 @@
 {
   "name": "agentlab",
-  "version": "1.1.0",
+  "version": "2.0.0",
   "supported_agent_versions": [
-    ">=0.2.0",
-    "<0.4.0"
+    ">=0.4.0",
+    "<0.5.0"
   ],
   "included_skills": [
     {
+      "id": "discovery-and-setup",
+      "name": "Discovery and setup",
+      "file": "discovery-and-setup.md"
+    },
+    {
       "id": "job-execution",
-      "name": "Job Execution",
+      "name": "Job execution",
       "file": "job-execution.md"
     },
     {
+      "id": "standalone-work",
+      "name": "Standalone work",
+      "file": "standalone-work.md"
+    },
+    {
       "id": "workspace-recovery",
-      "name": "Workspace Recovery",
+      "name": "Workspace recovery",
       "file": "workspace-recovery.md"
     },
     {
@@ -23,7 +33,7 @@
     },
     {
       "id": "artifact-triage",
-      "name": "Artifact Triage",
+      "name": "Artifact triage",
       "file": "artifact-triage.md"
     },
     {

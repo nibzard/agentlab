@@ -4,33 +4,9 @@
 // workspaces, and exposures. The dashboard connects to the agentlabd daemon
 // via its Unix socket and proxies API requests to the daemon's ControlAPI.
 //
-// # Inbound security model (review C2, finding F9)
-//
-// Every bind — loopback included — requires an inbound browser token, because
-// the dashboard proxies destructive daemon operations (create/destroy
-// sandboxes, stop_all, prune, exposures) to a trusted Unix socket. When
-// --browser-token is not supplied, the server generates a random token at
-// startup and logs it; loopback deployments therefore stay usable without
-// pre-configuring anything, while any other local process is still locked out.
-//
-// Two protections apply to /api/*:
-//
-//   - Browser token: every /api/* request must carry it (Authorization:
-//     Bearer, X-Dashboard-Token, or dashboard_token cookie). The frontend
-//     obtains it from the user at runtime and keeps it in sessionStorage; it
-//     is never embedded in the shipped JavaScript.
-//
-//   - CSRF/Origin: state-changing requests (POST/PUT/PATCH/DELETE) must carry
-//     a same-origin Origin (or Referer) header and the custom X-Requested-With
-//     header, which a plain cross-site form submission cannot set.
-//
-// Every response also carries a Content-Security-Policy that forbids inline
-// script and inline event handlers (finding F3): the UI is built from
-// same-origin assets only, with listeners attached via addEventListener.
-//
-// The dashboard-to-daemon hop is over the local Unix socket (a trusted path)
-// and uses the outbound --token; that token is not what protects the browser
-// connection.
+// Browser enrollment exchanges a short-lived code for an HttpOnly session
+// cookie. Explicit browser tokens remain supported for compatibility. Remote
+// connections retain daemon authorization; local sockets retain local trust.
 package dashboard
 
 import (
@@ -42,6 +18,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/agentlab/agentlab/internal/connection"
+	"github.com/agentlab/agentlab/internal/hostidentity"
 	"io"
 	"log"
 	"net"
@@ -49,6 +27,7 @@ import (
 	"net/url"
 	"os"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -57,10 +36,22 @@ var staticFiles embed.FS
 
 // Server is the dashboard HTTP server.
 type Server struct {
-	listen       string
-	socketPath   string
-	token        string
-	browserToken string
+	serverIdentity string
+	credentials    *contextCredentials
+	upstream       *http.Client
+	baseURL        string
+
+	enrollmentMu     sync.Mutex
+	enrollmentUsed   bool
+	enrollmentExpiry time.Time
+	sessionToken     string
+
+	endpoint          string
+	allowInsecureHTTP bool
+	listen            string
+	socketPath        string
+	token             string
+	browserToken      string
 	// generatedToken records that browserToken was minted at startup rather
 	// than supplied by the operator, so startup logging can tell the user.
 	generatedToken bool
@@ -69,6 +60,14 @@ type Server struct {
 
 // Config holds dashboard server configuration.
 type Config struct {
+	// ServerIdentity pins an already verified remote target.
+	ServerIdentity string
+	// CredentialBinding pins a saved credential source for verified refresh.
+	CredentialBinding *connection.CredentialBinding
+	// Endpoint selects the authenticated remote API instead of the trusted socket.
+	Endpoint          string
+	AllowInsecureHTTP bool
+
 	// Listen is the address to bind (e.g. "127.0.0.1:8080").
 	Listen string
 
@@ -91,13 +90,24 @@ func NewServer(cfg Config, logger *log.Logger) *Server {
 	if logger == nil {
 		logger = log.Default()
 	}
-	return &Server{
-		listen:       cfg.Listen,
-		socketPath:   cfg.SocketPath,
-		token:        cfg.Token,
-		browserToken: strings.TrimSpace(cfg.BrowserToken),
-		logger:       logger,
+	baseURL, upstream := connection.Transport(cfg.Endpoint, cfg.SocketPath, 30*time.Second)
+	server := &Server{
+		serverIdentity:    cfg.ServerIdentity,
+		upstream:          upstream,
+		baseURL:           baseURL,
+		endpoint:          cfg.Endpoint,
+		allowInsecureHTTP: cfg.AllowInsecureHTTP,
+		listen:            cfg.Listen,
+		socketPath:        cfg.SocketPath,
+		token:             cfg.Token,
+		browserToken:      strings.TrimSpace(cfg.BrowserToken),
+		logger:            logger,
 	}
+	if cfg.CredentialBinding != nil && cfg.CredentialBinding.Context.ServerIdentity != "" && cfg.Endpoint != "" {
+		server.credentials = newContextCredentials(*cfg.CredentialBinding, cfg.Token, baseURL, upstream)
+		server.serverIdentity = cfg.CredentialBinding.Context.ServerIdentity
+	}
+	return server
 }
 
 // ensureBrowserToken supplies the inbound token that every bind requires
@@ -114,6 +124,7 @@ func (s *Server) ensureBrowserToken() error {
 	}
 	s.browserToken = base64.RawURLEncoding.EncodeToString(buf)
 	s.generatedToken = true
+	s.enrollmentExpiry = time.Now().Add(5 * time.Minute)
 	return nil
 }
 
@@ -122,6 +133,18 @@ func (s *Server) ensureBrowserToken() error {
 // dashboard proxies destructive daemon operations and the remaining CSRF
 // check alone does not keep other local processes out (finding F9).
 func (s *Server) validateConfig() error {
+	endpoint, err := connection.NormalizeEndpoint(s.endpoint)
+	if err != nil {
+		return err
+	}
+	s.endpoint = endpoint
+	if endpoint != "" {
+		s.baseURL = endpoint
+	}
+	if err := connection.ValidateEndpointPolicy(endpoint, s.allowInsecureHTTP); err != nil {
+		return err
+	}
+
 	if s.browserToken == "" {
 		return fmt.Errorf("dashboard: --browser-token is required for bind %q "+
 			"(pass one, or start without it to have a random token generated and logged)", s.listen)
@@ -131,20 +154,35 @@ func (s *Server) validateConfig() error {
 
 // ListenAndServe starts the dashboard HTTP server.
 func (s *Server) ListenAndServe(ctx context.Context) error {
+	defer s.upstream.CloseIdleConnections()
 	if err := s.ensureBrowserToken(); err != nil {
 		return err
 	}
 	if err := s.validateConfig(); err != nil {
 		return err
 	}
+	if s.credentials != nil {
+		if _, err := s.credentials.token(ctx, false); err != nil {
+			return err
+		}
+	} else if s.endpoint != "" {
+		caps, err := verifyRemoteCapabilities(ctx, s.upstream, s.baseURL, s.token, s.serverIdentity)
+		if err != nil {
+			return fixedCredentialError(err)
+		}
+		s.serverIdentity = caps.ServerIdentity
+	}
 
 	mux := http.NewServeMux()
 
 	// Serve embedded static files.
 	mux.HandleFunc("/", s.handleStatic)
+	mux.HandleFunc("/auth/enroll", s.enrollBrowser)
+	mux.HandleFunc("/api/connection", s.handleConnection)
 
 	// API proxy endpoints — forward to daemon.
 	mux.HandleFunc("/api/v1/status", s.proxyGet)
+	mux.HandleFunc("/api/v1/capabilities", s.proxyGet)
 	mux.HandleFunc("/api/v1/sandboxes/inventory", s.proxyGet)
 	mux.HandleFunc("/api/v1/sandboxes/reconcile", s.proxyPost)
 	mux.HandleFunc("/api/v1/sandboxes/validate-plan", s.proxyPost)
@@ -154,7 +192,7 @@ func (s *Server) ListenAndServe(ctx context.Context) error {
 	mux.HandleFunc("/api/v1/sandboxes/", s.proxySandboxAction)
 	mux.HandleFunc("/api/v1/jobs/validate-plan", s.proxyPost)
 	mux.HandleFunc("/api/v1/jobs", s.proxyJobs)
-	mux.HandleFunc("/api/v1/jobs/", s.proxyGet)
+	mux.HandleFunc("/api/v1/jobs/", s.proxyJobAction)
 	mux.HandleFunc("/api/v1/workspaces", s.proxyGet)
 	mux.HandleFunc("/api/v1/workspaces/", s.proxyWorkspaceAction)
 	mux.HandleFunc("/api/v1/profiles", s.proxyGet)
@@ -180,8 +218,8 @@ func (s *Server) ListenAndServe(ctx context.Context) error {
 
 	s.logger.Printf("dashboard: listening on %s (socket=%s)", s.listen, s.socketPath)
 	if s.generatedToken {
-		s.logger.Printf("dashboard: no --browser-token configured; generated a session token: %s", s.browserToken)
-		s.logger.Printf("dashboard: enter this token in the browser prompt to use the dashboard " +
+		s.logger.Printf("dashboard: no --browser-token configured; generated a one-use enrollment code (expires in five minutes): %s", s.browserToken)
+		s.logger.Printf("dashboard: enter this code in the browser prompt to use the dashboard " +
 			"(it gates every /api/* request; restart generates a new one)")
 	}
 	if !isLoopbackListen(s.listen) {
@@ -205,6 +243,24 @@ func (s *Server) ListenAndServe(ctx context.Context) error {
 		}
 		return err
 	}
+}
+
+// handleConnection reports the fixed target without exposing its credential.
+func (s *Server) handleConnection(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
+		return
+	}
+	w.Header().Set("Cache-Control", "no-store")
+	target, transport := s.endpoint, "remote API"
+	if target == "" {
+		target, transport = "Local daemon", "trusted Unix socket"
+	}
+	source := "fixed startup credential"
+	if s.credentials != nil {
+		source = "saved context " + s.credentials.binding.Context.Name
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"target": target, "transport": transport, "credential_source": source, "credential_refresh": s.credentials != nil})
 }
 
 // handleStatic serves embedded static files or index.html.
@@ -369,16 +425,28 @@ func daemonPath(p string) string {
 
 // forward sends a request to the daemon via Unix socket.
 func (s *Server) forward(w http.ResponseWriter, method, path string, body []byte) {
-	client := &http.Client{
-		Transport: &http.Transport{
-			DialContext: func(_ context.Context, _, _ string) (net.Conn, error) {
-				return net.Dial("unix", s.socketPath)
-			},
-		},
-		Timeout: 30 * time.Second,
+	token := s.token
+	if s.credentials != nil {
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+		var err error
+		token, err = s.credentials.token(ctx, isStateChanging(method))
+		if err != nil {
+			status := credentialRefreshStatus(err)
+			writeJSON(w, status.Status, map[string]string{"code": status.Code, "error": status.Action, "action": status.Action})
+			return
+		}
 	}
-
-	url := "http://unix" + path
+	if s.credentials == nil && s.serverIdentity != "" {
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+		if _, err := verifyRemoteCapabilities(ctx, s.upstream, s.baseURL, token, s.serverIdentity); err != nil {
+			status := credentialRefreshStatus(fixedCredentialError(err))
+			writeJSON(w, status.Status, map[string]string{"code": status.Code, "error": status.Action, "action": status.Action})
+			return
+		}
+	}
+	url := s.baseURL + path
 	var bodyReader io.Reader
 	if len(body) > 0 {
 		bodyReader = strings.NewReader(string(body))
@@ -391,14 +459,17 @@ func (s *Server) forward(w http.ResponseWriter, method, path string, body []byte
 		return
 	}
 
-	if s.token != "" {
-		req.Header.Set("Authorization", "Bearer "+s.token)
+	if token != "" {
+		req.Header.Set("Authorization", "Bearer "+token)
+	}
+	if s.serverIdentity != "" {
+		req.Header.Set(hostidentity.RequestHeader, s.serverIdentity)
 	}
 	if len(body) > 0 {
 		req.Header.Set("Content-Type", "application/json")
 	}
 
-	resp, err := client.Do(req)
+	resp, err := s.upstream.Do(req)
 	if err != nil {
 		s.logger.Printf("dashboard: error forwarding request: %v", err)
 		writeJSON(w, http.StatusBadGateway, map[string]string{"error": "daemon connection failed: " + err.Error()})
@@ -408,6 +479,12 @@ func (s *Server) forward(w http.ResponseWriter, method, path string, body []byte
 
 	// Copy response headers.
 	for k, vs := range resp.Header {
+		if strings.EqualFold(k, "Set-Cookie") {
+			continue
+		}
+		if strings.EqualFold(k, "X-Agentlab-Dashboard-Auth") {
+			continue
+		}
 		for _, v := range vs {
 			w.Header().Add(k, v)
 		}
@@ -482,7 +559,8 @@ func (s *Server) inboundMiddleware(next http.Handler) http.Handler {
 		// configured, so a Server that somehow skipped ensureBrowserToken can
 		// never serve /api/* unauthenticated.
 		if !s.requestHasBrowserToken(r) {
-			writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "dashboard token required"})
+			w.Header().Set("X-Agentlab-Dashboard-Auth", "required")
+			writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "dashboard token required", "code": "dashboard_enrollment_required"})
 			return
 		}
 		if isStateChanging(r.Method) && !s.csrfOK(r) {
@@ -556,18 +634,24 @@ func (s *Server) requestHasBrowserToken(r *http.Request) bool {
 	if len(want) == 0 {
 		return false
 	}
-	if h := r.Header.Get("Authorization"); strings.HasPrefix(strings.ToLower(h), "bearer ") {
+	if h := r.Header.Get("Authorization"); !s.generatedToken && strings.HasPrefix(strings.ToLower(h), "bearer ") {
 		if subtle.ConstantTimeCompare([]byte(strings.TrimSpace(h[len("Bearer "):])), want) == 1 {
 			return true
 		}
 	}
-	if h := r.Header.Get("X-Dashboard-Token"); h != "" {
+	if h := r.Header.Get("X-Dashboard-Token"); !s.generatedToken && h != "" {
 		if subtle.ConstantTimeCompare([]byte(h), want) == 1 {
 			return true
 		}
 	}
 	if c, err := r.Cookie("dashboard_token"); err == nil && c.Value != "" {
-		if subtle.ConstantTimeCompare([]byte(c.Value), want) == 1 {
+		s.enrollmentMu.Lock()
+		session := s.sessionToken
+		s.enrollmentMu.Unlock()
+		if session != "" && subtle.ConstantTimeCompare([]byte(c.Value), []byte(session)) == 1 {
+			return true
+		}
+		if !s.generatedToken && subtle.ConstantTimeCompare([]byte(c.Value), want) == 1 {
 			return true
 		}
 	}
@@ -592,4 +676,12 @@ func contentType(path string) string {
 	default:
 		return "application/octet-stream"
 	}
+}
+
+func (s *Server) proxyJobAction(w http.ResponseWriter, r *http.Request) {
+	if r.Method == http.MethodPost && strings.HasSuffix(r.URL.Path, "/cancel") {
+		s.proxyPost(w, r)
+		return
+	}
+	s.proxyGet(w, r)
 }

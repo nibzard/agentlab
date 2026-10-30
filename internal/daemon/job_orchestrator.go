@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/agentlab/agentlab/internal/executionarchive"
 	"io"
 	"log"
 	"net"
@@ -19,6 +20,7 @@ import (
 	"github.com/agentlab/agentlab/internal/db"
 	"github.com/agentlab/agentlab/internal/models"
 	"github.com/agentlab/agentlab/internal/pool"
+	"github.com/agentlab/agentlab/internal/protocol"
 	"github.com/agentlab/agentlab/internal/proxmox"
 )
 
@@ -84,6 +86,7 @@ type JobOrchestrator struct {
 	snippetStore     proxmox.SnippetStore
 	sshPublicKey     string
 	controllerURL    string
+	artifactRoot     string
 	logger           *log.Logger
 	redactor         *Redactor
 	metrics          *Metrics
@@ -222,6 +225,15 @@ func (o *JobOrchestrator) Run(ctx context.Context, jobID string) error {
 	if jobID == "" {
 		return errors.New("job id is required")
 	}
+	releaseExecution, err := o.store.LockJobSubmission(ctx, "job-execution", jobID)
+	if err != nil {
+		return err
+	}
+	defer releaseExecution()
+	if o.jobCancellationExists(ctx, jobID) {
+		return ErrJobCancellationRequested
+	}
+	o.watchJobCancellation(ctx, cancel, jobID)
 	job, err := o.store.GetJob(ctx, jobID)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
@@ -663,12 +675,31 @@ func (o *JobOrchestrator) HandleReport(ctx context.Context, report JobReport) er
 		report.Message = strings.TrimSpace(report.Message)
 	}
 
+	releaseReport, err := o.store.LockJobSubmission(ctx, "job-report", report.JobID)
+	if err != nil {
+		return err
+	}
+	defer releaseReport()
 	job, err := o.store.GetJob(ctx, report.JobID)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return ErrJobNotFound
 		}
 		return err
+	}
+	if strings.HasPrefix(job.RepoURL, db.SnapshotRepositoryPrefix) && (report.Status == models.JobCompleted || report.Status == models.JobFailed || report.Status == models.JobTimeout) {
+		release, err := o.store.LockJobSubmission(ctx, "job-execution", job.ID)
+		if err != nil {
+			return err
+		}
+		defer release()
+		job, err = o.store.GetJob(ctx, job.ID)
+		if err != nil {
+			return err
+		}
+	}
+	if o.jobCancellationExists(ctx, job.ID) {
+		return ErrJobFinalized
 	}
 	if job.Status == models.JobCompleted || job.Status == models.JobFailed || job.Status == models.JobTimeout {
 		return ErrJobFinalized
@@ -677,6 +708,15 @@ func (o *JobOrchestrator) HandleReport(ctx context.Context, report JobReport) er
 		return ErrJobSandboxMismatch
 	}
 
+	if !strings.HasPrefix(job.RepoURL, db.SnapshotRepositoryPrefix) && len(job.TestCommands) > 0 && (report.Status == models.JobCompleted || report.Status == models.JobFailed || report.Status == models.JobTimeout) {
+		if _, err := executionarchive.ValidateTestReport(report.Result, executionarchive.Expected{JobID: job.ID, Status: string(report.Status), TestCommands: job.TestCommands}); err != nil {
+			return fmt.Errorf("requested test evidence rejected: %w", err)
+		}
+	}
+	var repositoryResult *protocol.RepositoryResult
+	if strings.HasPrefix(job.RepoURL, db.SnapshotRepositoryPrefix) && (report.Status == models.JobCompleted || report.Status == models.JobFailed || report.Status == models.JobTimeout) {
+		repositoryResult = o.prepareRepositoryResult(ctx, job, &report)
+	}
 	if o.metrics != nil && job.Status != report.Status {
 		o.metrics.IncJobStatus(report.Status)
 		if report.Status == models.JobCompleted || report.Status == models.JobFailed || report.Status == models.JobTimeout {
@@ -723,7 +763,24 @@ func (o *JobOrchestrator) HandleReport(ctx context.Context, report JobReport) er
 			owner := workspaceLeaseOwnerForJobOrSession(job.ID, job.SessionID)
 			o.releaseWorkspaceLease(ctx, *job.WorkspaceID, owner, job.ID, report.VMID)
 		}
-		if !job.Keepalive && o.sandboxManager != nil {
+		if repositoryResult != nil {
+			// Stopping the reporting VM can close its HTTP connection. Cleanup
+			// belongs to the daemon lifecycle, not that connection.
+			parent := context.Background()
+			if o.runner != nil && o.runner.LifecycleContext() != nil {
+				parent = o.runner.LifecycleContext()
+			}
+			duration := o.failureTimeout
+			if duration <= 0 {
+				duration = defaultFailureTimeout
+			}
+			cleanupCtx, cancel := context.WithTimeout(parent, duration)
+			err := o.finalizeRepositoryResources(cleanupCtx, job, &report, repositoryResult)
+			cancel()
+			if err != nil {
+				return err
+			}
+		} else if !job.Keepalive && o.sandboxManager != nil {
 			_ = o.sandboxManager.Destroy(ctx, report.VMID)
 			o.cleanupSnippet(report.VMID)
 		}

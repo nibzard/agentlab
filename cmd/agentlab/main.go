@@ -38,13 +38,16 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"github.com/agentlab/agentlab/internal/connection"
 	"io"
 	"os"
 	"os/signal"
 	"strings"
+	"syscall"
 	"time"
 
 	"github.com/agentlab/agentlab/internal/buildinfo"
+	"github.com/agentlab/agentlab/internal/operations"
 )
 
 const usageText = `agentlab is the CLI for agentlabd.
@@ -62,12 +65,30 @@ Quick commands (aliases for common operations):
 Usage:
   agentlab template <capabilities|validate|create|list|show|activate|build>
   agentlab --version
+  agentlab job cleanup JOB_ID [--json]
+  agentlab job cancel [--wait DURATION] JOB_ID
+  agentlab repo snapshot [--repo PATH] [--out DIRECTORY] [--json]
+  agentlab repo result --repo PATH --base-revision COMMIT --out DIRECTORY [--json]
+  agentlab repo upload --manifest PATH [--json]
+  agentlab repo <show|remove> ID [--json]
+  agentlab context list [--json]
+  agentlab context use NAME [--json]
+  agentlab context credentials NAME --credential-store auto|os|file [--json]
+  agentlab context credentials-pending [--json]
+  agentlab context credentials-cleanup [--json]
+  agentlab skill show [--json]
+  agentlab skill export [--out DIRECTORY] [--json]
+  agentlab capabilities [--json]
+  agentlab job result JOB_ID [--out DIRECTORY] [--json]
+  agentlab setup --host HOST --repo PATH [--plan] [--no-wait] [--request-id KEY]
+  agentlab operation <show|resume|cancel> ID
+  agentlab [connection options] dashboard [--listen 127.0.0.1:8080]
   agentlab [--endpoint URL] [--token TOKEN] [--socket PATH] [--json] [--timeout DURATION] status
   agentlab [--endpoint URL] [--token TOKEN] [--socket PATH] [--json] [--timeout DURATION] schema
   agentlab [--endpoint URL] [--token TOKEN] [--socket PATH] [--json] [--timeout DURATION] init [--apply] [--backend <backend>] [--smoke-test] [--assets <path>] [--force] [--control-port <port>] [--control-token <token>] [--rotate-control-token] [--tailscale-serve|--no-tailscale-serve]
   agentlab [--json] bootstrap --host <ssh_host> [--ssh-user <user>] [--ssh-port <port>] [--identity <path>] [--assets <path>] [--control-port <port>] [--control-token <token>] [--rotate-control-token] [--tailscale-serve|--no-tailscale-serve] [--tailscale-authkey <key>] [--tailscale-hostname <name>] [--tailscale-tailnet <name>] [--tailscale-api-key <key>] [--tailscale-oauth-client-id <id>] [--tailscale-oauth-client-secret <secret>] [--tailscale-oauth-scopes <scopes>] [--release-url <url>] [--agentlab-bin <path>] [--agentlabd-bin <path>] [--agentlab-url <url>] [--agentlabd-url <url>] [--force] [--keep-temp] [--verbose]
-  agentlab [--endpoint URL] [--token TOKEN] [--socket PATH] [--json] [--timeout DURATION] job run --repo <url> --task <task> --profile <profile> [--ref <ref>] [--branch <branch>] [--mode <mode>] [--ttl <ttl>] [--keepalive] [--workspace <id|name|new:name>] [--workspace-create <name>] [--workspace-size <size>] [--workspace-storage <storage>] [--workspace-wait <duration>] [--stateful]
-  agentlab [--endpoint URL] [--token TOKEN] [--socket PATH] [--json] [--timeout DURATION] job validate --repo <url> --task <task> --profile <profile> [--ref <ref>] [--branch <branch>] [--mode <mode>] [--ttl <ttl>] [--keepalive] [--workspace <id|name|new:name>] [--workspace-create <name>] [--workspace-size <size>] [--workspace-storage <storage>] [--workspace-wait <duration>] [--stateful]
+  agentlab [--endpoint URL] [--token TOKEN] [--socket PATH] [--json] [--timeout DURATION] job run [--request-id <key>] --repo <url> --task <task> [--test-command <command>] --profile <profile> [--ref <ref>] [--branch <branch>] [--mode <mode>] [--ttl <ttl>] [--keepalive] [--workspace <id|name|new:name>] [--workspace-create <name>] [--workspace-size <size>] [--workspace-storage <storage>] [--workspace-wait <duration>] [--stateful]
+  agentlab [--endpoint URL] [--token TOKEN] [--socket PATH] [--json] [--timeout DURATION] job validate --repo <url> --task <task> [--test-command <command>] --profile <profile> [--ref <ref>] [--branch <branch>] [--mode <mode>] [--ttl <ttl>] [--keepalive] [--workspace <id|name|new:name>] [--workspace-create <name>] [--workspace-size <size>] [--workspace-storage <storage>] [--workspace-wait <duration>] [--stateful]
   agentlab [--endpoint URL] [--token TOKEN] [--socket PATH] [--json] [--timeout DURATION] job show <job_id> [--events-tail <n>]
   agentlab [--endpoint URL] [--token TOKEN] [--socket PATH] [--json] [--timeout DURATION] job artifacts <job_id>
   agentlab [--endpoint URL] [--token TOKEN] [--socket PATH] [--json] [--timeout DURATION] job artifacts download <job_id> [--out <path>] [--path <path>] [--name <name>] [--latest] [--bundle]
@@ -104,6 +125,8 @@ Usage:
   agentlab [--endpoint URL] [--token TOKEN] [--socket PATH] [--json] [--timeout DURATION] workspace lease clear <workspace>
   agentlab [--endpoint URL] [--token TOKEN] [--socket PATH] [--json] [--timeout DURATION] workspace rebind <workspace> --profile <profile> [--ttl <ttl>] [--keep-old]
   agentlab [--endpoint URL] [--token TOKEN] [--socket PATH] [--json] [--timeout DURATION] workspace fork <workspace> --name <name> [--from-snapshot <name>]
+  agentlab [--endpoint URL] [--token TOKEN] [--socket PATH] [--json] [--timeout DURATION] workspace fork-status <workspace> [operation-id]
+  agentlab [connection options] workspace fork-resume <workspace> <operation-id>
   agentlab [--endpoint URL] [--token TOKEN] [--socket PATH] [--json] [--timeout DURATION] workspace snapshot create <workspace> <name>
   agentlab [--endpoint URL] [--token TOKEN] [--socket PATH] [--json] [--timeout DURATION] workspace snapshot list <workspace>
   agentlab [--endpoint URL] [--token TOKEN] [--socket PATH] [--json] [--timeout DURATION] workspace snapshot restore <workspace> <name>
@@ -117,7 +140,7 @@ Usage:
   agentlab [--endpoint URL] [--token TOKEN] [--socket PATH] [--json] [--timeout DURATION] session doctor <session> [--out <path>]
   agentlab [--endpoint URL] [--token TOKEN] [--socket PATH] [--json] [--timeout DURATION] profile list
   agentlab [--endpoint URL] [--token TOKEN] [--socket PATH] [--json] [--timeout DURATION] secrets <show|validate|set-env|set-git|add-ssh-key|remove-ssh-key|set-tailscale|clear-tailscale> [...]
-  agentlab [--endpoint URL] [--token TOKEN] [--socket PATH] [--json] [--timeout DURATION] token <create|list|inspect> [...]
+  agentlab [--endpoint URL] [--token TOKEN] [--socket PATH] [--json] [--timeout DURATION] token <enroll|renew|create|list|inspect|revoke|status> [...]
   agentlab [--endpoint URL] [--token TOKEN] [--socket PATH] [--json] [--timeout DURATION] integration <add|list|rm|status> [...]
   agentlab [--endpoint URL] [--token TOKEN] [--socket PATH] [--json] [--timeout DURATION] user <add|list|show|rm|key> [...]
   agentlab [--endpoint URL] [--token TOKEN] [--socket PATH] [--json] [--timeout DURATION] team <add|list|rm|members|member> [...]
@@ -125,7 +148,7 @@ Usage:
   agentlab [--endpoint URL] [--token TOKEN] [--socket PATH] [--json] [--timeout DURATION] msg post (--job <id> | --workspace <id> | --session <id>) [--author <name>] [--kind <kind>] [--text <text>] [--payload <json>] [message...]
   agentlab [--endpoint URL] [--token TOKEN] [--socket PATH] [--json] [--timeout DURATION] msg tail (--job <id> | --workspace <id> | --session <id>) [--follow] [--tail <n>]
   agentlab [--endpoint URL] [--token TOKEN] [--socket PATH] [--json] [--timeout DURATION] logs <vmid> [--follow] [--tail <n>]
-  agentlab connect --endpoint <url> --token <token> [--jump-host <host>] [--jump-user <user>]
+  agentlab connect --endpoint <url> [--context <name>] [--token-stdin] [--credential-store auto|os|file] [--jump-host <host>] [--jump-user <user>]
   agentlab disconnect
   agentlab defaults write <key> <value>
   agentlab defaults read <key>
@@ -136,6 +159,7 @@ Usage:
   agentlab completion <bash|zsh|fish>
 
 Global Flags:
+  --context NAME  Named server context
   --endpoint URL  Control plane endpoint (http(s)://host:port)
   --token TOKEN   Control plane auth token (Authorization: Bearer)
   --socket PATH   Path to agentlabd socket (default /run/agentlab/agentlabd.sock)
@@ -152,6 +176,9 @@ Exit codes:
 `
 
 type globalOptions struct {
+	selection         *connection.Selection
+	connectionFields  connectionFields
+	contextName       string
 	socketPath        string
 	endpoint          string
 	token             string
@@ -166,6 +193,16 @@ var validateCommandOnly bool
 var errCommandValidated = errors.New("command syntax validated")
 
 func main() {
+	if len(os.Args) > 1 && os.Args[1] == "__setup-worker" {
+		ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+		defer stop()
+		if err := runServerSetupCommand(ctx, os.Args[2:]); err != nil {
+			fmt.Fprintln(os.Stderr, "server setup worker failed; inspect the saved operation")
+			os.Exit(1)
+		}
+		return
+	}
+
 	validateCommandOnly = len(os.Args) > 1 && os.Args[1] == "--validate-command"
 	if validateCommandOnly {
 		os.Args = append(os.Args[:1], os.Args[2:]...)
@@ -208,15 +245,7 @@ func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
 	defer stop()
 
-	base := commonFlags{
-		socketPath:        opts.socketPath,
-		endpoint:          opts.endpoint,
-		token:             opts.token,
-		jsonOutput:        opts.jsonOutput,
-		timeout:           opts.timeout,
-		tailscaleAdmin:    opts.tailscaleAdmin,
-		allowInsecureHTTP: opts.allowInsecureHTTP,
-	}
+	base := opts.common()
 	if err := dispatch(ctx, args, base); err != nil {
 		if errors.Is(err, errHelp) || errors.Is(err, errCommandValidated) {
 			return
@@ -247,9 +276,14 @@ func parseGlobal(args []string) (globalOptions, []string, error) {
 			opts.jsonOutput = false
 		}
 	}
-	defaults, err := loadDefaults()
-	if err != nil {
-		return opts, nil, err
+	localOnly := localConnectionCommand(args)
+	defaults := map[string]string{}
+	var err error
+	if !localOnly {
+		defaults, err = loadDefaults()
+		if err != nil {
+			return opts, nil, err
+		}
 	}
 	if value := defaults["default-socket"]; value != "" {
 		opts.socketPath = value
@@ -274,39 +308,10 @@ func parseGlobal(args []string) (globalOptions, []string, error) {
 	if !explicitOutput {
 		opts.jsonOutput = defaults["output-format"] == "json"
 	}
-	var tailscaleCfg *tailscaleAdminConfig
-	// allowInsecureHTTP accumulates the acknowledgement from any source
-	// (saved config, env, then --allow-insecure-http flag below). A trusted
-	// bootstrap persists this so subsequent commands keep working over the
-	// documented Tailscale tunnel without re-stating the flag (review M8).
-	var allowInsecureHTTP bool
-	if cfg, ok, err := loadClientConfig(); err != nil {
-		return opts, nil, err
-	} else if ok {
-		if endpoint := strings.TrimSpace(cfg.Endpoint); endpoint != "" {
-			opts.endpoint = endpoint
-		}
-		if token := strings.TrimSpace(cfg.Token); token != "" {
-			opts.token = token
-		}
-		tailscaleCfg = cfg.TailscaleAdmin
-		allowInsecureHTTP = cfg.AllowInsecureHTTP
-	}
-	envCfg := readEnvClientConfig()
-	if envCfg.Endpoint != "" {
-		opts.endpoint = envCfg.Endpoint
-	}
-	if envCfg.Token != "" {
-		opts.token = envCfg.Token
-	}
-	tailscaleCfg = mergeTailscaleAdminConfig(tailscaleCfg, envCfg.TailscaleAdmin)
-	opts.tailscaleAdmin = tailscaleCfg
-	allowInsecureHTTP = allowInsecureHTTP || envCfg.AllowInsecureHTTP
-	opts.allowInsecureHTTP = allowInsecureHTTP
-
 	fs := flag.NewFlagSet("agentlab", flag.ContinueOnError)
 	fs.SetOutput(io.Discard)
 	var help bool
+	fs.StringVar(&opts.contextName, "context", opts.contextName, "named server context")
 	fs.StringVar(&opts.endpoint, "endpoint", opts.endpoint, "control plane endpoint (http(s)://host:port)")
 	fs.StringVar(&opts.token, "token", opts.token, "control plane auth token")
 	fs.StringVar(&opts.socketPath, "socket", opts.socketPath, "path to agentlabd socket")
@@ -326,6 +331,40 @@ func parseGlobal(args []string) (globalOptions, []string, error) {
 	if help {
 		return opts, nil, errHelp
 	}
+	fs.Visit(func(f *flag.Flag) { opts.connectionFields |= connectionField(f.Name) })
+	if !localOnly && !opts.showVersion {
+		store, err := contextStore()
+		if err != nil {
+			return opts, nil, err
+		}
+		selected, err := connection.Prepare(context.Background(), connection.PrepareOptions{
+			Root: store.Root, Context: requestedContext(args), Environment: connection.EnvironmentOverrides(), DefaultSocket: opts.socketPath,
+			AllowUnselected: requestedContext(args) == "" || globalCommand(args) == "connect" || globalCommand(args) == "setup" || globalCommand(args) == "bootstrap" || globalCommand(args) == "init",
+			Legacy: func() (connection.Settings, error) {
+				cfg, _, err := loadClientConfig()
+				return legacySettings(cfg), err
+			},
+		})
+		if err != nil {
+			return opts, nil, err
+		}
+		opts.selection = selected
+		preview, err := selected.Preview(opts.common().connectionOverrides())
+		if err != nil {
+			return opts, nil, err
+		}
+		opts.contextName, opts.endpoint, opts.token = preview.ContextName, preview.Endpoint, preview.Token
+		opts.socketPath, opts.allowInsecureHTTP = preview.SocketPath, preview.AllowInsecureHTTP
+		switch globalCommand(args) {
+		case "bootstrap", "init", "setup":
+			cfg, _, err := loadClientConfig()
+			if err != nil {
+				return opts, nil, err
+			}
+			opts.tailscaleAdmin = mergeTailscaleAdminConfig(cfg.TailscaleAdmin, readEnvClientConfig().TailscaleAdmin)
+		}
+	}
+
 	if opts.socketPath == "" {
 		opts.socketPath = defaultSocketPath
 	}
@@ -351,6 +390,12 @@ func dispatch(ctx context.Context, args []string, base commonFlags) error {
 	// Full command tree.
 	case "status":
 		return withDefaultNext(runStatusCommand(ctx, args[1:], base), "agentlab status --help")
+	case "repo":
+		return runRepoCommand(ctx, args[1:], base)
+	case "skill":
+		return runSkillCommand(ctx, args[1:], base)
+	case "capabilities":
+		return runCapabilitiesCommand(ctx, args[1:], base)
 	case "schema":
 		return withDefaultNext(runSchemaCommand(ctx, args[1:], base), "agentlab schema --help")
 	case "init":
@@ -377,6 +422,14 @@ func dispatch(ctx context.Context, args []string, base commonFlags) error {
 		return withDefaultNext(runSSHCommand(ctx, args[1:], base), "agentlab ssh --help")
 	case "logs":
 		return withDefaultNext(runLogsCommand(ctx, args[1:], base), "agentlab logs --help")
+	case "setup":
+		return runSetupCommand(ctx, args[1:], base)
+	case "operation":
+		return runOperationCommandContext(ctx, args[1:], base)
+	case "context":
+		return runContextCommand(args[1:], base)
+	case "dashboard":
+		return runDashboardCommand(ctx, args[1:], base)
 	case "connect":
 		return withDefaultNext(runConnectCommand(ctx, args[1:], base), "agentlab connect --help")
 	case "disconnect":
@@ -401,7 +454,7 @@ func dispatch(ctx context.Context, args []string, base commonFlags) error {
 		if !base.jsonOutput {
 			printUsage()
 		}
-		return unknownCommandError(args[0], []string{"new", "ls", "rm", "show", "start", "stop", "status", "schema", "init", "bootstrap", "job", "sandbox", "workspace", "session", "profile", "secrets", "msg", "ssh", "logs", "connect", "disconnect", "token", "integration", "user", "team", "defaults", "version", "completion", "pool"})
+		return unknownCommandError(args[0], []string{"repo", "skill", "capabilities", "setup", "operation", "context", "dashboard", "new", "rm", "show", "start", "stop", "status", "schema", "init", "bootstrap", "job", "sandbox", "workspace", "session", "profile", "secrets", "msg", "ssh", "logs", "connect", "disconnect", "token", "integration", "user", "team", "defaults", "version", "completion", "pool"})
 	}
 }
 
@@ -459,7 +512,65 @@ func writeJSONError(w io.Writer, err error) {
 			}
 		}
 	}
-	data, err := json.Marshal(payload)
+	switch {
+	case errors.Is(err, operations.ErrConflict):
+		payload["code"] = "idempotency_conflict"
+		payload["state"] = "failed"
+		payload["action"] = "reuse the original inputs or choose a new request key"
+	case errors.Is(err, operations.ErrExpired):
+		payload["code"] = "idempotency_key_expired"
+		payload["state"] = "blocked"
+		payload["action"] = "inspect retained resources before choosing a new request key"
+	case errors.Is(err, operations.ErrBusy):
+		payload["code"] = "operation_busy"
+		payload["state"] = "running"
+		payload["action"] = "observe the existing operation before retrying"
+	}
+	var operationRequirement *operations.Requirement
+	if errors.As(err, &operationRequirement) {
+		payload["code"] = operationRequirement.Code
+		payload["state"] = "blocked"
+		payload["action"] = operationRequirement.Action
+	}
+	var blocked *blockedRequirement
+	if errors.As(err, &blocked) {
+		payload["state"] = "blocked"
+		payload["code"] = blocked.Code
+		payload["requirement"] = blocked.Requirement
+		payload["action"] = blocked.Action
+	}
+	output := map[string]any{}
+	for key, value := range payload {
+		output[key] = value
+	}
+	var recovery apiResponseError
+	if errors.As(err, &recovery) {
+		if recovery.StorageOperation != nil {
+			output["storage_operation"] = recovery.StorageOperation
+			output["state"] = "blocked"
+		}
+		if recovery.WorkspaceFork != nil {
+			output["workspace_fork"] = recovery.WorkspaceFork
+			output["state"] = "blocked"
+		}
+		if recovery.WorkspaceAllocation != nil {
+			output["workspace_allocation"] = recovery.WorkspaceAllocation
+			output["state"] = "blocked"
+		}
+		if recovery.Action != "" {
+			output["action"] = recovery.Action
+		}
+		if recovery.Retryable != nil {
+			output["retryable"] = *recovery.Retryable
+		}
+	}
+	var metadata interface{ ErrorMetadata() map[string]any }
+	if errors.As(err, &metadata) {
+		for key, value := range metadata.ErrorMetadata() {
+			output[key] = value
+		}
+	}
+	data, err := json.Marshal(output)
 	if err != nil {
 		fmt.Fprintln(w, `{"error":"internal error"}`)
 		return
@@ -468,7 +579,7 @@ func writeJSONError(w io.Writer, err error) {
 }
 
 func printJobUsage() {
-	fmt.Fprintln(os.Stdout, "Usage: agentlab job <run|validate|show|artifacts|doctor> [flags]")
+	fmt.Fprintln(os.Stdout, "Usage: agentlab job <run|validate|show|artifacts|doctor|cancel|result|cleanup> [flags]")
 }
 
 func printStatusUsage() {
@@ -488,11 +599,11 @@ func printBootstrapUsage() {
 }
 
 func printJobRunUsage() {
-	fmt.Fprintln(os.Stdout, "Usage: agentlab job run --repo <url> --task <task> --profile <profile> [--ref <ref>] [--branch <branch>] [--mode <mode>] [--ttl <ttl>] [--keepalive] [--workspace <id|name|new:name>] [--workspace-create <name>] [--workspace-size <size>] [--workspace-storage <storage>] [--workspace-wait <duration>] [--stateful]")
+	fmt.Fprintln(os.Stdout, "Usage: agentlab job run [--request-id <key>] --repo <url> --task <task> [--test-command <command>] --profile <profile> [--ref <ref>] [--branch <branch>] [--mode <mode>] [--ttl <ttl>] [--keepalive] [--workspace <id|name|new:name>] [--workspace-create <name>] [--workspace-size <size>] [--workspace-storage <storage>] [--workspace-wait <duration>] [--stateful]")
 }
 
 func printJobValidateUsage() {
-	fmt.Fprintln(os.Stdout, "Usage: agentlab job validate --repo <url> --task <task> --profile <profile> [--ref <ref>] [--branch <branch>] [--mode <mode>] [--ttl <ttl>] [--keepalive] [--workspace <id|name|new:name>] [--workspace-create <name>] [--workspace-size <size>] [--workspace-storage <storage>] [--workspace-wait <duration>] [--stateful]")
+	fmt.Fprintln(os.Stdout, "Usage: agentlab job validate --repo <url> --task <task> [--test-command <command>] --profile <profile> [--ref <ref>] [--branch <branch>] [--mode <mode>] [--ttl <ttl>] [--keepalive] [--workspace <id|name|new:name>] [--workspace-create <name>] [--workspace-size <size>] [--workspace-storage <storage>] [--workspace-wait <duration>] [--stateful]")
 	fmt.Fprintln(os.Stdout, "Note: Validation returns plan details and exits with non-zero status when preflight validation fails.")
 }
 
@@ -634,7 +745,7 @@ func printSandboxDoctorUsage() {
 }
 
 func printWorkspaceUsage() {
-	fmt.Fprintln(os.Stdout, "Usage: agentlab workspace <create|list|check|fsck|attach|detach|lease|rebind|fork|snapshot>")
+	fmt.Fprintln(os.Stdout, "Usage: agentlab workspace <create|list|check|fsck|attach|detach|lease|rebind|fork|fork-status|fork-resume|snapshot>")
 }
 
 func printWorkspaceCreateUsage() {
@@ -759,7 +870,7 @@ func printLogsUsage() {
 }
 
 func printConnectUsage() {
-	fmt.Fprintln(os.Stdout, "Usage: agentlab connect --endpoint <url> --token <token> [--jump-host <host>] [--jump-user <user>]")
+	fmt.Fprintln(os.Stdout, "Usage: agentlab connect --endpoint <url> [--context <name>] [--token-stdin] [--credential-store auto|os|file] [--jump-host <host>] [--jump-user <user>]")
 }
 
 func printDisconnectUsage() {

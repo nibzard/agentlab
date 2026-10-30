@@ -37,6 +37,7 @@ func useTempClientConfig(t *testing.T) {
 // XDG_CONFIG_HOME on Darwin, so both the override and the environment are
 // pinned to a throwaway directory for the whole run.
 func TestMain(m *testing.M) {
+	_ = os.Setenv("AGENTLAB_CREDENTIAL_STORE", "file")
 	dir, err := os.MkdirTemp("", "agentlab-client-config-test-*")
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err)
@@ -149,6 +150,8 @@ func TestParseGlobal(t *testing.T) {
 				return
 			}
 			require.NoError(t, err)
+			gotOpts.selection = nil
+			gotOpts.connectionFields = 0
 			assert.Equal(t, tt.wantOpts, gotOpts)
 			assert.Equal(t, tt.wantRemain, gotRemain)
 		})
@@ -207,10 +210,10 @@ func TestGlobalOptionPrecedence(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Setenv(envEndpoint, tt.envEndpoint)
 			t.Setenv(envToken, tt.envToken)
-			opts, _, err := parseGlobal(tt.args)
+			opts, _, err := parseGlobal(append(tt.args, "status"))
 			require.NoError(t, err)
 			assert.Equal(t, tt.wantEndpoint, opts.endpoint)
-			assert.Equal(t, tt.wantToken, opts.token)
+			assert.Equal(t, tt.wantToken, effectiveGlobalToken(t, opts))
 		})
 	}
 }
@@ -709,7 +712,7 @@ func TestUsagePrints(t *testing.T) {
 
 	t.Run("printJobUsage outputs job usage", func(t *testing.T) {
 		output := CaptureOutput(printJobUsage)
-		assert.Contains(t, output, "job <run|validate|show|artifacts|doctor>")
+		assert.Contains(t, output, "job <run|validate|show|artifacts|doctor|cancel|result|cleanup>")
 	})
 
 	t.Run("printSandboxUsage outputs sandbox usage", func(t *testing.T) {
@@ -719,7 +722,7 @@ func TestUsagePrints(t *testing.T) {
 
 	t.Run("printWorkspaceUsage outputs workspace usage", func(t *testing.T) {
 		output := CaptureOutput(printWorkspaceUsage)
-		assert.Contains(t, output, "workspace <create|list|check|fsck|attach|detach|lease|rebind|fork|snapshot>")
+		assert.Contains(t, output, "workspace <create|list|check|fsck|attach|detach|lease|rebind|fork|fork-status|fork-resume|snapshot>")
 	})
 
 	t.Run("printConnectUsage outputs connect usage", func(t *testing.T) {
@@ -785,7 +788,7 @@ func TestGoldenFileUsageOutput(t *testing.T) {
 func TestGoldenFileJobUsageOutput(t *testing.T) {
 	got := CaptureOutput(printJobUsage)
 
-	assert.Contains(t, got, "agentlab job <run|validate|show|artifacts|doctor>")
+	assert.Contains(t, got, "agentlab job <run|validate|show|artifacts|doctor|cancel|result|cleanup>")
 }
 
 func TestGoldenFileSandboxUsageOutput(t *testing.T) {
@@ -797,7 +800,7 @@ func TestGoldenFileSandboxUsageOutput(t *testing.T) {
 func TestGoldenFileWorkspaceUsageOutput(t *testing.T) {
 	got := CaptureOutput(printWorkspaceUsage)
 
-	assert.Contains(t, got, "agentlab workspace <create|list|check|fsck|attach|detach|lease|rebind|fork|snapshot>")
+	assert.Contains(t, got, "agentlab workspace <create|list|check|fsck|attach|detach|lease|rebind|fork|fork-status|fork-resume|snapshot>")
 }
 
 func TestGoldenFileLogsUsageOutput(t *testing.T) {

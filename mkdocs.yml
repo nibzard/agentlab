@@ -91,6 +91,7 @@ nav:
   - For agents:
       - JSON output for agents: reference/agent-json-output.md
       - Drive AgentLab as a coding agent: how-to/drive-agentlab-as-a-coding-agent.md
+      - Prepare a local repository snapshot: how-to/prepare-local-repository-snapshot.md
       - Coordinate multiple agents: tutorials/coordinate-multiple-agents.md
       - Mint scoped tokens for an agent: how-to/mint-scoped-tokens-for-an-agent.md
       - Isolation and credentials for agents: explanation/how-agentlab-isolates-and-credentials-an-agent.md

@@ -25,7 +25,10 @@ type orchestratorBackend struct {
 	snapshotCalls  []snapshotCall
 	guestIP        string
 	blockClone     bool
+	cloneHook      func()
 	blockConfigure bool
+	configureHook  func()
+	configureErr   error
 	blockStart     bool
 	startHook      func()
 	occupiedVMIDs  map[int]bool // VMIDs that are reported as occupied in ListVMs
@@ -39,6 +42,9 @@ type snapshotCall struct {
 
 func (b *orchestratorBackend) Clone(ctx context.Context, _ proxmox.VMID, target proxmox.VMID, _ string) error {
 	b.cloneCalls = append(b.cloneCalls, target)
+	if b.cloneHook != nil {
+		b.cloneHook()
+	}
 	if b.cloneErr != nil {
 		return b.cloneErr
 	}
@@ -51,8 +57,14 @@ func (b *orchestratorBackend) Clone(ctx context.Context, _ proxmox.VMID, target 
 
 func (b *orchestratorBackend) Configure(ctx context.Context, _ proxmox.VMID, cfg proxmox.VMConfig) error {
 	b.configureCalls = append(b.configureCalls, cfg)
+	if b.configureHook != nil {
+		b.configureHook()
+	}
 	if b.blockConfigure {
 		<-ctx.Done()
+		if b.configureErr != nil {
+			return b.configureErr
+		}
 		return ctx.Err()
 	}
 	return nil
@@ -862,9 +874,10 @@ func TestJobOrchestratorReleaseWorkspaceLeaseWrongOwner(t *testing.T) {
 }
 
 func TestJobOrchestratorRunTimeoutCleanup(t *testing.T) {
-	ctx := context.Background()
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
 	store := newTestStore(t)
-	backend := &orchestratorBackend{blockConfigure: true}
+	backend := &orchestratorBackend{blockConfigure: true, configureHook: cancel, configureErr: context.DeadlineExceeded}
 	manager := NewSandboxManager(store, backend, log.New(io.Discard, "", 0))
 	profiles := map[string]models.Profile{
 		"yolo": {Name: "yolo", TemplateVM: 9000},
@@ -872,7 +885,8 @@ func TestJobOrchestratorRunTimeoutCleanup(t *testing.T) {
 	snippetDir := t.TempDir()
 	snippetStore := proxmox.SnippetStore{Storage: "local", Dir: snippetDir}
 	orchestrator := NewJobOrchestrator(store, profiles, backend, manager, nil, snippetStore, "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIBtestkey agent@test", "http://10.77.0.1:8844", log.New(io.Discard, "", 0), nil, nil)
-	orchestrator.WithProvisionTimeout(25 * time.Millisecond)
+	// Trigger the timeout after clone, independent of database scheduling.
+	// Cancelling the parent also verifies cleanup uses a fresh context.
 
 	now := time.Date(2026, 1, 29, 16, 0, 0, 0, time.UTC)
 	orchestrator.now = func() time.Time { return now }
@@ -894,6 +908,7 @@ func TestJobOrchestratorRunTimeoutCleanup(t *testing.T) {
 		t.Fatalf("expected timeout error")
 	}
 
+	ctx = context.Background()
 	updatedJob, err := store.GetJob(ctx, job.ID)
 	if err != nil {
 		t.Fatalf("get job: %v", err)
@@ -911,15 +926,19 @@ func TestJobOrchestratorRunTimeoutCleanup(t *testing.T) {
 	if sandbox.State != models.SandboxDestroyed {
 		t.Fatalf("expected sandbox DESTROYED, got %s", sandbox.State)
 	}
+	if len(backend.configureCalls) != 1 {
+		t.Fatal("timeout did not reach guest configuration")
+	}
 	if len(backend.destroyCalls) != 1 {
 		t.Fatalf("expected destroy call, got %d", len(backend.destroyCalls))
 	}
 }
 
 func TestJobOrchestratorProvisionSandboxTimeoutCleanup(t *testing.T) {
-	ctx := context.Background()
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
 	store := newTestStore(t)
-	backend := &orchestratorBackend{blockConfigure: true}
+	backend := &orchestratorBackend{blockConfigure: true, configureHook: cancel, configureErr: context.DeadlineExceeded}
 	manager := NewSandboxManager(store, backend, log.New(io.Discard, "", 0))
 	profiles := map[string]models.Profile{
 		"yolo": {Name: "yolo", TemplateVM: 9000},
@@ -927,7 +946,8 @@ func TestJobOrchestratorProvisionSandboxTimeoutCleanup(t *testing.T) {
 	snippetDir := t.TempDir()
 	snippetStore := proxmox.SnippetStore{Storage: "local", Dir: snippetDir}
 	orchestrator := NewJobOrchestrator(store, profiles, backend, manager, nil, snippetStore, "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIBtestkey agent@test", "http://10.77.0.1:8844", log.New(io.Discard, "", 0), nil, nil)
-	orchestrator.WithProvisionTimeout(25 * time.Millisecond)
+	// Trigger the timeout after clone, independent of database scheduling.
+	// Cancelling the parent also verifies cleanup uses a fresh context.
 
 	now := time.Date(2026, 1, 29, 16, 30, 0, 0, time.UTC)
 	sandbox := models.Sandbox{
@@ -947,6 +967,7 @@ func TestJobOrchestratorProvisionSandboxTimeoutCleanup(t *testing.T) {
 		t.Fatalf("expected timeout error")
 	}
 
+	ctx = context.Background()
 	updatedSandbox, err := store.GetSandbox(ctx, sandbox.VMID)
 	if err != nil {
 		t.Fatalf("get sandbox: %v", err)
@@ -954,15 +975,19 @@ func TestJobOrchestratorProvisionSandboxTimeoutCleanup(t *testing.T) {
 	if updatedSandbox.State != models.SandboxDestroyed {
 		t.Fatalf("expected sandbox DESTROYED, got %s", updatedSandbox.State)
 	}
+	if len(backend.configureCalls) != 1 {
+		t.Fatal("timeout did not reach guest configuration")
+	}
 	if len(backend.destroyCalls) != 1 {
 		t.Fatalf("expected destroy call, got %d", len(backend.destroyCalls))
 	}
 }
 
 func TestJobOrchestratorProvisionSandboxCloneFailureNoDestroy(t *testing.T) {
-	ctx := context.Background()
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
 	store := newTestStore(t)
-	backend := &orchestratorBackend{blockClone: true}
+	backend := &orchestratorBackend{blockClone: true, cloneHook: cancel}
 	manager := NewSandboxManager(store, backend, log.New(io.Discard, "", 0))
 	profiles := map[string]models.Profile{
 		"yolo": {Name: "yolo", TemplateVM: 9000},
@@ -970,7 +995,7 @@ func TestJobOrchestratorProvisionSandboxCloneFailureNoDestroy(t *testing.T) {
 	snippetDir := t.TempDir()
 	snippetStore := proxmox.SnippetStore{Storage: "local", Dir: snippetDir}
 	orchestrator := NewJobOrchestrator(store, profiles, backend, manager, nil, snippetStore, "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIBtestkey agent@test", "http://10.77.0.1:8844", log.New(io.Discard, "", 0), nil, nil)
-	orchestrator.WithProvisionTimeout(25 * time.Millisecond)
+	// Cancel only when the intended backend step has started.
 
 	now := time.Date(2026, 1, 29, 16, 45, 0, 0, time.UTC)
 	// The VMID is occupied in Proxmox, so the clone fails. Cleanup must not
@@ -998,6 +1023,7 @@ func TestJobOrchestratorProvisionSandboxCloneFailureNoDestroy(t *testing.T) {
 	if len(backend.destroyCalls) != 0 {
 		t.Fatalf("expected no destroy calls after clone failure, got %d", len(backend.destroyCalls))
 	}
+	ctx = context.Background()
 	updatedSandbox, err := store.GetSandbox(ctx, sandbox.VMID)
 	if err != nil {
 		t.Fatalf("get sandbox: %v", err)
@@ -1008,9 +1034,10 @@ func TestJobOrchestratorProvisionSandboxCloneFailureNoDestroy(t *testing.T) {
 }
 
 func TestWorkspaceRebindTimeoutCleanup(t *testing.T) {
-	ctx := context.Background()
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
 	store := newTestStore(t)
-	backend := &orchestratorBackend{blockStart: true}
+	backend := &orchestratorBackend{blockStart: true, startHook: cancel}
 	manager := NewSandboxManager(store, backend, log.New(io.Discard, "", 0))
 	workspaceMgr := NewWorkspaceManager(store, backend, log.New(io.Discard, "", 0))
 	profiles := map[string]models.Profile{
@@ -1018,7 +1045,7 @@ func TestWorkspaceRebindTimeoutCleanup(t *testing.T) {
 	}
 	snippetStore := proxmox.SnippetStore{Storage: "local", Dir: t.TempDir()}
 	orchestrator := NewJobOrchestrator(store, profiles, backend, manager, workspaceMgr, snippetStore, "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIBtestkey agent@test", "http://10.77.0.1:8844", log.New(io.Discard, "", 0), nil, nil)
-	orchestrator.WithProvisionTimeout(200 * time.Millisecond)
+	// Cancel after the new VM has started, so rollback is exercised.
 
 	now := time.Date(2026, 1, 29, 17, 0, 0, 0, time.UTC)
 	orchestrator.now = func() time.Time { return now }
@@ -1050,6 +1077,7 @@ func TestWorkspaceRebindTimeoutCleanup(t *testing.T) {
 		t.Fatalf("expected timeout error")
 	}
 
+	ctx = context.Background()
 	updatedWorkspace, err := store.GetWorkspace(ctx, workspace.ID)
 	if err != nil {
 		t.Fatalf("get workspace: %v", err)

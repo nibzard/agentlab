@@ -18,6 +18,7 @@ import (
 
 	"github.com/agentlab/agentlab/internal/db"
 	"github.com/agentlab/agentlab/internal/models"
+	"github.com/agentlab/agentlab/internal/protocol"
 	"github.com/agentlab/agentlab/internal/secrets"
 	"github.com/agentlab/agentlab/internal/tailscale/admin"
 )
@@ -199,6 +200,15 @@ func (api *BootstrapAPI) handleBootstrapFetch(w http.ResponseWriter, r *http.Req
 	resp := V1BootstrapFetchResponse{Sandbox: &V1BootstrapSandbox{VMID: sandbox.VMID, Name: sandbox.Name, Profile: sandbox.Profile}}
 	if hasJob {
 		resp.Job = bootstrapJobFromModel(job)
+		if strings.HasPrefix(job.RepoURL, db.SnapshotRepositoryPrefix) {
+			id := strings.TrimPrefix(job.RepoURL, db.SnapshotRepositoryPrefix)
+			record, _, err := api.store.GetRepositorySnapshot(r.Context(), id)
+			if err != nil || job.Ref != record.Manifest.Revision {
+				writeError(w, 503, "job repository snapshot is unavailable")
+				return
+			}
+			resp.Job.RepositorySnapshot = &protocol.RepositorySource{ID: id, SourceRevision: record.Manifest.SourceRevision, Revision: record.Manifest.Revision, BundleSHA256: record.Manifest.BundleSHA256, BundleBytes: record.Manifest.BundleBytes}
+		}
 	}
 	// Claim before any credential rotation or key mint. A concurrent loser must
 	// not invalidate the sandbox secret delivered by the winning request.
@@ -321,13 +331,14 @@ func bootstrapJobFromModel(job models.Job) V1BootstrapJob {
 		mode = defaultJobMode
 	}
 	resp := V1BootstrapJob{
-		ID:        job.ID,
-		RepoURL:   job.RepoURL,
-		Ref:       job.Ref,
-		Task:      job.Task,
-		Mode:      mode,
-		Profile:   job.Profile,
-		Keepalive: job.Keepalive,
+		ID:           job.ID,
+		RepoURL:      job.RepoURL,
+		Ref:          job.Ref,
+		Task:         job.Task,
+		TestCommands: job.TestCommands,
+		Mode:         mode,
+		Profile:      job.Profile,
+		Keepalive:    job.Keepalive,
 	}
 	if job.TTLMinutes > 0 {
 		value := job.TTLMinutes

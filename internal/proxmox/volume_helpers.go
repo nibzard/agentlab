@@ -33,15 +33,6 @@ func volumeStorage(volumeID string) string {
 	return parts[0]
 }
 
-func isZFSStorageType(storageType string) bool {
-	switch strings.ToLower(strings.TrimSpace(storageType)) {
-	case "zfspool", "zfs":
-		return true
-	default:
-		return false
-	}
-}
-
 func unsupportedStorageErr(op, storage, storageType string) error {
 	storage = strings.TrimSpace(storage)
 	storageType = strings.TrimSpace(storageType)

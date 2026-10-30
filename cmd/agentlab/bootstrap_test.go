@@ -1,7 +1,9 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
+	"github.com/agentlab/agentlab/internal/buildinfo"
 	"os"
 	"path/filepath"
 	"strings"
@@ -38,7 +40,9 @@ func TestWriteBootstrapClientConfig(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, os.FileMode(0600), info.Mode().Perm())
 
-	cfg, ok, err := loadClientConfigFrom(path)
+	store, err := contextStore()
+	require.NoError(t, err)
+	cfg, _, ok, err := store.Resolve("default")
 	require.NoError(t, err)
 	require.True(t, ok)
 	assert.Equal(t, "http://example:8845", cfg.Endpoint)
@@ -131,4 +135,19 @@ func TestBuildRemoteDownloadArgsAvoidsInterpolation(t *testing.T) {
 	assert.False(t, strings.Contains(script, binaries.agentlabdURL))
 	assert.Equal(t, binaries.agentlabdURL, args[5])
 	assert.Equal(t, binaries.agentlabURL, args[6])
+}
+
+func TestBootstrapDoesNotReplaceIncompleteExplicitArtifacts(t *testing.T) {
+	root := t.TempDir()
+	_, err := resolveBootstrapBinariesForHost(context.Background(), root, bootstrapOptions{targetArch: "arm64", agentlabBin: filepath.Join(root, "missing")})
+	require.ErrorContains(t, err, "agentlab binary not found")
+	require.NotContains(t, err.Error(), "pinned release")
+}
+
+func TestDevelopmentBootstrapRequiresExplicitArtifacts(t *testing.T) {
+	previous := buildinfo.Version
+	buildinfo.Version = "dev"
+	t.Cleanup(func() { buildinfo.Version = previous })
+	_, err := resolveBootstrapBinariesForHost(context.Background(), t.TempDir(), bootstrapOptions{targetArch: "arm64"})
+	require.ErrorContains(t, err, "development clients must provide Linux server binaries")
 }

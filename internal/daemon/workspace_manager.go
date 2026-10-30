@@ -84,6 +84,19 @@ func (m *WorkspaceManager) Create(ctx context.Context, name, storage string, siz
 		storage = defaultWorkspaceStorage
 	}
 
+	release, err := m.store.LockJobSubmission(ctx, "workspace-name", name)
+	if err != nil {
+		return models.Workspace{}, err
+	}
+	defer release()
+	pending, err := m.store.WorkspaceAllocationPending(ctx, name)
+	if err != nil {
+		return models.Workspace{}, err
+	}
+	if pending {
+		return models.Workspace{}, ErrWorkspaceExists
+	}
+
 	if _, err := m.store.GetWorkspaceByName(ctx, name); err == nil {
 		return models.Workspace{}, ErrWorkspaceExists
 	} else if !errors.Is(err, sql.ErrNoRows) {
@@ -95,7 +108,11 @@ func (m *WorkspaceManager) Create(ctx context.Context, name, storage string, siz
 		return models.Workspace{}, err
 	}
 
-	volid, err := m.backend.CreateVolume(ctx, storage, id, sizeGB)
+	owner, err := m.workspaceVolumeOwner(ctx, id)
+	if err != nil {
+		return models.Workspace{}, err
+	}
+	volid, err := m.backend.CreateVolume(ctx, storage, owner.AllocationName, sizeGB)
 	if err != nil {
 		return models.Workspace{}, err
 	}

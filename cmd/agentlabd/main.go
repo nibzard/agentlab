@@ -15,6 +15,8 @@ import (
 	"github.com/agentlab/agentlab/internal/buildinfo"
 	"github.com/agentlab/agentlab/internal/config"
 	"github.com/agentlab/agentlab/internal/daemon"
+	"github.com/agentlab/agentlab/internal/executionarchive"
+	"github.com/agentlab/agentlab/internal/reposnapshot"
 )
 
 // main is the entry point for agentlabd.
@@ -30,6 +32,24 @@ import (
 // The daemon will exit with status 1 if configuration fails to load or if
 // the daemon encounters a fatal error during execution.
 func main() {
+	if len(os.Args) > 1 && os.Args[1] == "execution-check" {
+		ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+		defer stop()
+		if err := executionarchive.RunCommand(ctx, os.Args[2:], os.Stdout); err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			os.Exit(1)
+		}
+		return
+	}
+	if len(os.Args) > 1 && os.Args[1] == "repo-result" {
+		ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+		defer stop()
+		if err := reposnapshot.RunResultCommand(ctx, os.Args[2:], os.Stdout); err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			os.Exit(1)
+		}
+		return
+	}
 	if len(os.Args) > 1 && os.Args[1] == "template-worker" {
 		fs := flag.NewFlagSet("template-worker", flag.ExitOnError)
 		path := fs.String("config", "", "private worker configuration")

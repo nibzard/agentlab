@@ -171,7 +171,8 @@ type Backend interface {
 	VMConfig(ctx context.Context, vmid VMID) (map[string]string, error)
 
 	// CreateVolume creates a new disk volume in the specified storage.
-	// ABOUTME: Returns the volume ID (e.g., "local-zfs:vm-0-disk-0").
+	// The name contains a valid owner prefix: vm-<owner>-<disk-name>.
+	// Returns a validated volume ID from the allocation response.
 	CreateVolume(ctx context.Context, storage, name string, sizeGB int) (string, error)
 
 	// AttachVolume attaches a volume to a VM at the specified slot.

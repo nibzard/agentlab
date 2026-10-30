@@ -549,19 +549,7 @@ func setEnv(env []string, key string, value string) []string {
 	return out
 }
 
-func resolveInitAssetsRoot() (string, error) {
-	if cwd, err := os.Getwd(); err == nil {
-		if root := findInitAssetsUpward(cwd); root != "" {
-			return root, nil
-		}
-	}
-	if exe, err := os.Executable(); err == nil {
-		if root := findInitAssetsUpward(filepath.Dir(exe)); root != "" {
-			return root, nil
-		}
-	}
-	return "", fmt.Errorf("assets root not found")
-}
+func resolveInitAssetsRoot() (string, error) { return resolveBootstrapAssets("") }
 
 func pickSmokeProfile(state initState) string {
 	if len(state.Profiles) == 0 {
@@ -1062,31 +1050,7 @@ func resolveInitAssets(explicit string) (string, error) {
 		}
 		return "", fmt.Errorf("assets not found at %s", root)
 	}
-	if cwd, err := os.Getwd(); err == nil {
-		if root := findInitAssetsUpward(cwd); root != "" {
-			return root, nil
-		}
-	}
-	if exe, err := os.Executable(); err == nil {
-		if root := findInitAssetsUpward(filepath.Dir(exe)); root != "" {
-			return root, nil
-		}
-	}
-	return "", fmt.Errorf("unable to locate agentlab assets; use --assets to specify the repo root")
-}
-
-func findInitAssetsUpward(start string) string {
-	dir := start
-	for {
-		if hasInitAssets(dir) {
-			return dir
-		}
-		parent := filepath.Dir(dir)
-		if parent == dir {
-			return ""
-		}
-		dir = parent
-	}
+	return resolveBootstrapAssets("")
 }
 
 func hasInitAssets(root string) bool {

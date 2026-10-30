@@ -1,46 +1,65 @@
 ---
 name: agentlab
-version: 1.1.0
-agentlab: "1+"
-description: Task-focused command bundles for AgentLab operations in Claude workflows.
+description: Set up AgentLab connections, run authorized sandbox tasks, and collect results through the AgentLab CLI. Use for operating AgentLab, not for developing its code.
+metadata:
+  version: "2.0.0"
+  agentlab: "0.4.x; discover optional features through capabilities"
 allowed-tools:
   - Bash
 ---
 
-# AgentLab Claude Skill Bundle
+# Operate AgentLab
 
-Use the following focused guides for AgentLab workflows.
+Use the installed `agentlab` CLI. Keep provisioning, authorization, retries, and
+cleanup in AgentLab. The bundled guides describe supported commands; installed
+`--help`, `schema`, and `capabilities` establish what the selected server supports.
 
-- `job-execution.md` - run/validate jobs and inspect artifacts.
-- `workspace-recovery.md` - workspace and sandbox recovery actions.
-- `networking.md` - reachability, SSH, and routing checks.
-- `artifact-triage.md` - artifact and diagnostic bundle workflows.
-- `troubleshooting.md` - recovery and cleanup diagnostics.
+## Discover the connection
 
-The bundle manifest is `bundle/manifest.json`.
+Run `agentlab context list --json` to inspect saved contexts. Pass an explicit
+`--context NAME` for server operations when more than one server is available.
+Do not change the global active context for concurrent tasks.
 
-The top-level bundle version is `1.1.0`; install/upgrade scripts apply
-compatibility checks against the host manifest and skip work when already current.
+Read `agentlab --context NAME capabilities --json`. Record `server_identity`,
+versions, feature flags, allowed commands, sandbox scope, and credential expiry.
+Check `status`, `profile list`, and the chosen profile before provisioning.
+An absent or false feature is unsupported. Do not infer support from the version.
+An authentication, scope, or identity failure requires a corrective action.
+Do not bypass it through the trusted local socket or another transport.
 
-## Compatibility
+## Choose the workflow
 
-- `manifest.json` declares `supported_agent_versions`.
-- Update this manifest when skill behavior changes across agentlab releases.
-- `scripts/install_host.sh` uses `manifest.json` to decide upgrade vs. no-op and
-  writes installed bundle metadata to `/etc/agentlab/config.yaml`.
+Read only the guide needed for the user's task:
 
-## Rollback
+- [Discovery and setup](discovery-and-setup.md): connect this computer, inspect a
+  new host, resume setup, and verify readiness.
+- [Job execution](job-execution.md): transfer local source or use a repository
+  URL, validate, submit once, observe, and collect a reviewable result.
+- [Standalone work](standalone-work.md): create one interactive sandbox instead
+  of a job and account for its lease.
+- [Workspace recovery](workspace-recovery.md): inspect existing state and choose
+  an authorized recovery action without discarding user changes.
+- [Networking](networking.md): diagnose access with the selected connection.
+- [Artifact triage](artifact-triage.md): inspect result evidence and diagnostics.
+- [Troubleshooting](troubleshooting.md): distinguish missing access, unsupported
+  features, interrupted work, cancellation, credential retirement, and cleanup.
 
-- To revert a skill upgrade, checkout a prior revision of
-  `skills/agentlab/bundle/manifest.json` and rerun:
+A job creates its own sandbox. Do not create an additional sandbox for that job.
+Use the user's existing authority. Request only missing access, information, or
+permission for an action outside that authority.
 
-```bash
-scripts/install_host.sh --install-skills-only
-```
+## Preserve the task contract
 
-- For forced downgrade/restore, remove the installed bundle directory first:
+Use `--json` in automation. Save operation IDs, job IDs, source IDs, request keys,
+and the server identity before waiting or retrying. Keep one request key for one
+logical submission. A lost response does not authorize a second task.
 
-```bash
-rm -rf ~/.claude/skills/agentlab
-scripts/install_host.sh --install-skills-only
-```
+Keep credentials out of prompts, command arguments, logs, and artifacts. Use the
+terminal credential prompt or `connect --token-stdin` with a protected input.
+A blocked non-interactive command needs the stated requirement; do not poll it
+until access or configuration changes.
+
+Collect returned changes for review. Do not apply patches or push without the
+user's authority. A completed agent process does not prove tests passed.
+Report the source, changes, execution evidence, test verdict, artifact paths,
+and every removed or retained resource with its lease or corrective action.

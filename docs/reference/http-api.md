@@ -8,16 +8,16 @@ Reference for the `agentlabd` control-plane and guest-facing HTTP routes. The co
     response verbatim and handles auth, retries, and parsing. See
     [JSON output for agents](agent-json-output.md) and
     [Drive AgentLab as a coding agent](../how-to/drive-agentlab-as-a-coding-agent.md).
-    Three routes behave differently from the table: `POST /v1/exec` is
-    full-access and always returns HTTP 200 (branch on `exit_code`),
-    `/v1/integrations` handlers skip authorization, and `/v1/runner/report` is
-    served on the guest bootstrap listener (agent subnet, no bearer token).
+    `POST /v1/exec` requires full access and always returns HTTP 200. Branch on
+    `exit_code`. Guest runner routes use the bootstrap listener, agent subnet,
+    and sandbox secret. They do not accept the control API bearer credential.
 
 ## Discovery and status
 
 | Method | Path | Purpose | Response type |
 | --- | --- | --- | --- |
 | GET | `/v1/schema` | Discover the API and event schema catalog. Returns `api_schema_version`, `event_schema_version`, `resources`, `event_kinds`, `compatibility`. | `schemaResponse` |
+| GET | `/v1/capabilities` | Discover compatibility, server identity, features, and caller permissions. Requires `schema.read`. | `protocol.Capabilities` |
 | GET | `/v1/status` | Control-plane status snapshot, including schema versions. | `V1StatusResponse` |
 | GET | `/v1/host` | Host metadata: daemon version, configured subnet, Tailscale DNS name. | `V1HostResponse` |
 
@@ -56,6 +56,36 @@ agentlab status
 | POST | `/v1/sandboxes/{vmid}/snapshots/{name}/restore` | Restore a root-disk snapshot. | `V1SandboxSnapshotRestoreRequest` | `V1SandboxSnapshotResponse` |
 
 Only the plural `/snapshots` path is served. The singular `/snapshot` path has no handler and returns 404.
+
+## Repository snapshots
+
+| Method | Path | Permission | Response |
+| --- | --- | --- | --- |
+| POST | `/v1/repositories` | `repository.create` | `protocol.RepositorySnapshot` (200) |
+| GET | `/v1/repositories/{id}` | `repository.read` | `protocol.RepositorySnapshot` (200) |
+| DELETE | `/v1/repositories/{id}` | `repository.delete` | Source ID, `removed:true`, and `cleanup:"verified"` (200) |
+
+These routes reject sandbox-scoped credentials. Each upload belongs to its
+acting identity and server. Other identities receive 404 for that source ID.
+Upload uses `multipart/form-data` with a `manifest` part followed by a `bundle`
+part. No other parts are accepted. The manifest limit is 16 MiB. The bundle
+limit is 256 MiB. The host validates content without a worktree checkout.
+
+The response includes the ID, `repo_url`, manifest, creation time, and expiry.
+Repeating the same upload returns the original record and expiry. New jobs
+cannot use a source after 30 days. Source bytes remain until explicit removal.
+Removal returns 409 while a queued or running job references the source.
+
+Submit a snapshot job with the returned `repo_url` and manifest `revision` as
+`ref`. This requires `job.create` and `repository.read`. Snapshot jobs use a
+stateless VM with an updated guest runner. Workspaces, branch sessions, and
+LXC containers are unsupported. Admission pins the source under the same lock
+used by removal. Keyed job replay observes the original job after source removal.
+
+Check `repository_upload` and `repository_snapshot_jobs` capabilities first.
+The complete `repository_transfer` capability remains false while returned
+patches and full result accounting are pending. See
+[Prepare a local repository snapshot](../how-to/prepare-local-repository-snapshot.md).
 
 ## Jobs
 
@@ -158,6 +188,7 @@ These run on the bootstrap and artifact listeners, are restricted to the agent s
 | POST | `/v1/bootstrap/recover` | recovery (TLS required) | Consume a signed proof and atomically rotate/retry runtime credentials. | Same scope plus `operation: recover` (or `refresh`), `challenge_id`, `nonce`, base64 `signature` |
 | POST | `/v1/bootstrap/execution/start` | recovery (TLS required) | Claim an initial execution attempt exactly once; requires endpoint-secret header. Ambiguous delivery fails closed. | `vmid`, `incarnation`, `request_id` containing the issued `attempt_id` |
 | POST | `/v1/bootstrap/fetch` | bootstrap | Single-use token plus VMID delivery of the bootstrap payload. Token is consumed on success. | `{"token":"...","vmid":N}` |
+| GET | `/v1/runner/repository?vmid=N&job_id=ID` | bootstrap | Download the pinned source bundle for the authenticated active guest job. Requires the sandbox secret. | Git bundle |
 | POST | `/v1/runner/report` | bootstrap | In-guest runner status report. | Runner status event |
 | POST | `/v1/sandbox/bootstrap-status` | bootstrap | Authenticated sandbox initialization and independent Tailscale diagnostics. | `vmid`, `runner_ready`, `tailscale_state`, optional fixed `error_code` |
 | GET | `/metadata/` | bootstrap | Metadata index. Requires `X-AgentLab-Sandbox-Secret` header. | - |
@@ -338,3 +369,248 @@ The execution dry-run endpoint validates the command tree and flags through the
 CLI parser. It does not allocate resources or contact the control API. Use
 `job validate` or `sandbox validate` to check a provisioning plan against the
 host configuration. Install matching CLI and daemon versions for dry-run support.
+
+## Repository result cleanup
+
+`POST /v1/jobs/{id}/result/cleanup` saves an idempotent cleanup retry for a verified
+repository result. It requires `job.cleanup` and the job's sandbox scope.
+Check `repository_result_cleanup` in capabilities before calling it.
+
+The response contains `job_id`, `accepted`, `repository_result`, and `resources`.
+HTTP 202 means pending cleanup is saved. Observe the job for its final outcome.
+HTTP 200 with `accepted:false` means cleanup is already complete or retained.
+HTTP 409 means result verification or the saved target identity is unavailable.
+Retries reuse the original target and never restart the task.
+
+The daemon resumes saved pending cleanup after restart. It checks artifacts,
+execution evidence, server identity, sandbox creation time, VM generation,
+and guest incarnation. Missing or changed identities block backend deletion.
+If the backend VM is absent, recovery updates local records only.
+
+## SSH token revocations
+
+| Method | Path | Permission | Response |
+| --- | --- | --- | --- |
+| POST | `/v1/token-revocations` | `token.revoke`, global | `protocol.TokenRevocation` (200) |
+| GET | `/v1/token-revocations/{id}?issuer=FINGERPRINT` | `token.read`, global | `protocol.TokenRevocation` (200) |
+
+Check `token_revocation` before using these routes. Sandbox-scoped credentials
+cannot manage global credential state. POST accepts `issuer`, `revocation_id`,
+and expected `server_identity`. It accepts identifiers, not a bearer credential.
+A changed server identity returns HTTP 409 before mutation. The response records
+the first actor and timestamp; repeated identical requests return the same record.
+
+`revoked:false` means no matching revocation is stored. It does not prove that
+a token exists, has a valid signature, remains within its validity period, or
+has any requested permission. Revocation records survive restarts and remain
+after expiry. The network middleware checks current storage on every SSH-token
+request. A lookup failure rejects the request with HTTP 503.
+
+Per-token revocation requires the signed token ID. Tokens without an ID and the
+legacy static control credential use their existing key or credential retirement
+paths. Already admitted requests and server jobs are not cancelled by revocation.
+
+## Workspace allocation in keyed jobs
+
+`POST /v1/jobs` can include `workspace_create` with an `Idempotency-Key` when
+`idempotent_workspace_create` is true. The key retains its existing caller,
+server, input, conflict, and expiry rules. A request reserves its workspace
+identity before allocating storage. The workspace row and job binding commit
+in one transaction. A completed job response replays before profile validation.
+
+A saved complete volume receipt resumes publication without another allocation.
+An interrupted allocation without that receipt returns HTTP 409 with
+`state:blocked`, `code:workspace_allocation_inspection_required`, an action,
+a Boolean `retryable`, and a `workspace_allocation` object. It identifies the
+job, workspace, name, storage, size, allocation state, creation time, and any
+known volume. Failed publication preserves the volume. Another create request
+cannot claim its reserved name while allocation is pending.
+
+Inspect unknown backend outcomes before changing the request key. The API does
+not automatically adopt or delete an uncertain volume. A removed committed
+workspace is not recreated by a retry. Automatic backend reconciliation and
+keyed branch session creation remain incomplete.
+
+New workspace volumes reserve a storage owner ID before allocation. Migration 29
+stores these reservations with the shared sandbox and template reservations.
+They use IDs from `900000000` through `999999999`. Reservation does not create
+a guest. Cluster inventory includes virtual machines and containers on all nodes.
+A known owner ID is never replaced because it becomes occupied or changes owner.
+
+Workspace responses include optional `owner_vmid` and `allocation_name` fields
+for generated disk names. Allocation error records include the same metadata.
+These IDs remain reserved after failed allocation. Keep them free when making
+manual Proxmox changes. Existing volume IDs retain their current names.
+
+A backend preflight error proves that no allocation request was sent. Its journal
+returns to `planned` with `workspace_allocation_preflight_failed`. Repair the
+reported requirement and retry the same key. Errors after the allocation request,
+including malformed or mismatched receipts, keep an uncertain allocation.
+A disk name is not sufficient proof to adopt or delete an unknown volume.
+
+## Workspace storage and fork operations
+
+`workspace_snapshots` and `workspace_forks` advertise static helper availability.
+Each operation still checks its host and storage. The shell backend runs an
+embedded fixed program through the installed Proxmox storage library.
+The API backend requires a loopback endpoint and explicit local helper access.
+It checks API access first. It does not attempt unsupported snapshot or clone
+HTTP routes or fall back after API failures.
+
+`POST /v1/workspaces/{id}/fork` saves a durable intent before copying.
+Migration 30 stores source and target bindings, actor, server identity, copy
+snapshot, progress state, and resource receipts. It does not allocate a temporary
+placeholder volume. Success still returns the existing workspace response.
+An unsuccessful attempt returns HTTP 409 with a blocked state, an action,
+`retryable:false`, and `workspace_fork` when an intent exists.
+Its code is `workspace_fork_inspection_required`. A missing local helper returns
+`workspace_storage_helper_required` before copying.
+
+`GET /v1/workspaces/{id}/forks` lists saved attempts in `fork_operations`.
+`GET /v1/workspaces/{id}/forks/{operation_id}` reads one attempt.
+Both require `workspace.read` and retain the source's sandbox scope checks.
+The returned state is persisted progress, not a live worker assertion.
+`target_state` distinguishes unverified, retained, and published targets.
+Overall cleanup remains `inspection_required` for an unpublished target.
+A storage receipt can separately confirm temporary snapshot cleanup.
+
+Snapshot errors can include `storage_operation` with source and snapshot IDs.
+A failed snapshot publication preserves the snapshot for inspection.
+A fork target and temporary snapshots remain accounted for after failure.
+Unknown targets are not adopted or deleted automatically. These operations
+still need durable worker recovery, automatic reconciliation, verified cleanup,
+and live Proxmox acceptance.
+
+## Job test commands
+
+Job creation and plan validation accept optional `test_commands`, an ordered
+array of shell command strings. Job views and guest bootstrap preserve it.
+The `job_test_commands` capability advertises server support. Commands require
+the existing job permissions and run in the existing guest execution boundary.
+Validation limits are 16 commands, 4096 bytes per command, and 16384 bytes total.
+Empty commands, invalid UTF-8, and NUL characters are invalid. Plan validation
+returns an `invalid_field_value` issue for `test_commands`. Job creation rejects
+invalid input before reserving a submission or allocating resources.
+
+Migration 31 persists commands with the job. Idempotency input hashing includes
+the ordered array. The runner reports separate agent and overall exit codes.
+For uploaded repository jobs, result verification binds each reported command
+and log digest to the admitted plan. Collection repeats that check locally.
+Missing or mismatched evidence prevents verified cleanup. URL-based jobs reject
+terminal command reports that omit or change the admitted plan. Their artifact
+archives do not receive the uploaded repository verification contract.
+
+## Credential renewal
+
+`POST /v1/token-renewals/prepare` accepts `candidate_token` and expected
+`server_identity`. Authenticate with the finite SSH-signed parent. The
+`token.renew` permission is required. Sandbox scopes are accepted for this self
+operation. The candidate must preserve the issuer, subject, ordered commands,
+and sandbox scope. It must be fresh and expire within 24 hours. The request body
+is bounded. Credentials are never returned or stored in renewal records.
+
+`POST /v1/token-renewals/commit` accepts `parent_revocation_id` and expected
+`server_identity`. Authenticate with the prepared candidate. Commit saves the
+receipt and parent revocation atomically. Candidate and parent revocation checks
+run inside that transaction. Revocation after request authentication therefore
+cannot silently authorize commit. Committed retries preserve the first receipt.
+The normal middleware also checks candidate expiry and revocation on every request.
+
+Migration 32 stores issuer-bound renewal identifiers and audit metadata.
+`token_renewal` advertises protocol support. Missing permissions return 403.
+Invalid candidates return `invalid_renewal_candidate`; conflicting candidates
+return `renewal_conflict`. Unprepared commit returns `renewal_not_prepared`.
+Revocation blocks commit with `renewal_credential_revoked`. Storage failures return
+`renewal_store_unavailable` and retain the original candidate for retry.
+
+Enrollment through the CLI uses the existing authorized SSH key model. It does
+not add a server signing secret or a key-registration endpoint. Per-token
+revocation remains separate from retirement of the signing key.
+
+### Sandbox capacity preflight
+
+A successful sandbox plan can include `plan.capacity` with `checked`, `cores`,
+`memory_mb`, and `allow_burst`. The check uses the same pool as sandbox admission.
+It does not reserve resources or return other sandbox allocations. Insufficient
+capacity returns `ok: false` with `resource_capacity_unavailable`. Missing pool
+configuration or an unspecified resource footprint returns `capacity_not_checked`
+as a warning. A passing preflight does not guarantee later admission.
+
+Native SSH provisioning does not require a bootstrap controller URL for standalone
+sandbox validation. Other provisioning prerequisites still apply.
+
+The dashboard also serves authenticated `GET /api/connection` on its local
+listener. This returns its fixed target and transport without a daemon credential.
+It is not a daemon endpoint. A local browser authentication failure includes
+`X-Agentlab-Dashboard-Auth: required`. The proxy removes that header from upstream
+responses. An upstream authorization failure remains an upstream failure.
+
+### Bind requests to a server
+
+Capabilities include `authorization.issuer` for authenticated actors. For an SSH
+credential, this is the verified signing fingerprint. This field does not contain
+a credential or private key. `features.request_server_identity` reports support
+for binding a request to the server identity.
+
+A remote client can send `X-AgentLab-Server-Identity` with the verified server ID.
+The network authentication middleware checks it before dispatching the request.
+A mismatch, empty supplied value, or duplicate value returns 409 with
+`v1/auth/server_identity_mismatch`. Unavailable local identity returns 503 with
+`v1/auth/server_identity_unavailable`. Neither condition reaches the handler.
+The header grants no authority. Normal authentication and route policy still apply.
+Omitting the header preserves the existing protocol. The local trusted socket
+remains a separate trust boundary.
+
+Saved dashboard credential refresh requires this feature and a verified context.
+Its local errors include `dashboard_context_changed`,
+`dashboard_credential_authority_changed`, `dashboard_credential_lifetime_invalid`,
+`dashboard_credential_rejected`, `dashboard_credential_identity_unavailable`,
+`dashboard_credential_verification_unavailable`, and `dashboard_credential_unavailable`.
+These errors include a corrective action and contain no signed credential.
+`GET /api/connection` reports the credential source and whether refresh is enabled.
+
+Verified CLI contexts check compatible capability discovery and request identity
+support before JSON, streaming, and repository requests. The resolved identity
+remains fixed even if the active context changes. The CLI requires `schema.read`
+for these checks. This does not add a permission requirement to the underlying
+HTTP operation itself. Existing unbound clients can omit the optional header.
+Remote dashboards also verify identity enforcement before starting their listener,
+including when their startup credential comes from an explicit override.
+
+### Resume a retained workspace fork
+
+`POST /v1/workspaces/{id}/forks/{operation_id}/resume` resumes the original fork.
+It accepts no body and returns the workspace response. Check
+`workspace_fork_recovery` in capabilities first. The request requires
+`workspace.fork`, the source sandbox scope, and the original actor.
+
+The daemon retains the original target, size, volume reservation, and known GUIDs.
+The local helper verifies its private journal and native ownership properties.
+A complete copy can finish cleanup and publication after an interrupted reply.
+Partial copies, changed identities, and missing proof return a conflict.
+The response includes `workspace_fork` metadata when the operation is retained.
+A completed operation returns its original workspace on repeated requests.
+
+### Inspect verified execution logs
+
+`GET /v1/jobs/{id}/execution` requires `job.artifacts` and the job's sandbox scope.
+Check the `execution_inspection` capability first. The endpoint supports verified
+repository snapshot results in a terminal job. Other jobs retain artifact downloads.
+
+Without a `path`, it returns the job, server identity, manifest digest, archive
+digest, execution evidence, and entry metadata. Entries include `agent-runner.log`,
+`report.json`, and validated test logs. Each entry reports its path, byte size,
+SHA-256 digest, and whether its contents are UTF-8 text.
+
+Supply `path` to read one text entry. `offset` is a nonnegative byte offset.
+`limit` defaults to 16384 bytes and permits 4 through 65536 bytes. The response
+contains `chunk.path`, `offset`, `next_offset`, `eof`, and `text`. Use the returned
+`next_offset` for another page. The server preserves UTF-8 character boundaries.
+Pass the index's `archive_sha256` on each page to reject a changed archive.
+
+The server checks the complete archive, its digest, report identity, requested
+test commands, test log digests, and saved evidence before returning text. It
+reads one descriptor beneath the artifact root and never extracts archive files.
+Responses disable caching. Invalid queries return 400, missing entries return 404,
+and non-UTF-8 text requests return 415. Changed or unverified evidence returns
+409 with a corrective action. No rejected response includes a log prefix.

@@ -340,12 +340,31 @@ func TestEnsureBrowserToken_GeneratesWhenMissing(t *testing.T) {
 	if w.Code != http.StatusUnauthorized || called {
 		t.Errorf("anonymous /api after token generation: code=%d called=%v, want 401/false", w.Code, called)
 	}
-	req.Header.Set("X-Dashboard-Token", srv.browserToken)
+	enroll := httptest.NewRequest(http.MethodPost, "http://127.0.0.1:8080/auth/enroll", nil)
+	enroll.Header.Set("Origin", "http://127.0.0.1:8080")
+	enroll.Header.Set("X-Requested-With", "XMLHttpRequest")
+	enroll.Header.Set("Authorization", "Bearer "+srv.browserToken)
+	exchange := httptest.NewRecorder()
+	srv.enrollBrowser(exchange, enroll)
+	if exchange.Code != http.StatusNoContent {
+		t.Fatalf("enrollment: %d", exchange.Code)
+	}
+	cookie := exchange.Result().Cookies()[0]
+	if !cookie.HttpOnly || cookie.SameSite != http.SameSiteStrictMode {
+		t.Fatal("insecure session cookie")
+	}
+	req.AddCookie(cookie)
 	w = httptest.NewRecorder()
 	h.ServeHTTP(w, req)
 	if w.Code != http.StatusOK || !called {
-		t.Errorf("minted token rejected: code=%d called=%v, want 200/true", w.Code, called)
+		t.Fatal("session rejected")
 	}
+	replay := httptest.NewRecorder()
+	srv.enrollBrowser(replay, enroll)
+	if replay.Code != http.StatusUnauthorized {
+		t.Fatal("enrollment code reused")
+	}
+
 }
 
 // TestEnsureBrowserToken_KeepsConfigured verifies an operator-supplied token is

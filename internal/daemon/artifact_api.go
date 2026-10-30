@@ -107,6 +107,19 @@ func (api *ArtifactAPI) handleUpload(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
+	immutableResult := strings.HasPrefix(relPath, "repository-results/")
+	if immutableResult {
+		if !repositoryResultPathPattern.MatchString(relPath) {
+			writeError(w, 400, "invalid repository result artifact path")
+			return
+		}
+		release, err := api.store.LockJobSubmission(r.Context(), "artifact:"+jobID, relPath)
+		if err != nil {
+			writeError(w, 409, "repository result upload is busy")
+			return
+		}
+		defer release()
+	}
 	jobDir, err := api.jobDir(jobID)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
@@ -185,9 +198,35 @@ func (api *ArtifactAPI) handleUpload(w http.ResponseWriter, r *http.Request) {
 		_ = os.Remove(tmpPath)
 		return
 	}
+	if immutableResult {
+		artifacts, err := api.store.ListArtifactsByJob(r.Context(), jobID)
+		if err != nil {
+			os.Remove(tmpPath)
+			writeError(w, 500, "failed to inspect existing result artifacts")
+			return
+		}
+		for _, artifact := range artifacts {
+			if artifact.Path != relPath {
+				continue
+			}
+			os.Remove(tmpPath)
+			digest := hex.EncodeToString(hash.Sum(nil))
+			if artifact.Sha256 != digest || artifact.SizeBytes != size || !artifactFileMatches(targetPath, digest, size) {
+				writeError(w, 409, "repository result artifacts are immutable")
+				return
+			}
+			writeJSON(w, 200, V1ArtifactUploadResponse{JobID: jobID, Artifact: artifactMetadata(artifact)})
+			return
+		}
+	}
 	if err := os.Rename(tmpPath, targetPath); err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to finalize artifact")
 		_ = os.Remove(tmpPath)
+		return
+	}
+
+	if err := syncRepositoryDirectory(filepath.Dir(targetPath)); err != nil {
+		writeError(w, 500, "failed to persist artifact directory")
 		return
 	}
 

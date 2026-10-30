@@ -25,7 +25,7 @@ LDFLAGS := -s -w \
 	-X 'github.com/agentlab/agentlab/internal/buildinfo.Commit=$(COMMIT)' \
 	-X 'github.com/agentlab/agentlab/internal/buildinfo.Date=$(DATE)'
 
-.PHONY: all build build-ssh-gateway lint quality staticcheck govulncheck test test-ci test-coverage test-race test-integration test-all fuzz coverage-audit coverage-html docs-tools docs-lint docs-links docs-typos docs-snippets docs-check docs-gen docs-verify release-snapshot release-check clean
+.PHONY: all build build-ssh-gateway lint quality staticcheck govulncheck test test-ci test-coverage test-race test-integration test-all fuzz coverage-audit coverage-html docs-tools docs-lint docs-links docs-typos docs-snippets docs-check docs-gen docs-verify release-snapshot release-check release-smoke clean
 
 # Note: This project requires Go 1.24.0 or higher. Running 'go version' will show the installed version.
 
@@ -140,7 +140,7 @@ docs-typos:
 	"$(TOOLS_DIR)/typos" --config _typos.toml $(DOCS_MD)
 
 docs-snippets:
-	./scripts/dev/docs_snippets_check.sh $(DOCS_MD)
+	./scripts/dev/docs_snippets_check.sh $(DOCS_MD) $(wildcard skills/agentlab/*.md)
 
 docs-check: docs-lint docs-links docs-typos docs-snippets
 
@@ -161,5 +161,13 @@ release-snapshot:
 release-check:
 	$(GORELEASER) check
 
+release-smoke:
+	python3 scripts/tests/release_snapshot_smoke.py --dist $(DIST_DIR)
+
 clean:
 	rm -rf $(BIN_DIR) $(DIST_DIR)
+
+# The optional transport experiment has its own module and toolchain.
+.PHONY: tailcat-prototype-check
+tailcat-prototype-check:
+	GOTOOLCHAIN=go1.27.1 $(GO) -C experiments/tailcat test -tags=integration ./...

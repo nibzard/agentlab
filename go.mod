@@ -4,10 +4,13 @@ go 1.26.10
 
 require (
 	filippo.io/age v1.3.1
+	github.com/ebitengine/purego v0.11.2
+	github.com/godbus/dbus/v5 v5.2.4
 	github.com/mattn/go-isatty v0.0.20
 	github.com/prometheus/client_golang v1.19.0
 	github.com/stretchr/testify v1.10.0
 	golang.org/x/crypto v0.52.0
+	golang.org/x/term v0.43.0
 	gopkg.in/yaml.v3 v3.0.1
 	modernc.org/sqlite v1.44.3
 )

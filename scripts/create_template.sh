@@ -30,6 +30,7 @@ Options:
   --image-sha256 <sha>     Verify image SHA256 checksum (hex)
   --image-sha256-url <url> Fetch SHA256SUMS from URL and verify image
   --cache-dir <dir>        Cache directory for images (default: /var/lib/agentlab/images)
+  --repository-tool <path> Trusted daemon binary with the local result exporter
   --packages <list>        Comma/space separated package list
   --skip-customize         Skip virt-customize package/user prep
   --skip-agent-tools       Skip installing agent CLIs + wrapper
@@ -69,6 +70,7 @@ SKIP_CUSTOMIZE=0
 SKIP_AGENT_TOOLS=0
 REFRESH=0
 
+REPOSITORY_TOOL="/usr/local/bin/agentlabd"
 AGENTLAB_AGENT_WRAPPER="${SCRIPT_DIR}/guest/agentlab-agent"
 AGENTLAB_BOOTSTRAP_SCRIPT="${SCRIPT_DIR}/guest/agent-bootstrap"
 AGENTLAB_RUNNER_SCRIPT="${SCRIPT_DIR}/guest/agent-runner"
@@ -93,6 +95,11 @@ ensure_package() {
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
+    --repository-tool)
+      [[ $# -lt 2 ]] && die "--repository-tool requires a value"
+      REPOSITORY_TOOL="$2"
+      shift 2
+      ;;
     --customize-only)
       CUSTOMIZE_ONLY=1
       shift
@@ -254,6 +261,9 @@ EOF
 fi
 
 if [[ "$SKIP_CUSTOMIZE" == "0" ]]; then
+  [[ -f "$REPOSITORY_TOOL" && -x "$REPOSITORY_TOOL" ]] || die "repository tool is missing; install agentlabd or pass --repository-tool"
+  "$REPOSITORY_TOOL" repo-result --help >/dev/null || die "repository tool does not support local result export"
+  "$REPOSITORY_TOOL" execution-check --help >/dev/null || die "repository tool does not support execution evidence validation"
   [[ -f "$AGENTLAB_RUNNER_SCRIPT" ]] || die "agent-runner script not found at $AGENTLAB_RUNNER_SCRIPT"
   [[ -f "$AGENTLAB_RUNNER_SERVICE" ]] || die "agent-runner service not found at $AGENTLAB_RUNNER_SERVICE"
   [[ -f "$AGENTLAB_RUNNER_ENV" ]] || die "agent-runner env not found at $AGENTLAB_RUNNER_ENV"
@@ -402,6 +412,10 @@ if [[ "$SKIP_CUSTOMIZE" == "0" ]]; then
     --run-command "chmod 0755 /usr/local/bin/agent-bootstrap"
     --run-command "systemctl enable agent-bootstrap-refresh.timer"
     --upload "${AGENTLAB_RUNNER_SCRIPT}:/usr/local/bin/agent-runner"
+    --upload "${REPOSITORY_TOOL}:/usr/local/bin/agentlab-repository"
+    --run-command "chmod 0755 /usr/local/bin/agentlab-repository"
+    --run-command "/usr/local/bin/agentlab-repository repo-result --help >/dev/null"
+    --run-command "/usr/local/bin/agentlab-repository execution-check --help >/dev/null"
     --upload "${AGENTLAB_RUNNER_SERVICE}:/etc/systemd/system/agent-runner.service"
     --upload "${AGENTLAB_RUNNER_ENV}:/etc/agentlab/agent-runner.env"
     --upload "${AGENTLAB_SECRETS_CLEANUP_SCRIPT}:/usr/local/bin/agent-secrets-cleanup"
@@ -448,8 +462,8 @@ if [[ "$SKIP_CUSTOMIZE" == "0" ]]; then
   fi
 
   virt_args+=(
-    --run-command 'export PATH="/usr/local/sbin:/usr/local/bin:$PATH"; set -e; for executable in tailscale agent-bootstrap agent-runner sshd qemu-ga jq curl openssl flock; do command -v "$executable" >/dev/null || { echo "Missing required executable: $executable" >&2; exit 1; }; done; for service in tailscaled agent-runner qemu-guest-agent ssh; do systemctl is-enabled "$service" >/dev/null || { echo "Required service is not enabled: $service" >&2; exit 1; }; done; test ! -e /var/lib/agentlab/identity || { echo "Unexpected guest recovery identity" >&2; exit 1; }; test ! -e /var/lib/tailscale/tailscaled.state || { echo "Unexpected Tailscale enrollment state" >&2; exit 1; }'
-    --run-command "jq -n --arg tailscale \"\$(tailscale version | head -1)\" --arg ssh \"\$(/usr/sbin/sshd -V 2>&1)\" --arg qga \"\$(qemu-ga --version | head -1)\" --arg claude \"\$(command -v claude >/dev/null && claude --version || true)\" --arg codex \"\$(command -v codex >/dev/null && codex --version || true)\" --arg opencode \"\$(command -v opencode >/dev/null && opencode --version || true)\" '{tailscale:\$tailscale,agent_runner:\"v2\",ssh:\$ssh,qemu_guest_agent:\$qga,claude:\$claude,codex:\$codex,opencode:\$opencode}' > /etc/agentlab/template-capabilities.json"
+    --run-command 'export PATH="/usr/local/sbin:/usr/local/bin:$PATH"; set -e; for executable in tailscale agent-bootstrap agent-runner agentlab-repository sshd qemu-ga jq curl openssl flock; do command -v "$executable" >/dev/null || { echo "Missing required executable: $executable" >&2; exit 1; }; done; for service in tailscaled agent-runner qemu-guest-agent ssh; do systemctl is-enabled "$service" >/dev/null || { echo "Required service is not enabled: $service" >&2; exit 1; }; done; test ! -e /var/lib/agentlab/identity || { echo "Unexpected guest recovery identity" >&2; exit 1; }; test ! -e /var/lib/tailscale/tailscaled.state || { echo "Unexpected Tailscale enrollment state" >&2; exit 1; }'
+    --run-command "jq -n --arg tailscale \"\$(tailscale version | head -1)\" --arg ssh \"\$(/usr/sbin/sshd -V 2>&1)\" --arg qga \"\$(qemu-ga --version | head -1)\" --arg claude \"\$(command -v claude >/dev/null && claude --version || true)\" --arg codex \"\$(command -v codex >/dev/null && codex --version || true)\" --arg opencode \"\$(command -v opencode >/dev/null && opencode --version || true)\" '{tailscale:\$tailscale,agent_runner:\"v3\",repository_result:\"v1\",ssh:\$ssh,qemu_guest_agent:\$qga,claude:\$claude,codex:\$codex,opencode:\$opencode}' > /etc/agentlab/template-capabilities.json"
     --run-command 'rm -f /etc/ssh/ssh_host_* /var/lib/dbus/machine-id; truncate -s 0 /etc/machine-id; rm -rf /var/lib/cloud/* /var/lib/tailscale/* /var/lib/agentlab/identity /run/agentlab-bootstrap /etc/agentlab/bootstrap.json; cloud-init clean --logs'
   )
   virt-customize "${virt_args[@]}"

@@ -54,14 +54,16 @@ func runCompletionCommand(args []string, base commonFlags) error {
 var (
 	topLevelCommands = []string{
 		"new", "ls", "rm", "show", "start", "stop",
-		"status", "schema", "init", "bootstrap",
+		"status", "schema", "capabilities", "repo", "skill", "init", "bootstrap",
 		"job", "sandbox", "workspace", "session", "template",
 		"profile", "secrets", "msg", "ssh", "logs",
-		"connect", "disconnect", "token", "integration",
+		"setup", "operation", "connect", "disconnect", "context", "dashboard", "token", "integration",
 		"user", "team", "defaults", "version", "completion",
 	}
 
-	jobSubcommands     = []string{"run", "validate", "show", "artifacts", "doctor"}
+	skillSubcommands   = []string{"show", "export"}
+	repoSubcommands    = []string{"snapshot", "result", "upload", "show", "remove"}
+	jobSubcommands     = []string{"run", "validate", "show", "artifacts", "doctor", "cancel", "result", "cleanup"}
 	sandboxSubcommands = []string{
 		"new", "validate", "list", "inventory", "reconcile",
 		"show", "update", "start", "stop", "pause", "resume",
@@ -71,14 +73,14 @@ var (
 	sandboxSnapshotSubcommands = []string{"save", "list", "restore"}
 	workspaceSubcommands       = []string{
 		"create", "list", "check", "fsck",
-		"attach", "detach", "lease", "rebind", "fork", "snapshot",
+		"attach", "detach", "lease", "rebind", "fork", "fork-status", "fork-resume", "snapshot",
 	}
 	workspaceSnapshotSubcommands = []string{"create", "list", "restore"}
 	sessionSubcommands           = []string{
 		"create", "list", "show", "resume", "stop",
 		"fork", "branch", "doctor",
 	}
-	tokenSubcommands       = []string{"create", "list", "inspect"}
+	tokenSubcommands       = []string{"enroll", "renew", "create", "list", "inspect", "revoke", "status"}
 	integrationSubcommands = []string{"add", "list", "rm", "status"}
 	userSubcommands        = []string{"add", "list", "rm"}
 	teamSubcommands        = []string{"add", "members", "rm"}
@@ -126,6 +128,22 @@ _agentlab_completion() {
 
 	# Flag completions per command
 	case "$cmd" in
+        context)
+            if [[ "$prev" == "--credential-store" ]]; then
+                COMPREPLY=($(compgen -W "auto os file" -- "$cur"))
+            else
+                COMPREPLY=($(compgen -W "list use credentials credentials-pending credentials-cleanup --credential-store --json --help" -- "$cur"))
+            fi
+            return
+            ;;
+        connect)
+            if [[ "$prev" == "--credential-store" ]]; then
+                COMPREPLY=($(compgen -W "auto os file" -- "$cur"))
+            else
+                COMPREPLY=($(compgen -W "--endpoint --context --token-stdin --credential-store --jump-host --jump-user --allow-insecure-http --json --help" -- "$cur"))
+            fi
+            return
+            ;;
 		new)
 			COMPREPLY=($(compgen -W "--name --ttl --keepalive --workspace --vmid --job --and-ssh --type --image --prompt --profile --json --help -h" -- "$cur"))
 			return
@@ -134,11 +152,30 @@ _agentlab_completion() {
 			COMPREPLY=($(compgen -W "--json --help -h" -- "$cur"))
 			return
 			;;
+		skill)
+ case "$subcmd" in
+ "") COMPREPLY=($(compgen -W "` + strings.Join(skillSubcommands, " ") + `" -- "$cur")) ;;
+ export) COMPREPLY=($(compgen -W "--out --json --help" -- "$cur")) ;;
+ *) COMPREPLY=($(compgen -W "--json --help" -- "$cur")) ;;
+ esac
+ return
+ ;;
+		repo)
+			case "$subcmd" in
+				"") COMPREPLY=($(compgen -W "` + strings.Join(repoSubcommands, " ") + `" -- "$cur")) ;;
+				result) COMPREPLY=($(compgen -W "--repo --base-revision --out --json --help" -- "$cur")) ;;
+				snapshot) COMPREPLY=($(compgen -W "--repo --out --json --help" -- "$cur")) ;;
+				upload) COMPREPLY=($(compgen -W "--manifest --json --help" -- "$cur")) ;;
+				*) COMPREPLY=($(compgen -W "--json --help" -- "$cur")) ;;
+			esac
+			return
+			;;
 		job)
 			case "$subcmd" in
 				"") COMPREPLY=($(compgen -W "` + strings.Join(jobSubcommands, " ") + `" -- "$cur")) ;;
 				run|validate)
-					COMPREPLY=($(compgen -W "--repo --task --profile --ref --branch --mode --ttl --keepalive --workspace --workspace-create --workspace-size --workspace-storage --workspace-wait --stateful --json --help" -- "$cur")) ;;
+					COMPREPLY=($(compgen -W "--repo --task --test-command --profile --ref --branch --mode --ttl --keepalive --workspace --workspace-create --workspace-size --workspace-storage --workspace-wait --stateful --json --help" -- "$cur")) ;;
+				result) COMPREPLY=($(compgen -W "--out --json --help" -- "$cur")) ;;
 				show) COMPREPLY=($(compgen -W "--events-tail --json --help" -- "$cur")) ;;
 				artifacts)
 					if [[ "$subsub" == "download" ]]; then
@@ -218,7 +255,11 @@ _agentlab_completion() {
 		token)
 			case "$subcmd" in
 				"") COMPREPLY=($(compgen -W "` + strings.Join(tokenSubcommands, " ") + `" -- "$cur")) ;;
+				enroll) COMPREPLY=($(compgen -W "--save-context --context --key --cmds --scope --ttl --subject --credential-store --json --help" -- "$cur")) ;;
+renew) COMPREPLY=($(compgen -W "--context --request-id --key --ttl --json --help" -- "$cur")) ;;
 				create) COMPREPLY=($(compgen -W "--key --cmds --scope --ttl --subject --json --help" -- "$cur")) ;;
+                inspect) COMPREPLY=($(compgen -W "--token-stdin --json --help" -- "$cur")) ;;
+                revoke|status) COMPREPLY=($(compgen -W "--issuer --json --help" -- "$cur")) ;;
 				*) COMPREPLY=($(compgen -W "--json --help" -- "$cur")) ;;
 			esac
 			return
@@ -268,7 +309,7 @@ _agentlab_completion() {
 	esac
 
 	# Global flags fallback
-	COMPREPLY=($(compgen -W "--endpoint --token --socket --json --timeout --version --help -h" -- "$cur"))
+	COMPREPLY=($(compgen -W "--context --endpoint --token --socket --json --timeout --version --help -h" -- "$cur"))
 }
 complete -F _agentlab_completion agentlab
 `
@@ -286,6 +327,7 @@ _agentlab() {
 	typeset -A opt_args
 
 	_arguments -C \
+		'--context[Named server context]:name:' \
 		'--endpoint[Control plane endpoint]:url:' \
 		'--token[Auth token]:token:' \
 		'--socket[Daemon socket path]:path:_files' \
@@ -309,6 +351,8 @@ _agentlab() {
 				'schema:Show API schema'
 				'init:Initialize agentlab'
 				'bootstrap:Bootstrap a remote host'
+				'repo:Prepare and upload repository snapshots'
+                'skill:Inspect and export the packaged agent skill'
 				'job:Manage jobs'
 				'sandbox:Manage sandboxes'
 				'workspace:Manage workspaces'
@@ -318,7 +362,8 @@ _agentlab() {
 				'msg:Message box'
 				'ssh:SSH into a sandbox'
 				'logs:View sandbox logs'
-				'connect:Connect to control plane'
+				'context:Manage server contexts and credential storage'
+                'connect:Connect to control plane'
 				'disconnect:Disconnect from control plane'
 				'token:Manage API tokens'
 				'integration:Manage integrations'
@@ -332,14 +377,34 @@ _agentlab() {
 			;;
 		args)
 			case $words[1] in
+                context)
+                    _arguments '--credential-store[Credential storage]:store:(auto os file)' '1:subcommand:(list use credentials credentials-pending credentials-cleanup)'
+                    ;;
+                connect)
+                    _arguments '--credential-store[Credential storage]:store:(auto os file)' '--token-stdin[Read credential from protected stdin]' '--context[Save named context]:name:'
+                    ;;
+                skill)
+                    case $words[2] in
+                        export) _arguments '--out[Unused skill directory]:path:_files -/' ;;
+                        *) _describe 'skill subcommand' '(show export)' ;;
+                    esac
+                    ;;
+				repo)
+					case $words[2] in
+						snapshot) _arguments '--repo[Source worktree]:path:_files -/' '--out[Output directory]:path:_files -/' ;;
+						upload) _arguments '--manifest[Snapshot manifest]:path:_files' ;;
+						*) _describe 'repo subcommand' '(snapshot result upload show remove)' ;;
+					esac
+					;;
 				job)
 					case $words[2] in
-						run) _arguments '--repo[Repository URL]:url:' '--task[Task description]:task:' '--profile[Profile name]:profile:' '--ref[Git ref]:ref:' '--branch[Git branch]:branch:' '--mode[Mode]:mode:' '--ttl[Time to live]:duration:' '--keepalive[Keep alive]' '--workspace[Workspace]:workspace:' '--stateful[Stateful]' ;;
-						validate) _arguments '--repo[Repository URL]:url:' '--task[Task description]:task:' '--profile[Profile name]:profile:' ;;
+						run) _arguments '--repo[Repository URL]:url:' '--task[Task description]:task:' '*--test-command[Test command]:command:' '--profile[Profile name]:profile:' '--ref[Git ref]:ref:' '--branch[Git branch]:branch:' '--mode[Mode]:mode:' '--ttl[Time to live]:duration:' '--keepalive[Keep alive]' '--workspace[Workspace]:workspace:' '--stateful[Stateful]' ;;
+						validate) _arguments '--repo[Repository URL]:url:' '--task[Task description]:task:' '*--test-command[Test command]:command:' '--profile[Profile name]:profile:' ;;
+						result) _arguments '--out[Private result directory]:path:_files -/' ;;
 						show) _arguments '--events-tail[Tail events]:n:' ;;
 						artifacts) _arguments '2:subcommand:(download)' ;;
 						doctor) _arguments '--out[Output path]:path:_files' ;;
-						*) _describe 'job subcommand' '(run validate show artifacts doctor)' ;;
+						*) _describe 'job subcommand' '(run validate show artifacts doctor cancel result cleanup)' ;;
 					esac
 					;;
 				sandbox)
@@ -353,7 +418,7 @@ _agentlab() {
 					case $words[2] in
 						create) _arguments '--name[Name]:name:' '--size[Size]:size:' '--storage[Storage]:storage:' ;;
 						snapshot) _describe 'snapshot subcommand' '(create list restore)' ;;
-						*) _describe 'workspace subcommand' '(create list check fsck attach detach lease rebind fork snapshot)' ;;
+						*) _describe 'workspace subcommand' '(create list check fsck attach detach lease rebind fork fork-status fork-resume snapshot)' ;;
 					esac
 					;;
 				session)
@@ -363,7 +428,12 @@ _agentlab() {
 					esac
 					;;
 				token)
-					_describe 'token subcommand' '(create list inspect)' ;;
+                    case $words[2] in
+                        inspect) _arguments '--token-stdin[Read target token from protected stdin]' ;;
+                        revoke|status) _arguments '--issuer[SSH issuer fingerprint]:fingerprint:' ;;
+                        *) _describe 'token subcommand' '(enroll renew create list inspect revoke status)' ;;
+                    esac
+                    ;;
 				integration)
 					_describe 'integration subcommand' '(add list rm status)' ;;
 				user)
@@ -416,6 +486,10 @@ complete -c agentlab -n '__fish_use_subcommand' -a 'msg' -d 'Message box'
 complete -c agentlab -n '__fish_use_subcommand' -a 'ssh' -d 'SSH into sandbox'
 complete -c agentlab -n '__fish_use_subcommand' -a 'logs' -d 'View logs'
 complete -c agentlab -n '__fish_use_subcommand' -a 'connect' -d 'Connect to control plane'
+complete -c agentlab -n '__fish_use_subcommand' -a 'context' -d 'Manage server contexts and credential storage'
+complete -c agentlab -n '__fish_seen_subcommand_from context' -a 'list use credentials credentials-pending credentials-cleanup'
+complete -c agentlab -n '__fish_seen_subcommand_from context connect' -l credential-store -r -f -a 'auto os file' -d 'Credential storage'
+
 complete -c agentlab -n '__fish_use_subcommand' -a 'disconnect' -d 'Disconnect'
 complete -c agentlab -n '__fish_use_subcommand' -a 'token' -d 'Manage API tokens'
 complete -c agentlab -n '__fish_use_subcommand' -a 'integration' -d 'Manage integrations'
@@ -434,7 +508,26 @@ complete -c agentlab -l timeout -d 'Request timeout' -r
 complete -c agentlab -l version -d 'Print version'
 complete -c agentlab -l help -s h -d 'Show help'
 
+# Token subcommands
+complete -c agentlab -n '__fish_seen_subcommand_from token' -a 'create list inspect revoke status'
+complete -c agentlab -n '__fish_seen_subcommand_from token; and __fish_seen_subcommand_from inspect' -l token-stdin -d 'Read target token from protected stdin'
+complete -c agentlab -n '__fish_seen_subcommand_from token; and __fish_seen_subcommand_from revoke status' -l issuer -r -d 'SSH issuer fingerprint'
+
+# Skill subcommands
+complete -c agentlab -n '__fish_use_subcommand' -a 'skill' -d 'Packaged agent skill'
+complete -c agentlab -n '__fish_seen_subcommand_from skill' -a 'show export'
+complete -c agentlab -n '__fish_seen_subcommand_from skill; and __fish_seen_subcommand_from export' -l out -r -d 'Unused skill directory'
+
+# Repository subcommands
+complete -c agentlab -n '__fish_use_subcommand' -a 'repo' -d 'Repository snapshots'
+complete -c agentlab -n '__fish_seen_subcommand_from repo' -a 'snapshot result upload show remove'
+complete -c agentlab -n '__fish_seen_subcommand_from snapshot' -l repo -r -d 'Source worktree'
+complete -c agentlab -n '__fish_seen_subcommand_from snapshot' -l out -r -d 'Output directory'
+complete -c agentlab -n '__fish_seen_subcommand_from upload' -l manifest -r -d 'Snapshot manifest'
+
 # Job subcommands
+complete -c agentlab -n '__fish_seen_subcommand_from job' -a 'cleanup' -d 'Resume verified result cleanup'
+complete -c agentlab -n '__fish_seen_subcommand_from job' -a 'result' -d 'Collect verified repository results'
 complete -c agentlab -n '__fish_seen_subcommand_from job' -a 'run' -d 'Run a job'
 complete -c agentlab -n '__fish_seen_subcommand_from job' -a 'validate' -d 'Validate job config'
 complete -c agentlab -n '__fish_seen_subcommand_from job' -a 'show' -d 'Show job details'

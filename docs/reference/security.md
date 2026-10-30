@@ -28,6 +28,104 @@ The local Unix socket bypasses the auth wrapper; `ControlAPI.authorize` treats
 it as full-access. Remote TCP traffic is wrapped with `WrapNetwork` and scoped
 per-route by the handlers. Token comparison is constant-time.
 
+## Client credential storage
+
+New connections save credential references in the context metadata. On Linux,
+auto selection uses an existing, unlocked Secret Service. The client sends
+records over an authenticated local Unix D-Bus connection using a plain session;
+the credential service controls encryption at rest. References are scoped to
+AgentLab and the absolute configuration directory. The client does not use a
+shell or place credentials in process arguments.
+
+The protected-file fallback uses private directories and mode `0600` files.
+`--credential-store file` selects it explicitly for unattended use. Missing or
+locked native references fail without a file or transport fallback. Credential
+operations have a five-second deadline and do not unlock collections or display
+prompts. Invalid or ambiguous native records require repair or reconnection.
+
+Replacement verifies the new record before changing the context. Old references
+are retired durably and removed after the change. Failed cleanup is explicit and
+can resume with `context credentials-cleanup`. Before creating a credential,
+the client saves a private transaction record. It contains the context, store,
+reference, transaction ID, configuration binding, and a digest, without the token.
+An integrity checksum also binds the intent's storage selector and metadata.
+New credential records carry the transaction ID and reference. File records are
+staged privately and published without replacing another entry.
+
+Recovery inspects committed context references before deleting anything.
+It preserves active credentials, removes owned partial file stages, and deletes
+unreferenced records only when the transaction ID, reference, and digest match.
+Changed values, invalid journals, and unavailable stores block cleanup. Pending
+writes are visible through `context credentials-pending`. These local commands
+can run without loading connection credentials or legacy client settings.
+
+The journal is bound to the absolute configuration directory. It does not search
+for arbitrary credentials or adopt records created by older clients without an
+intent. Process-exit tests cover the write boundaries. System power-loss and
+native desktop acceptance remain unverified. Legacy `client.json` files remain
+available for recovery and can contain older credentials.
+
+On macOS, the native adapter uses the default file-based Keychain. It calls the
+Security and Core Foundation frameworks through pinned purego bindings. Each call
+runs in a child of the current executable with a five-second deadline. The worker
+receives records through a private pipe. Its fixed arguments and filtered
+environment contain no credential. Diagnostic output is discarded. Core dumps
+are disabled in the worker.
+
+The worker disables legacy Keychain interaction before obtaining the default
+Keychain. Item queries also disallow authentication UI. It never creates or
+unlocks a Keychain, enables synchronization, or grants access to all applications.
+Add rejects an existing reference. Read and delete search only the selected
+Keychain, configuration scope, and random reference. Invalid and ambiguous
+records block access. The context records `macos-keychain` as its storage kind.
+Credential journals and retirement use the same ownership checks as other stores.
+
+Native error responses remain structured and contain no Keychain diagnostics.
+Locked and denied stores block without switching to files. A signed or upgraded
+binary can require macOS access approval. AgentLab does not bypass that approval.
+Portable fixtures and cross-compilation do not establish native macOS acceptance.
+Run the native checks on both supported Mac architectures before closing that gate.
+
+## SSH token revocation
+
+The control listener checks SSH token signatures, validity times, and durable
+revocation state before admitting each request. At the token's Unix expiry
+second, new requests are rejected. A revocation takes effect for checks after
+its database commit. Already authenticated requests can finish.
+
+`token_revocation` advertises per-token revocation for SSH tokens with a signed
+`jti`. Secure inspection returns a non-secret `revocation_id` that binds the
+issuer and signed ID. The store contains this digest, issuer, first actor,
+server identity, and timestamp. It stores no credential or raw signed ID.
+Identical requests preserve the first audit record. Tombstones remain after
+expiry, so reusing an ID does not restore access.
+
+Credential management is global. Revocation requires `token.revoke`; status
+requires `token.read`. Both reject sandbox-scoped credentials. A mutation also
+requires the expected server identity. The CLI checks a known context identity
+at its saved endpoint before sending the request.
+
+A revoked token receives HTTP 401 with code `v1/auth/token_revoked`.
+An expired token receives HTTP 401 with code `v1/auth/token_expired`.
+A failed revocation lookup receives HTTP 503 with code
+`v1/auth/credential_status_unavailable`. These errors preserve the `error` field
+and add `code`, `action`, `retryable`, `state`, and `requirement`. The dashboard preserves upstream
+status and errors. No legacy-token or transport fallback overrides those errors.
+
+Revocation is local to the selected server. It does not cancel jobs, close
+already admitted streams, revoke independent guest credentials, or retire a
+signing key. A fresh signed ID remains usable under that key's authority.
+Remove a retired key from `authorized_keys` and restart the daemon to reload
+its trusted key set.
+
+SSH tokens without `jti` cannot be revoked individually. The legacy static
+control credential also has no per-token identity; `legacy_token_revocation`
+remains false. Replace it through the existing control-token rotation workflow.
+Database backups must preserve revocation records. Migration 27 adds the store.
+
+See [scoped agent tokens](../how-to/mint-scoped-tokens-for-an-agent.md) for secure
+inspection, revocation, and the supported CLI commands.
+
 ## Remote control requirements
 
 `control_listen` rules, validated at startup:

@@ -4,6 +4,7 @@ package db
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
@@ -61,9 +62,13 @@ func (s *Store) CreateJob(ctx context.Context, job models.Job) error {
 	if job.ResultJSON != "" {
 		result = job.ResultJSON
 	}
-	_, err := s.DB.ExecContext(ctx, `INSERT INTO jobs (
-		id, repo_url, ref, profile, status, sandbox_vmid, task, mode, ttl_minutes, keepalive, workspace_id, session_id, created_at, updated_at, result_json
-	) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+	commands, err := json.Marshal(job.TestCommands)
+	if err != nil {
+		return err
+	}
+	_, err = s.DB.ExecContext(ctx, `INSERT INTO jobs (
+		id, repo_url, ref, profile, status, sandbox_vmid, task, mode, ttl_minutes, keepalive, workspace_id, session_id, created_at, updated_at, result_json, test_commands
+	) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		job.ID,
 		job.RepoURL,
 		job.Ref,
@@ -79,6 +84,7 @@ func (s *Store) CreateJob(ctx context.Context, job models.Job) error {
 		formatTime(createdAt),
 		formatTime(updatedAt),
 		result,
+		string(commands),
 	)
 	if err != nil {
 		return fmt.Errorf("insert job %s: %w", job.ID, err)
@@ -91,7 +97,7 @@ func (s *Store) GetJob(ctx context.Context, id string) (models.Job, error) {
 	if s == nil || s.DB == nil {
 		return models.Job{}, errors.New("db store is nil")
 	}
-	row := s.DB.QueryRowContext(ctx, `SELECT id, repo_url, ref, profile, task, mode, ttl_minutes, keepalive, status, sandbox_vmid, workspace_id, session_id, created_at, updated_at, result_json
+	row := s.DB.QueryRowContext(ctx, `SELECT id, repo_url, ref, profile, task, mode, ttl_minutes, keepalive, status, sandbox_vmid, workspace_id, session_id, created_at, updated_at, result_json, test_commands
 		FROM jobs WHERE id = ?`, id)
 	return scanJobRow(row)
 }
@@ -104,7 +110,7 @@ func (s *Store) GetJobBySandboxVMID(ctx context.Context, vmid int) (models.Job, 
 	if vmid <= 0 {
 		return models.Job{}, errors.New("vmid must be positive")
 	}
-	row := s.DB.QueryRowContext(ctx, `SELECT id, repo_url, ref, profile, task, mode, ttl_minutes, keepalive, status, sandbox_vmid, workspace_id, session_id, created_at, updated_at, result_json
+	row := s.DB.QueryRowContext(ctx, `SELECT id, repo_url, ref, profile, task, mode, ttl_minutes, keepalive, status, sandbox_vmid, workspace_id, session_id, created_at, updated_at, result_json, test_commands
 		FROM jobs WHERE sandbox_vmid = ?
 		ORDER BY created_at DESC LIMIT 1`, vmid)
 	return scanJobRow(row)
@@ -230,6 +236,7 @@ func scanJobRow(scanner interface{ Scan(dest ...any) error }) (models.Job, error
 	var createdAt string
 	var updatedAt string
 	var result sql.NullString
+	var commands string
 	if err := scanner.Scan(
 		&job.ID,
 		&job.RepoURL,
@@ -246,8 +253,12 @@ func scanJobRow(scanner interface{ Scan(dest ...any) error }) (models.Job, error
 		&createdAt,
 		&updatedAt,
 		&result,
+		&commands,
 	); err != nil {
 		return models.Job{}, err
+	}
+	if err := json.Unmarshal([]byte(commands), &job.TestCommands); err != nil {
+		return models.Job{}, fmt.Errorf("invalid stored test commands")
 	}
 	if task.Valid {
 		job.Task = task.String

@@ -479,3 +479,44 @@ details summary:hover {
 .exposure-url:hover {
   text-decoration: underline;
 }
+
+/* Connection, keyboard access, and narrow layouts. */
+.connection-panel {
+  padding: 16px;
+  margin-bottom: 20px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  overflow-wrap: anywhere;
+}
+.connection-panel h2 { font-size: 16px; }
+.connection-panel p, #job-results p, #sandbox-plan-review { margin: 8px 0; }
+#job-results h4 { margin-top: 18px; }
+#job-results { overflow-wrap: anywhere; }
+a { color: #a5b4fc; }
+.error { color: #fca5a5; }
+button:disabled { opacity: 0.55; cursor: not-allowed; }
+:focus-visible { outline: 3px solid #c7d2fe !important; outline-offset: 3px; }
+.skip-link { position: absolute; left: 12px; top: -80px; z-index: 200; padding: 12px; background: var(--surface); }
+.skip-link:focus { top: 8px; }
+.modal-content { max-width: calc(100vw - 24px); overflow-wrap: anywhere; }
+.modal-content input[type="checkbox"] { display: inline; width: auto; }
+.data-table { display: block; overflow-x: auto; }
+.data-table tbody, .data-table thead { min-width: 100%; }
+@media (max-width: 760px) {
+  nav { height: auto; min-height: 56px; flex-wrap: wrap; gap: 8px; padding: 12px; }
+  .nav-tabs { order: 3; width: 100%; overflow-x: auto; }
+  .tab { padding: 8px 12px; }
+  main { padding: 12px; }
+  .status-bar, .view-header, .view-header-actions, .event-row { flex-wrap: wrap; gap: 8px; }
+  .status-host { margin-left: 0; }
+  .modal-actions { flex-wrap: wrap; }
+  .modal-content { padding: 16px; max-height: 90dvh; }
+  .empty-state { padding: 24px; }
+}
+
+.execution-logs { margin-top: 1rem; min-width: 0; }
+.execution-logs label { display: grid; gap: .5rem; }
+.execution-logs select { width: 100%; min-width: 0; }
+.execution-log-text { max-height: 24rem; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; padding: .75rem; border: 1px solid var(--border); }
+.execution-log-controls { display: flex; flex-wrap: wrap; gap: .5rem; margin-top: .5rem; }

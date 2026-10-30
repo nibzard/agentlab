@@ -172,6 +172,7 @@ main() {
   fi
 
   log "done! run 'agentlab --help' to get started."
+  log "run 'agentlab skill export --json' to locate the packaged agent skill."
 }
 
 main

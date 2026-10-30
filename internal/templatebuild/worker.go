@@ -12,6 +12,7 @@ import (
 	"path"
 	"path/filepath"
 	"regexp"
+	"runtime"
 	"strconv"
 	"strings"
 	"sync"
@@ -379,7 +380,11 @@ func (w *worker) execute(ctx context.Context) error {
 	if e = w.stage("customize"); e != nil {
 		return e
 	}
-	args := []string{filepath.Join(w.cfg.Assets, "create_template.sh"), "--customize-only", "--work-image", filepath.Join(w.cfg.Directory, "work.img"), "--image-file", image, "--image-sha256", digest, "--cache-dir", w.cfg.Cache, "--vmid", id, "--name", p.Name, "--disk-size", strconv.Itoa(p.DiskSizeGB) + "G"}
+	tool, err := w.pinRepositoryTool()
+	if err != nil {
+		return err
+	}
+	args := []string{filepath.Join(w.cfg.Assets, "create_template.sh"), "--repository-tool", tool, "--customize-only", "--work-image", filepath.Join(w.cfg.Directory, "work.img"), "--image-file", image, "--image-sha256", digest, "--cache-dir", w.cfg.Cache, "--vmid", id, "--name", p.Name, "--disk-size", strconv.Itoa(p.DiskSizeGB) + "G"}
 	if p.AgentTools != nil && !*p.AgentTools {
 		args = append(args, "--skip-agent-tools")
 	}
@@ -394,7 +399,7 @@ func (w *worker) execute(ctx context.Context) error {
 	if e = json.Unmarshal([]byte(raw), &versions); e != nil {
 		return fmt.Errorf("invalid guest capability manifest")
 	}
-	for _, key := range []string{"tailscale", "agent_runner", "ssh", "qemu_guest_agent"} {
+	for _, key := range []string{"tailscale", "agent_runner", "repository_result", "ssh", "qemu_guest_agent"} {
 		if versions[key] == "" {
 			return fmt.Errorf("template_capability_missing: %s", key)
 		}
@@ -692,4 +697,48 @@ func (w *worker) removePrivateDirectories() error {
 		}
 	}
 	return nil
+}
+
+// pinRepositoryTool copies the running trusted worker binary before image
+// customization. Later host upgrades cannot change the helper during a build.
+func (w *worker) pinRepositoryTool() (string, error) {
+	source := "/proc/self/exe"
+	if runtime.GOOS != "linux" {
+		path, err := os.Executable()
+		if err != nil {
+			return "", err
+		}
+		source = path
+	}
+	input, err := os.Open(source)
+	if err != nil {
+		return "", err
+	}
+	defer input.Close()
+	file, err := os.CreateTemp(w.cfg.Directory, ".repository-tool-*")
+	if err != nil {
+		return "", err
+	}
+	defer os.Remove(file.Name())
+	count, err := io.Copy(file, io.LimitReader(input, (128<<20)+1))
+	if err != nil || count > 128<<20 {
+		file.Close()
+		return "", fmt.Errorf("cannot pin the repository result tool")
+	}
+	if err := file.Chmod(0500); err != nil {
+		file.Close()
+		return "", err
+	}
+	if err := file.Sync(); err != nil {
+		file.Close()
+		return "", err
+	}
+	if err := file.Close(); err != nil {
+		return "", err
+	}
+	path := filepath.Join(w.cfg.Directory, "repository-tool")
+	if err := os.Rename(file.Name(), path); err != nil {
+		return "", err
+	}
+	return path, nil
 }

@@ -47,6 +47,11 @@ archives:
     ids: [agentlab]
     name_template: '{{ .ProjectName }}_{{ .Tag }}_{{ .Os }}-{{ .Arch }}'
     formats: [tar.gz]
+    files:
+      - LICENSE
+      - README.md
+      - third_party/purego/LICENSE
+      - third_party/purego/NOTICE.txt
   - id: agentlabd
     ids: [agentlabd]
     name_template: 'agentlabd_{{ .Tag }}_{{ .Os }}-{{ .Arch }}'

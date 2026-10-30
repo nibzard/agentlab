@@ -67,7 +67,7 @@ Validation rejects `0.0.0.0` and any non-loopback host.
 | `proxmox_node` | string | `""` (auto) | Proxmox node name. Auto-detected when empty. |
 | `proxmox_tls_insecure` | bool | `false` | Skip Proxmox TLS verification. Cannot be `true` when `proxmox_tls_ca_path` is set. |
 | `proxmox_tls_ca_path` | string | `""` | Optional CA bundle path for Proxmox API verification. |
-| `proxmox_api_shell_fallback` | bool | `false` | Let the API backend fall back to `pvesm` for volume snapshot and clone operations. |
+| `proxmox_api_shell_fallback` | bool | `false` | Enable the native local storage helper for snapshots and copies on a loopback API backend. API read failures stop the operation. |
 | `proxmox_command_timeout` | duration | `2m` | Timeout for a single Proxmox command. Must be non-negative. |
 | `provisioning_timeout` | duration | `10m` | Timeout for the whole VM provisioning process. Must be non-negative. |
 | `provision_sshkeys_native` | bool | `false` | For standalone sandboxes, inject `ssh_public_key` through native `sshkeys` with `ciuser=agent` and remove inherited `cicustom` overrides. Supported by both Proxmox backends. Job submissions are rejected because this mode does not deliver runner bootstrap credentials. Required when the daemon runs off-host with the `api` backend: snippet writes land on the daemon's own filesystem, where the Proxmox host cannot read them. Guests provisioned this way boot with the template's cloud-init plus the key and do not register a bootstrap token. |

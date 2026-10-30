@@ -11,11 +11,13 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	testutil "github.com/agentlab/agentlab/internal/testing"
 )
 
 func startUnixHTTPServer(t *testing.T, handler http.Handler) string {
 	t.Helper()
-	socketPath := filepath.Join(t.TempDir(), "agentlab.sock")
+	socketPath := filepath.Join(testutil.ShortSocketDir(t), "agentlab.sock")
 	listener, err := net.Listen("unix", socketPath)
 	if err != nil {
 		t.Fatalf("listen unix: %v", err)

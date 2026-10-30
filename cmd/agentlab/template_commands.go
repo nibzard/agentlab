@@ -399,6 +399,9 @@ func templateValidate(ctx context.Context, c *apiClient, p tb.Plan) ([]byte, err
 		return nil, e
 	}
 	defer resp.Body.Close()
+	if resp.StatusCode >= 300 && resp.StatusCode < 400 {
+		return nil, endpointRedirectError()
+	}
 	data, e := io.ReadAll(io.LimitReader(resp.Body, maxJSONOutputBytes))
 	if e != nil {
 		return nil, e

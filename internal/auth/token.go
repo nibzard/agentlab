@@ -166,6 +166,27 @@ func CreateToken(signer ssh.Signer, req TokenCreateRequest) (string, error) {
 // within its validity period. The caller should additionally check scope
 // and command permissions.
 func ParseToken(tokenStr string, keyStore *KeyStore) (*Token, error) {
+	return parseTokenAt(tokenStr, keyStore, time.Now)
+}
+
+func parseTokenAt(tokenStr string, keyStore *KeyStore, clock func() time.Time) (*Token, error) {
+	return verifyToken(tokenStr, keyStore, clock, true)
+}
+
+// VerifyTokenSignature verifies only the signer. Callers must separately check
+// expiry and server revocation before authorizing any request.
+func VerifyTokenSignature(raw string, key ssh.PublicKey) (*Token, error) {
+	if key == nil {
+		return nil, ErrInvalidSignature
+	}
+	store, err := ParseAuthorizedKeys(ssh.MarshalAuthorizedKey(key))
+	if err != nil {
+		return nil, err
+	}
+	return verifyToken(raw, store, time.Now, false)
+}
+
+func verifyToken(tokenStr string, keyStore *KeyStore, clock func() time.Time, checkTime bool) (*Token, error) {
 	if !strings.HasPrefix(tokenStr, tokenPrefix) {
 		return nil, ErrInvalidTokenFormat
 	}
@@ -209,11 +230,11 @@ func ParseToken(tokenStr string, keyStore *KeyStore) (*Token, error) {
 	}
 
 	// Check time validity.
-	now := time.Now().Unix()
-	if claims.ExpiresAt > 0 && now > claims.ExpiresAt {
+	now := clock().Unix()
+	if checkTime && claims.ExpiresAt > 0 && now >= claims.ExpiresAt {
 		return nil, ErrTokenExpired
 	}
-	if claims.NotBefore > 0 && now < claims.NotBefore {
+	if checkTime && claims.NotBefore > 0 && now < claims.NotBefore {
 		return nil, ErrTokenNotYetValid
 	}
 

@@ -11,7 +11,6 @@ import (
 	"fmt"
 	"net"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"sort"
 	"strconv"
@@ -26,7 +25,7 @@ type BashRunner struct{}
 func (br BashRunner) Run(ctx context.Context, name string, args ...string) (string, error) {
 	fullCmd := formatCommand(append([]string{name}, args...))
 	cmdArgs := append([]string{"-c", "exec \"$@\"", "bash", name}, args...)
-	cmd := exec.CommandContext(ctx, "bash", cmdArgs...)
+	cmd := commandWithGroup(ctx, "bash", cmdArgs...)
 	var stdout bytes.Buffer
 	var stderr bytes.Buffer
 	cmd.Stdout = &stdout
@@ -46,7 +45,7 @@ func (br BashRunner) Run(ctx context.Context, name string, args ...string) (stri
 type ExecRunner struct{}
 
 func (er ExecRunner) Run(ctx context.Context, name string, args ...string) (string, error) {
-	cmd := exec.CommandContext(ctx, name, args...)
+	cmd := commandWithGroup(ctx, name, args...)
 	var stdout bytes.Buffer
 	var stderr bytes.Buffer
 	cmd.Stdout = &stdout
@@ -66,12 +65,13 @@ func (er ExecRunner) Run(ctx context.Context, name string, args ...string) (stri
 // ABOUTME: This backend uses Proxmox CLI tools instead of the REST API. It may encounter
 // IPC issues on some Proxmox configurations. Consider using BashRunner for better compatibility.
 type ShellBackend struct {
-	Node      string        // Proxmox node name (empty for auto-detection)
-	AgentCIDR string        // CIDR block for selecting guest IPs (e.g., "10.77.0.0/16")
-	QmPath    string        // Path to qm command (defaults to "qm")
-	PveShPath string        // Path to pvesh command (defaults to "pvesh")
-	Runner    CommandRunner // Command execution strategy (defaults to ExecRunner)
-	CloneMode string        // "linked" or "full" clone mode (default: linked)
+	workspaceCopyStateRoot string
+	Node                   string        // Proxmox node name (empty for auto-detection)
+	AgentCIDR              string        // CIDR block for selecting guest IPs (e.g., "10.77.0.0/16")
+	QmPath                 string        // Path to qm command (defaults to "qm")
+	PveShPath              string        // Path to pvesh command (defaults to "pvesh")
+	Runner                 CommandRunner // Command execution strategy (defaults to ExecRunner)
+	CloneMode              string        // "linked" or "full" clone mode (default: linked)
 
 	// Use BashRunner to work around Proxmox IPC issues
 	BashRunner         BashRunner                                       // Bash runner for working around IPC issues
@@ -662,25 +662,39 @@ func (b *ShellBackend) selectIP(ips []net.IP) (string, error) {
 func (b *ShellBackend) CreateVolume(ctx context.Context, storage, name string, sizeGB int) (string, error) {
 	storage = strings.TrimSpace(storage)
 	if storage == "" {
-		return "", errors.New("storage is required")
+		return "", volumePreflight(errors.New("storage is required"))
 	}
 	name = strings.TrimSpace(name)
 	if name == "" {
-		return "", errors.New("volume name is required")
+		return "", volumePreflight(errors.New("volume name is required"))
 	}
 	if sizeGB <= 0 {
-		return "", errors.New("size_gb must be positive")
+		return "", volumePreflight(errors.New("size_gb must be positive"))
 	}
-	sizeArg := fmt.Sprintf("%dG", sizeGB)
-	out, err := b.run(ctx, b.pvesmPath(), "alloc", storage, "0", name, sizeArg)
+	if _, err := volumeAllocationOwner(name); err != nil {
+		return "", volumePreflight(err)
+	}
+	if !allocationStoragePattern.MatchString(storage) {
+		return "", volumePreflight(errors.New("invalid volume storage identifier"))
+	}
+	kind, err := b.allocationStorageType(ctx, storage)
+	if err != nil {
+		return "", volumePreflight(err)
+	}
+	owner, filename, expected, err := volumeAllocationTarget(storage, kind, name)
+	if err != nil {
+		return "", volumePreflight(err)
+	}
+	node, err := b.localStorageNode(ctx)
+	if err != nil {
+		return "", volumePreflight(err)
+	}
+	output, err := b.run(ctx, b.pveshPath(), "create", fmt.Sprintf("/nodes/%s/storage/%s/content", node, storage), "--vmid", strconv.Itoa(owner), "--filename", filename, "--size", fmt.Sprintf("%dG", sizeGB), "--format", "raw", "--output-format", "json")
 	if err != nil {
 		return "", err
 	}
-	volid := strings.TrimSpace(out)
-	if volid == "" {
-		return "", errors.New("empty volume id")
-	}
-	return volid, nil
+	return parseVolumeAllocationReceipt([]byte(output), expected)
+
 }
 
 func (b *ShellBackend) AttachVolume(ctx context.Context, vmid VMID, volumeID, slot string) error {
@@ -743,116 +757,35 @@ func (b *ShellBackend) VolumeInfo(ctx context.Context, volumeID string) (VolumeI
 // VolumeSnapshotCreate creates a snapshot for a workspace volume.
 // ABOUTME: Callers should detach the volume before snapshotting for consistency.
 func (b *ShellBackend) VolumeSnapshotCreate(ctx context.Context, volumeID, name string) error {
-	volumeID = strings.TrimSpace(volumeID)
-	if volumeID == "" {
-		return errors.New("volume id is required")
-	}
-	name = strings.TrimSpace(name)
-	if name == "" {
-		return errors.New("snapshot name is required")
-	}
-	if err := b.ensureZFSVolume(ctx, volumeID, "volume snapshot"); err != nil {
-		return err
-	}
-	_, err := b.run(ctx, b.pvesmPath(), "snapshot", volumeID, name)
-	return err
+	snapshot := name
+	return b.workspaceStorage(ctx, "snapshot", volumeID, snapshot, "")
 }
 
 // VolumeSnapshotRestore restores a workspace volume to a snapshot.
 // ABOUTME: Callers should detach the volume before restoring for consistency.
 func (b *ShellBackend) VolumeSnapshotRestore(ctx context.Context, volumeID, name string) error {
-	volumeID = strings.TrimSpace(volumeID)
-	if volumeID == "" {
-		return errors.New("volume id is required")
-	}
-	name = strings.TrimSpace(name)
-	if name == "" {
-		return errors.New("snapshot name is required")
-	}
-	if err := b.ensureZFSVolume(ctx, volumeID, "volume restore"); err != nil {
-		return err
-	}
-	_, err := b.run(ctx, b.pvesmPath(), "rollback", volumeID, name)
-	return err
+	snapshot := name
+	return b.workspaceStorage(ctx, "restore", volumeID, snapshot, "")
 }
 
 // VolumeSnapshotDelete removes a snapshot from a workspace volume.
 func (b *ShellBackend) VolumeSnapshotDelete(ctx context.Context, volumeID, name string) error {
-	volumeID = strings.TrimSpace(volumeID)
-	if volumeID == "" {
-		return errors.New("volume id is required")
-	}
-	name = strings.TrimSpace(name)
-	if name == "" {
-		return errors.New("snapshot name is required")
-	}
-	if err := b.ensureZFSVolume(ctx, volumeID, "volume snapshot delete"); err != nil {
-		return err
-	}
-	_, err := b.run(ctx, b.pvesmPath(), "delsnapshot", volumeID, name)
-	return err
+	snapshot := name
+	return b.workspaceStorage(ctx, "delete", volumeID, snapshot, "")
 }
 
 // VolumeClone clones a workspace volume into a new volume ID.
 // ABOUTME: Callers should detach the source volume before cloning for consistency.
 func (b *ShellBackend) VolumeClone(ctx context.Context, sourceVolumeID, targetVolumeID string) error {
-	sourceVolumeID = strings.TrimSpace(sourceVolumeID)
-	if sourceVolumeID == "" {
-		return errors.New("source volume id is required")
-	}
-	targetVolumeID = strings.TrimSpace(targetVolumeID)
-	if targetVolumeID == "" {
-		return errors.New("target volume id is required")
-	}
-	sourceStorage := volumeStorage(sourceVolumeID)
-	if sourceStorage == "" {
-		return fmt.Errorf("invalid source volume id format: %s", sourceVolumeID)
-	}
-	targetStorage := volumeStorage(targetVolumeID)
-	if targetStorage == "" {
-		return fmt.Errorf("invalid target volume id format: %s", targetVolumeID)
-	}
-	if sourceStorage != targetStorage {
-		return fmt.Errorf("%w: volume clone requires same storage (source=%s target=%s)", ErrStorageUnsupported, sourceStorage, targetStorage)
-	}
-	if err := b.ensureZFSStorage(ctx, sourceStorage, "volume clone"); err != nil {
-		return err
-	}
-	_, err := b.run(ctx, b.pvesmPath(), "clone", sourceVolumeID, targetVolumeID)
-	return err
+	snapshot := temporaryCopySnapshot(targetVolumeID)
+	return b.workspaceStorage(ctx, "copy", sourceVolumeID, snapshot, targetVolumeID)
 }
 
 // VolumeCloneFromSnapshot clones a workspace volume snapshot into a new volume ID.
 // ABOUTME: Callers should detach the source volume before cloning for consistency.
 func (b *ShellBackend) VolumeCloneFromSnapshot(ctx context.Context, sourceVolumeID, snapshotName, targetVolumeID string) error {
-	sourceVolumeID = strings.TrimSpace(sourceVolumeID)
-	if sourceVolumeID == "" {
-		return errors.New("source volume id is required")
-	}
-	snapshotName = strings.TrimSpace(snapshotName)
-	if snapshotName == "" {
-		return errors.New("snapshot name is required")
-	}
-	targetVolumeID = strings.TrimSpace(targetVolumeID)
-	if targetVolumeID == "" {
-		return errors.New("target volume id is required")
-	}
-	sourceStorage := volumeStorage(sourceVolumeID)
-	if sourceStorage == "" {
-		return fmt.Errorf("invalid source volume id format: %s", sourceVolumeID)
-	}
-	targetStorage := volumeStorage(targetVolumeID)
-	if targetStorage == "" {
-		return fmt.Errorf("invalid target volume id format: %s", targetVolumeID)
-	}
-	if sourceStorage != targetStorage {
-		return fmt.Errorf("%w: volume clone requires same storage (source=%s target=%s)", ErrStorageUnsupported, sourceStorage, targetStorage)
-	}
-	if err := b.ensureZFSStorage(ctx, sourceStorage, "volume clone"); err != nil {
-		return err
-	}
-	_, err := b.run(ctx, b.pvesmPath(), "clone", sourceVolumeID, targetVolumeID, "--snapname", snapshotName)
-	return err
+	snapshot := snapshotName
+	return b.workspaceStorage(ctx, "copy-snapshot", sourceVolumeID, snapshot, targetVolumeID)
 }
 
 func (b *ShellBackend) ValidateTemplate(ctx context.Context, template VMID) error {
@@ -1043,92 +976,6 @@ func (b *ShellBackend) leasePaths() []string {
 
 func hasGlob(path string) bool {
 	return strings.ContainsAny(path, "*?[")
-}
-
-func (b *ShellBackend) ensureZFSVolume(ctx context.Context, volumeID, op string) error {
-	storage := volumeStorage(volumeID)
-	if storage == "" {
-		return fmt.Errorf("invalid volume id format: %s", volumeID)
-	}
-	return b.ensureZFSStorage(ctx, storage, op)
-}
-
-func (b *ShellBackend) ensureZFSStorage(ctx context.Context, storage, op string) error {
-	storageType, err := b.storageType(ctx, storage)
-	if err != nil {
-		return err
-	}
-	if !isZFSStorageType(storageType) {
-		return unsupportedStorageErr(op, storage, storageType)
-	}
-	return nil
-}
-
-func (b *ShellBackend) storageType(ctx context.Context, storage string) (string, error) {
-	storage = strings.TrimSpace(storage)
-	if storage == "" {
-		return "", errors.New("storage is required")
-	}
-	out, err := b.run(ctx, b.pvesmPath(), "status", "--storage", storage, "--output-format", "json")
-	if err != nil {
-		return "", err
-	}
-	if storageType := parsePvesmStatusJSON(out, storage); storageType != "" {
-		return storageType, nil
-	}
-	if storageType := parsePvesmStatusTable(out, storage); storageType != "" {
-		return storageType, nil
-	}
-	return "", fmt.Errorf("storage %s not found in pvesm status output", storage)
-}
-
-type pvesmStatusEntry struct {
-	Storage string `json:"storage"`
-	Type    string `json:"type"`
-}
-
-func parsePvesmStatusJSON(out string, storage string) string {
-	var entries []pvesmStatusEntry
-	if err := json.Unmarshal([]byte(out), &entries); err == nil {
-		for _, entry := range entries {
-			if entry.Storage == storage {
-				return entry.Type
-			}
-		}
-	}
-	var wrapper struct {
-		Data []pvesmStatusEntry `json:"data"`
-	}
-	if err := json.Unmarshal([]byte(out), &wrapper); err == nil {
-		for _, entry := range wrapper.Data {
-			if entry.Storage == storage {
-				return entry.Type
-			}
-		}
-	}
-	var single pvesmStatusEntry
-	if err := json.Unmarshal([]byte(out), &single); err == nil && single.Storage != "" {
-		if single.Storage == storage {
-			return single.Type
-		}
-	}
-	return ""
-}
-
-func parsePvesmStatusTable(out string, storage string) string {
-	for _, line := range strings.Split(out, "\n") {
-		fields := strings.Fields(line)
-		if len(fields) < 2 {
-			continue
-		}
-		if fields[0] == "Name" {
-			continue
-		}
-		if fields[0] == storage {
-			return fields[1]
-		}
-	}
-	return ""
 }
 
 func parseQMConfig(config string) map[string]string {

@@ -36,7 +36,7 @@ func TestMigrate(t *testing.T) {
 			require.NoError(t, err)
 			versions = append(versions, v)
 		}
-		assert.Equal(t, []int{1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23}, versions)
+		assert.Equal(t, []int{1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32}, versions)
 	})
 
 	t.Run("idempotent - re-running is safe", func(t *testing.T) {
@@ -53,7 +53,7 @@ func TestMigrate(t *testing.T) {
 		err = Migrate(conn)
 		require.NoError(t, err)
 
-		// Verify only 21 migrations recorded
+		// Verify each migration is recorded once
 		var count int
 		err = conn.QueryRow("SELECT COUNT(*) FROM schema_migrations").Scan(&count)
 		require.NoError(t, err)

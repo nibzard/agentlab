@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -13,7 +14,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestConnectWritesConfigAndOverwrites(t *testing.T) {
+func TestConnectSavesDefaultContextAndPreservesLegacyConfig(t *testing.T) {
 	useTempClientConfig(t)
 
 	mux := http.NewServeMux()
@@ -44,16 +45,30 @@ func TestConnectWritesConfigAndOverwrites(t *testing.T) {
 	var cfg clientConfig
 	require.NoError(t, json.Unmarshal(data, &cfg))
 
-	normalized, err := normalizeEndpoint(server.URL)
+	assert.Equal(t, "https://old.example", cfg.Endpoint)
+	assert.Equal(t, "old-token", cfg.Token)
+	assert.NotContains(t, string(data), "new-token")
+	store, err := contextStore()
 	require.NoError(t, err)
-	assert.Equal(t, normalized, cfg.Endpoint)
-	assert.Equal(t, "new-token", cfg.Token)
-	assert.Equal(t, "jump.example", cfg.JumpHost)
-	assert.Equal(t, "jumpuser", cfg.JumpUser)
-
-	info, err := os.Stat(path)
+	selected, name, found, err := store.Resolve("")
 	require.NoError(t, err)
-	assert.Equal(t, os.FileMode(0o600), info.Mode().Perm())
+	require.True(t, found)
+	assert.Equal(t, "default", name)
+	assert.Equal(t, server.URL, selected.Endpoint)
+	assert.Equal(t, "new-token", selected.Token)
+	assert.Equal(t, "jump.example", selected.JumpHost)
+	assert.Equal(t, "jumpuser", selected.JumpUser)
+	opts, _, err := parseGlobal([]string{"status"})
+	require.NoError(t, err)
+	assert.Equal(t, selected.Endpoint, opts.endpoint)
+	assert.Equal(t, selected.Token, effectiveGlobalToken(t, opts))
+	metadataPath := filepath.Join(store.Root, "contexts.json")
+	info, err := os.Stat(metadataPath)
+	require.NoError(t, err)
+	assert.Equal(t, os.FileMode(0600), info.Mode().Perm())
+	metadata, err := os.ReadFile(metadataPath)
+	require.NoError(t, err)
+	assert.NotContains(t, string(metadata), "new-token")
 }
 
 func TestConnectRejectsEndpointWithPath(t *testing.T) {

@@ -27,11 +27,13 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
 	"flag"
 	"fmt"
+	"github.com/agentlab/agentlab/internal/executionarchive"
 	"io"
 	"math"
 	"net/http"
@@ -43,6 +45,9 @@ import (
 	"strings"
 	"text/tabwriter"
 	"time"
+
+	"github.com/agentlab/agentlab/internal/connection"
+	"github.com/agentlab/agentlab/internal/protocol"
 )
 
 const (
@@ -126,6 +131,9 @@ func usageErrorMessage(err error) (string, bool, bool) {
 
 // commonFlags contains flags shared by all commands.
 type commonFlags struct {
+	selection         *connection.Selection
+	connectionFields  connectionFields
+	contextName       string
 	socketPath        string
 	endpoint          string
 	token             string
@@ -143,6 +151,11 @@ func (c *commonFlags) bind(fs *flag.FlagSet) {
 	fs.DurationVar(&c.timeout, "timeout", c.timeout, "request timeout (e.g. 30s, 2m)")
 	fs.BoolVar(&c.allowInsecureHTTP, "allow-insecure-http", c.allowInsecureHTTP,
 		"permit plaintext HTTP to a non-loopback endpoint (only inside a trusted tunnel such as Tailscale)")
+	for _, name := range []string{"endpoint", "token", "socket", "allow-insecure-http"} {
+		f := fs.Lookup(name)
+		f.Value = trackedConnectionFlag{Value: f.Value, fields: &c.connectionFields, bit: connectionField(name)}
+	}
+
 }
 
 func newFlagSet(name string) *flag.FlagSet {
@@ -351,20 +364,30 @@ func runSchemaCommand(ctx context.Context, args []string, base commonFlags) erro
 }
 
 type connectOutput struct {
-	Endpoint     string             `json:"endpoint"`
-	JumpHost     string             `json:"jump_host,omitempty"`
-	JumpUser     string             `json:"jump_user,omitempty"`
-	ConfigPath   string             `json:"config_path"`
-	TokenSet     bool               `json:"token_set"`
-	Host         *hostResponse      `json:"host,omitempty"`
-	TailnetRoute *tailnetRouteCheck `json:"tailnet_route,omitempty"`
+	ServerIdentity    string             `json:"server_identity,omitempty"`
+	IdentityVerified  bool               `json:"identity_verified"`
+	Compatibility     string             `json:"compatibility"`
+	Endpoint          string             `json:"endpoint"`
+	JumpHost          string             `json:"jump_host,omitempty"`
+	JumpUser          string             `json:"jump_user,omitempty"`
+	ConfigPath        string             `json:"config_path"`
+	TokenSet          bool               `json:"token_set"`
+	Host              *hostResponse      `json:"host,omitempty"`
+	TailnetRoute      *tailnetRouteCheck `json:"tailnet_route,omitempty"`
+	Context           string             `json:"context,omitempty"`
+	CredentialStorage string             `json:"credential_storage,omitempty"`
 }
 
 func runConnectCommand(ctx context.Context, args []string, base commonFlags) error {
 	fs := newFlagSet("connect")
 	opts := base
 	opts.bind(fs)
+	credentialMode := fs.String("credential-store", "", "credential storage for this connection: auto, os, or file")
+	var tokenStdin bool
+	fs.BoolVar(&tokenStdin, "token-stdin", false, "read the daemon credential from standard input")
 	var jumpHost string
+	var contextName string
+	fs.StringVar(&contextName, "context", base.contextName, "save this verified connection as a named context")
 	var jumpUser string
 	help := bindHelpFlag(fs)
 	fs.StringVar(&jumpHost, "jump-host", "", "default SSH jump host (used when subnet route is unavailable)")
@@ -378,29 +401,95 @@ func runConnectCommand(ctx context.Context, args []string, base commonFlags) err
 		}
 		return fmt.Errorf("unexpected extra arguments")
 	}
-	endpointRaw := strings.TrimSpace(opts.endpoint)
-	if endpointRaw == "" {
-		if !opts.jsonOutput {
-			printConnectUsage()
-		}
-		return fmt.Errorf("endpoint is required")
+	if _, err := connection.CredentialStorageMode(*credentialMode); err != nil {
+		return err
 	}
-	endpoint, err := normalizeEndpoint(endpointRaw)
+	tokenExplicit := opts.connectionFields&tokenField != 0
+	if tokenStdin && tokenExplicit {
+		return fmt.Errorf("use either --token or --token-stdin")
+	}
+	if tokenStdin {
+		opts.token = ""
+		opts.connectionFields |= tokenField
+	}
+	resolved, err := opts.clientOptions()
 	if err != nil {
 		return err
 	}
-	if err := validateEndpointPolicy(endpoint, opts.allowInsecureHTTP); err != nil {
+	endpoint, token := resolved.Endpoint, resolved.Token
+	if endpoint == "" {
+		return fmt.Errorf("endpoint is required")
+	}
+	// Direct callers can inject defaults without a saved selection.
+	if opts.selection == nil && base.endpoint != "" && endpoint != strings.TrimRight(base.endpoint, "/") && !tokenExplicit {
+		token = ""
+	}
+	if tokenStdin || token == "" {
+		token, err = readConnectionToken(tokenStdin, opts.jsonOutput)
+		if err != nil {
+			return err
+		}
+	}
+	resolved.Token = token
+	opts.allowInsecureHTTP = resolved.AllowInsecureHTTP
+	store, err := contextStore()
+	if err != nil {
 		return err
 	}
-	token := strings.TrimSpace(opts.token)
-	client := newAPIClient(clientOptions{Endpoint: endpoint, Token: token}, opts.timeout)
+	store.CredentialMode = *credentialMode
+	if contextName == "" {
+		_, active, err := store.List()
+		if err != nil {
+			return err
+		}
+		contextName = active
+		if contextName == "" {
+			contextName = "default"
+		}
+	}
+	expected, _, exists, err := store.LookupContext(ctx, contextName, true)
+	if err != nil {
+		return err
+	}
+	var guard *connection.Context
+	if exists {
+		guard = &expected
+		if expected.Endpoint == endpoint && expected.ServerIdentity != "" {
+			if resolved.ServerIdentity != "" && resolved.ServerIdentity != expected.ServerIdentity {
+				return &blockedRequirement{Code: "context_binding_changed", Requirement: "stable_connection_context", Action: "the destination identity differs from the selected binding; restart connect with the intended explicit context"}
+			}
+			resolved.ServerIdentity = expected.ServerIdentity
+		}
+	} else if (tokenExplicit || tokenStdin) && opts.connectionFields&endpointField != 0 {
+		// A new destination with an explicit target and supplied credential may
+		// enroll a new server. It cannot replace an existing verified binding.
+		resolved.ServerIdentity = ""
+	}
+	client := newAPIClient(resolved, opts.timeout)
+	identity, compatibility := "", "legacy_unverified"
+	caps, discoveryErr := fetchCapabilities(ctx, client)
+	if discoveryErr != nil {
+		var blocked *blockedRequirement
+		if client.serverIdentity != "" || !errors.As(discoveryErr, &blocked) || blocked.Code != "capabilities_unavailable" {
+			return discoveryErr
+		}
+	} else {
+		if caps.ServerIdentity == "" {
+			return &blockedRequirement{Code: "server_identity_unavailable", Requirement: "verified_server_identity", Action: "restore the server identity before saving a verified connection"}
+		}
+		if !caps.Features["request_server_identity"] {
+			return &blockedRequirement{Code: "unsupported_feature", Requirement: "request_server_identity", Action: "upgrade the daemon to enforce server identity before saving a verified connection"}
+		}
+		identity, compatibility = caps.ServerIdentity, "verified"
+		client.serverIdentity = identity
+	}
 
 	payload, err := client.doJSON(ctx, http.MethodGet, "/v1/status", nil)
 	if err != nil {
 		return withHints(err, "verify the endpoint and token are correct")
 	}
-	if opts.jsonOutput && payload != nil {
-		// Ensure /v1/status returned valid JSON without printing it.
+	if payload != nil {
+		// Validate the response without printing its potentially scoped data.
 		var status statusResponse
 		if err := json.Unmarshal(payload, &status); err != nil {
 			return err
@@ -430,28 +519,64 @@ func runConnectCommand(ctx context.Context, args []string, base commonFlags) err
 		JumpHost: jumpHost,
 		JumpUser: jumpUser,
 	}
-	if err := writeClientConfig(path, cfg); err != nil {
+	if identity != "" && hostInfo != nil && hostInfo.ServerIdentity != "" && hostInfo.ServerIdentity != identity {
+		return &blockedRequirement{Code: "server_identity_mismatch", Requirement: "verified_server_identity", Action: "the host and capability identities differ; preserve the working context and inspect the endpoint"}
+	}
+	if identity != "" {
+		if _, err := fetchCapabilities(ctx, client); err != nil {
+			return err
+		}
+	}
+	cfg.ServerIdentity = identity
+	cfg.AllowInsecureHTTP = opts.allowInsecureHTTP
+	legacy, _, err := loadClientConfigFrom(path)
+	if err != nil {
 		return err
+	}
+	if contextName != "default" {
+		if err := store.Migrate(legacySettings(legacy)); err != nil {
+			return err
+		}
+	}
+	if err := store.PutContextIfMatch(ctx, contextName, guard, legacySettings(cfg)); err != nil {
+		return err
+	}
+	path = filepath.Join(store.Root, "contexts.json")
+	items, _, err := store.List()
+	if err != nil {
+		return err
+	}
+	credentialStorage := ""
+	for _, item := range items {
+		if item.Name == contextName {
+			credentialStorage = item.CredentialStorage
+		}
 	}
 
 	routeCheck := checkTailnetRoute(ctx, agentSubnetFromHost(hostInfo))
 	if opts.jsonOutput {
 		out := connectOutput{
-			Endpoint:     endpoint,
-			JumpHost:     jumpHost,
-			JumpUser:     jumpUser,
-			ConfigPath:   path,
-			TokenSet:     token != "",
-			Host:         hostInfo,
-			TailnetRoute: &routeCheck,
+			ServerIdentity: identity, IdentityVerified: identity != "", Compatibility: compatibility,
+			Endpoint:          endpoint,
+			JumpHost:          jumpHost,
+			JumpUser:          jumpUser,
+			ConfigPath:        path,
+			Context:           contextName,
+			CredentialStorage: credentialStorage,
+			TokenSet:          token != "",
+			Host:              hostInfo,
+			TailnetRoute:      &routeCheck,
 		}
 		enc := json.NewEncoder(os.Stdout)
 		enc.SetEscapeHTML(false)
 		return enc.Encode(out)
 	}
 
+	if identity == "" {
+		fmt.Fprintln(os.Stderr, "Server identity is unverified: this legacy daemon does not advertise capabilities. Upgrade it before relying on a saved server binding.")
+	}
 	fmt.Fprintf(os.Stdout, "Connected to %s\n", endpoint)
-	fmt.Fprintf(os.Stdout, "Config written to %s\n", path)
+	fmt.Fprintf(os.Stdout, "Context: %s\nCredential storage: %s\nConfig written to %s\n", contextName, credentialStorage, path)
 	if hostInfo != nil && strings.TrimSpace(hostInfo.TailscaleDNS) != "" {
 		fmt.Fprintf(os.Stdout, "Tailscale DNS: %s\n", strings.TrimSpace(hostInfo.TailscaleDNS))
 	}
@@ -477,6 +602,22 @@ func runDisconnectCommand(ctx context.Context, args []string, base commonFlags) 
 	path, err := clientConfigPath()
 	if err != nil {
 		return err
+	}
+	if base.contextName != "" {
+		store, err := contextStore()
+		if err != nil {
+			return err
+		}
+		if err := store.Remove(base.contextName); err != nil {
+			return err
+		}
+		// Keep the original legacy file for recovery. The contexts index prevents
+		// implicit fallback after removal.
+		if opts.jsonOutput {
+			return json.NewEncoder(os.Stdout).Encode(map[string]any{"disconnected": true, "removed": true, "context": base.contextName})
+		}
+		fmt.Fprintf(os.Stdout, "Disconnected context: %s\n", base.contextName)
+		return nil
 	}
 	removed, err := removeClientConfig(path)
 	if err != nil {
@@ -522,13 +663,19 @@ func runJobCommand(ctx context.Context, args []string, base commonFlags) error {
 		return runJobShow(ctx, args[1:], base)
 	case "artifacts":
 		return runJobArtifacts(ctx, args[1:], base)
+	case "result":
+		return runJobResult(ctx, args[1:], base)
+	case "cancel":
+		return runJobCancel(ctx, args[1:], base)
+	case "cleanup":
+		return runJobCleanup(ctx, args[1:], base)
 	case "doctor":
 		return runJobDoctor(ctx, args[1:], base)
 	default:
 		if !base.jsonOutput {
 			printJobUsage()
 		}
-		return unknownSubcommandError("job", args[0], []string{"run", "validate", "show", "artifacts", "doctor"})
+		return unknownSubcommandError("job", args[0], []string{"run", "validate", "show", "artifacts", "doctor", "cancel", "result", "cleanup"})
 	}
 }
 
@@ -537,11 +684,14 @@ func runJobRun(ctx context.Context, args []string, base commonFlags) error {
 	fs := newFlagSet("job run")
 	opts := base
 	opts.bind(fs)
+	var requestID string
+	fs.StringVar(&requestID, "request-id", "", "durable submission key; reuse it with identical inputs to retry")
 	var repo string
 	var ref string
 	var branch string
 	var profile string
 	var task string
+	var testCommands stringSliceFlag
 	var mode string
 	var ttl string
 	var workspace string
@@ -557,6 +707,7 @@ func runJobRun(ctx context.Context, args []string, base commonFlags) error {
 	fs.StringVar(&branch, "branch", "", "branch name (session-backed)")
 	fs.StringVar(&profile, "profile", "", "profile name")
 	fs.StringVar(&task, "task", "", "task description")
+	fs.Var(&testCommands, "test-command", "test shell command after the task (repeatable)")
 	fs.StringVar(&mode, "mode", "", "mode (default dangerous)")
 	fs.StringVar(&ttl, "ttl", "", ttlFlagDescription)
 	fs.StringVar(&workspace, "workspace", "", "workspace id or name (or new:<name>)")
@@ -579,15 +730,43 @@ func runJobRun(ctx context.Context, args []string, base commonFlags) error {
 	if err != nil {
 		return err
 	}
+	if err := executionarchive.ValidateTestCommands(testCommands.values); err != nil {
+		return err
+	}
 	branch = strings.TrimSpace(branch)
 	workspace = strings.TrimSpace(workspace)
 	workspaceCreate = strings.TrimSpace(workspaceCreate)
 	workspaceSize = strings.TrimSpace(workspaceSize)
 	workspaceStorage = strings.TrimSpace(workspaceStorage)
 	workspaceWait = strings.TrimSpace(workspaceWait)
+	snapshotSource := strings.HasPrefix(repo, protocol.RepositorySnapshotPrefix)
+	if snapshotSource && (branch != "" || workspace != "" || workspaceCreate != "" || workspaceSize != "" || workspaceStorage != "" || workspaceWait != "" || stateful) {
+		return &blockedRequirement{Code: "snapshot_workspace_unsupported", Requirement: "stateless_vm_job", Action: "use a stateless VM job for a repository snapshot; workspace and branch session creation are unsupported"}
+	}
 	client, err := apiClientFromFlags(opts)
 	if err != nil {
 		return err
+	}
+	if requestID != "" || snapshotSource || len(testCommands.values) > 0 {
+		caps, err := fetchCapabilities(ctx, client)
+		if err != nil {
+			return err
+		}
+		if len(testCommands.values) > 0 && !caps.Features["job_test_commands"] {
+			return &blockedRequirement{Code: "unsupported_feature", Requirement: "job_test_commands", Action: "upgrade the daemon and VM template before requesting test commands"}
+		}
+		if snapshotSource && !caps.Features["repository_snapshot_jobs"] {
+			return snapshotJobsUnavailable()
+		}
+		if requestID != "" && !caps.Features["idempotent_job_submission"] {
+			return &blockedRequirement{Code: "unsupported_feature", Requirement: "idempotent_job_submission", Action: "upgrade the daemon before using --request-id"}
+		}
+		if requestID != "" && branch != "" && !caps.Features["idempotent_branch_sessions"] {
+			return &blockedRequirement{Code: "unsupported_feature", Requirement: "idempotent_branch_sessions", Action: "idempotent branch session creation is unavailable; use an existing workspace for this job"}
+		}
+		if requestID != "" && (workspaceCreate != "" || strings.HasPrefix(workspace, "new:") || (stateful && workspace == "")) && !caps.Features["idempotent_workspace_create"] {
+			return &blockedRequirement{Code: "unsupported_feature", Requirement: "idempotent_workspace_create", Action: "create a workspace separately, then submit the job with its ID and --request-id"}
+		}
 	}
 	var (
 		workspaceID        *string
@@ -676,6 +855,7 @@ func runJobRun(ctx context.Context, args []string, base commonFlags) error {
 		Ref:                  ref,
 		Profile:              profile,
 		Task:                 task,
+		TestCommands:         testCommands.values,
 		Mode:                 mode,
 		TTLMinutes:           ttlMinutes,
 		Keepalive:            keepalive.Ptr(),
@@ -684,7 +864,22 @@ func runJobRun(ctx context.Context, args []string, base commonFlags) error {
 		WorkspaceWaitSeconds: workspaceWaitSecs,
 		SessionID:            sessionID,
 	}
-	payload, err := client.doJSON(ctx, http.MethodPost, "/v1/jobs", req)
+	var payload []byte
+	if requestID == "" {
+		payload, err = client.doJSON(ctx, http.MethodPost, "/v1/jobs", req)
+	} else {
+		data, encodeErr := json.Marshal(req)
+		if encodeErr != nil {
+			return encodeErr
+		}
+		response, requestErr := client.doRequest(ctx, http.MethodPost, "/v1/jobs", bytes.NewReader(data), map[string]string{"Content-Type": "application/json", "Idempotency-Key": requestID})
+		err = requestErr
+		if err == nil {
+			payload, err = io.ReadAll(response.Body)
+			response.Body.Close()
+		}
+	}
+
 	if err != nil {
 		err = wrapJobWorkspaceCompatibilityError(err)
 		err = wrapJobWorkspaceConflict(workspaceID, workspaceCreateReq, workspaceWaitSecs, err)
@@ -711,6 +906,7 @@ func runJobValidate(ctx context.Context, args []string, base commonFlags) error 
 	var branch string
 	var profile string
 	var task string
+	var testCommands stringSliceFlag
 	var mode string
 	var ttl string
 	var workspace string
@@ -726,6 +922,7 @@ func runJobValidate(ctx context.Context, args []string, base commonFlags) error 
 	fs.StringVar(&branch, "branch", "", "branch name (session-backed)")
 	fs.StringVar(&profile, "profile", "", "profile name")
 	fs.StringVar(&task, "task", "", "task description")
+	fs.Var(&testCommands, "test-command", "test shell command after the task (repeatable)")
 	fs.StringVar(&mode, "mode", "", "mode (default dangerous)")
 	fs.StringVar(&ttl, "ttl", "", ttlFlagDescription)
 	fs.StringVar(&workspace, "workspace", "", "workspace id or name (or new:<name>)")
@@ -748,15 +945,34 @@ func runJobValidate(ctx context.Context, args []string, base commonFlags) error 
 	if err != nil {
 		return err
 	}
+	if err := executionarchive.ValidateTestCommands(testCommands.values); err != nil {
+		return err
+	}
 	branch = strings.TrimSpace(branch)
 	workspace = strings.TrimSpace(workspace)
 	workspaceCreate = strings.TrimSpace(workspaceCreate)
 	workspaceSize = strings.TrimSpace(workspaceSize)
 	workspaceStorage = strings.TrimSpace(workspaceStorage)
 	workspaceWait = strings.TrimSpace(workspaceWait)
+	snapshotSource := strings.HasPrefix(repo, protocol.RepositorySnapshotPrefix)
+	if snapshotSource && (branch != "" || workspace != "" || workspaceCreate != "" || workspaceSize != "" || workspaceStorage != "" || workspaceWait != "" || stateful) {
+		return &blockedRequirement{Code: "snapshot_workspace_unsupported", Requirement: "stateless_vm_job", Action: "use a stateless VM job for a repository snapshot; workspace and branch session creation are unsupported"}
+	}
 	client, err := apiClientFromFlags(opts)
 	if err != nil {
 		return err
+	}
+	if snapshotSource || len(testCommands.values) > 0 {
+		caps, err := fetchCapabilities(ctx, client)
+		if err != nil {
+			return err
+		}
+		if len(testCommands.values) > 0 && !caps.Features["job_test_commands"] {
+			return &blockedRequirement{Code: "unsupported_feature", Requirement: "job_test_commands", Action: "upgrade the daemon and VM template before requesting test commands"}
+		}
+		if snapshotSource && !caps.Features["repository_snapshot_jobs"] {
+			return snapshotJobsUnavailable()
+		}
 	}
 	var (
 		workspaceID        *string
@@ -845,6 +1061,7 @@ func runJobValidate(ctx context.Context, args []string, base commonFlags) error 
 		Ref:                  ref,
 		Profile:              profile,
 		Task:                 task,
+		TestCommands:         testCommands.values,
 		Mode:                 mode,
 		TTLMinutes:           ttlMinutes,
 		Keepalive:            keepalive.Ptr(),
@@ -1240,6 +1457,10 @@ func runWorkspaceCommand(ctx context.Context, args []string, base commonFlags) e
 		return runWorkspaceLeaseCommand(ctx, args[1:], base)
 	case "rebind":
 		return runWorkspaceRebind(ctx, args[1:], base)
+	case "fork-resume":
+		return runWorkspaceForkResume(ctx, args[1:], base)
+	case "fork-status":
+		return runWorkspaceForkStatus(ctx, args[1:], base)
 	case "fork":
 		return runWorkspaceFork(ctx, args[1:], base)
 	case "snapshot":
@@ -1248,7 +1469,7 @@ func runWorkspaceCommand(ctx context.Context, args []string, base commonFlags) e
 		if !base.jsonOutput {
 			printWorkspaceUsage()
 		}
-		return unknownSubcommandError("workspace", args[0], []string{"create", "list", "check", "fsck", "attach", "detach", "lease", "rebind", "fork", "snapshot"})
+		return unknownSubcommandError("workspace", args[0], []string{"create", "list", "check", "fsck", "attach", "detach", "lease", "rebind", "fork", "fork-status", "fork-resume", "snapshot"})
 	}
 }
 
@@ -4254,6 +4475,9 @@ func printJobValidatePlan(plan *jobValidatePlan) {
 	fmt.Printf("Ref: %s\n", orDash(plan.Ref))
 	fmt.Printf("Profile: %s\n", plan.Profile)
 	fmt.Printf("Task: %s\n", plan.Task)
+	for _, command := range plan.TestCommands {
+		fmt.Printf("Test command: %q\n", command)
+	}
 	fmt.Printf("Mode: %s\n", orDash(plan.Mode))
 	fmt.Printf("TTL Minutes: %s\n", ttlMinutesString(plan.TTLMinutes))
 	fmt.Printf("Keepalive: %t\n", plan.Keepalive)
@@ -4492,6 +4716,9 @@ func printJob(job jobResponse) {
 	fmt.Printf("Task: %s\n", job.Task)
 	fmt.Printf("Mode: %s\n", job.Mode)
 	fmt.Printf("Status: %s\n", job.Status)
+	if job.Cancellation != nil {
+		fmt.Printf("Cancellation: %s\nWork stopped: %t\nCleanup: %s\n", job.Cancellation.State, job.Cancellation.WorkStopped, job.Cancellation.CleanupStatus)
+	}
 	fmt.Printf("Keepalive: %t\n", job.Keepalive)
 	fmt.Printf("TTL Minutes: %s\n", ttlMinutesString(job.TTLMinutes))
 	fmt.Printf("Sandbox VMID: %s\n", vmidString(job.SandboxVMID))

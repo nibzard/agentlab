@@ -2,12 +2,14 @@ package daemon
 
 import (
 	"encoding/json"
-	"github.com/agentlab/agentlab/internal/templatebuild"
 	"net/http"
 	"reflect"
 	"sort"
 	"strings"
 	"time"
+
+	"github.com/agentlab/agentlab/internal/protocol"
+	"github.com/agentlab/agentlab/internal/templatebuild"
 )
 
 const controlAPISchemaVersion = 1
@@ -45,6 +47,13 @@ func buildSchemaResponse() schemaResponse {
 
 func schemaResources() []schemaResource {
 	resources := []schemaResource{
+		resourceSchema("/v1/jobs/{id}/cancel", methods("GET", "POST"), "Request or observe verified cancellation", "", "protocol.JobCancellation", "POST requires job.cancel; GET requires job.read. Work may continue until verified stopped."),
+		resourceSchema("/v1/jobs/{id}/result/cleanup", methods("POST"), "Resume verified repository result cleanup", "", "", "Requires job.cleanup and the job sandbox scope. Reuses the saved target and never reruns the task."),
+		resourceSchema("/v1/token-renewals/prepare", methods("POST"), "Prepare an exact-scope credential renewal", "protocol.TokenRenewalPrepare", "protocol.TokenRenewal", "Requires a finite SSH credential with token.renew; sandbox scopes are preserved."),
+		resourceSchema("/v1/token-renewals/commit", methods("POST"), "Commit renewal and revoke its parent", "protocol.TokenRenewalCommit", "protocol.TokenRenewal", "Authenticate with the prepared candidate. Retries preserve the original receipt."),
+		resourceSchema("/v1/token-revocations", methods("POST"), "Revoke an SSH-signed token", "protocol.TokenRevocationRequest", "protocol.TokenRevocation", "Requires global token.revoke. Supply issuer, revocation_id, and expected server_identity."),
+		resourceSchema("/v1/token-revocations/{id}", methods("GET"), "Read a token revocation record", "", "protocol.TokenRevocation", "Requires global token.read. The issuer query parameter is required."),
+		resourceSchema("/v1/capabilities", methods("GET"), "Discover supported features and caller permissions", "", "protocol.Capabilities", "Requires schema.read; does not grant permissions."),
 		resourceSchema("/v1/templates/capabilities", methods("GET"), "Inspect local template build support", "", "templatebuild.Capabilities", "Host-wide; sandbox-scoped tokens are denied."),
 		resourceSchema("/v1/templates/validate-plan", methods("POST"), "Validate without allocating or downloading", "templatebuild.Plan", "templatebuild.Validation", ""),
 		resourceSchema("/v1/template-builds", methods("GET", "POST"), "List or submit durable template builds", "templatebuild.Plan", "templatebuild.Build", "POST returns 202; Idempotency-Key must match request_id UUID."),
@@ -57,9 +66,10 @@ func schemaResources() []schemaResource {
 		resourceSchema("/v1/exposures", methods("GET", "POST"), "List/create exposures", "V1ExposureCreateRequest", "V1ExposuresResponse", ""),
 		resourceSchema("/v1/exposures/{name}", methods("DELETE"), "Delete exposure", "", "V1Exposure", ""),
 		resourceSchema("/v1/host", methods("GET"), "Fetch host metadata", "", "V1HostResponse", "Includes daemon version, configured subnet, and tailscale hostname when available."),
-		resourceSchema("/v1/jobs", methods("POST"), "Create jobs", "V1JobCreateRequest", "V1JobResponse", "Creation returns status 201."),
+		resourceSchema("/v1/jobs", methods("POST"), "Create jobs", "V1JobCreateRequest", "V1JobResponse", "Creation returns 201. Idempotency-Key replays the original job with 200; workspace_create with a key is currently unsupported."),
 		resourceSchema("/v1/jobs/{id}", methods("GET"), "Fetch job details", "", "V1JobResponse", "Includes event history when events_tail is provided."),
 		resourceSchema("/v1/jobs/{id}/artifacts", methods("GET"), "List job artifacts", "", "V1ArtifactsResponse", ""),
+		resourceSchema("/v1/jobs/{id}/execution", methods("GET"), "Inspect verified execution logs", "", "V1JobExecutionResponse", "Requires job.artifacts and the job sandbox scope. Optional path, offset, limit, and archive_sha256 queries."),
 		resourceSchema("/v1/jobs/{id}/artifacts/download", methods("GET"), "Download a job artifact", "", "application/octet-stream", "Query path or name to select artifact."),
 		resourceSchema("/v1/jobs/{id}/doctor", methods("POST"), "Create job doctor bundle", "", "V1ArtifactUploadResponse", ""),
 		resourceSchema("/v1/jobs/{id}/events", methods("GET"), "Fetch job events", "", "V1EventsResponse", "Not currently exposed as dedicated endpoint."),
@@ -107,6 +117,9 @@ func schemaResources() []schemaResource {
 		resourceSchema("/v1/workspaces/{id}/detach", methods("POST"), "Detach workspace", "", "V1WorkspaceResponse", ""),
 		resourceSchema("/v1/workspaces/{id}/fsck", methods("POST"), "Run workspace fsck", "V1WorkspaceFSCKRequest", "V1WorkspaceFSCKResponse", ""),
 		resourceSchema("/v1/workspaces/{id}/fork", methods("POST"), "Fork workspace", "V1WorkspaceForkRequest", "V1WorkspaceResponse", ""),
+		resourceSchema("/v1/workspaces/{id}/forks", methods("GET"), "List workspace fork operations", "", "V1WorkspaceForksResponse", ""),
+		resourceSchema("/v1/workspaces/{id}/forks/{operation_id}", methods("GET"), "Read workspace fork operation", "", "WorkspaceForkOperation", ""),
+		resourceSchema("/v1/workspaces/{id}/forks/{operation_id}/resume", methods("POST"), "Resume retained workspace fork", "", "V1WorkspaceResponse", ""),
 		resourceSchema("/v1/workspaces/{id}/lease/clear", methods("POST"), "Force-clear workspace lease metadata", "", "V1WorkspaceLeaseClearResponse", ""),
 		resourceSchema("/v1/workspaces/{id}/rebind", methods("POST"), "Rebind workspace", "V1WorkspaceRebindRequest", "V1WorkspaceRebindResponse", ""),
 		resourceSchema("/v1/workspaces/{id}/snapshots", methods("GET"), "List workspace snapshots", "", "V1WorkspaceSnapshotsResponse", ""),
@@ -264,10 +277,18 @@ func schemaDefinitions() map[string]any {
 		"V1TemplateActivateResponse":       reflect.TypeOf(V1TemplateActivateResponse{}),
 		"V1ArtifactUploadResponse":         reflect.TypeOf(V1ArtifactUploadResponse{}),
 		"V1ArtifactsResponse":              reflect.TypeOf(V1ArtifactsResponse{}),
+		"V1JobExecutionResponse":           reflect.TypeOf(V1JobExecutionResponse{}),
 		"V1EventsResponse":                 reflect.TypeOf(V1EventsResponse{}),
 		"V1Exposure":                       reflect.TypeOf(V1Exposure{}),
 		"V1ExposureCreateRequest":          reflect.TypeOf(V1ExposureCreateRequest{}),
 		"V1ExposuresResponse":              reflect.TypeOf(V1ExposuresResponse{}),
+		"protocol.JobCancellation":         reflect.TypeOf(protocol.JobCancellation{}),
+		"protocol.TokenRenewal":            reflect.TypeOf(protocol.TokenRenewal{}),
+		"protocol.TokenRenewalPrepare":     reflect.TypeOf(protocol.TokenRenewalPrepare{}),
+		"protocol.TokenRenewalCommit":      reflect.TypeOf(protocol.TokenRenewalCommit{}),
+		"protocol.TokenRevocation":         reflect.TypeOf(protocol.TokenRevocation{}),
+		"protocol.TokenRevocationRequest":  reflect.TypeOf(protocol.TokenRevocationRequest{}),
+		"protocol.Capabilities":            reflect.TypeOf(protocol.Capabilities{}),
 		"V1HostResponse":                   reflect.TypeOf(V1HostResponse{}),
 		"V1JobCreateRequest":               reflect.TypeOf(V1JobCreateRequest{}),
 		"V1JobResponse":                    reflect.TypeOf(V1JobResponse{}),
@@ -311,6 +332,8 @@ func schemaDefinitions() map[string]any {
 		"V1WorkspaceLeaseClearResponse":    reflect.TypeOf(V1WorkspaceLeaseClearResponse{}),
 		"V1WorkspaceRebindRequest":         reflect.TypeOf(V1WorkspaceRebindRequest{}),
 		"V1WorkspaceRebindResponse":        reflect.TypeOf(V1WorkspaceRebindResponse{}),
+		"V1WorkspaceForksResponse":         reflect.TypeOf(V1WorkspaceForksResponse{}),
+		"WorkspaceForkOperation":           reflect.TypeOf(protocol.WorkspaceForkOperation{}),
 		"V1WorkspaceResponse":              reflect.TypeOf(V1WorkspaceResponse{}),
 		"V1WorkspaceSnapshotCreateRequest": reflect.TypeOf(V1WorkspaceSnapshotCreateRequest{}),
 		"V1WorkspaceSnapshotResponse":      reflect.TypeOf(V1WorkspaceSnapshotResponse{}),

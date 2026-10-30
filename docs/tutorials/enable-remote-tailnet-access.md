@@ -22,16 +22,16 @@ Goal: reach the daemon and your sandboxes from a workstation over a Tailscale ta
    !!! warning
        A wildcard `control_listen` bind (for example `0.0.0.0:8845`) is rejected unless you also set `control_allow_cidrs`. Prefer binding to loopback and publishing through Tailscale Serve.
 
-2. Note the control token the init step printed, and the daemon's Tailscale DNS name. Confirm the daemon answers over the tailnet from the host itself.
+2. Keep the control credential in a protected file on your workstation. Do not put it in arguments or chat. Note the daemon's Tailscale DNS name. Confirm the daemon answers from the host itself.
 
     ```bash
     curl -sf http://localhost:8845/healthz
     ```
 
-3. From your workstation, save the remote endpoint, token, and jump host. `connect` normalizes the URL, verifies `/v1/status`, reads `/v1/host` for the jump host, and writes `~/.config/agentlab/client.json` with mode `0600`.
+3. From your workstation, save the remote endpoint and credential. `connect` verifies capabilities, request identity support, and status. Optional host metadata supplies a jump host. The saved context contains a protected credential reference.
 
     ```bash
-    agentlab connect --endpoint http://host.tailnet.ts.net:8845 --token <token>
+    agentlab connect --endpoint http://host.tailnet.ts.net:8845 --allow-insecure-http --token-stdin < /protected/daemon-token
     ```
 
    The endpoint must include an explicit `http://` or `https://` scheme. Plain HTTP to a non-loopback host is rejected unless you pass `--allow-insecure-http`; this is intended only inside a trusted tunnel such as Tailscale.
@@ -50,7 +50,7 @@ Goal: reach the daemon and your sandboxes from a workstation over a Tailscale ta
 
 ## Expected result
 
-`agentlab status` run from the workstation returns the remote daemon's status snapshot. `agentlab ssh <vmid>` opens a shell in the sandbox without you SSHing to the host first. `agentlab disconnect` removes the saved `client.json` and returns the CLI to local-socket mode.
+`agentlab status` returns the selected daemon status from your workstation. `agentlab ssh <vmid>` opens a shell in the sandbox. `agentlab disconnect` removes the selected context and its credential. Select another context or an explicit socket for later commands.
 
 ## Next
 

@@ -11,6 +11,7 @@ import (
 	"net/http/httptest"
 	"reflect"
 	"strconv"
+	"strings"
 	"testing"
 	"time"
 
@@ -359,10 +360,21 @@ func TestControlAPI_Authorization(t *testing.T) {
 			{http.MethodPost, "/v1/jobs/validate-plan", `{"repo_url":"https://example.com/r.git","profile":"default","task":"t"}`},
 			{http.MethodGet, "/v1/jobs/job-1001", ""},
 			{http.MethodGet, "/v1/jobs/job-1001/artifacts", ""},
+			{http.MethodGet, "/v1/jobs/job-1001/execution", ""},
 			{http.MethodGet, "/v1/jobs/job-1001/artifacts/download?path=out.txt", ""},
 			{http.MethodPost, "/v1/jobs/job-1001/doctor", ""},
+			{http.MethodPost, "/v1/jobs/job-1001/cancel", ""},
+			{http.MethodPost, "/v1/jobs/job-1001/result/cleanup", ""},
+			{http.MethodGet, "/v1/jobs/job-1001/cancel", ""},
 			{http.MethodGet, "/v1/profiles", ""},
 			{http.MethodGet, "/v1/schema", ""},
+			{http.MethodGet, "/v1/capabilities", ""},
+			{http.MethodPost, "/v1/token-renewals/prepare", `{}`}, {http.MethodPost, "/v1/token-renewals/commit", `{}`},
+			{http.MethodPost, "/v1/token-revocations", `{}`},
+			{http.MethodGet, "/v1/token-revocations/" + strings.Repeat("a", 64) + "?issuer=SHA256:ignored", ""},
+			{http.MethodPost, "/v1/repositories", ""},
+			{http.MethodGet, "/v1/repositories/" + strings.Repeat("a", 64), ""},
+			{http.MethodDelete, "/v1/repositories/" + strings.Repeat("a", 64), ""},
 			{http.MethodGet, "/v1/status", ""},
 			{http.MethodGet, "/v1/host", ""},
 			{http.MethodPost, "/v1/messages", `{"scope_type":"workspace","scope_id":"ws-1001","text":"hi"}`},
@@ -402,6 +414,7 @@ func TestControlAPI_Authorization(t *testing.T) {
 			{http.MethodPost, "/v1/workspaces/ws-1001/detach", ""},
 			{http.MethodPost, "/v1/workspaces/ws-1001/rebind", `{"profile":"default"}`},
 			{http.MethodPost, "/v1/workspaces/ws-1001/fork", `{"name":"ws-copy"}`},
+			{http.MethodPost, "/v1/workspaces/ws-1001/forks/original/resume", ""},
 			{http.MethodPost, "/v1/workspaces/ws-1001/lease/clear", ""},
 			{http.MethodGet, "/v1/sessions", ""},
 			{http.MethodPost, "/v1/sessions", `{"name":"s","profile":"default","workspace_id":"ws-1001"}`},
@@ -527,6 +540,12 @@ func TestControlAPIScopeEnforcement(t *testing.T) {
 			denied:        authzRequest{http.MethodGet, "/v1/workspaces/ws-1002", ""},
 			allowed:       authzRequest{http.MethodGet, "/v1/workspaces/ws-1001", ""},
 			allowedStatus: http.StatusOK,
+		},
+		{
+			name:          "workspace fork recovery by source scope",
+			denied:        authzRequest{http.MethodPost, "/v1/workspaces/ws-1002/forks/original/resume", ""},
+			allowed:       authzRequest{http.MethodPost, "/v1/workspaces/ws-1001/forks/original/resume", ""},
+			allowedStatus: http.StatusNotFound,
 		},
 		{
 			name:          "workspace attach by body vmid",
@@ -801,6 +820,12 @@ func TestAuthzRouteCoverage(t *testing.T) {
 		{"POST", "/v1/jobs/validate-plan", "/v1/jobs/validate-plan"},
 		{"GET", "/v1/profiles", "/v1/profiles"},
 		{"GET", "/v1/schema", "/v1/schema"},
+		{"GET", "/v1/capabilities", "/v1/capabilities"},
+		{"POST", "/v1/token-renewals/prepare", "/v1/token-renewals/prepare"}, {"POST", "/v1/token-renewals/commit", "/v1/token-renewals/commit"},
+		{"POST", "/v1/token-revocations", "/v1/token-revocations"},
+		{"GET", "/v1/token-revocations/", "/v1/token-revocations/" + strings.Repeat("a", 64) + "?issuer=SHA256:ignored"},
+		{"POST", "/v1/repositories", "/v1/repositories"},
+		{"GET", "/v1/repositories/", "/v1/repositories/" + strings.Repeat("a", 64)},
 		{"GET", "/v1/status", "/v1/status"},
 		{"GET", "/v1/host", "/v1/host"},
 		{"POST", "/v1/messages", "/v1/messages"},

@@ -283,9 +283,10 @@ if (( ${#BIND_TAP[@]} > 0 || ${#UNBIND_TAP[@]} > 0 || SYNC_TAPS )); then
   exit 0
 fi
 
-NFT_DIR="/etc/nftables.d"
+NFT_DIR="${AGENTLAB_NFT_DIR:-/etc/nftables.d}"
 DEST_FILE="${NFT_DIR}/agentlab.nft"
-UNIT_FILE="/etc/systemd/system/agentlab-nftables.service"
+UNIT_FILE="${AGENTLAB_NFT_UNIT_FILE:-/etc/systemd/system/agentlab-nftables.service}"
+HELPER_DIR="${AGENTLAB_NET_HELPER_DIR:-/usr/local/lib/agentlab/net}"
 
 format_guest_ports() {
   local out=""
@@ -345,6 +346,16 @@ render_rules > "$rules_tmp"
 write_if_changed "$rules_tmp" "$DEST_FILE"
 rm -f "$rules_tmp"
 
+# The service must survive removal of the temporary bootstrap bundle.
+install -d -m 0755 "$HELPER_DIR"
+if [[ "${SCRIPT_DIR}/apply.sh" != "${HELPER_DIR}/apply.sh" ]]; then
+  write_if_changed "${SCRIPT_DIR}/apply.sh" "${HELPER_DIR}/apply.sh"
+fi
+chmod 0755 "${HELPER_DIR}/apply.sh"
+if [[ "$TEMPLATE" != "${HELPER_DIR}/agent_nat.nft" ]]; then
+  write_if_changed "$TEMPLATE" "${HELPER_DIR}/agent_nat.nft"
+fi
+
 unit_tmp="$(mktemp)"
 cat <<EOF_UNIT > "$unit_tmp"
 [Unit]
@@ -361,12 +372,25 @@ ExecStart=${NFT_BIN} -f ${DEST_FILE}
 # Refresh the per-tap anti-spoofing bindings from the Proxmox NIC
 # configuration and the DHCP leases. A missing script or data source only
 # weakens the checks to the subnet-wide floor, so the minus prefix is safe.
-ExecStartPost=-${SCRIPT_DIR}/apply.sh --sync-taps
+ExecStartPost=-${HELPER_DIR}/apply.sh --sync-taps
 RemainAfterExit=yes
 
 [Install]
 WantedBy=multi-user.target
 EOF_UNIT
+
+# Migrate only the generated temporary helper path. Preserve any other edits.
+if [[ -f "$UNIT_FILE" ]] && grep -Eq '^ExecStartPost=-/tmp/agentlab-(bootstrap|setup)-[[:alnum:]]+/agentlab-bootstrap/scripts/net/apply.sh --sync-taps$' "$UNIT_FILE"; then
+  migrated_unit="$(mktemp)"
+  awk -v replacement="ExecStartPost=-${HELPER_DIR}/apply.sh --sync-taps" '
+    /^ExecStartPost=-\/tmp\/agentlab-(bootstrap|setup)-[[:alnum:]]+\/agentlab-bootstrap\/scripts\/net\/apply.sh --sync-taps$/ { print replacement; next }
+    { print }
+  ' "$UNIT_FILE" > "$migrated_unit"
+  if cmp -s "$migrated_unit" "$unit_tmp"; then
+    install -m 0644 "$unit_tmp" "$UNIT_FILE"
+  fi
+  rm -f "$migrated_unit"
+fi
 
 write_if_changed "$unit_tmp" "$UNIT_FILE"
 rm -f "$unit_tmp"

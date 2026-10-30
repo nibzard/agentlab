@@ -7,6 +7,8 @@ import (
 	"net"
 	"net/http"
 	"strings"
+
+	"github.com/agentlab/agentlab/internal/hostidentity"
 )
 
 // Middleware provides HTTP authentication middleware that accepts both
@@ -15,6 +17,7 @@ type Middleware struct {
 	keyStore    *KeyStore
 	legacyToken string // optional pre-shared bearer token for backward compat
 	allowCIDRs  []*net.IPNet
+	revocations RevocationChecker
 }
 
 // MiddlewareConfig holds configuration for creating an auth middleware.
@@ -29,13 +32,15 @@ type MiddlewareConfig struct {
 
 	// AllowCIDRs restricts access to specific source IP ranges.
 	// Empty means all IPs are allowed.
-	AllowCIDRs []string
+	AllowCIDRs  []string
+	Revocations RevocationChecker
 }
 
 // NewMiddleware creates an authentication middleware from the given config.
 func NewMiddleware(cfg MiddlewareConfig) (*Middleware, error) {
 	m := &Middleware{
 		legacyToken: strings.TrimSpace(cfg.LegacyToken),
+		revocations: cfg.Revocations,
 	}
 
 	if strings.TrimSpace(cfg.AuthorizedKeysPath) != "" {
@@ -116,12 +121,29 @@ func (m *Middleware) WrapNetwork(next http.Handler) http.Handler {
 		if !ok {
 			return
 		}
+		if values := r.Header.Values(hostidentity.RequestHeader); len(values) > 0 && (r.URL.Path == "/v1" || strings.HasPrefix(r.URL.Path, "/v1/")) {
+			actual, err := hostidentity.Local()
+			if err != nil {
+				writeServerIdentityError(w, http.StatusServiceUnavailable, "v1/auth/server_identity_unavailable", "The server cannot verify its identity. Restore its machine identity before retrying.")
+				return
+			}
+			if len(values) != 1 || values[0] != actual {
+				writeServerIdentityError(w, http.StatusConflict, "v1/auth/server_identity_mismatch", "The request targets another server. Verify the original context before retrying.")
+				return
+			}
+		}
 		ctx := r.Context()
 		if identity != nil {
 			ctx = WithIdentity(ctx, identity)
 		}
 		next.ServeHTTP(w, r.WithContext(ctx))
 	})
+}
+
+func writeServerIdentityError(w http.ResponseWriter, status int, code, action string) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(status)
+	_ = json.NewEncoder(w).Encode(map[string]string{"error": action, "message": action, "code": code, "action": action, "state": "blocked", "requirement": "verified_server_identity"})
 }
 
 // authenticateRequest performs CIDR and bearer-token authentication for /v1/*
@@ -151,10 +173,32 @@ func (m *Middleware) authenticateRequest(w http.ResponseWriter, r *http.Request)
 	identity, err := m.authenticate(tokenStr)
 	if err != nil {
 		w.Header().Set("WWW-Authenticate", "Bearer")
+		if errors.Is(err, ErrTokenExpired) {
+			writeCredentialStatusError(w, http.StatusUnauthorized, "v1/auth/token_expired", "token expired", "obtain a new authorized credential before retrying", false)
+			return nil, false
+		}
 		writeAuthError(w, http.StatusUnauthorized, err.Error())
 		return nil, false
 	}
+	if identity.Token != nil && m.revocations != nil {
+		revoked, err := m.revocations.TokenRevoked(r.Context(), identity.Token.Claims.Issuer, identity.Token.Claims.TokenID)
+		if err != nil {
+			writeCredentialStatusError(w, http.StatusServiceUnavailable, "v1/auth/credential_status_unavailable", "credential status unavailable", "restore credential status storage before retrying the same request", true)
+			return nil, false
+		}
+		if revoked {
+			w.Header().Set("WWW-Authenticate", "Bearer")
+			writeCredentialStatusError(w, http.StatusUnauthorized, "v1/auth/token_revoked", "token revoked", "obtain a new authorized credential; do not retry this token", false)
+			return nil, false
+		}
+	}
 	return identity, true
+}
+
+// WithRevocationChecker configures the checker before handlers start serving.
+func (m *Middleware) WithRevocationChecker(checker RevocationChecker) *Middleware {
+	m.revocations = checker
+	return m
 }
 
 // isScopedToken reports whether tok advertises anything less than full access:
@@ -285,6 +329,24 @@ func writeAuthError(w http.ResponseWriter, status int, msg string) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
 	_ = json.NewEncoder(w).Encode(map[string]string{"error": msg})
+}
+
+func writeCredentialStatusError(w http.ResponseWriter, status int, code, message, action string, retryable bool) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(status)
+	requirement := "daemon_credential"
+	if code == "v1/auth/credential_status_unavailable" {
+		requirement = "credential_status_store"
+	}
+	_ = json.NewEncoder(w).Encode(struct {
+		Error       string `json:"error"`
+		Message     string `json:"message"`
+		Code        string `json:"code"`
+		Action      string `json:"action"`
+		Retryable   bool   `json:"retryable"`
+		State       string `json:"state"`
+		Requirement string `json:"requirement"`
+	}{Error: message, Message: message, Code: code, Action: action, Retryable: retryable, State: "blocked", Requirement: requirement})
 }
 
 func parseRemoteIP(remoteAddr string) net.IP {

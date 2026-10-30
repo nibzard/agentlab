@@ -61,6 +61,7 @@ const (
 // The Service coordinates the lifecycle of all daemon components and ensures
 // graceful shutdown on context cancellation.
 type Service struct {
+	jobOrchestrator   *JobOrchestrator
 	templateBuilds    *TemplateBuildManager
 	cfg               config.Config
 	profiles          map[string]models.Profile
@@ -454,6 +455,7 @@ func newService(cfg config.Config, profiles map[string]models.Profile, store *db
 	}
 	jobOrchestrator := NewJobOrchestrator(store, profiles, backend, sandboxManager, workspaceManager, snippetStore, cfg.SSHPublicKey, controllerURL, log.Default(), redactor, metrics)
 	if jobOrchestrator != nil {
+		jobOrchestrator.WithArtifactRoot(cfg.ArtifactDir)
 		jobOrchestrator.WithProvisionTimeout(cfg.ProvisioningTimeout)
 		jobOrchestrator.WithNativeSSHKeys(cfg.ProvisionSSHKeysNative)
 		sandboxManager.WithSnippetCleaner(jobOrchestrator.CleanupSnippet)
@@ -592,7 +594,7 @@ func newService(cfg config.Config, profiles map[string]models.Profile, store *db
 		recoveryAPI.Register(bootstrapMux)
 		recoveryServer = &http.Server{Handler: bootstrapMux, ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 90 * time.Second, WriteTimeout: 90 * time.Second, IdleTimeout: 2 * time.Minute}
 	}
-	NewRunnerAPI(jobOrchestrator, store, agentSubnet).Register(bootstrapMux)
+	NewRunnerAPI(jobOrchestrator, store, agentSubnet).WithRepositoryRoot(cfg.ArtifactDir).Register(bootstrapMux)
 	NewMetadataAPI(store, secretsStore, cfg.SecretsBundle, agentSubnet, bootstrapLimiter, log.Default()).Register(bootstrapMux)
 
 	// Register integration proxy routes on bootstrap mux so sandboxes can
@@ -626,6 +628,7 @@ func newService(cfg config.Config, profiles map[string]models.Profile, store *db
 			AuthorizedKeysPath: cfg.AuthorizedKeysPath,
 			LegacyToken:        cfg.ControlAuthToken,
 			AllowCIDRs:         cfg.ControlAllowCIDRs,
+			Revocations:        store,
 		})
 		if err != nil {
 			if metricsListener != nil {
@@ -687,6 +690,7 @@ func newService(cfg config.Config, profiles map[string]models.Profile, store *db
 	}
 
 	s := &Service{
+		jobOrchestrator:  jobOrchestrator,
 		templateBuilds:   templateBuilds,
 		cfg:              cfg,
 		profiles:         profiles,
@@ -784,6 +788,14 @@ func (s *Service) Serve(ctx context.Context) error {
 		s.sandboxManager.SweepStartupOrphans(lifecycleCtx, s.cfg.OrphanGracePeriodOrDefault())
 		s.sandboxManager.StartLeaseGC(lifecycleCtx)
 		s.sandboxManager.StartReconciler(lifecycleCtx)
+	}
+	if s.jobOrchestrator != nil {
+		if err := s.jobOrchestrator.RecoverRepositoryResults(lifecycleCtx); err != nil {
+			log.Printf("job result recovery needs inspection: %v", err)
+		}
+		if err := s.jobOrchestrator.RecoverCancellations(lifecycleCtx); err != nil {
+			log.Printf("job cancellation recovery needs inspection: %v", err)
+		}
 	}
 	if s.idleStopper != nil {
 		s.idleStopper.Start(lifecycleCtx)

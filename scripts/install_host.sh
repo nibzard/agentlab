@@ -27,10 +27,10 @@ Environment overrides:
   SYSTEMD_DIR         Override systemd unit dir (default /etc/systemd/system)
   SKIP_SOCKET_CHECK   Set to 1 to skip socket permission verification
   INSTALL_SKILLS      Set to 0 to skip Claude Code skill installation
-  CLAUDE_SKILL_FORCE  Set to 1 to force reinstall even when current version is already installed
+  CLAUDE_SKILL_FORCE  Deprecated; existing skill files are always preserved
   CLAUDE_SKILLS_DIR   Override Claude Code skills directory
   SKILL_INSTALL_ONLY  Set to 1 to install skills only
-  CLAUDE_SKILL_VERSION  If set, require installed skills for this exact agentlab release
+  CLAUDE_SKILL_VERSION  Require this exact skill bundle version
   ENABLE_REMOTE_CONTROL  Set to 1 to enable remote control config
   CONTROL_PORT           Control plane port (default 8845)
   CONTROL_TOKEN          Control plane bearer token (optional)
@@ -136,11 +136,17 @@ SKILL_SRC_DIR="${ROOT_DIR}/skills/agentlab"
 SKILL_INSTALL_DIR_NAME="agentlab"
 SKILL_MANIFEST_PATH="${SKILL_SRC_DIR}/bundle/manifest.json"
 
+case "$(uname -m)" in
+  x86_64|amd64) SERVER_ARCH=amd64 ;;
+  aarch64|arm64) SERVER_ARCH=arm64 ;;
+  *) die "unsupported server architecture" ;;
+esac
+
 AGENTLABD_SRC="${AGENTLABD_SRC:-}"
 AGENTLAB_SRC="${AGENTLAB_SRC:-}"
 
 if [[ -z "$AGENTLABD_SRC" ]] && [[ "$SKILL_INSTALL_ONLY" != "1" ]]; then
-  for candidate in "${ROOT_DIR}/dist/agentlabd_linux_amd64" "${ROOT_DIR}/bin/agentlabd"; do
+  for candidate in "${ROOT_DIR}/dist/agentlabd_linux_${SERVER_ARCH}" "${ROOT_DIR}/bin/agentlabd"; do
     if [[ -x "$candidate" ]]; then
       AGENTLABD_SRC="$candidate"
       break
@@ -149,7 +155,7 @@ if [[ -z "$AGENTLABD_SRC" ]] && [[ "$SKILL_INSTALL_ONLY" != "1" ]]; then
 fi
 
 if [[ -z "$AGENTLAB_SRC" ]] && [[ "$SKILL_INSTALL_ONLY" != "1" ]]; then
-  for candidate in "${ROOT_DIR}/dist/agentlab_linux_amd64" "${ROOT_DIR}/bin/agentlab"; do
+  for candidate in "${ROOT_DIR}/dist/agentlab_linux_${SERVER_ARCH}" "${ROOT_DIR}/bin/agentlab"; do
     if [[ -x "$candidate" ]]; then
       AGENTLAB_SRC="$candidate"
       break
@@ -183,39 +189,83 @@ skill_bundle_version() {
 
 skill_bundle_matches_local() {
   local target_dir="$1"
-  local installed_manifest="${target_dir}/bundle/manifest.json"
-  local target_version=""
-  local target_name=""
-
-  if [[ ! -f "$installed_manifest" ]]; then
-    return 1
-  fi
-  target_version="$(skill_bundle_version "$installed_manifest")"
-  target_name="$(json_field "$installed_manifest" "name")"
-  if [[ "$(skill_bundle_name)" != "$target_name" ]]; then
-    return 1
-  fi
-  if [[ "$(skill_bundle_version "${SKILL_MANIFEST_PATH}")" != "$target_version" ]]; then
-    return 1
-  fi
-  if [[ "$CLAUDE_SKILL_FORCE" == "1" ]]; then
-    return 1
-  fi
-
-  local source_file
-  while IFS= read -r -d '' source_file; do
-    local relative_file target_file
-    relative_file="${source_file#${SKILL_SRC_DIR}/}"
-    target_file="${target_dir}/$relative_file"
-    if [[ ! -f "$target_file" ]]; then
-      return 1
-    fi
-    if ! cmp -s "$source_file" "$target_file"; then
-      return 1
-    fi
-  done < <(find "${SKILL_SRC_DIR}" -type f \( -name '*.md' -o -name 'manifest.json' \) -print0 | sort -z)
-  return 0
+  # Compare the complete tree. A matching manifest alone does not establish
+  # that instructions are unchanged. Never follow an installed symlink.
+  [[ -d "$target_dir" && ! -L "$target_dir" ]] || return 1
+  [[ -z "$(find "$target_dir" ! -type f ! -type d -print -quit)" ]] || return 1
+  diff -qr --no-dereference "$SKILL_SRC_DIR" "$target_dir" >/dev/null 2>&1
 }
+
+# Publish without replacing existing instructions. A different active bundle
+# stays active; the new bundle is staged outside the skill loader directory.
+publish_claude_skill() (
+  local target_dir="$1" owner="$2" group="$3"
+  local parent_dir digest destination updates_dir digest_dir tool stage=""
+  parent_dir="$(dirname "$target_dir")"
+  for tool in flock diff sha256sum mktemp; do
+    command -v "$tool" >/dev/null 2>&1 || die "$tool is required to install the agent skill"
+  done
+  [[ -d "$SKILL_SRC_DIR" && ! -L "$SKILL_SRC_DIR" && -f "$SKILL_SRC_DIR/SKILL.md" ]] || die "invalid skill source directory"
+  [[ -z "$(find "$SKILL_SRC_DIR" ! -type f ! -type d -print -quit)" ]] || die "skill source contains an unsupported entry"
+  if [[ ! -d "$parent_dir" ]]; then
+    install -d -m 0755 "$parent_dir"
+  fi
+  # Do not truncate the lock file or follow an existing lock symlink.
+  [[ ! -L "$parent_dir/.agentlab-skill-install.lock" ]] || die "skill install lock is a symlink"
+  if [[ -e "$parent_dir/.agentlab-skill-install.lock" && ! -f "$parent_dir/.agentlab-skill-install.lock" ]]; then
+    die "skill install lock is not a regular file"
+  fi
+  exec 9>>"$parent_dir/.agentlab-skill-install.lock"
+  flock -w 30 9 || die "another skill installation is still running; retry later"
+  if skill_bundle_matches_local "$target_dir"; then
+    log "AgentLab skill bundle already up to date: $target_dir"
+    return
+  fi
+
+  destination="$target_dir"
+  if [[ -e "$target_dir" || -L "$target_dir" ]]; then
+    digest="$(cd "$SKILL_SRC_DIR" && find . -type f -print0 | LC_ALL=C sort -z | xargs -0 sha256sum -- | sha256sum)"
+    digest="${digest%% *}"
+    [[ "$digest" =~ ^[0-9a-f]{64}$ ]] || die "could not calculate the skill bundle digest"
+    updates_dir="$(dirname "$parent_dir")/.agentlab-skill-updates"
+    digest_dir="$updates_dir/$digest"
+    [[ ! -L "$updates_dir" && ! -L "$digest_dir" ]] || die "pending skill directory is a symlink; preserve it and choose another skills directory"
+    destination="$digest_dir/agentlab"
+    log "Preserved existing agent skill: $target_dir"
+    log "Review the pending skill bundle before changing your agent's selected instructions: $destination"
+  fi
+  if [[ -e "$destination" || -L "$destination" ]]; then
+    skill_bundle_matches_local "$destination" || die "pending skill bundle has changed; preserve it and export to an unused directory with agentlab skill export --out DIRECTORY"
+    log "AgentLab skill bundle already staged: $destination"
+    return
+  fi
+
+  if [[ ! -d "$(dirname "$destination")" ]]; then
+    install -d -m 0755 "$(dirname "$destination")"
+  fi
+  stage="$(mktemp -d "$(dirname "$destination")/.agentlab-skill-XXXXXXXX")"
+  trap 'if [[ -n "$stage" ]]; then rm -rf -- "$stage"; fi' EXIT
+  trap 'exit 130' INT
+  trap 'exit 143' TERM
+  local source_file relative_file target_file
+  while IFS= read -r -d '' source_file; do
+    relative_file="${source_file#${SKILL_SRC_DIR}/}"
+    target_file="$stage/$relative_file"
+    install -d -m 0755 "$(dirname "$target_file")"
+    install -m 0644 "$source_file" "$target_file"
+  done < <(find "$SKILL_SRC_DIR" -type f -print0 | LC_ALL=C sort -z)
+  chmod 0755 "$stage"
+  skill_bundle_matches_local "$stage" || die "staged skill bundle does not match its source"
+  if [[ -n "$owner" && -n "$group" ]]; then
+    chown -R "$owner:$group" "$stage"
+  fi
+  # Linux mv -T -n does not replace an entry that appears during publication.
+  if ! mv -T -n -- "$stage" "$destination"; then
+    die "could not publish the skill bundle; existing files are preserved; inspect the destination before retrying"
+  fi
+  skill_bundle_matches_local "$destination" || die "skill destination changed during installation; existing files are preserved"
+  log "Installed complete AgentLab skill bundle: $destination"
+)
 
 install_claude_skill() {
   if [[ "$INSTALL_SKILLS" != "1" ]]; then
@@ -244,8 +294,6 @@ install_claude_skill() {
   target_dir="${target_dir}/${SKILL_INSTALL_DIR_NAME}"
   local manifest_version
   local manifest_name
-  local installed_version
-  local installed_name
   manifest_name="$(skill_bundle_name)"
   manifest_version="$(skill_bundle_version "${SKILL_MANIFEST_PATH}")"
   if [[ -z "$manifest_version" ]]; then
@@ -258,32 +306,15 @@ install_claude_skill() {
     die "incompatible installed bundle version: manifest=${manifest_version}, required=${CLAUDE_SKILL_VERSION}"
   fi
 
+  if [[ "$CLAUDE_SKILL_FORCE" == "1" ]]; then
+    log "CLAUDE_SKILL_FORCE is deprecated; existing skill files are preserved"
+  fi
+  publish_claude_skill "$target_dir" "$owner" "$group"
+  # Report only the active bundle in daemon metadata. A pending update does
+  # not change the instructions selected by the user's agent.
   if skill_bundle_matches_local "$target_dir"; then
-    installed_version="$(skill_bundle_version "${target_dir}/bundle/manifest.json")"
-    installed_name="$(json_field "${target_dir}/bundle/manifest.json" "name")"
-    log "AgentLab Claude skill bundle already up-to-date (name=${installed_name}, version=${installed_version})"
-    return
-  fi
-
-  install -d -m 0755 "$target_dir"
-  install -d -m 0755 "$target_dir/bundle"
-  rm -rf "$target_dir/bundle"
-  while IFS= read -r -d '' source_file; do
-    local relative_file target_file target_parent
-    relative_file="${source_file#${SKILL_SRC_DIR}/}"
-    target_file="${target_dir}/$relative_file"
-    target_parent="$(dirname "$target_file")"
-    install -d -m 0755 "$target_parent"
-    install -m 0644 "$source_file" "$target_file"
-  done < <(find "${SKILL_SRC_DIR}" -type f \( -name '*.md' -o -name 'manifest.json' \) -print0 | sort -z)
-
-  if [[ -n "$manifest_name" ]]; then
     config_upsert "claude_skill_bundle_name" "$manifest_name"
-  fi
-  config_upsert "claude_skill_bundle_version" "$manifest_version"
-  log "Installed AgentLab skill bundle ${manifest_name}@${manifest_version}"
-  if [[ -n "$owner" && -n "$group" ]]; then
-    chown -R "$owner":"$group" "$target_dir"
+    config_upsert "claude_skill_bundle_version" "$manifest_version"
   fi
 }
 
@@ -558,7 +589,7 @@ if [[ "$ENABLE_REMOTE_CONTROL" == "1" && -n "$REMOTE_CONTROL_TOKEN" ]]; then
     local_endpoint="http://${REMOTE_CONTROL_DNS}:${CONTROL_PORT}"
   fi
   log "Remote control endpoint: ${local_endpoint}"
-  log "Connect with: agentlab connect --endpoint ${local_endpoint} --token ${REMOTE_CONTROL_TOKEN}"
+  log "Connect with: agentlab connect --endpoint ${local_endpoint} --token-stdin"
 fi
 
 log "Install complete"

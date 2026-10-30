@@ -1,5 +1,5 @@
 // ABOUTME: Defaults command for persistent CLI preferences.
-// ABOUTME: Stores defaults in XDG_CONFIG_HOME/agentlab/defaults.json.
+// ABOUTME: Stores defaults in the shared client configuration directory.
 
 package main
 

@@ -98,22 +98,22 @@ func TestClientConfigPrecedence(t *testing.T) {
 
 	require.NoError(t, writeClientConfig(path, clientConfig{Endpoint: "https://cfg", Token: "cfg-token"}))
 
-	opts, _, err := parseGlobal([]string{})
+	opts, _, err := parseGlobal([]string{"status"})
 	require.NoError(t, err)
 	assert.Equal(t, "https://cfg", opts.endpoint)
-	assert.Equal(t, "cfg-token", opts.token)
+	assert.Equal(t, "cfg-token", effectiveGlobalToken(t, opts))
 
 	t.Setenv(envEndpoint, "https://env")
 	t.Setenv(envToken, "env-token")
-	opts, _, err = parseGlobal([]string{})
+	opts, _, err = parseGlobal([]string{"status"})
 	require.NoError(t, err)
 	assert.Equal(t, "https://env", opts.endpoint)
-	assert.Equal(t, "env-token", opts.token)
+	assert.Equal(t, "env-token", effectiveGlobalToken(t, opts))
 
 	opts, _, err = parseGlobal([]string{"--endpoint", "https://cli", "--token", "cli-token"})
 	require.NoError(t, err)
 	assert.Equal(t, "https://cli", opts.endpoint)
-	assert.Equal(t, "cli-token", opts.token)
+	assert.Equal(t, "cli-token", effectiveGlobalToken(t, opts))
 }
 
 func TestWriteClientConfigPermissions(t *testing.T) {

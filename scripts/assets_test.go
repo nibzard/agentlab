@@ -65,7 +65,7 @@ func TestGuestRecipeChecksEveryExecutableAndService(t *testing.T) {
 		name, missing, disabled string
 		state                   bool
 	}{{name: "valid"}}
-	for _, executable := range []string{"tailscale", "agent-bootstrap", "agent-runner", "sshd", "qemu-ga", "jq", "curl", "openssl", "flock"} {
+	for _, executable := range []string{"tailscale", "agent-bootstrap", "agent-runner", "agentlab-repository", "sshd", "qemu-ga", "jq", "curl", "openssl", "flock"} {
 		tests = append(tests, struct {
 			name, missing, disabled string
 			state                   bool
@@ -84,7 +84,7 @@ func TestGuestRecipeChecksEveryExecutableAndService(t *testing.T) {
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			dir := t.TempDir()
-			for _, executable := range []string{"tailscale", "agent-bootstrap", "agent-runner", "sshd", "qemu-ga", "jq", "curl", "openssl", "flock"} {
+			for _, executable := range []string{"tailscale", "agent-bootstrap", "agent-runner", "agentlab-repository", "sshd", "qemu-ga", "jq", "curl", "openssl", "flock"} {
 				if executable == test.missing {
 					continue
 				}
@@ -160,5 +160,80 @@ func TestRunnerBootOrderingHasNoCloudFinalCycle(t *testing.T) {
 	}
 	if !strings.Contains(content, "ExecStartPre=+/usr/local/bin/agent-bootstrap") || !strings.Contains(content, "ExecStopPost=/usr/local/bin/agent-secrets-cleanup") {
 		t.Fatal("root acquisition and runtime cleanup must surround the runner")
+	}
+}
+
+func TestNetworkServiceSurvivesBootstrapCleanup(t *testing.T) {
+	if os.Geteuid() != 0 {
+		t.Skip("the network installer requires root")
+	}
+	bash, err := exec.LookPath("bash")
+	if err != nil {
+		t.Skip("bash is required")
+	}
+	root := t.TempDir()
+	source := filepath.Join(root, "bundle", "net")
+	if err := os.MkdirAll(source, 0700); err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range []string{"apply.sh", "agent_nat.nft"} {
+		data, err := os.ReadFile(filepath.Join("net", name))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(source, name), data, 0700); err != nil {
+			t.Fatal(err)
+		}
+	}
+	bin := filepath.Join(root, "bin")
+	if err := os.Mkdir(bin, 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(bin, "nft"), []byte("#!/bin/sh\nexit 0\n"), 0700); err != nil {
+		t.Fatal(err)
+	}
+	helper := filepath.Join(root, "installed", "net")
+	unit := filepath.Join(root, "systemd", "agentlab-nftables.service")
+	env := append(os.Environ(), "PATH="+bin+string(os.PathListSeparator)+os.Getenv("PATH"), "AGENTLAB_NFT_DIR="+filepath.Join(root, "nft"), "AGENTLAB_NFT_UNIT_FILE="+unit, "AGENTLAB_NET_HELPER_DIR="+helper)
+	for i := 0; i < 2; i++ {
+		command := exec.Command(bash, filepath.Join(source, "apply.sh"))
+		command.Env = env
+		if output, err := command.CombinedOutput(); err != nil {
+			t.Fatalf("install: %v\n%s", err, output)
+		}
+	}
+	// A previous generated unit can point into the old temporary bundle.
+	installedUnit, err := os.ReadFile(unit)
+	if err != nil {
+		t.Fatal(err)
+	}
+	legacyUnit := strings.Replace(string(installedUnit), filepath.Join(helper, "apply.sh"), "/tmp/agentlab-bootstrap-123/agentlab-bootstrap/scripts/net/apply.sh", 1)
+	if err := os.WriteFile(unit, []byte(legacyUnit), 0644); err != nil {
+		t.Fatal(err)
+	}
+	migrate := exec.Command(bash, filepath.Join(source, "apply.sh"))
+	migrate.Env = env
+	if output, err := migrate.CombinedOutput(); err != nil {
+		t.Fatalf("unit migration: %v\n%s", err, output)
+	}
+	if err := os.RemoveAll(filepath.Join(root, "bundle")); err != nil {
+		t.Fatal(err)
+	}
+	data, err := os.ReadFile(unit)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(data), "ExecStartPost=-"+filepath.Join(helper, "apply.sh")+" --sync-taps") {
+		t.Fatal("service points at temporary bundle")
+	}
+	for _, name := range []string{"apply.sh", "agent_nat.nft"} {
+		if _, err := os.Stat(filepath.Join(helper, name)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	command := exec.Command(filepath.Join(helper, "apply.sh"), "--help")
+	command.Env = env
+	if output, err := command.CombinedOutput(); err != nil {
+		t.Fatalf("installed helper: %v\n%s", err, output)
 	}
 }

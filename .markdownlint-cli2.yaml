@@ -5,6 +5,7 @@ globs:
   - "AGENTLAB_DEV_SPECIFICATION.md"
   - "PROXMOX_SPECS.md"
   - "docs/**/*.md"
+  - "skills/**/*.md"
 ignores:
   - ".markdownlint-cli2.yaml"
   - "bin/**"

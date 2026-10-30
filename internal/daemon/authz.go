@@ -47,11 +47,19 @@ const (
 	permSandboxValidate        = "sandbox.validate"
 	permSandboxBulk            = "sandbox.bulk"
 
-	permJobCreate    = "job.create"
-	permJobRead      = "job.read"
-	permJobArtifacts = "job.artifacts"
-	permJobDoctor    = "job.doctor"
-	permJobValidate  = "job.validate"
+	permRepositoryCreate = "repository.create"
+	permTokenRenew       = "token.renew"
+	permTokenRead        = "token.read"
+	permTokenRevoke      = "token.revoke"
+	permRepositoryRead   = "repository.read"
+	permRepositoryDelete = "repository.delete"
+	permJobCancel        = "job.cancel"
+	permJobCleanup       = "job.cleanup"
+	permJobCreate        = "job.create"
+	permJobRead          = "job.read"
+	permJobArtifacts     = "job.artifacts"
+	permJobDoctor        = "job.doctor"
+	permJobValidate      = "job.validate"
 
 	permWorkspaceList            = "workspace.list"
 	permWorkspaceRead            = "workspace.read"
@@ -297,7 +305,15 @@ func jobActionPermission(parts []string, method string) string {
 		}
 	case 2:
 		switch parts[1] {
-		case "artifacts":
+		case "cancel":
+			if method == http.MethodPost {
+				return permJobCancel
+			}
+			if method == http.MethodGet {
+				return permJobRead
+			}
+
+		case "artifacts", "execution":
 			if method == http.MethodGet {
 				return permJobArtifacts
 			}
@@ -307,6 +323,9 @@ func jobActionPermission(parts []string, method string) string {
 			}
 		}
 	case 3:
+		if parts[1] == "result" && parts[2] == "cleanup" && method == http.MethodPost {
+			return permJobCleanup
+		}
 		if parts[1] == "artifacts" && parts[2] == "download" && method == http.MethodGet {
 			return permJobArtifacts
 		}
@@ -324,6 +343,10 @@ func workspaceActionPermission(parts []string, method string) string {
 		}
 	case 2:
 		switch parts[1] {
+		case "forks":
+			if method == http.MethodGet {
+				return permWorkspaceRead
+			}
 		case "check":
 			if method == http.MethodGet {
 				return permWorkspaceCheck
@@ -354,10 +377,16 @@ func workspaceActionPermission(parts []string, method string) string {
 			}
 		}
 	case 3:
+		if parts[1] == "forks" && method == http.MethodGet {
+			return permWorkspaceRead
+		}
 		if parts[1] == "lease" && parts[2] == "clear" && method == http.MethodPost {
 			return permWorkspaceLease
 		}
 	case 4:
+		if parts[1] == "forks" && parts[3] == "resume" && method == http.MethodPost {
+			return permWorkspaceFork
+		}
 		if parts[1] == "snapshots" && parts[3] == "restore" && method == http.MethodPost {
 			return permWorkspaceSnapshotRestore
 		}

@@ -7,24 +7,31 @@
   <link rel="stylesheet" href="/assets/style.css">
 </head>
 <body>
-  <nav>
+  <a class="skip-link" href="#main">Skip to content</a>
+  <nav aria-label="Main navigation">
     <div class="nav-brand">
       <h1>AgentLab</h1>
     </div>
     <div class="nav-tabs">
-      <a href="#" class="tab active" data-view="sandboxes">Sandboxes</a>
-      <a href="#" class="tab" data-view="jobs">Jobs</a>
-      <a href="#" class="tab" data-view="workspaces">Workspaces</a>
-      <a href="#" class="tab" data-view="exposures">Exposures</a>
-      <a href="#" class="tab" data-view="events">Events</a>
+      <a href="#view-sandboxes" class="tab active" data-view="sandboxes" aria-current="page">Sandboxes</a>
+      <a href="#view-jobs" class="tab" data-view="jobs">Jobs</a>
+      <a href="#view-workspaces" class="tab" data-view="workspaces">Workspaces</a>
+      <a href="#view-exposures" class="tab" data-view="exposures">Exposures</a>
+      <a href="#view-events" class="tab" data-view="events">Events</a>
     </div>
     <div class="nav-actions">
       <span id="pool-badge" class="pool-badge hidden"></span>
-      <button id="btn-refresh" title="Refresh">&#x21bb;</button>
+      <button id="btn-refresh" title="Refresh" aria-label="Refresh dashboard">&#x21bb;</button>
     </div>
   </nav>
 
-  <main>
+  <main id="main" tabindex="-1">
+    <section id="connection-panel" class="connection-panel" aria-label="Selected server">
+      <h2 id="connection-state" role="status" aria-live="polite">Connecting</h2>
+      <p id="connection-identity">Checking the selected server.</p>
+      <p id="connection-permissions"></p>
+      <p id="connection-action"></p>
+    </section>
     <!-- Status bar -->
     <section id="status-bar" class="status-bar">
       <span id="status-sandboxes"></span>
@@ -38,27 +45,27 @@
       <div class="view-header">
         <h2>Sandboxes</h2>
         <div class="view-header-actions">
-          <button id="btn-stop-all" class="btn btn-sm">Stop All</button>
-          <button id="btn-prune" class="btn btn-sm">Prune Stopped</button>
-          <button id="btn-new-sandbox" class="btn btn-primary">+ New Sandbox</button>
+          <button id="btn-stop-all" class="btn btn-sm">Stop all</button>
+          <button id="btn-prune" class="btn btn-sm">Prune stopped</button>
+          <button id="btn-new-sandbox" class="btn btn-primary">+ New sandbox</button>
         </div>
       </div>
       <table class="data-table">
         <thead>
           <tr>
-            <th>VMID</th>
-            <th>Name</th>
-            <th>Profile</th>
-            <th>Type</th>
-            <th>State</th>
-            <th>IP</th>
-            <th>Created</th>
-            <th>Actions</th>
+            <th scope="col">VMID</th>
+            <th scope="col">Name</th>
+            <th scope="col">Profile</th>
+            <th scope="col">Type</th>
+            <th scope="col">State</th>
+            <th scope="col">IP</th>
+            <th scope="col">Created</th>
+            <th scope="col">Actions</th>
           </tr>
         </thead>
         <tbody id="sandbox-list"></tbody>
       </table>
-      <p id="sandbox-empty" class="empty-state hidden">No sandboxes found.</p>
+      <p id="sandbox-empty" class="empty-state hidden">No sandboxes yet. Select New sandbox to check a profile and review its settings.</p>
     </section>
 
     <!-- Jobs view -->
@@ -69,13 +76,13 @@
       <table class="data-table">
         <thead>
           <tr>
-            <th>ID</th>
-            <th>Repo</th>
-            <th>Task</th>
-            <th>Profile</th>
-            <th>Status</th>
-            <th>Created</th>
-            <th>Actions</th>
+            <th scope="col">ID</th>
+            <th scope="col">Repo</th>
+            <th scope="col">Task</th>
+            <th scope="col">Profile</th>
+            <th scope="col">Status</th>
+            <th scope="col">Created</th>
+            <th scope="col">Actions</th>
           </tr>
         </thead>
         <tbody id="job-list"></tbody>
@@ -91,11 +98,11 @@
       <table class="data-table">
         <thead>
           <tr>
-            <th>ID</th>
-            <th>Name</th>
-            <th>Size</th>
-            <th>Attached VM</th>
-            <th>Created</th>
+            <th scope="col">ID</th>
+            <th scope="col">Name</th>
+            <th scope="col">Size</th>
+            <th scope="col">Attached VM</th>
+            <th scope="col">Created</th>
           </tr>
         </thead>
         <tbody id="workspace-list"></tbody>
@@ -111,13 +118,13 @@
       <table class="data-table">
         <thead>
           <tr>
-            <th>Name</th>
-            <th>VMID</th>
-            <th>Port</th>
-            <th>URL</th>
-            <th>State</th>
-            <th>Created</th>
-            <th>Actions</th>
+            <th scope="col">Name</th>
+            <th scope="col">VMID</th>
+            <th scope="col">Port</th>
+            <th scope="col">URL</th>
+            <th scope="col">State</th>
+            <th scope="col">Created</th>
+            <th scope="col">Actions</th>
           </tr>
         </thead>
         <tbody id="exposure-list"></tbody>
@@ -128,7 +135,7 @@
     <!-- Events view -->
     <section id="view-events" class="view">
       <div class="view-header">
-        <h2>Recent Events</h2>
+        <h2>Recent events</h2>
       </div>
       <div id="events-list" class="events-list"></div>
       <p id="event-empty" class="empty-state hidden">No recent events.</p>
@@ -136,10 +143,12 @@
   </main>
 
   <!-- New Sandbox Modal -->
-  <div id="modal-new-sandbox" class="modal hidden">
+  <div id="modal-new-sandbox" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="new-sandbox-title">
     <div class="modal-backdrop"></div>
     <div class="modal-content">
-      <h3>New Sandbox</h3>
+      <h3 id="new-sandbox-title">New sandbox</h3>
+      <p id="sandbox-server"></p>
+      <p>1. Select a profile. 2. Check the plan. 3. Review and create.</p>
       <form id="form-new-sandbox">
         <label>Name <input type="text" name="name" placeholder="my-sandbox"></label>
         <label>Profile
@@ -147,19 +156,17 @@
             <option value="">Loading...</option>
           </select>
         </label>
-        <label>Type
-          <select name="type">
-            <option value="">Default</option>
-            <option value="vm">VM</option>
-            <option value="lxc">LXC</option>
-          </select>
-        </label>
-        <label>Image <input type="text" name="image" placeholder="ubuntu:22.04 (LXC only)"></label>
         <label>Prompt <input type="text" name="prompt" placeholder="Initial agent prompt (optional)"></label>
-        <label>TTL (minutes) <input type="number" name="ttl_minutes" placeholder="60"></label>
-        <label><input type="checkbox" name="keepalive"> Keepalive</label>
+        <label>TTL (minutes) <input type="number" name="ttl_minutes" min="1" max="10080" placeholder="Profile default"></label>
+        <label>Lease behavior
+          <select name="keepalive"><option value="">Profile default</option><option value="false">Expire with the lease</option><option value="true">Keep alive</option></select>
+        </label>
+        <p id="sandbox-plan-state" role="status" aria-live="polite">Checking available profiles.</p>
+        <div id="sandbox-plan-review"></div>
+        <p id="sandbox-create-error" class="error" role="alert"></p>
         <div class="modal-actions">
-          <button type="submit" class="btn btn-primary">Create</button>
+          <button id="btn-check-sandbox" type="submit" class="btn">Check plan</button>
+          <button id="btn-create-sandbox" type="button" class="btn btn-primary" disabled>Create on this server</button>
           <button type="button" class="btn" data-close-modal="modal-new-sandbox">Cancel</button>
         </div>
       </form>
@@ -167,11 +174,12 @@
   </div>
 
   <!-- Sandbox Detail Modal -->
-  <div id="modal-sandbox-detail" class="modal hidden">
+  <div id="modal-sandbox-detail" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="detail-title">
     <div class="modal-backdrop"></div>
     <div class="modal-content modal-wide">
       <h3 id="detail-title">Sandbox Details</h3>
       <div id="detail-summary" class="detail-summary"></div>
+      <div id="job-results"></div>
       <details id="detail-raw-toggle">
         <summary>Raw JSON</summary>
         <pre id="detail-json" class="detail-json"></pre>
@@ -183,10 +191,10 @@
   </div>
 
   <!-- Expose Sandbox Modal -->
-  <div id="modal-expose" class="modal hidden">
+  <div id="modal-expose" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="expose-title">
     <div class="modal-backdrop"></div>
     <div class="modal-content">
-      <h3>Expose Sandbox <span id="expose-vmid"></span></h3>
+      <h3 id="expose-title">Expose sandbox <span id="expose-vmid"></span></h3>
       <form id="form-expose">
         <label>Name <input type="text" name="name" placeholder="auto-generated"></label>
         <label>Port <input type="number" name="port" value="80" min="1" max="65535" required></label>
@@ -199,10 +207,10 @@
   </div>
 
   <!-- Snapshot Modal -->
-  <div id="modal-snapshot" class="modal hidden">
+  <div id="modal-snapshot" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="snapshot-title">
     <div class="modal-backdrop"></div>
     <div class="modal-content">
-      <h3>Snapshot Sandbox <span id="snapshot-vmid"></span></h3>
+      <h3 id="snapshot-title">Snapshot sandbox <span id="snapshot-vmid"></span></h3>
       <form id="form-snapshot">
         <label>Name <input type="text" name="name" placeholder="snap-1" required></label>
         <div class="modal-actions">

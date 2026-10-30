@@ -33,6 +33,7 @@ CURL_CONNECT_TIMEOUT="${AGENTLAB_CURL_CONNECT_TIMEOUT:-10}"
 CURL_BOOTSTRAP_MAX_TIME="${AGENTLAB_CURL_BOOTSTRAP_MAX_TIME:-60}"
 CURL_REPORT_MAX_TIME="${AGENTLAB_CURL_REPORT_MAX_TIME:-20}"
 CURL_UPLOAD_MAX_TIME="${AGENTLAB_CURL_UPLOAD_MAX_TIME:-300}"
+REPOSITORY_TOOL="${AGENTLAB_REPOSITORY_TOOL:-/usr/local/bin/agentlab-repository}"
 INNER_SANDBOX=""
 declare -a INNER_SANDBOX_ARGS=()
 declare -a INNER_SANDBOX_PREFIX=()
@@ -323,6 +324,7 @@ fi
 
 JOB_ID="$(jq -r '.job.id // empty' "$BOOTSTRAP_RESPONSE")"
 JOB_REPO="$(jq -r '.job.repo_url // empty' "$BOOTSTRAP_RESPONSE")"
+SNAPSHOT_ID="$(jq -r '.job.repository_snapshot.id // empty' "$BOOTSTRAP_RESPONSE")"
 JOB_REF="$(jq -r '.job.ref // empty' "$BOOTSTRAP_RESPONSE")"
 JOB_TASK="$(jq -r '.job.task // empty' "$BOOTSTRAP_RESPONSE")"
 JOB_MODE="$(jq -r '.job.mode // empty' "$BOOTSTRAP_RESPONSE")"
@@ -524,6 +526,7 @@ if [[ -z "$JOB_ID" || -z "$JOB_REPO" ]]; then
 fi
 setup_git_auth
 
+if [[ -z "$SNAPSHOT_ID" ]]; then
 if [[ -z "$REPO_DIR" ]]; then
   if [[ -d /work && -w /work ]]; then
     REPO_DIR="/work/repo"
@@ -533,6 +536,50 @@ if [[ -z "$REPO_DIR" ]]; then
 fi
 
 mkdir -p "$(dirname "$REPO_DIR")"
+
+fi
+
+# Snapshot Git commands use a new repository and cannot read inherited Git
+# settings, run hooks, or contact a repository service.
+snapshot_git() (
+  local variable
+  for variable in ${!GIT_@}; do unset "$variable"; done
+  export GIT_CONFIG_NOSYSTEM=1 GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_SYSTEM=/dev/null
+  export GIT_ATTR_NOSYSTEM=1 GIT_TERMINAL_PROMPT=0 GIT_NO_LAZY_FETCH=1
+  git --no-pager --no-optional-locks \
+    -c core.hooksPath=/dev/null -c core.fsmonitor=false \
+    -c protocol.allow=never -c protocol.file.allow=always "$@"
+)
+
+prepare_snapshot_repo() {
+  local revision digest size staging bundle headers
+  revision="$(jq -r '.job.repository_snapshot.revision // empty' "$BOOTSTRAP_RESPONSE")"
+  digest="$(jq -r '.job.repository_snapshot.bundle_sha256 // empty' "$BOOTSTRAP_RESPONSE")"
+  size="$(jq -r '.job.repository_snapshot.bundle_bytes // 0' "$BOOTSTRAP_RESPONSE")"
+  if [[ ! "$SNAPSHOT_ID" =~ ^[0-9a-f]{64}$ || ! "$revision" =~ ^[0-9a-f]{40}$ || ! "$digest" =~ ^[0-9a-f]{64}$ || ! "$size" =~ ^[0-9]{1,9}$ || "$JOB_REF" != "$revision" || "$JOB_REPO" != "agentlab-snapshot:$SNAPSHOT_ID" ]]; then
+    return 1
+  fi
+  if (( size <= 0 || size > 268435456 )); then return 1; fi
+  if [[ ! -s "$SECRETS_DIR/sandbox-secret" ]]; then return 1; fi
+  staging="$(mktemp -d "$WORK_DIR_BASE/agentlab-snapshot.XXXXXXXX")" || return 1
+  bundle="$staging/source.bundle"
+  headers="$staging/headers"
+  printf 'X-AgentLab-Sandbox-Secret: %s\n' "$(cat "$SECRETS_DIR/sandbox-secret")" >"$headers"
+  local -a args=(curl -fsS --connect-timeout "$CURL_CONNECT_TIMEOUT" --max-time "$CURL_UPLOAD_MAX_TIME" --max-filesize "$size" -H "@$headers" --get --data-urlencode "vmid=$VMID" --data-urlencode "job_id=$JOB_ID" --output "$bundle")
+  if [[ -n "${AGENTLAB_CONTROLLER_CA:-}" ]]; then args+=(--cacert "$AGENTLAB_CONTROLLER_CA" --proto '=https'); fi
+  if "${args[@]}" "$CONTROLLER/v1/runner/repository" &&
+    [[ "$(wc -c < "$bundle" | tr -d '[:space:]')" == "$size" ]] &&
+    [[ "$(sha256sum "$bundle" | awk '{print $1}')" == "$digest" ]] &&
+    snapshot_git clone --quiet --no-checkout --no-hardlinks --template= -- "$bundle" "$staging/repo" &&
+    [[ "$(snapshot_git -C "$staging/repo" rev-parse refs/remotes/origin/agentlab-snapshot)" == "$revision" ]] &&
+    snapshot_git -C "$staging/repo" checkout --quiet --detach "$revision"; then
+    rm -f "$headers" "$bundle"
+    REPO_DIR="$staging/repo"
+    return 0
+  fi
+  rm -rf "$staging"
+  return 1
+}
 
 # A reused /work volume may hold a .git from an earlier tenant. Its local
 # config and hooks are residue, not input. Residue can execute commands
@@ -571,6 +618,13 @@ scrub_residue_config() {
 }
 
 clone_or_update_repo() {
+  if [[ -n "${SNAPSHOT_ID:-}" || "$JOB_REPO" == agentlab-snapshot:* ]]; then
+    if ! prepare_snapshot_repo; then
+      report_status "FAILED" "repository_snapshot_unavailable; verify the upload and rebuild the guest template if needed"
+      return 1
+    fi
+    return 0
+  fi
   if [[ -d "$REPO_DIR/.git" ]]; then
     log "updating repo in $REPO_DIR (existing .git treated as untrusted)"
     scrub_residue_config
@@ -697,6 +751,55 @@ run_agent() {
   return "$exit_code"
 }
 
+
+# Run only the ordered commands admitted by the daemon. The total test budget
+# is five minutes. timeout terminates each command group before the next test.
+run_requested_tests() {
+  TEST_RUNS='[]'
+  TEST_EXIT=0
+  local encoded command index=0 started elapsed code state reason output digest
+  local deadline=$(( $(date +%s) + ${1:-300} )) remaining
+  if [[ "${JOB_TTL_MINUTES:-}" =~ ^[1-9][0-9]*$ && -n "${START_TS:-}" ]] && (( START_TS + JOB_TTL_MINUTES * 60 < deadline )); then deadline=$((START_TS + JOB_TTL_MINUTES * 60)); fi
+  local -a commands=()
+  mapfile -t commands < <(jq -r '.job.test_commands[]? | @base64' "$BOOTSTRAP_RESPONSE")
+  mkdir -p "$RUN_DIR/tests"
+  for encoded in "${commands[@]}"; do
+    index=$((index+1))
+    command="$(printf '%s' "$encoded" | base64 --decode; printf '.')"
+    command="${command%.}"
+    remaining=$((deadline - $(date +%s)))
+    reason=''
+    if (( AGENT_EXIT != 0 )); then reason=agent_failed
+    elif ! command -v timeout >/dev/null 2>&1; then reason=runner_unavailable
+    elif (( remaining <= 0 )); then reason=budget_exhausted
+    fi
+    if [[ -n "$reason" ]]; then
+      TEST_EXIT=1
+      TEST_RUNS="$(jq --arg command "$command" --arg reason "$reason" '. + [{command:$command,state:"skipped",reason:$reason}]' <<<"$TEST_RUNS")"
+      continue
+    fi
+    output="$(printf 'tests/%03d.log' "$index")"
+    started=$(date +%s)
+    # A non-login shell avoids loading unrelated user shell startup files.
+    (cd "$REPO_DIR" && timeout --signal=TERM --kill-after=5 "$remaining" "${INNER_SANDBOX_PREFIX[@]}" bash -c "$command") 2>&1 | redact_stream >"$RUN_DIR/$output"
+    code=${PIPESTATUS[0]}
+    elapsed=$(( $(date +%s) - started ))
+    state=failed
+    if (( code == 0 )); then state=passed
+    elif (( code == 124 )); then state=timed_out
+    fi
+    if (( code != 0 )); then TEST_EXIT=1; fi
+    digest=$(sha256sum "$RUN_DIR/$output" | awk '{print $1}')
+    TEST_RUNS="$(jq --arg command "$command" --arg state "$state" --argjson code "$code" --argjson duration "$elapsed" --arg path "$output" --arg digest "$digest" '. + [{command:$command,state:$state,exit_code:$code,duration_seconds:$duration,log_path:$path,log_sha256:$digest}]' <<<"$TEST_RUNS")"
+  done
+}
+
+if [[ -n "$SNAPSHOT_ID" ]]; then
+  if [[ ! -x "$REPOSITORY_TOOL" ]] || ! "$REPOSITORY_TOOL" repo-result --help >/dev/null 2>&1 || ! "$REPOSITORY_TOOL" execution-check --help >/dev/null 2>&1; then
+    report_status "FAILED" "repository_result_tool_missing; rebuild the VM template before retrying"
+    exit 1
+  fi
+fi
 report_status "RUNNING" "agent starting"
 START_TS=$(date +%s)
 if run_agent; then
@@ -704,12 +807,15 @@ if run_agent; then
 else
   AGENT_EXIT=$?
 fi
+run_requested_tests || { log "test evidence collection failed"; exit 1; }
+JOB_EXIT="$AGENT_EXIT"
+if (( JOB_EXIT == 0 && TEST_EXIT != 0 )); then JOB_EXIT=1; fi
 END_TS=$(date +%s)
 DURATION=$((END_TS - START_TS))
 
 STATUS="COMPLETED"
-if [[ "$AGENT_EXIT" -ne 0 ]]; then
-  if [[ "$AGENT_EXIT" -eq 124 ]]; then
+if [[ "$JOB_EXIT" -ne 0 ]]; then
+  if [[ "$JOB_EXIT" -eq 124 ]]; then
     STATUS="TIMEOUT"
   else
     STATUS="FAILED"
@@ -721,14 +827,41 @@ if [[ -d "$REPO_DIR/.git" ]]; then
   COMMIT_SHA=$(git -C "$REPO_DIR" rev-parse HEAD 2>/dev/null || true)
 fi
 
+REPOSITORY_CLAIM='null'
+REPOSITORY_CAPTURE="$RUN_DIR/repository-result.json"
+if [[ -n "$SNAPSHOT_ID" ]]; then
+    ARCHIVE_SECRET_FILE="$SECRETS_DIR/archive-credential-values"
+    printf '%s\0' "$TOKEN" >"$ARCHIVE_SECRET_FILE"
+    jq -j '[.artifact.token, .git.token, .tailscale.authkey, .sandbox_secret, ((.env // {})[] | tostring)] | .[] | select(. != null and . != "") | ., "\u0000"' "$BOOTSTRAP_RESPONSE" >>"$ARCHIVE_SECRET_FILE"
+    chmod 600 "$ARCHIVE_SECRET_FILE"
+  report_status "RUNNING" "collecting repository results"
+  if "$REPOSITORY_TOOL" repo-result --repo "$REPO_DIR" --base-revision "$JOB_REF" --secret-file "$ARCHIVE_SECRET_FILE" --out "$RUN_DIR/repository-results" >"$REPOSITORY_CAPTURE" 2>"$RUN_DIR/repository-result-error.log"; then
+    RESULT_MANIFEST="$(jq -r '.manifest_path' "$REPOSITORY_CAPTURE")"
+    RESULT_MANIFEST_SHA="$(sha256sum "$RESULT_MANIFEST" | awk '{print $1}')"
+    REPOSITORY_CLAIM="$(jq -n --arg sha "$RESULT_MANIFEST_SHA" '{state:"prepared",manifest_sha256:$sha}')"
+  else
+    log "repository result export failed; the server must retain the sandbox for inspection"
+    REPOSITORY_CLAIM='{"state":"blocked","error_code":"repository_result_export_failed"}'
+  fi
+fi
+
 REPORT_JSON="$RUN_DIR/report.json"
 result_payload=$(jq -n \
   --arg status "$STATUS" \
-  --argjson exit_code "$AGENT_EXIT" \
+  --arg job_id "$JOB_ID" \
+  --argjson exit_code "$JOB_EXIT" \
+  --argjson agent_exit_code "$AGENT_EXIT" \
+  --argjson test_runs "$TEST_RUNS" \
   --argjson duration "$DURATION" \
   --arg commit "$COMMIT_SHA" \
   --arg mode "$JOB_MODE" \
-  '{status:$status, exit_code:$exit_code, duration_seconds:$duration, commit:$commit, mode:$mode}')
+  '{schema_version:1,job_id:$job_id,status:$status, exit_code:$exit_code, agent_exit_code:$agent_exit_code, test_runs:$test_runs, duration_seconds:$duration, commit:$commit, mode:$mode}')
+if [[ -n "$SNAPSHOT_ID" ]]; then
+  result_payload="$(jq --arg path "$REPO_DIR" --argjson source "$(jq '.job.repository_snapshot' "$BOOTSTRAP_RESPONSE")" '. + {repository_snapshot:$source, repository_path:$path}' <<<"$result_payload")"
+fi
+if [[ -n "$SNAPSHOT_ID" ]]; then
+  result_payload="$(jq --argjson result "$REPOSITORY_CLAIM" --arg job_id "$JOB_ID" --arg source_id "$SNAPSHOT_ID" --arg source_revision "$JOB_REF" '. + {schema_version:1, job_id:$job_id, source_id:$source_id, source_revision:$source_revision, repository_result:$result}' <<<"$result_payload")"
+fi
 printf "%s" "$result_payload" >"$REPORT_JSON"
 chmod 600 "$REPORT_JSON"
 
@@ -736,6 +869,7 @@ ARTIFACTS_DIR="${AGENTLAB_ARTIFACTS_DIR:-$RUN_DIR/artifacts}"
 mkdir -p "$ARTIFACTS_DIR"
 cp -f "$LOG_FILE" "$ARTIFACTS_DIR/agent-runner.log"
 cp -f "$REPORT_JSON" "$ARTIFACTS_DIR/report.json"
+if (( $(jq length <<<"$TEST_RUNS") > 0 )); then cp -R "$RUN_DIR/tests" "$ARTIFACTS_DIR/"; fi
 
 ARTIFACT_BUNDLE="$RUN_DIR/agentlab-artifacts.tar.gz"
 if tar -czf "$ARTIFACT_BUNDLE" -C "$ARTIFACTS_DIR" .; then
@@ -743,28 +877,68 @@ if tar -czf "$ARTIFACT_BUNDLE" -C "$ARTIFACTS_DIR" .; then
 fi
 
 ARTIFACTS_JSON="[]"
-if [[ -f "$ARTIFACT_BUNDLE" ]]; then
-  ART_SIZE=$(stat -c '%s' "$ARTIFACT_BUNDLE" 2>/dev/null || stat -f '%z' "$ARTIFACT_BUNDLE")
-  ART_SHA=$(sha256sum "$ARTIFACT_BUNDLE" | awk '{print $1}')
-  ARTIFACTS_JSON=$(jq -n --arg name "agentlab-artifacts.tar.gz" --arg path "agentlab-artifacts.tar.gz" --argjson size "$ART_SIZE" --arg sha "$ART_SHA" --arg mime "application/gzip" \
-    '[{name:$name, path:$path, size_bytes:$size, sha256:$sha, mime:$mime}]')
-fi
-
 ARTIFACT_ENDPOINT="$(jq -r '.artifact.endpoint // empty' "$BOOTSTRAP_RESPONSE")"
 ARTIFACT_TOKEN="$(jq -r '.artifact.token // empty' "$BOOTSTRAP_RESPONSE")"
 
-if [[ -n "$ARTIFACT_ENDPOINT" && -n "$ARTIFACT_TOKEN" && -f "$ARTIFACT_BUNDLE" ]]; then
-  upload_payload=""
-  upload_payload=$(printf "%s" "${ARTIFACT_ENDPOINT%/}")
-  if ! curl -fsS --connect-timeout "$CURL_CONNECT_TIMEOUT" --max-time "$CURL_UPLOAD_MAX_TIME" \
-    -X POST -H "Authorization: Bearer $ARTIFACT_TOKEN" \
-    -H "Content-Type: application/gzip" \
-    --data-binary "@$ARTIFACT_BUNDLE" "$upload_payload" >/dev/null; then
-    log "artifact upload failed"
-  else
+# The credential stays in a private header file instead of process arguments.
+UPLOAD_HEADERS="$SECRETS_DIR/artifact-upload-headers"
+if [[ -n "$ARTIFACT_TOKEN" ]]; then
+  printf 'Authorization: Bearer %s\n' "$ARTIFACT_TOKEN" >"$UPLOAD_HEADERS"
+  chmod 600 "$UPLOAD_HEADERS"
+fi
+upload_artifact() {
+  local file="$1" path="$2" separator='?' response mime=application/octet-stream
+  [[ -n "$ARTIFACT_ENDPOINT" && -n "$ARTIFACT_TOKEN" && -f "$file" ]] || return 1
+  if [[ "$ARTIFACT_ENDPOINT" == *'?'* ]]; then separator='&'; fi
+  case "$path" in
+    *.tar.gz) mime=application/gzip ;;
+    *.json) mime=application/json ;;
+    *.patch) mime=text/x-diff ;;
+    *.bundle) mime=application/x-git-bundle ;;
+  esac
+  local -a args=(curl -fsS --proto '=http,https' --retry 2 --retry-all-errors --retry-delay 1 --connect-timeout "$CURL_CONNECT_TIMEOUT" --max-time "$CURL_UPLOAD_MAX_TIME" -X POST -H "@$UPLOAD_HEADERS" -H "Content-Type: $mime" --data-binary "@$file")
+  if [[ "$ARTIFACT_ENDPOINT" == https://* && -n "${AGENTLAB_CONTROLLER_CA:-}" ]]; then args+=(--cacert "$AGENTLAB_CONTROLLER_CA"); fi
+  if response="$("${args[@]}" "${ARTIFACT_ENDPOINT}${separator}path=${path}")"; then
+    ARTIFACTS_JSON="$(jq --argjson response "$response" '. + [$response.artifact]' <<<"$ARTIFACTS_JSON")"
+    return 0
+  fi
+  return 1
+}
+
+if [[ -n "$SNAPSHOT_ID" ]]; then
+  if [[ "$(jq -r '.state' <<<"$REPOSITORY_CLAIM")" == prepared ]]; then
+    # Check the complete archive before uploading any result artifact. Known
+    # credentials travel only through this private file, never command arguments.
+    ARCHIVE_VERIFIED=0
+    declare -a TEST_CHECK_ARGS=()
+    while IFS= read -r encoded; do decoded="$(printf '%s' "$encoded" | base64 --decode; printf '.')"; TEST_CHECK_ARGS+=(--test-command "${decoded%.}"); done < <(jq -r '.job.test_commands[]? | @base64' "$BOOTSTRAP_RESPONSE")
+    if "$REPOSITORY_TOOL" execution-check "${TEST_CHECK_ARGS[@]}" --archive "$ARTIFACT_BUNDLE" --secret-file "$ARCHIVE_SECRET_FILE" --job-id "$JOB_ID" --source-id "$SNAPSHOT_ID" --source-revision "$JOB_REF" --manifest-sha256 "$RESULT_MANIFEST_SHA" --status "$STATUS" >"$RUN_DIR/execution-evidence.json" 2>"$RUN_DIR/execution-evidence-error.log"; then
+      ARCHIVE_VERIFIED=1
+    else
+      log "execution evidence rejected; the server must retain the sandbox for inspection"
+    fi
+    rm -f "$ARCHIVE_SECRET_FILE"
+    RESULT_PREFIX="repository-results/$RESULT_MANIFEST_SHA"
+    RESULT_BUNDLE="$(jq -r '.bundle_path' "$REPOSITORY_CAPTURE")"
+    RESULT_PATCH="$(jq -r '.patch_path' "$REPOSITORY_CAPTURE")"
+    if [[ "$ARCHIVE_VERIFIED" == 1 ]] && upload_artifact "$RESULT_MANIFEST" "$RESULT_PREFIX/manifest.json" &&
+      upload_artifact "$RESULT_BUNDLE" "$RESULT_PREFIX/source.bundle" &&
+      { [[ ! -s "$RESULT_PATCH" ]] || upload_artifact "$RESULT_PATCH" "$RESULT_PREFIX/changes.patch"; } &&
+      upload_artifact "$ARTIFACT_BUNDLE" "$RESULT_PREFIX/execution.tar.gz"; then
+      log "repository results uploaded; awaiting server verification"
+    else
+      log "repository result upload failed; the server must retain the sandbox for inspection"
+    fi
+  fi
+else
+  if upload_artifact "$ARTIFACT_BUNDLE" 'agentlab-artifacts.tar.gz'; then
     log "artifact upload complete"
+  else
+    log "artifact upload unavailable or failed"
   fi
 fi
+rm -f "$UPLOAD_HEADERS"
+if [[ -n "${ARCHIVE_SECRET_FILE:-}" ]]; then rm -f "$ARCHIVE_SECRET_FILE"; fi
 
 report_status "$STATUS" "agent finished" "$ARTIFACTS_JSON" "$result_payload"
 

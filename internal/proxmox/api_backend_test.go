@@ -3,6 +3,7 @@ package proxmox
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -564,247 +565,99 @@ func TestAPIBackendVolumeInfo(t *testing.T) {
 }
 
 func TestAPIBackendVolumeSnapshotCreate(t *testing.T) {
-	var calls []apiRequest
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		body, _ := io.ReadAll(r.Body)
-		_ = r.Body.Close()
-		form, _ := url.ParseQuery(string(body))
-		calls = append(calls, apiRequest{
-			method:   r.Method,
-			path:     r.URL.Path,
-			rawQuery: r.URL.RawQuery,
-			form:     form,
-		})
-		w.Header().Set("Content-Type", "application/json")
-		if r.URL.Path == "/api2/json/nodes/pve/storage/local-zfs/status" {
-			_, _ = w.Write([]byte(`{"data":{"type":"zfspool"}}`))
-			return
-		}
-		_, _ = w.Write([]byte(`{"data":{}}`))
+	calls := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls++
+		t.Errorf("unexpected speculative API call %s", r.URL.String())
+		w.WriteHeader(500)
 	}))
-	defer srv.Close()
-
-	backend := &APIBackend{
-		BaseURL:    srv.URL + "/api2/json",
-		Node:       "pve",
-		HTTPClient: srv.Client(),
-	}
-
-	if err := backend.VolumeSnapshotCreate(context.Background(), "local-zfs:vm-0-disk-1", "snap1"); err != nil {
-		t.Fatalf("VolumeSnapshotCreate() error = %v", err)
-	}
-	if len(calls) != 2 {
-		t.Fatalf("expected 2 API calls, got %d", len(calls))
-	}
-	if calls[0].method != http.MethodGet || calls[0].path != "/api2/json/nodes/pve/storage/local-zfs/status" {
-		t.Fatalf("storage status call = %s %s", calls[0].method, calls[0].path)
-	}
-	if calls[1].method != http.MethodPost || calls[1].path != "/api2/json/nodes/pve/storage/local-zfs/content/local-zfs:vm-0-disk-1/snapshot" {
-		t.Fatalf("snapshot create call = %s %s", calls[1].method, calls[1].path)
-	}
-	if calls[1].form.Get("snapname") != "snap1" {
-		t.Fatalf("snapname = %q", calls[1].form.Get("snapname"))
+	defer server.Close()
+	backend := &APIBackend{BaseURL: server.URL + "/api2/json", Node: "pve", HTTPClient: server.Client()}
+	err := backend.VolumeSnapshotCreate(context.Background(), "local-zfs:vm-0-disk-1", "snap1")
+	if !errors.Is(err, ErrStorageUnsupported) || calls != 0 {
+		t.Fatalf("unsupported workspace operation: calls=%d error=%v", calls, err)
 	}
 }
 
 func TestAPIBackendVolumeSnapshotRestore(t *testing.T) {
-	var calls []apiRequest
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		body, _ := io.ReadAll(r.Body)
-		_ = r.Body.Close()
-		form, _ := url.ParseQuery(string(body))
-		calls = append(calls, apiRequest{
-			method:   r.Method,
-			path:     r.URL.Path,
-			rawQuery: r.URL.RawQuery,
-			form:     form,
-		})
-		w.Header().Set("Content-Type", "application/json")
-		if r.URL.Path == "/api2/json/nodes/pve/storage/local-zfs/status" {
-			_, _ = w.Write([]byte(`{"data":{"type":"zfspool"}}`))
-			return
-		}
-		_, _ = w.Write([]byte(`{"data":{}}`))
+	calls := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls++
+		t.Errorf("unexpected speculative API call %s", r.URL.String())
+		w.WriteHeader(500)
 	}))
-	defer srv.Close()
-
-	backend := &APIBackend{
-		BaseURL:    srv.URL + "/api2/json",
-		Node:       "pve",
-		HTTPClient: srv.Client(),
-	}
-
-	if err := backend.VolumeSnapshotRestore(context.Background(), "local-zfs:vm-0-disk-1", "snap1"); err != nil {
-		t.Fatalf("VolumeSnapshotRestore() error = %v", err)
-	}
-	if len(calls) != 2 {
-		t.Fatalf("expected 2 API calls, got %d", len(calls))
-	}
-	if calls[1].method != http.MethodPost || calls[1].path != "/api2/json/nodes/pve/storage/local-zfs/content/local-zfs:vm-0-disk-1/snapshot/snap1/rollback" {
-		t.Fatalf("snapshot restore call = %s %s", calls[1].method, calls[1].path)
-	}
-	if len(calls[1].form) != 0 {
-		t.Fatalf("snapshot restore form = %#v", calls[1].form)
+	defer server.Close()
+	backend := &APIBackend{BaseURL: server.URL + "/api2/json", Node: "pve", HTTPClient: server.Client()}
+	err := backend.VolumeSnapshotRestore(context.Background(), "local-zfs:vm-0-disk-1", "snap1")
+	if !errors.Is(err, ErrStorageUnsupported) || calls != 0 {
+		t.Fatalf("unsupported workspace operation: calls=%d error=%v", calls, err)
 	}
 }
 
 func TestAPIBackendVolumeSnapshotDelete(t *testing.T) {
-	var calls []apiRequest
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		body, _ := io.ReadAll(r.Body)
-		_ = r.Body.Close()
-		form, _ := url.ParseQuery(string(body))
-		calls = append(calls, apiRequest{
-			method:   r.Method,
-			path:     r.URL.Path,
-			rawQuery: r.URL.RawQuery,
-			form:     form,
-		})
-		w.Header().Set("Content-Type", "application/json")
-		if r.URL.Path == "/api2/json/nodes/pve/storage/local-zfs/status" {
-			_, _ = w.Write([]byte(`{"data":{"type":"zfspool"}}`))
-			return
-		}
-		_, _ = w.Write([]byte(`{"data":{}}`))
+	calls := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls++
+		t.Errorf("unexpected speculative API call %s", r.URL.String())
+		w.WriteHeader(500)
 	}))
-	defer srv.Close()
-
-	backend := &APIBackend{
-		BaseURL:    srv.URL + "/api2/json",
-		Node:       "pve",
-		HTTPClient: srv.Client(),
-	}
-
-	if err := backend.VolumeSnapshotDelete(context.Background(), "local-zfs:vm-0-disk-1", "snap1"); err != nil {
-		t.Fatalf("VolumeSnapshotDelete() error = %v", err)
-	}
-	if len(calls) != 2 {
-		t.Fatalf("expected 2 API calls, got %d", len(calls))
-	}
-	if calls[1].method != http.MethodDelete || calls[1].path != "/api2/json/nodes/pve/storage/local-zfs/content/local-zfs:vm-0-disk-1/snapshot/snap1" {
-		t.Fatalf("snapshot delete call = %s %s", calls[1].method, calls[1].path)
+	defer server.Close()
+	backend := &APIBackend{BaseURL: server.URL + "/api2/json", Node: "pve", HTTPClient: server.Client()}
+	err := backend.VolumeSnapshotDelete(context.Background(), "local-zfs:vm-0-disk-1", "snap1")
+	if !errors.Is(err, ErrStorageUnsupported) || calls != 0 {
+		t.Fatalf("unsupported workspace operation: calls=%d error=%v", calls, err)
 	}
 }
 
 func TestAPIBackendVolumeClone(t *testing.T) {
-	var calls []apiRequest
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		body, _ := io.ReadAll(r.Body)
-		_ = r.Body.Close()
-		form, _ := url.ParseQuery(string(body))
-		calls = append(calls, apiRequest{
-			method:   r.Method,
-			path:     r.URL.Path,
-			rawQuery: r.URL.RawQuery,
-			form:     form,
-		})
-		w.Header().Set("Content-Type", "application/json")
-		if r.URL.Path == "/api2/json/nodes/pve/storage/local-zfs/status" {
-			_, _ = w.Write([]byte(`{"data":{"type":"zfspool"}}`))
-			return
-		}
-		_, _ = w.Write([]byte(`{"data":{}}`))
+	calls := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls++
+		t.Errorf("unexpected speculative API call %s", r.URL.String())
+		w.WriteHeader(500)
 	}))
-	defer srv.Close()
-
-	backend := &APIBackend{
-		BaseURL:    srv.URL + "/api2/json",
-		Node:       "pve",
-		HTTPClient: srv.Client(),
-	}
-
-	if err := backend.VolumeClone(context.Background(), "local-zfs:vm-0-disk-1", "local-zfs:vm-0-disk-2"); err != nil {
-		t.Fatalf("VolumeClone() error = %v", err)
-	}
-	if len(calls) != 2 {
-		t.Fatalf("expected 2 API calls, got %d", len(calls))
-	}
-	if calls[1].method != http.MethodPost || calls[1].path != "/api2/json/nodes/pve/storage/local-zfs/content/local-zfs:vm-0-disk-1/clone" {
-		t.Fatalf("clone call = %s %s", calls[1].method, calls[1].path)
-	}
-	if calls[1].form.Get("target") != "local-zfs:vm-0-disk-2" {
-		t.Fatalf("clone target = %q", calls[1].form.Get("target"))
+	defer server.Close()
+	backend := &APIBackend{BaseURL: server.URL + "/api2/json", Node: "pve", HTTPClient: server.Client()}
+	err := backend.VolumeClone(context.Background(), "local-zfs:vm-0-disk-1", "local-zfs:vm-900000001-agentlab-workspace-test")
+	if !errors.Is(err, ErrStorageUnsupported) || calls != 0 {
+		t.Fatalf("unsupported workspace operation: calls=%d error=%v", calls, err)
 	}
 }
 
 func TestAPIBackendVolumeSnapshotUnsupportedStorage(t *testing.T) {
-	var calls []apiRequest
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		body, _ := io.ReadAll(r.Body)
-		_ = r.Body.Close()
-		form, _ := url.ParseQuery(string(body))
-		calls = append(calls, apiRequest{
-			method:   r.Method,
-			path:     r.URL.Path,
-			rawQuery: r.URL.RawQuery,
-			form:     form,
-		})
-		w.Header().Set("Content-Type", "application/json")
-		if r.URL.Path == "/api2/json/nodes/pve/storage/local-lvm/status" {
-			_, _ = w.Write([]byte(`{"data":{"type":"lvm"}}`))
-			return
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != "GET" {
+			t.Errorf("unexpected mutation %s", r.Method)
 		}
-		_, _ = w.Write([]byte(`{"data":{}}`))
+		w.Header().Set("Content-Type", "application/json")
+		io.WriteString(w, `{"data":{"type":"lvm"}}`)
 	}))
-	defer srv.Close()
-
-	backend := &APIBackend{
-		BaseURL:    srv.URL + "/api2/json",
-		Node:       "pve",
-		HTTPClient: srv.Client(),
-	}
-
+	defer server.Close()
+	runner := &fakeRunner{}
+	backend := &APIBackend{BaseURL: server.URL + "/api2/json", Node: "pve", HTTPClient: server.Client(), AllowShellFallback: true, ShellFallback: &ShellBackend{Runner: runner}}
 	err := backend.VolumeSnapshotCreate(context.Background(), "local-lvm:vm-0-disk-1", "snap1")
-	if err == nil {
-		t.Fatalf("expected error, got nil")
-	}
-	if !errors.Is(err, ErrStorageUnsupported) {
-		t.Fatalf("expected ErrStorageUnsupported, got %v", err)
-	}
-	if len(calls) != 1 {
-		t.Fatalf("expected 1 API call, got %d", len(calls))
+	if !errors.Is(err, ErrStorageUnsupported) || len(runner.calls) != 0 {
+		t.Fatalf("storage error=%v calls=%v", err, runner.calls)
 	}
 }
 
 func TestAPIBackendVolumeSnapshotFallbackToShell(t *testing.T) {
-	var calls []apiRequest
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		body, _ := io.ReadAll(r.Body)
-		_ = r.Body.Close()
-		form, _ := url.ParseQuery(string(body))
-		calls = append(calls, apiRequest{
-			method:   r.Method,
-			path:     r.URL.Path,
-			rawQuery: r.URL.RawQuery,
-			form:     form,
-		})
-		if r.URL.Path == "/api2/json/nodes/pve/storage/local-zfs/status" {
-			w.Header().Set("Content-Type", "application/json")
-			_, _ = w.Write([]byte(`{"data":{"type":"zfspool"}}`))
-			return
+	calls := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls++
+		if r.Method != "GET" || r.URL.Path != "/api2/json/nodes/pve/storage/local-zfs/status" {
+			t.Errorf("unexpected API request %s %s", r.Method, r.URL.String())
 		}
-		w.WriteHeader(http.StatusNotFound)
-		_, _ = w.Write([]byte(`{"message":"not implemented"}`))
+		io.WriteString(w, `{"data":{"type":"zfspool"}}`)
 	}))
-	defer srv.Close()
-
-	runner := &fakeRunner{responses: []runnerResponse{{stdout: `[{"storage":"local-zfs","type":"zfspool"}]`}, {}}}
-	backend := &APIBackend{
-		BaseURL:            srv.URL + "/api2/json",
-		Node:               "pve",
-		HTTPClient:         srv.Client(),
-		AllowShellFallback: true,
-		ShellFallback:      &ShellBackend{Runner: runner},
-	}
-
+	defer server.Close()
+	runner := &fakeRunner{responses: []runnerResponse{{stdout: `{"version":1,"operation":"snapshot","source":"local-zfs:vm-0-disk-1","snapshot":"snap1","target":"","state":"verified","ok":true,"source_guid":"11","snapshot_guid":"12"}`}}}
+	backend := &APIBackend{BaseURL: server.URL + "/api2/json", Node: "pve", HTTPClient: server.Client(), AllowShellFallback: true, ShellFallback: &ShellBackend{Runner: runner}}
 	if err := backend.VolumeSnapshotCreate(context.Background(), "local-zfs:vm-0-disk-1", "snap1"); err != nil {
-		t.Fatalf("VolumeSnapshotCreate() error = %v", err)
+		t.Fatal(err)
 	}
-	if len(calls) != 2 {
-		t.Fatalf("expected 2 API calls, got %d", len(calls))
-	}
-	if len(runner.calls) != 2 {
-		t.Fatalf("expected 2 shell calls, got %d", len(runner.calls))
+	if calls != 1 || len(runner.calls) != 1 || runner.calls[0].name != "/usr/bin/perl" {
+		t.Fatalf("native calls=%v API calls=%d", runner.calls, calls)
 	}
 }
 
@@ -857,5 +710,25 @@ func TestAPIBackendConfigureSSHKeysRoundTrip(t *testing.T) {
 	backend := &APIBackend{BaseURL: srv.URL + "/api2/json", Node: "pve", HTTPClient: srv.Client()}
 	if err := backend.Configure(context.Background(), 101, VMConfig{SSHKeys: key}); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestWorkspaceStorageDoesNotFallBackAfterAPIFailure(t *testing.T) {
+	for _, status := range []int{401, 403, 500} {
+		t.Run(fmt.Sprint(status), func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				w.WriteHeader(status)
+				io.WriteString(w, `{"message":"access failed"}`)
+			}))
+			defer server.Close()
+			runner := &fakeRunner{}
+			backend := &APIBackend{BaseURL: server.URL + "/api2/json", Node: "pve", HTTPClient: server.Client(), AllowShellFallback: true, ShellFallback: &ShellBackend{Runner: runner}}
+			if err := backend.VolumeSnapshotCreate(context.Background(), "local-zfs:vm-0-disk-1", "saved"); err == nil {
+				t.Fatal("API failure ignored")
+			}
+			if len(runner.calls) != 0 {
+				t.Fatal("local authority used after API failure")
+			}
+		})
 	}
 }

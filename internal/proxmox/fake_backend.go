@@ -4,6 +4,7 @@ package proxmox
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"path/filepath"
 	"sort"
@@ -18,7 +19,7 @@ type FakeBackend struct {
 	vms             map[VMID]*fakeVM
 	volumes         map[string]*fakeVolume
 	volumeSnapshots map[string]map[string]struct{}
-	nextVolumeSeq   int
+	nextGeneration  uint64
 }
 
 // Compile-time check that FakeBackend satisfies Backend. Without it, a
@@ -26,13 +27,14 @@ type FakeBackend struct {
 var _ Backend = (*FakeBackend)(nil)
 
 type fakeVM struct {
-	vmid      VMID
-	name      string
-	status    Status
-	config    VMConfig
-	ip        string
-	snapshots map[string]struct{}
-	volumes   map[string]string // slot -> volumeID
+	vmid       VMID
+	name       string
+	status     Status
+	config     VMConfig
+	ip         string
+	snapshots  map[string]struct{}
+	volumes    map[string]string // slot -> volumeID
+	generation string
 }
 
 type fakeVolume struct {
@@ -51,7 +53,6 @@ func NewFakeBackend() *FakeBackend {
 		vms:             make(map[VMID]*fakeVM),
 		volumes:         make(map[string]*fakeVolume),
 		volumeSnapshots: make(map[string]map[string]struct{}),
-		nextVolumeSeq:   1,
 	}
 }
 
@@ -81,13 +82,15 @@ func (b *FakeBackend) Clone(_ context.Context, template VMID, target VMID, name 
 	if _, ok := b.vms[target]; ok {
 		return fmt.Errorf("vm %d already exists", target)
 	}
+	b.nextGeneration++
 	b.vms[target] = &fakeVM{
-		vmid:      target,
-		name:      strings.TrimSpace(name),
-		status:    StatusStopped,
-		config:    VMConfig{Name: strings.TrimSpace(name)},
-		snapshots: make(map[string]struct{}),
-		volumes:   make(map[string]string),
+		generation: fmt.Sprintf("00000000-0000-0000-0000-%012x", b.nextGeneration),
+		vmid:       target,
+		name:       strings.TrimSpace(name),
+		status:     StatusStopped,
+		config:     VMConfig{Name: strings.TrimSpace(name)},
+		snapshots:  make(map[string]struct{}),
+		volumes:    make(map[string]string),
 	}
 	return nil
 }
@@ -304,8 +307,9 @@ func (b *FakeBackend) VMConfig(_ context.Context, vmid VMID) (map[string]string,
 		return nil, ErrVMNotFound
 	}
 	cfg := map[string]string{
-		"name":   vm.name,
-		"bridge": vm.config.Bridge,
+		"vmgenid": vm.generation,
+		"name":    vm.name,
+		"bridge":  vm.config.Bridge,
 	}
 	return cfg, nil
 }
@@ -317,15 +321,17 @@ func (b *FakeBackend) CreateVolume(_ context.Context, storage, name string, size
 	if storage == "" {
 		storage = "local"
 	}
-	normalized := strings.TrimSpace(name)
-	if normalized == "" {
-		normalized = fmt.Sprintf("vol-%d", b.nextVolumeSeq)
+	if _, err := volumeAllocationOwner(name); err != nil {
+		return "", err
 	}
-	id := fmt.Sprintf("%s:vm-%s-disk-1", storage, normalized)
-	if _, ok := b.volumes[id]; ok {
-		id = fmt.Sprintf("%s:vm-%s-disk-%d", storage, normalized, b.nextVolumeSeq)
+	if sizeGB <= 0 {
+		return "", errors.New("volume size must be positive")
 	}
-	b.nextVolumeSeq++
+	id := storage + ":" + name
+	if _, exists := b.volumes[id]; exists {
+		return "", errors.New("volume already exists")
+	}
+
 	vol := &fakeVolume{
 		id:        id,
 		storage:   storage,
@@ -504,4 +510,31 @@ func (b *FakeBackend) ValidateTemplate(_ context.Context, template VMID) error {
 func fakeIPForVM(vmid VMID) string {
 	octet := int(vmid)%250 + 2
 	return fmt.Sprintf("10.77.0.%d", octet)
+}
+
+func (b *FakeBackend) PlanWorkspaceClone(_ context.Context, storage, name string, size int) (string, error) {
+	if size <= 0 {
+		return "", fmt.Errorf("invalid workspace size")
+	}
+	if _, err := volumeAllocationOwner(name); err != nil {
+		return "", err
+	}
+	return storage + ":" + name, nil
+}
+func (b *FakeBackend) CopyWorkspaceVolume(ctx context.Context, source, snapshot, target string) (StorageOperation, error) {
+	var err error
+	operation := "copy-snapshot"
+	if snapshot == "" {
+		operation = "copy"
+		err = b.VolumeClone(ctx, source, target)
+		snapshot = CopySnapshotName(target)
+	} else {
+		err = b.VolumeCloneFromSnapshot(ctx, source, snapshot, target)
+	}
+	receipt := StorageOperation{Version: 1, Operation: operation, Source: source, Snapshot: snapshot, Target: target, State: "verified", Cleanup: "verified", OK: err == nil, SourceGUID: "fake-source", SnapshotGUID: "fake-snapshot", TargetGUID: "fake-target"}
+	if err != nil {
+		receipt.State = "unknown"
+		receipt.Cleanup = "inspection_required"
+	}
+	return receipt, err
 }

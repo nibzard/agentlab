@@ -132,3 +132,34 @@ func TestWorkspaceForkFromSnapshot(t *testing.T) {
 		t.Fatalf("expected no direct clone calls, got %d", len(backend.volumeCloneCalls))
 	}
 }
+
+func (s *stubBackend) PlanWorkspaceClone(_ context.Context, storage, name string, _ int) (string, error) {
+	return storage + ":" + name, nil
+}
+func (s *stubBackend) CopyWorkspaceVolume(ctx context.Context, source, snapshot, target string) (proxmox.StorageOperation, error) {
+	var err error
+	if snapshot == "" {
+		err = s.VolumeClone(ctx, source, target)
+	} else {
+		err = s.VolumeCloneFromSnapshot(ctx, source, snapshot, target)
+	}
+	if snapshot == "" {
+		snapshot = proxmox.CopySnapshotName(target)
+	}
+	return proxmox.StorageOperation{SourceGUID: "fixture-source", SnapshotGUID: "fixture-snapshot", TargetGUID: "fixture-target", Version: 1, Source: source, Target: target, Snapshot: snapshot, OK: err == nil, State: "verified", Cleanup: "verified"}, err
+}
+func (b *orchestratorBackend) PlanWorkspaceClone(_ context.Context, storage, name string, _ int) (string, error) {
+	return storage + ":" + name, nil
+}
+func (b *orchestratorBackend) CopyWorkspaceVolume(ctx context.Context, source, snapshot, target string) (proxmox.StorageOperation, error) {
+	var err error
+	if snapshot == "" {
+		err = b.VolumeClone(ctx, source, target)
+	} else {
+		err = b.VolumeCloneFromSnapshot(ctx, source, snapshot, target)
+	}
+	if snapshot == "" {
+		snapshot = proxmox.CopySnapshotName(target)
+	}
+	return proxmox.StorageOperation{SourceGUID: "fixture-source", SnapshotGUID: "fixture-snapshot", TargetGUID: "fixture-target", Version: 1, Source: source, Target: target, Snapshot: snapshot, OK: err == nil, State: "verified", Cleanup: "verified"}, err
+}

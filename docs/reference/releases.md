@@ -79,7 +79,55 @@ Build the archives without publishing. GoReleaser writes them to `dist/`.
 ```bash
 make release-check       # validate the GoReleaser config schema
 make release-snapshot    # build all targets into dist/, no publish
+make release-smoke       # verify packages and native entry points
 ```
+
+The smoke check verifies all six archive names, checksums, and binary architectures.
+It runs the native client outside the checkout. It checks the embedded dashboard,
+browser enrollment, remote authorization, and local result export. A Linux run
+also executes the packaged daemon's result helper. All network requests use a
+local fixture. The check does not provision a host or publish a release.
 
 For the full development and docs-as-code workflow, see
 ../meta/contributing.md.
+
+The CLI embeds the maintained agent skill. `agentlab skill show --json` inspects
+its metadata. `agentlab skill export --json` provides the complete skill without
+a checkout or a daemon connection. Package smoke checks verify the exported
+bytes against the advertised digest and preserve modified instructions on retry.
+
+The native package smoke check uses Git, Python 3, and OpenSSH `ssh-keygen`.
+It creates an ephemeral signing key in its private temporary directory and checks
+protected stdin inspection with the packaged CLI. No key is enrolled on a server.
+The output verifies matching revocation identifiers without printing credentials.
+
+The native smoke check also saves a default context through protected stdin.
+It checks the private fallback file, resolves that credential for a status call,
+moves the credential, resumes cleanup, and disconnects. The fixture uses a
+temporary configuration directory and a local HTTP server. It does not access
+the desktop credential service or establish native macOS Keychain acceptance.
+
+## Verify native macOS credentials
+
+The client archives include `third_party/purego/LICENSE` and
+`third_party/purego/NOTICE.txt`. The pinned binding calls system frameworks on
+macOS without a C compiler. Linux continues to use Secret Service or file storage.
+
+On a Mac with an accessible, unlocked default Keychain, run:
+
+```bash
+go test -tags=integration ./internal/connection -run '^TestKeychainNative'
+python3 scripts/tests/native_keychain_smoke.py --client /path/to/extracted/agentlab
+```
+
+The Go checks cover native persistence, configuration isolation, and recovery
+after client termination. The package check covers connection, replacement,
+migration to files and back, and disconnect. It creates only disposable records.
+It never creates, unlocks, or selects a Keychain. If cleanup fails, it reports
+the retained fixture directory for inspection.
+
+Pass `--previous-client /path/to/previous/agentlab` to test an upgrade. The earlier
+client must already support `macos-keychain`. The check creates a native context
+with that client, then reads and replaces it with the new client. A macOS access
+denial fails the check without a hidden prompt. Restore application access
+through macOS before retrying. Linux smoke checks cannot satisfy this native gate.

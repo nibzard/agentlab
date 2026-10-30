@@ -2,14 +2,21 @@ package daemon
 
 import (
 	"encoding/json"
+	"github.com/agentlab/agentlab/internal/protocol"
 	"github.com/agentlab/agentlab/internal/templatebuild"
 )
 
 type V1ErrorResponse struct {
-	Error   string `json:"error"`
-	Code    string `json:"code,omitempty"`
-	Message string `json:"message,omitempty"`
-	Details string `json:"details,omitempty"`
+	StorageOperation    *protocol.StorageOperation       `json:"storage_operation,omitempty"`
+	WorkspaceFork       *protocol.WorkspaceForkOperation `json:"workspace_fork,omitempty"`
+	State               string                           `json:"state,omitempty"`
+	WorkspaceAllocation *protocol.WorkspaceAllocation    `json:"workspace_allocation,omitempty"`
+	Action              string                           `json:"action,omitempty"`
+	Retryable           *bool                            `json:"retryable,omitempty"`
+	Error               string                           `json:"error"`
+	Code                string                           `json:"code,omitempty"`
+	Message             string                           `json:"message,omitempty"`
+	Details             string                           `json:"details,omitempty"`
 }
 
 type V1StatusArtifacts struct {
@@ -103,10 +110,11 @@ type V1GuestRecoveryCapability struct {
 	NativeSSH      bool   `json:"native_ssh"`
 }
 type V1HostResponse struct {
-	GuestRecovery V1GuestRecoveryCapability `json:"guest_recovery"`
-	Version       string                    `json:"version"`
-	AgentSubnet   string                    `json:"agent_subnet,omitempty"`
-	TailscaleDNS  string                    `json:"tailscale_dns,omitempty"`
+	ServerIdentity string                    `json:"server_identity,omitempty"`
+	GuestRecovery  V1GuestRecoveryCapability `json:"guest_recovery"`
+	Version        string                    `json:"version"`
+	AgentSubnet    string                    `json:"agent_subnet,omitempty"`
+	TailscaleDNS   string                    `json:"tailscale_dns,omitempty"`
 }
 
 type V1BootstrapFetchRequest struct {
@@ -128,14 +136,16 @@ type V1BootstrapArtifact struct {
 }
 
 type V1BootstrapJob struct {
-	ID         string `json:"id"`
-	RepoURL    string `json:"repo_url"`
-	Ref        string `json:"ref"`
-	Task       string `json:"task,omitempty"`
-	Mode       string `json:"mode,omitempty"`
-	Profile    string `json:"profile,omitempty"`
-	Keepalive  bool   `json:"keepalive,omitempty"`
-	TTLMinutes *int   `json:"ttl_minutes,omitempty"`
+	RepositorySnapshot *protocol.RepositorySource `json:"repository_snapshot,omitempty"`
+	ID                 string                     `json:"id"`
+	RepoURL            string                     `json:"repo_url"`
+	Ref                string                     `json:"ref"`
+	Task               string                     `json:"task,omitempty"`
+	TestCommands       []string                   `json:"test_commands,omitempty"`
+	Mode               string                     `json:"mode,omitempty"`
+	Profile            string                     `json:"profile,omitempty"`
+	Keepalive          bool                       `json:"keepalive,omitempty"`
+	TTLMinutes         *int                       `json:"ttl_minutes,omitempty"`
 }
 
 type V1BootstrapPolicy struct {
@@ -269,6 +279,7 @@ type V1JobCreateRequest struct {
 	Ref                  string                    `json:"ref"`
 	Profile              string                    `json:"profile"`
 	Task                 string                    `json:"task"`
+	TestCommands         []string                  `json:"test_commands,omitempty"`
 	Mode                 string                    `json:"mode"`
 	TTLMinutes           *int                      `json:"ttl_minutes,omitempty"`
 	Keepalive            *bool                     `json:"keepalive,omitempty"`
@@ -283,6 +294,7 @@ type V1JobValidatePlanRequest struct {
 	Ref                  string                    `json:"ref"`
 	Profile              string                    `json:"profile"`
 	Task                 string                    `json:"task"`
+	TestCommands         []string                  `json:"test_commands,omitempty"`
 	Mode                 string                    `json:"mode"`
 	TTLMinutes           *int                      `json:"ttl_minutes,omitempty"`
 	Keepalive            *bool                     `json:"keepalive,omitempty"`
@@ -297,6 +309,7 @@ type V1JobValidatePlan struct {
 	Ref                  string                    `json:"ref"`
 	Profile              string                    `json:"profile"`
 	Task                 string                    `json:"task"`
+	TestCommands         []string                  `json:"test_commands,omitempty"`
 	Mode                 string                    `json:"mode"`
 	TTLMinutes           *int                      `json:"ttl_minutes,omitempty"`
 	Keepalive            bool                      `json:"keepalive"`
@@ -314,23 +327,25 @@ type V1JobValidatePlanResponse struct {
 }
 
 type V1JobResponse struct {
-	ID          string                `json:"id"`
-	RepoURL     string                `json:"repo_url"`
-	Ref         string                `json:"ref"`
-	Profile     string                `json:"profile"`
-	Task        string                `json:"task,omitempty"`
-	Mode        string                `json:"mode,omitempty"`
-	TTLMinutes  *int                  `json:"ttl_minutes,omitempty"`
-	Keepalive   bool                  `json:"keepalive"`
-	WorkspaceID *string               `json:"workspace_id,omitempty"`
-	SessionID   *string               `json:"session_id,omitempty"`
-	Status      string                `json:"status"`
-	SandboxVMID *int                  `json:"sandbox_vmid,omitempty"`
-	Result      json.RawMessage       `json:"result,omitempty"`
-	Events      []V1Event             `json:"events,omitempty"`
-	Timeline    *V1JobTimelineSummary `json:"timeline,omitempty"`
-	CreatedAt   string                `json:"created_at"`
-	UpdatedAt   string                `json:"updated_at"`
+	Cancellation *protocol.JobCancellation `json:"cancellation,omitempty"`
+	ID           string                    `json:"id"`
+	RepoURL      string                    `json:"repo_url"`
+	Ref          string                    `json:"ref"`
+	Profile      string                    `json:"profile"`
+	Task         string                    `json:"task,omitempty"`
+	TestCommands []string                  `json:"test_commands,omitempty"`
+	Mode         string                    `json:"mode,omitempty"`
+	TTLMinutes   *int                      `json:"ttl_minutes,omitempty"`
+	Keepalive    bool                      `json:"keepalive"`
+	WorkspaceID  *string                   `json:"workspace_id,omitempty"`
+	SessionID    *string                   `json:"session_id,omitempty"`
+	Status       string                    `json:"status"`
+	SandboxVMID  *int                      `json:"sandbox_vmid,omitempty"`
+	Result       json.RawMessage           `json:"result,omitempty"`
+	Events       []V1Event                 `json:"events,omitempty"`
+	Timeline     *V1JobTimelineSummary     `json:"timeline,omitempty"`
+	CreatedAt    string                    `json:"created_at"`
+	UpdatedAt    string                    `json:"updated_at"`
 }
 
 type V1SandboxCreateRequest struct {
@@ -359,14 +374,24 @@ type V1SandboxValidatePlanRequest struct {
 }
 
 type V1SandboxValidatePlan struct {
-	Name       string   `json:"name"`
-	Profile    string   `json:"profile"`
-	Keepalive  bool     `json:"keepalive"`
-	TTLMinutes *int     `json:"ttl_minutes,omitempty"`
-	Workspace  *string  `json:"workspace_id,omitempty"`
-	VMID       *int     `json:"vmid,omitempty"`
-	JobID      string   `json:"job_id,omitempty"`
-	Tags       []string `json:"tags,omitempty"`
+	Name       string                 `json:"name"`
+	Profile    string                 `json:"profile"`
+	Keepalive  bool                   `json:"keepalive"`
+	TTLMinutes *int                   `json:"ttl_minutes,omitempty"`
+	Workspace  *string                `json:"workspace_id,omitempty"`
+	VMID       *int                   `json:"vmid,omitempty"`
+	JobID      string                 `json:"job_id,omitempty"`
+	Tags       []string               `json:"tags,omitempty"`
+	Capacity   *V1SandboxPlanCapacity `json:"capacity,omitempty"`
+}
+
+// V1SandboxPlanCapacity is a non-reserving check of configured pool limits.
+// It does not disclose allocations belonging to other sandbox scopes.
+type V1SandboxPlanCapacity struct {
+	Checked    bool `json:"checked"`
+	Cores      int  `json:"cores"`
+	MemoryMB   int  `json:"memory_mb"`
+	AllowBurst bool `json:"allow_burst"`
 }
 
 type V1SandboxValidatePlanResponse struct {
@@ -550,14 +575,16 @@ type V1WorkspaceRebindRequest struct {
 }
 
 type V1WorkspaceResponse struct {
-	ID           string `json:"id"`
-	Name         string `json:"name"`
-	Storage      string `json:"storage"`
-	VolumeID     string `json:"volid"`
-	SizeGB       int    `json:"size_gb"`
-	AttachedVMID *int   `json:"attached_vmid,omitempty"`
-	CreatedAt    string `json:"created_at"`
-	UpdatedAt    string `json:"updated_at"`
+	OwnerVMID      int    `json:"owner_vmid,omitempty"`
+	AllocationName string `json:"allocation_name,omitempty"`
+	ID             string `json:"id"`
+	Name           string `json:"name"`
+	Storage        string `json:"storage"`
+	VolumeID       string `json:"volid"`
+	SizeGB         int    `json:"size_gb"`
+	AttachedVMID   *int   `json:"attached_vmid,omitempty"`
+	CreatedAt      string `json:"created_at"`
+	UpdatedAt      string `json:"updated_at"`
 }
 
 type V1WorkspaceLeaseClearResponse struct {
@@ -850,4 +877,8 @@ type V1TemplateActivateResponse struct {
 	Profile         string `json:"profile"`
 	OldTemplateVMID int    `json:"old_template_vmid"`
 	TemplateVMID    int    `json:"template_vmid"`
+}
+
+type V1WorkspaceForksResponse struct {
+	Operations []protocol.WorkspaceForkOperation `json:"fork_operations"`
 }

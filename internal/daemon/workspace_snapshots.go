@@ -9,6 +9,7 @@ import (
 
 	"github.com/agentlab/agentlab/internal/db"
 	"github.com/agentlab/agentlab/internal/models"
+	"github.com/agentlab/agentlab/internal/proxmox"
 )
 
 // SnapshotCreate creates a snapshot for the workspace volume.
@@ -38,6 +39,9 @@ func (m *WorkspaceManager) SnapshotCreate(ctx context.Context, idOrName, snapsho
 	defer m.releaseSnapshotLease(ctx, workspace.ID, owner, nonce)
 
 	latest, err := m.store.GetWorkspace(ctx, workspace.ID)
+	if err != nil {
+		return models.WorkspaceSnapshot{}, err
+	}
 	if err == nil && latest.AttachedVM != nil && *latest.AttachedVM > 0 {
 		return models.WorkspaceSnapshot{}, ErrWorkspaceSnapshotAttached
 	}
@@ -60,9 +64,9 @@ func (m *WorkspaceManager) SnapshotCreate(ctx context.Context, idOrName, snapsho
 			recordWorkspaceSnapshotEvent(ctx, m.store, "workspace.snapshot.create_failed", snapshot, ErrWorkspaceSnapshotExists)
 			return models.WorkspaceSnapshot{}, ErrWorkspaceSnapshotExists
 		}
-		_ = m.backend.VolumeSnapshotDelete(ctx, workspace.VolumeID, snapshot.BackendRef)
-		recordWorkspaceSnapshotEvent(ctx, m.store, "workspace.snapshot.create_failed", snapshot, err)
-		return models.WorkspaceSnapshot{}, err
+		failure := &proxmox.StorageOperationError{Receipt: proxmox.StorageOperation{Version: 1, Operation: "snapshot", Source: workspace.VolumeID, Snapshot: snapshot.BackendRef, State: "publication_failed", Cleanup: "inspection_required"}, Cause: err}
+		recordWorkspaceSnapshotEvent(ctx, m.store, "workspace.snapshot.create_failed", snapshot, failure)
+		return models.WorkspaceSnapshot{}, failure
 	}
 	recordWorkspaceSnapshotEvent(ctx, m.store, "workspace.snapshot.created", snapshot, nil)
 	return snapshot, nil
@@ -114,6 +118,9 @@ func (m *WorkspaceManager) SnapshotRestore(ctx context.Context, idOrName, snapsh
 	defer m.releaseSnapshotLease(ctx, workspace.ID, owner, nonce)
 
 	latest, err := m.store.GetWorkspace(ctx, workspace.ID)
+	if err != nil {
+		return models.WorkspaceSnapshot{}, err
+	}
 	if err == nil && latest.AttachedVM != nil && *latest.AttachedVM > 0 {
 		return models.WorkspaceSnapshot{}, ErrWorkspaceSnapshotAttached
 	}

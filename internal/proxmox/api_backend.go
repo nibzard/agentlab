@@ -697,28 +697,44 @@ func (b *APIBackend) VMConfig(ctx context.Context, vmid VMID) (map[string]string
 
 // CreateVolume creates a new volume.
 // ABOUTME: Creates a disk volume in the specified storage with the given size.
-// Returns the volume ID (e.g., "local-zfs:vm-0-disk-0").
+// Returns the JSON string receipt for the exact owner-prefixed disk.
 func (b *APIBackend) CreateVolume(ctx context.Context, storage, name string, sizeGB int) (string, error) {
 	storage = strings.TrimSpace(storage)
 	if storage == "" {
-		return "", fmt.Errorf("storage is required")
+		return "", volumePreflight(fmt.Errorf("storage is required"))
 	}
 	name = strings.TrimSpace(name)
 	if name == "" {
-		return "", fmt.Errorf("volume name is required")
+		return "", volumePreflight(fmt.Errorf("volume name is required"))
 	}
 	if sizeGB <= 0 {
-		return "", fmt.Errorf("size_gb must be positive")
+		return "", volumePreflight(fmt.Errorf("size_gb must be positive"))
+	}
+
+	if _, err := volumeAllocationOwner(name); err != nil {
+		return "", volumePreflight(err)
+	}
+	if !allocationStoragePattern.MatchString(storage) {
+		return "", volumePreflight(errors.New("invalid volume storage identifier"))
+	}
+	kind, err := b.storageType(ctx, storage)
+	if err != nil {
+		return "", volumePreflight(err)
+	}
+	owner, filename, expected, err := volumeAllocationTarget(storage, kind, name)
+	if err != nil {
+		return "", volumePreflight(err)
 	}
 
 	node, err := b.ensureNode(ctx)
 	if err != nil {
-		return "", err
+		return "", volumePreflight(err)
 	}
 
 	params := url.Values{}
-	params.Set("vmid", "0")
-	params.Set("filename", name)
+	params.Set("vmid", strconv.Itoa(owner))
+	params.Set("filename", filename)
+	params.Set("format", "raw")
 	params.Set("size", fmt.Sprintf("%dG", sizeGB))
 
 	endpoint := fmt.Sprintf("/nodes/%s/storage/%s/content", node, storage)
@@ -727,18 +743,7 @@ func (b *APIBackend) CreateVolume(ctx context.Context, storage, name string, siz
 		return "", err
 	}
 
-	var result struct {
-		VolID string `json:"volid"`
-	}
-	if err := json.Unmarshal(data, &result); err != nil {
-		return "", fmt.Errorf("parse create volume response: %w", err)
-	}
-
-	if result.VolID == "" {
-		return "", fmt.Errorf("empty volume id in response")
-	}
-
-	return result.VolID, nil
+	return parseVolumeAllocationReceipt(data, expected)
 }
 
 // AttachVolume attaches a volume to a VM.
@@ -865,195 +870,70 @@ func (b *APIBackend) VolumeInfo(ctx context.Context, volumeID string) (VolumeInf
 // VolumeSnapshotCreate creates a snapshot for a workspace volume.
 // ABOUTME: Callers should detach the volume before snapshotting for consistency.
 func (b *APIBackend) VolumeSnapshotCreate(ctx context.Context, volumeID, name string) error {
-	volumeID = strings.TrimSpace(volumeID)
-	if volumeID == "" {
-		return fmt.Errorf("volume id is required")
-	}
-	name = strings.TrimSpace(name)
-	if name == "" {
-		return fmt.Errorf("snapshot name is required")
-	}
-	storage := volumeStorage(volumeID)
-	if storage == "" {
-		return fmt.Errorf("invalid volume id format: %s", volumeID)
-	}
-	if err := b.ensureZFSStorage(ctx, storage, "volume snapshot"); err != nil {
-		if b.allowShellFallback(ctx) {
-			return b.ShellFallback.VolumeSnapshotCreate(ctx, volumeID, name)
-		}
+	snapshot := name
+	if err := validateWorkspaceStorage("snapshot", volumeID, snapshot, ""); err != nil {
 		return err
 	}
-
-	node, err := b.ensureNode(ctx)
+	helper, err := b.workspaceStorageBackend(ctx, volumeID)
 	if err != nil {
 		return err
 	}
-	params := url.Values{}
-	params.Set("snapname", name)
-	endpoint := fmt.Sprintf("/nodes/%s/storage/%s/content/%s/snapshot", node, storage, url.PathEscape(volumeID))
-	_, err = b.doPost(ctx, endpoint, params)
-	if err != nil && b.allowShellFallback(ctx) {
-		return b.ShellFallback.VolumeSnapshotCreate(ctx, volumeID, name)
-	}
-	return err
+	return helper.workspaceStorage(ctx, "snapshot", volumeID, snapshot, "")
 }
 
 // VolumeSnapshotRestore restores a workspace volume to a snapshot.
 // ABOUTME: Callers should detach the volume before restoring for consistency.
 func (b *APIBackend) VolumeSnapshotRestore(ctx context.Context, volumeID, name string) error {
-	volumeID = strings.TrimSpace(volumeID)
-	if volumeID == "" {
-		return fmt.Errorf("volume id is required")
-	}
-	name = strings.TrimSpace(name)
-	if name == "" {
-		return fmt.Errorf("snapshot name is required")
-	}
-	storage := volumeStorage(volumeID)
-	if storage == "" {
-		return fmt.Errorf("invalid volume id format: %s", volumeID)
-	}
-	if err := b.ensureZFSStorage(ctx, storage, "volume restore"); err != nil {
-		if b.allowShellFallback(ctx) {
-			return b.ShellFallback.VolumeSnapshotRestore(ctx, volumeID, name)
-		}
+	snapshot := name
+	if err := validateWorkspaceStorage("restore", volumeID, snapshot, ""); err != nil {
 		return err
 	}
-
-	node, err := b.ensureNode(ctx)
+	helper, err := b.workspaceStorageBackend(ctx, volumeID)
 	if err != nil {
 		return err
 	}
-	endpoint := fmt.Sprintf("/nodes/%s/storage/%s/content/%s/snapshot/%s/rollback", node, storage, url.PathEscape(volumeID), url.PathEscape(name))
-	_, err = b.doPost(ctx, endpoint, nil)
-	if err != nil && b.allowShellFallback(ctx) {
-		return b.ShellFallback.VolumeSnapshotRestore(ctx, volumeID, name)
-	}
-	return err
+	return helper.workspaceStorage(ctx, "restore", volumeID, snapshot, "")
 }
 
 // VolumeSnapshotDelete removes a snapshot from a workspace volume.
 func (b *APIBackend) VolumeSnapshotDelete(ctx context.Context, volumeID, name string) error {
-	volumeID = strings.TrimSpace(volumeID)
-	if volumeID == "" {
-		return fmt.Errorf("volume id is required")
-	}
-	name = strings.TrimSpace(name)
-	if name == "" {
-		return fmt.Errorf("snapshot name is required")
-	}
-	storage := volumeStorage(volumeID)
-	if storage == "" {
-		return fmt.Errorf("invalid volume id format: %s", volumeID)
-	}
-	if err := b.ensureZFSStorage(ctx, storage, "volume snapshot delete"); err != nil {
-		if b.allowShellFallback(ctx) {
-			return b.ShellFallback.VolumeSnapshotDelete(ctx, volumeID, name)
-		}
+	snapshot := name
+	if err := validateWorkspaceStorage("delete", volumeID, snapshot, ""); err != nil {
 		return err
 	}
-
-	node, err := b.ensureNode(ctx)
+	helper, err := b.workspaceStorageBackend(ctx, volumeID)
 	if err != nil {
 		return err
 	}
-	endpoint := fmt.Sprintf("/nodes/%s/storage/%s/content/%s/snapshot/%s", node, storage, url.PathEscape(volumeID), url.PathEscape(name))
-	_, err = b.doDelete(ctx, endpoint, nil)
-	if err != nil && b.allowShellFallback(ctx) {
-		return b.ShellFallback.VolumeSnapshotDelete(ctx, volumeID, name)
-	}
-	return err
+	return helper.workspaceStorage(ctx, "delete", volumeID, snapshot, "")
 }
 
 // VolumeClone clones a workspace volume into a new volume ID.
 // ABOUTME: Callers should detach the source volume before cloning for consistency.
 func (b *APIBackend) VolumeClone(ctx context.Context, sourceVolumeID, targetVolumeID string) error {
-	sourceVolumeID = strings.TrimSpace(sourceVolumeID)
-	if sourceVolumeID == "" {
-		return fmt.Errorf("source volume id is required")
-	}
-	targetVolumeID = strings.TrimSpace(targetVolumeID)
-	if targetVolumeID == "" {
-		return fmt.Errorf("target volume id is required")
-	}
-	sourceStorage := volumeStorage(sourceVolumeID)
-	if sourceStorage == "" {
-		return fmt.Errorf("invalid source volume id format: %s", sourceVolumeID)
-	}
-	targetStorage := volumeStorage(targetVolumeID)
-	if targetStorage == "" {
-		return fmt.Errorf("invalid target volume id format: %s", targetVolumeID)
-	}
-	if sourceStorage != targetStorage {
-		return fmt.Errorf("%w: volume clone requires same storage (source=%s target=%s)", ErrStorageUnsupported, sourceStorage, targetStorage)
-	}
-	if err := b.ensureZFSStorage(ctx, sourceStorage, "volume clone"); err != nil {
-		if b.allowShellFallback(ctx) {
-			return b.ShellFallback.VolumeClone(ctx, sourceVolumeID, targetVolumeID)
-		}
+	snapshot := temporaryCopySnapshot(targetVolumeID)
+	if err := validateWorkspaceStorage("copy", sourceVolumeID, snapshot, targetVolumeID); err != nil {
 		return err
 	}
-
-	node, err := b.ensureNode(ctx)
+	helper, err := b.workspaceStorageBackend(ctx, sourceVolumeID)
 	if err != nil {
 		return err
 	}
-	params := url.Values{}
-	params.Set("target", targetVolumeID)
-	endpoint := fmt.Sprintf("/nodes/%s/storage/%s/content/%s/clone", node, sourceStorage, url.PathEscape(sourceVolumeID))
-	_, err = b.doPost(ctx, endpoint, params)
-	if err != nil && b.allowShellFallback(ctx) {
-		return b.ShellFallback.VolumeClone(ctx, sourceVolumeID, targetVolumeID)
-	}
-	return err
+	return helper.workspaceStorage(ctx, "copy", sourceVolumeID, snapshot, targetVolumeID)
 }
 
 // VolumeCloneFromSnapshot clones a workspace volume snapshot into a new volume ID.
 // ABOUTME: Callers should detach the source volume before cloning for consistency.
 func (b *APIBackend) VolumeCloneFromSnapshot(ctx context.Context, sourceVolumeID, snapshotName, targetVolumeID string) error {
-	sourceVolumeID = strings.TrimSpace(sourceVolumeID)
-	if sourceVolumeID == "" {
-		return fmt.Errorf("source volume id is required")
-	}
-	snapshotName = strings.TrimSpace(snapshotName)
-	if snapshotName == "" {
-		return fmt.Errorf("snapshot name is required")
-	}
-	targetVolumeID = strings.TrimSpace(targetVolumeID)
-	if targetVolumeID == "" {
-		return fmt.Errorf("target volume id is required")
-	}
-	sourceStorage := volumeStorage(sourceVolumeID)
-	if sourceStorage == "" {
-		return fmt.Errorf("invalid source volume id format: %s", sourceVolumeID)
-	}
-	targetStorage := volumeStorage(targetVolumeID)
-	if targetStorage == "" {
-		return fmt.Errorf("invalid target volume id format: %s", targetVolumeID)
-	}
-	if sourceStorage != targetStorage {
-		return fmt.Errorf("%w: volume clone requires same storage (source=%s target=%s)", ErrStorageUnsupported, sourceStorage, targetStorage)
-	}
-	if err := b.ensureZFSStorage(ctx, sourceStorage, "volume clone"); err != nil {
-		if b.allowShellFallback(ctx) {
-			return b.ShellFallback.VolumeCloneFromSnapshot(ctx, sourceVolumeID, snapshotName, targetVolumeID)
-		}
+	snapshot := snapshotName
+	if err := validateWorkspaceStorage("copy-snapshot", sourceVolumeID, snapshot, targetVolumeID); err != nil {
 		return err
 	}
-
-	node, err := b.ensureNode(ctx)
+	helper, err := b.workspaceStorageBackend(ctx, sourceVolumeID)
 	if err != nil {
 		return err
 	}
-	params := url.Values{}
-	params.Set("target", targetVolumeID)
-	params.Set("snapname", snapshotName)
-	endpoint := fmt.Sprintf("/nodes/%s/storage/%s/content/%s/clone", node, sourceStorage, url.PathEscape(sourceVolumeID))
-	_, err = b.doPost(ctx, endpoint, params)
-	if err != nil && b.allowShellFallback(ctx) {
-		return b.ShellFallback.VolumeCloneFromSnapshot(ctx, sourceVolumeID, snapshotName, targetVolumeID)
-	}
-	return err
+	return helper.workspaceStorage(ctx, "copy-snapshot", sourceVolumeID, snapshot, targetVolumeID)
 }
 
 // ValidateTemplate checks if a template VM is suitable for provisioning.
@@ -1498,21 +1378,6 @@ func (b *APIBackend) sleep(ctx context.Context, d time.Duration) error {
 	case <-timer.C:
 		return nil
 	}
-}
-
-func (b *APIBackend) allowShellFallback(ctx context.Context) bool {
-	return ctx.Err() == nil && b.AllowShellFallback && b.ShellFallback != nil
-}
-
-func (b *APIBackend) ensureZFSStorage(ctx context.Context, storage, op string) error {
-	storageType, err := b.storageType(ctx, storage)
-	if err != nil {
-		return err
-	}
-	if !isZFSStorageType(storageType) {
-		return unsupportedStorageErr(op, storage, storageType)
-	}
-	return nil
 }
 
 func (b *APIBackend) storageType(ctx context.Context, storage string) (string, error) {

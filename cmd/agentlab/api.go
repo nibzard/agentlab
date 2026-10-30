@@ -25,9 +25,11 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/agentlab/agentlab/internal/connection"
+	"github.com/agentlab/agentlab/internal/hostidentity"
+	"github.com/agentlab/agentlab/internal/protocol"
 	tb "github.com/agentlab/agentlab/internal/templatebuild"
 	"io"
-	"net"
 	"net/http"
 	"net/url"
 	"strings"
@@ -55,28 +57,39 @@ const (
 
 // apiClient is an HTTP client for communicating with agentlabd.
 type apiClient struct {
-	socketPath string
-	endpoint   string
-	baseURL    string
-	token      string
-	httpClient *http.Client
-	timeout    time.Duration
+	serverIdentity string
+	socketPath     string
+	endpoint       string
+	baseURL        string
+	token          string
+	httpClient     *http.Client
+	timeout        time.Duration
 }
 
 // apiError represents an error response from the agentlabd API.
 type apiError struct {
-	Error   string `json:"error"`
-	Code    string `json:"code,omitempty"`
-	Message string `json:"message,omitempty"`
-	Details string `json:"details,omitempty"`
+	StorageOperation    *protocol.StorageOperation       `json:"storage_operation,omitempty"`
+	WorkspaceFork       *protocol.WorkspaceForkOperation `json:"workspace_fork,omitempty"`
+	WorkspaceAllocation *protocol.WorkspaceAllocation    `json:"workspace_allocation,omitempty"`
+	Action              string                           `json:"action,omitempty"`
+	Retryable           *bool                            `json:"retryable,omitempty"`
+	Error               string                           `json:"error"`
+	Code                string                           `json:"code,omitempty"`
+	Message             string                           `json:"message,omitempty"`
+	Details             string                           `json:"details,omitempty"`
 }
 
 type apiResponseError struct {
-	Status  int
-	ErrorID string
-	Code    string
-	Message string
-	Details string
+	StorageOperation    *protocol.StorageOperation
+	WorkspaceFork       *protocol.WorkspaceForkOperation
+	WorkspaceAllocation *protocol.WorkspaceAllocation
+	Action              string
+	Retryable           *bool
+	Status              int
+	ErrorID             string
+	Code                string
+	Message             string
+	Details             string
 }
 
 func (e apiResponseError) Error() string {
@@ -92,12 +105,26 @@ func (e apiResponseError) Error() string {
 	return "request failed"
 }
 
+func (e apiResponseError) ErrorMetadata() map[string]any {
+	switch e.Code {
+	case "v1/auth/token_revoked", "v1/auth/token_expired":
+		return map[string]any{"state": "blocked", "requirement": "daemon_credential"}
+	case "v1/auth/credential_status_unavailable":
+		return map[string]any{"state": "blocked", "requirement": "credential_status_store"}
+	case "v1/auth/server_identity_mismatch", "v1/auth/server_identity_unavailable":
+		return map[string]any{"state": "blocked", "requirement": "verified_server_identity", "action": e.Action}
+	default:
+		return nil
+	}
+}
+
 // jobCreateRequest contains parameters for creating a new job.
 type jobCreateRequest struct {
 	RepoURL              string                  `json:"repo_url"`
 	Ref                  string                  `json:"ref,omitempty"`
 	Profile              string                  `json:"profile"`
 	Task                 string                  `json:"task"`
+	TestCommands         []string                `json:"test_commands,omitempty"`
 	Mode                 string                  `json:"mode,omitempty"`
 	TTLMinutes           *int                    `json:"ttl_minutes,omitempty"`
 	Keepalive            *bool                   `json:"keepalive,omitempty"`
@@ -118,6 +145,7 @@ type jobValidatePlanRequest struct {
 	Ref                  string                  `json:"ref,omitempty"`
 	Profile              string                  `json:"profile"`
 	Task                 string                  `json:"task"`
+	TestCommands         []string                `json:"test_commands,omitempty"`
 	Mode                 string                  `json:"mode"`
 	TTLMinutes           *int                    `json:"ttl_minutes,omitempty"`
 	Keepalive            *bool                   `json:"keepalive,omitempty"`
@@ -132,6 +160,7 @@ type jobValidatePlan struct {
 	Ref                  string                  `json:"ref"`
 	Profile              string                  `json:"profile"`
 	Task                 string                  `json:"task"`
+	TestCommands         []string                `json:"test_commands,omitempty"`
 	Mode                 string                  `json:"mode"`
 	TTLMinutes           *int                    `json:"ttl_minutes,omitempty"`
 	Keepalive            bool                    `json:"keepalive"`
@@ -150,22 +179,24 @@ type jobValidatePlanResponse struct {
 
 // jobResponse represents a job returned from the API.
 type jobResponse struct {
-	ID          string          `json:"id"`
-	RepoURL     string          `json:"repo_url"`
-	Ref         string          `json:"ref"`
-	Profile     string          `json:"profile"`
-	Task        string          `json:"task,omitempty"`
-	Mode        string          `json:"mode,omitempty"`
-	TTLMinutes  *int            `json:"ttl_minutes,omitempty"`
-	Keepalive   bool            `json:"keepalive"`
-	WorkspaceID *string         `json:"workspace_id,omitempty"`
-	SessionID   *string         `json:"session_id,omitempty"`
-	Status      string          `json:"status"`
-	SandboxVMID *int            `json:"sandbox_vmid,omitempty"`
-	Result      json.RawMessage `json:"result,omitempty"`
-	Events      []eventResponse `json:"events,omitempty"`
-	CreatedAt   string          `json:"created_at"`
-	UpdatedAt   string          `json:"updated_at"`
+	Cancellation *protocol.JobCancellation `json:"cancellation,omitempty"`
+	ID           string                    `json:"id"`
+	RepoURL      string                    `json:"repo_url"`
+	Ref          string                    `json:"ref"`
+	Profile      string                    `json:"profile"`
+	Task         string                    `json:"task,omitempty"`
+	TestCommands []string                  `json:"test_commands,omitempty"`
+	Mode         string                    `json:"mode,omitempty"`
+	TTLMinutes   *int                      `json:"ttl_minutes,omitempty"`
+	Keepalive    bool                      `json:"keepalive"`
+	WorkspaceID  *string                   `json:"workspace_id,omitempty"`
+	SessionID    *string                   `json:"session_id,omitempty"`
+	Status       string                    `json:"status"`
+	SandboxVMID  *int                      `json:"sandbox_vmid,omitempty"`
+	Result       json.RawMessage           `json:"result,omitempty"`
+	Events       []eventResponse           `json:"events,omitempty"`
+	CreatedAt    string                    `json:"created_at"`
+	UpdatedAt    string                    `json:"updated_at"`
 }
 
 // artifactInfo represents a single artifact uploaded from a sandbox.
@@ -373,10 +404,11 @@ type statusResponse struct {
 }
 
 type hostResponse struct {
-	GuestRecovery json.RawMessage `json:"guest_recovery,omitempty"`
-	Version       string          `json:"version"`
-	AgentSubnet   string          `json:"agent_subnet,omitempty"`
-	TailscaleDNS  string          `json:"tailscale_dns,omitempty"`
+	ServerIdentity string          `json:"server_identity,omitempty"`
+	GuestRecovery  json.RawMessage `json:"guest_recovery,omitempty"`
+	Version        string          `json:"version"`
+	AgentSubnet    string          `json:"agent_subnet,omitempty"`
+	TailscaleDNS   string          `json:"tailscale_dns,omitempty"`
 }
 
 // sandboxRevertResponse contains the result of a revert operation.
@@ -470,14 +502,16 @@ type workspaceRebindRequest struct {
 
 // workspaceResponse represents a workspace returned from the API.
 type workspaceResponse struct {
-	ID           string `json:"id"`
-	Name         string `json:"name"`
-	Storage      string `json:"storage"`
-	VolumeID     string `json:"volid"`
-	SizeGB       int    `json:"size_gb"`
-	AttachedVMID *int   `json:"attached_vmid,omitempty"`
-	CreatedAt    string `json:"created_at"`
-	UpdatedAt    string `json:"updated_at"`
+	OwnerVMID      int    `json:"owner_vmid,omitempty"`
+	AllocationName string `json:"allocation_name,omitempty"`
+	ID             string `json:"id"`
+	Name           string `json:"name"`
+	Storage        string `json:"storage"`
+	VolumeID       string `json:"volid"`
+	SizeGB         int    `json:"size_gb"`
+	AttachedVMID   *int   `json:"attached_vmid,omitempty"`
+	CreatedAt      string `json:"created_at"`
+	UpdatedAt      string `json:"updated_at"`
 }
 
 type workspaceLeaseClearResponse struct {
@@ -679,41 +713,40 @@ type messagesResponse struct {
 // newAPIClient creates a new API client for communicating with agentlabd.
 // The client uses HTTP over a Unix socket or a remote HTTP endpoint.
 func newAPIClient(opts clientOptions, timeout time.Duration) *apiClient {
-	if strings.TrimSpace(opts.Endpoint) != "" {
-		endpoint := strings.TrimRight(strings.TrimSpace(opts.Endpoint), "/")
-		return &apiClient{
-			endpoint:   endpoint,
-			baseURL:    endpoint,
-			token:      strings.TrimSpace(opts.Token),
-			httpClient: &http.Client{},
-			timeout:    timeout,
-		}
+	baseURL, client := connection.Transport(opts.Endpoint, opts.SocketPath, 0)
+	socket := opts.SocketPath
+	if socket == "" {
+		socket = defaultSocketPath
 	}
-	path := strings.TrimSpace(opts.SocketPath)
-	if path == "" {
-		path = defaultSocketPath
+	if opts.Endpoint != "" {
+		socket = ""
 	}
-	transport := &http.Transport{
-		DialContext: func(ctx context.Context, _, _ string) (net.Conn, error) {
-			var d net.Dialer
-			return d.DialContext(ctx, "unix", path)
-		},
+	identity := ""
+	if opts.Endpoint != "" {
+		identity = opts.ServerIdentity
 	}
-	return &apiClient{
-		socketPath: path,
-		baseURL:    "http://unix",
-		httpClient: &http.Client{Transport: transport},
-		timeout:    timeout,
-	}
+	return &apiClient{serverIdentity: identity, endpoint: strings.TrimRight(strings.TrimSpace(opts.Endpoint), "/"), socketPath: socket, baseURL: baseURL, token: strings.TrimSpace(opts.Token), httpClient: client, timeout: timeout}
+}
+
+func endpointRedirectError() error {
+	return &blockedRequirement{Code: "endpoint_redirect", Requirement: "verified_server_identity", Action: "use the verified server endpoint directly; redirects cannot change the selected server"}
 }
 
 func (c *apiClient) newRequest(ctx context.Context, method, path string, body io.Reader) (*http.Request, error) {
+	if c.serverIdentity != "" && path != "/v1/capabilities" {
+		if _, err := fetchCapabilities(ctx, c); err != nil {
+			return nil, err
+		}
+	}
 	req, err := http.NewRequestWithContext(ctx, method, c.baseURL+path, body)
 	if err != nil {
 		return nil, err
 	}
 	if c.endpoint != "" && c.token != "" {
 		req.Header.Set("Authorization", "Bearer "+c.token)
+	}
+	if c.serverIdentity != "" {
+		req.Header.Set(hostidentity.RequestHeader, c.serverIdentity)
 	}
 	return req, nil
 }
@@ -798,6 +831,9 @@ func (c *apiClient) doJSON(ctx context.Context, method, path string, payload any
 		return nil, fmt.Errorf("failed to request %s %s via %s: %w", method, path, c.target(), err)
 	}
 	defer resp.Body.Close()
+	if resp.StatusCode >= 300 && resp.StatusCode < 400 {
+		return nil, endpointRedirectError()
+	}
 	data, err := io.ReadAll(io.LimitReader(resp.Body, maxJSONOutputBytes))
 	if err != nil {
 		return nil, err
@@ -812,7 +848,12 @@ func (c *apiClient) doJSON(ctx context.Context, method, path string, payload any
 // Returns the raw HTTP response for streaming operations.
 func (c *apiClient) doRequest(ctx context.Context, method, path string, body io.Reader, headers map[string]string) (*http.Response, error) {
 	ctx, cancel := c.withTimeout(ctx)
-	defer cancel()
+	keepBody := false
+	defer func() {
+		if !keepBody {
+			cancel()
+		}
+	}()
 	req, err := c.newRequest(ctx, method, path, body)
 	if err != nil {
 		return nil, err
@@ -821,11 +862,18 @@ func (c *apiClient) doRequest(ctx context.Context, method, path string, body io.
 		if strings.TrimSpace(key) == "" {
 			continue
 		}
+		if c.serverIdentity != "" && strings.EqualFold(key, hostidentity.RequestHeader) && value != c.serverIdentity {
+			return nil, &blockedRequirement{Code: "server_identity_override", Requirement: "verified_server_identity", Action: "preserve the request identity bound to the selected context"}
+		}
 		req.Header.Set(key, value)
 	}
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("failed to request %s %s via %s: %w", method, path, c.target(), err)
+	}
+	if resp.StatusCode >= 300 && resp.StatusCode < 400 {
+		_ = resp.Body.Close()
+		return nil, endpointRedirectError()
 	}
 	if resp.StatusCode >= 400 {
 		data, readErr := io.ReadAll(io.LimitReader(resp.Body, maxJSONOutputBytes))
@@ -835,8 +883,25 @@ func (c *apiClient) doRequest(ctx context.Context, method, path string, body io.
 		}
 		return nil, parseAPIError(resp.StatusCode, data)
 	}
+	resp.Body = &requestBody{ReadCloser: resp.Body, cancel: cancel}
+	keepBody = true
 	return resp, nil
 }
+
+type requestBody struct {
+	io.ReadCloser
+	cancel context.CancelFunc
+}
+
+func (b *requestBody) Read(data []byte) (int, error) {
+	n, err := b.ReadCloser.Read(data)
+	if err != nil {
+		b.cancel()
+	}
+	return n, err
+}
+
+func (b *requestBody) Close() error { err := b.ReadCloser.Close(); b.cancel(); return err }
 
 // parseAPIError converts an HTTP error response into an error.
 // It attempts to parse the response as JSON and extract the error message.
@@ -854,6 +919,7 @@ func parseAPIError(status int, data []byte) error {
 					code = apiErrorCode(status, msg)
 				}
 				return apiResponseError{
+					StorageOperation: apiErr.StorageOperation, WorkspaceFork: apiErr.WorkspaceFork, Action: apiErr.Action, Retryable: apiErr.Retryable, WorkspaceAllocation: apiErr.WorkspaceAllocation,
 					Status:  status,
 					ErrorID: strings.TrimSpace(apiErr.Error),
 					Code:    code,

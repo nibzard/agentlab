@@ -3,33 +3,27 @@
 
 package main
 
-import "strings"
+import (
+	"github.com/agentlab/agentlab/internal/connection"
+	"strings"
+)
 
 type clientOptions struct {
-	SocketPath        string
-	Endpoint          string
-	Token             string
-	AllowInsecureHTTP bool
+	CredentialBinding  *connection.CredentialBinding
+	ServerIdentity     string
+	JumpHost, JumpUser string
+	SocketPath         string
+	Endpoint           string
+	Token              string
+	AllowInsecureHTTP  bool
 }
 
 func (c commonFlags) clientOptions() (clientOptions, error) {
-	endpoint, err := normalizeEndpoint(c.endpoint)
+	resolved, err := c.resolvedConnection()
 	if err != nil {
 		return clientOptions{}, err
 	}
-	if err := validateEndpointPolicy(endpoint, c.allowInsecureHTTP); err != nil {
-		return clientOptions{}, err
-	}
-	socketPath := strings.TrimSpace(c.socketPath)
-	if socketPath == "" {
-		socketPath = defaultSocketPath
-	}
-	return clientOptions{
-		SocketPath:        socketPath,
-		Endpoint:          endpoint,
-		Token:             strings.TrimSpace(c.token),
-		AllowInsecureHTTP: c.allowInsecureHTTP,
-	}, nil
+	return clientOptions{CredentialBinding: resolved.CredentialBinding, ServerIdentity: resolved.ServerIdentity, JumpHost: resolved.JumpHost, JumpUser: resolved.JumpUser, SocketPath: strings.TrimSpace(resolved.SocketPath), Endpoint: resolved.Endpoint, Token: strings.TrimSpace(resolved.Token), AllowInsecureHTTP: resolved.AllowInsecureHTTP}, nil
 }
 
 func apiClientFromFlags(c commonFlags) (*apiClient, error) {

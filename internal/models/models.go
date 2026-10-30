@@ -147,21 +147,22 @@ const (
 //   - UpdatedAt: When the job was last updated
 //   - ResultJSON: JSON-encoded result (set when COMPLETED)
 type Job struct {
-	ID          string
-	RepoURL     string
-	Ref         string
-	Profile     string
-	Task        string
-	Mode        string
-	TTLMinutes  int
-	Keepalive   bool
-	WorkspaceID *string
-	SessionID   *string
-	Status      JobStatus
-	SandboxVMID *int
-	CreatedAt   time.Time
-	UpdatedAt   time.Time
-	ResultJSON  string
+	ID           string
+	RepoURL      string
+	Ref          string
+	Profile      string
+	Task         string
+	TestCommands []string
+	Mode         string
+	TTLMinutes   int
+	Keepalive    bool
+	WorkspaceID  *string
+	SessionID    *string
+	Status       JobStatus
+	SandboxVMID  *int
+	CreatedAt    time.Time
+	UpdatedAt    time.Time
+	ResultJSON   string
 }
 
 // Profile defines the configuration template for sandbox provisioning.
